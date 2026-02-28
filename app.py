@@ -35,13 +35,14 @@ def extract_simple(pdf_file):
     
     for page in reader.pages:
         text = page.extract_text()
+        if not text: continue
         lines = [l.strip() for l in text.split('\n') if len(l.strip()) > 2]
         
         current_id, current_nev, current_cim, current_info = "", "", "", ""
         current_rendeles = []
 
         for line in lines:
-            if any(x in line for x in ["Nyomtatta:", "Oldal", "Járatszám", "Menetterv"]):
+            if any(x in line for x in ["Nyomtatta:", "Oldal", "Járatszám", "Menetterv", "Sor", "Ügyfél"]):
                 continue
 
             id_match = re.match(r'^(\d+)$', line)
@@ -76,9 +77,11 @@ def extract_simple(pdf_file):
 
 uploaded_file = st.file_uploader("Húzd ide a menetterv PDF-et", type="pdf")
 
-# Megjelenítési logika
+# LOGIKA ÉS MEGJELENÍTÉS
 if uploaded_file:
-    if futar_nev and futar_tel:
+    if not futar_nev or not futar_tel:
+        st.warning("⚠️ Kérlek, add meg a Nevedet és a Telefonszámodat a bal oldali sávban!")
+    else:
         extracted_data = extract_simple(uploaded_file)
         if extracted_data:
             st.success(f"Siker! {len(extracted_data)} etikett feldolgozva.")
@@ -97,21 +100,21 @@ if uploaded_file:
                 c.rect(x+2, y+2, c_w-4, c_h-4)
                 
                 c.setFillColorRGB(0, 0, 0)
-                c.setFont(BOLD_FONT, 9)
-                c.drawString(x+8, y+c_h-15, f"{item['id']}. {item['nev'][:32]}")
+                c.setFont(BOLD_FONT, 10)
+                c.drawString(x+8, y+c_h-18, f"{item['id']}. {item['nev'][:30]}")
                 
                 c.setFont(MAIN_FONT, 8)
                 t_cim = item['cim'].replace("4031 Debrecen, ", "").replace("4002 Debrecen, ", "")
-                c.drawString(x+8, y+c_h-25, f"{t_cim[:38]}")
+                c.drawString(x+8, y+c_h-28, f"{t_cim[:38]}")
                 
                 if item['info']:
                     c.setFillColorRGB(0.8, 0, 0)
                     c.setFont(BOLD_FONT, 7)
-                    c.drawString(x+8, y+c_h-35, f"INFÓ: {item['info'].strip()[:40]}")
+                    c.drawString(x+8, y+c_h-38, f"INFÓ: {item['info'].strip()[:42]}")
                     c.setFillColorRGB(0, 0, 0)
                 
                 c.setFont(BOLD_FONT, 14)
-                c.drawString(x+8, y+30, f"{item['rendeles'][:25]}")
+                c.drawString(x+8, y+35, f"{item['rendeles'][:25]}")
                 
                 c.setFont(MAIN_FONT, 7)
                 c.drawString(x+8, y+12, f"{futar_nev} | {futar_tel}")
@@ -121,5 +124,3 @@ if uploaded_file:
             st.download_button("📥 MATRICÁK LETÖLTÉSE", output.getvalue(), "interfood_matricak.pdf")
         else:
             st.error("Nem találtam feldolgozható adatot a PDF-ben.")
-    else:
-        st.warning("⚠️ Kérlek, add meg a Nevedet és a Telefonszámodat a bal oldali sávban!")

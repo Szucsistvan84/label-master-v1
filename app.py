@@ -27,8 +27,8 @@ st.title("🚚 Interfood Menetterv Generátor")
 
 # Futár adatok a sidebarban
 st.sidebar.header("Beállítások")
-futar_nev = st.sidebar.text_input("Név:", "Ebéd Elek")
-futar_tel = st.sidebar.text_input("Tel:", "+36207654321")
+futar_nev = st.sidebar.text_input("Név:", value="", placeholder="Ebéd Elek")
+futar_tel = st.sidebar.text_input("Tel:", value="", placeholder="+36207654321")
 
 def extract_simple(pdf_file):
     reader = PdfReader(pdf_file)
@@ -131,3 +131,9 @@ if uploaded_file:
 
         c.save()
         st.download_button("📥 MATRICÁK LETÖLTÉSE", output.getvalue(), "interfood_matricak.pdf")
+        
+if uploaded_file and futar_nev and futar_tel:
+    # ... itt fut a PDF generálás ...
+else:
+    if not futar_nev or not futar_tel:
+        st.info("Kérlek, add meg a neved és a telefonszámodat a bal oldali sávban a folytatáshoz!")

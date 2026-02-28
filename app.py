@@ -8,97 +8,88 @@ from reportlab.pdfbase.ttfonts import TTFont
 import io
 import re
 
-# 1. Betűtípus regisztrálása - A MAGYAR ÉKEZETEKÉRT
-font_path = "Roboto-Regular.ttf"
-font_bold_path = "Roboto-Bold.ttf"
-
+# Betűtípusok - Roboto-Regular.ttf és Roboto-Bold.ttf kell a GitHubra!
+font_path, font_bold_path = "Roboto-Regular.ttf", "Roboto-Bold.ttf"
 if os.path.exists(font_path) and os.path.exists(font_bold_path):
     pdfmetrics.registerFont(TTFont('Roboto', font_path))
     pdfmetrics.registerFont(TTFont('Roboto-Bold', font_bold_path))
-    MAIN_FONT = "Roboto"
-    BOLD_FONT = "Roboto-Bold"
+    M_FONT, B_FONT = "Roboto", "Roboto-Bold"
 else:
-    MAIN_FONT = "Helvetica"
-    BOLD_FONT = "Helvetica-Bold"
+    M_FONT, B_FONT = "Helvetica", "Helvetica-Bold"
 
 st.set_page_config(page_title="Interfood Etikett", layout="wide")
 st.title("🚚 Interfood Menetterv Generátor")
 
-# Futár adatok a sidebarban
 st.sidebar.header("Beállítások")
 f_nev = st.sidebar.text_input("Név:", value="", placeholder="Ebéd Elek")
 f_tel = st.sidebar.text_input("Tel:", value="", placeholder="+36207654321")
 
-def extract_logic(pdf_file):
+def extract_flexible(pdf_file):
     reader = PdfReader(pdf_file)
-    data = []
+    final_data = []
+    
+    # Aktuális ügyfél építése
+    curr = {'id': '', 'nev': '', 'cim': '', 'rend': [], 'info': ''}
     
     for page in reader.pages:
         text = page.extract_text()
         if not text: continue
+        
+        # Tisztítjuk a szöveget, de megtartjuk a lényeget
         lines = [l.strip() for l in text.split('\n') if len(l.strip()) > 1]
         
-        c_id, c_nev, c_cim, c_info = "", "", "", ""
-        c_rendeles = []
-
         for line in lines:
-            # Fejlécek és dátumok kiszűrése (ezek okozták a szemét matricákat)
+            # 1. SZŰRÉS: Fejlécek kidobása
             if any(x in line for x in ["Nyomtatta:", "Oldal", "Járatszám", "Menetterv", "Sor", "Ügyfél"]):
                 continue
-            if re.search(r'\d{4}\.\s\d{2}\.\s\d{2}\.', line): # Dátum formátum szűrése
-                continue
-
-            # Új ügyfél felismerése
-            id_match = re.match(r'^(\d+)$', line) # Csak egy szám (pl. "10")
-            full_match = re.match(r'^(\d+)\s+([PZ]-\d+)', line) # Szám + Kód (pl. "10 P-428867")
-            kod_only = re.search(r'([PZ]-\d+)', line) # Csak kód valahol
-
-            if id_match or full_match or kod_only:
-                # Mentjük az előzőt, ha volt
-                if c_nev and c_cim:
-                    data.append({
-                        'id': c_id, 'nev': c_nev, 'cim': c_cim,
-                        'rend': ", ".join(c_rendeles), 'info': c_info
+            
+            # 2. ÚJ ÜGYFÉL KEZDETE: Sorszám VAGY P/Z kód
+            id_match = re.match(r'^(\d+)$', line)
+            kod_match = re.search(r'([PZ]-\d+)', line)
+            
+            if id_match or kod_match:
+                # Mielőtt újat kezdünk, mentsük el a régit, ha van benne tartalom
+                if curr['nev'] or curr['cim']:
+                    final_data.append({
+                        'id': curr['id'], 'nev': curr['nev'], 'cim': curr['cim'],
+                        'rend': ", ".join(dict.fromkeys(curr['rend'])), 'info': curr['info']
                     })
                 
-                # Reset és új adatok
-                if full_match:
-                    c_id = full_match.group(1)
-                    c_nev = line.split(full_match.group(2))[-1].strip()
-                elif id_match:
-                    c_id = id_match.group(1)
-                    c_nev = ""
-                elif kod_only:
-                    c_nev = line.split(kod_only.group(1))[-1].strip()
-                
-                c_cim, c_info = "", ""
-                c_rendeles = []
+                # Alaphelyzetbe állítás
+                if id_match:
+                    curr = {'id': id_match.group(1), 'nev': '', 'cim': '', 'rend': [], 'info': ''}
+                else:
+                    # Ha csak kódot találtunk, az ID marad a régi, de új ügyfél
+                    name_part = line.split(kod_match.group(1))[-1].strip()
+                    curr = {'id': curr['id'], 'nev': name_part, 'cim': '', 'rend': [], 'info': ''}
             
+            # 3. ADATOK GYŰJTÉSE
             elif "Debrecen" in line:
-                c_cim = line
+                curr['cim'] = line
             elif re.search(r'\d-[A-Z0-9]', line):
                 codes = re.findall(r'\d-[A-Z0-9]+', line)
-                for c in codes:
-                    if c not in c_rendeles and len(c) < 10: c_rendeles.append(c)
+                curr['rend'].extend(codes)
             elif any(x in line.lower() for x in ['kód', 'kk', 'kapu', 'itthon', 'kcs', 'kulcs', 'porta']):
-                c_info += " " + line
-            elif len(line) > 5 and not c_cim:
-                c_nev = line if not c_nev else c_nev + " " + line
+                curr['info'] += " " + line
+            elif len(line) > 5 and not curr['cim']:
+                # Ha se nem kód, se nem cím, akkor valószínűleg a név folytatása
+                if not curr['nev']: curr['nev'] = line
+                else: curr['nev'] += " " + line
 
-        # Utolsó elem mentése
-        if c_nev and c_cim:
-            data.append({'id': c_id, 'nev': c_nev, 'cim': c_cim, 'rend': ", ".join(c_rendeles), 'info': c_info})
-    return data
+    # Utolsó mentése
+    if curr['nev'] or curr['cim']:
+        final_data.append({'id': curr['id'], 'nev': curr['nev'], 'cim': curr['cim'], 
+                           'rend': ", ".join(dict.fromkeys(curr['rend'])), 'info': curr['info']})
+    
+    return final_data
 
 uploaded_file = st.file_uploader("Válaszd ki a PDF menettervet", type="pdf")
 
 if uploaded_file:
-    if not f_nev or not f_tel:
-        st.info("💡 Kérlek, írd be a Neved és a Számod a bal oldalon, hogy rákerüljön a matricára!")
-    else:
-        results = extract_logic(uploaded_file)
+    if f_nev and f_tel:
+        results = extract_flexible(uploaded_file)
         if results:
-            st.success(f"✅ {len(results)} db etikett beolvasva!")
+            st.success(f"✅ Beolvasva: {len(results)} ügyfél.")
             
             output = io.BytesIO()
             c = canvas.Canvas(output, pagesize=A4)
@@ -112,27 +103,37 @@ if uploaded_file:
                 
                 c.setStrokeColorRGB(0.8, 0.8, 0.8)
                 c.rect(x+2, y+2, cw-4, ch-4)
-                
                 c.setFillColorRGB(0, 0, 0)
-                c.setFont(BOLD_FONT, 9)
-                c.drawString(x+8, y+ch-18, f"{item['id']}. {item['nev'][:30]}")
                 
-                c.setFont(MAIN_FONT, 8)
-                t_cim = item['cim'].replace("4031 Debrecen, ", "").replace("4002 Debrecen, ", "")
-                c.drawString(x+8, y+ch-28, f"{t_cim[:38]}")
+                # Név és Sorszám
+                c.setFont(B_FONT, 10)
+                name_display = f"{item['id']}. {item['nev']}" if item['id'] else item['nev']
+                c.drawString(x+8, y+ch-18, name_display[:32])
                 
+                # Cím (Debrecen nélkül a helytakarékosság miatt)
+                c.setFont(M_FONT, 8)
+                t_cim = item['cim'].replace("4031 Debrecen, ", "").replace("4002 Debrecen, ", "").replace("4030 Debrecen, ", "")
+                c.drawString(x+8, y+ch-28, t_cim[:40])
+                
+                # Infó pirossal
                 if item['info']:
                     c.setFillColorRGB(0.8, 0, 0)
-                    c.setFont(BOLD_FONT, 7)
-                    c.drawString(x+8, y+ch-38, f"INFÓ: {item['info'].strip()[:40]}")
+                    c.setFont(B_FONT, 7)
+                    c.drawString(x+8, y+ch-38, f"INFÓ: {item['info'].strip()[:42]}")
                     c.setFillColorRGB(0, 0, 0)
                 
-                c.setFont(BOLD_FONT, 14)
-                c.drawString(x+8, y+30, f"{item['rend'][:25]}")
+                # Rendelés nagyban
+                c.setFont(B_FONT, 14)
+                c.drawString(x+8, y+35, item['rend'][:25])
                 
-                c.setFont(MAIN_FONT, 7)
+                # Futár adatok alul
+                c.setFont(M_FONT, 7)
                 c.drawString(x+8, y+12, f"{f_nev} | {f_tel}")
                 c.drawRightString(x+cw-10, y+12, "JÓ ÉTVÁGYAT!")
 
             c.save()
-            st.download_button("📥 MATRICÁK LETÖLTÉSE", output.getvalue(), "interfood_kesz.pdf")
+            st.download_button("📥 MATRICÁK LETÖLTÉSE", output.getvalue(), "interfood_matricak.pdf")
+        else:
+            st.error("A PDF-et sikerült beolvasni, de nem találtam benne felismerhető ügyféladatokat.")
+    else:
+        st.warning("⚠️ Kérlek, add meg a Nevedet és a Telefonszámodat a bal oldali sávban!")

@@ -1,16 +1,34 @@
+import os
 import streamlit as st
 from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 import io
 import re
 
+# 1. Betűtípus regisztrálása
+font_path = "Roboto-Regular.ttf"
+font_bold_path = "Roboto-Bold.ttf"
+
+if os.path.exists(font_path) and os.path.exists(font_bold_path):
+    pdfmetrics.registerFont(TTFont('Roboto', font_path))
+    pdfmetrics.registerFont(TTFont('Roboto-Bold', font_bold_path))
+    MAIN_FONT = "Roboto"
+    BOLD_FONT = "Roboto-Bold"
+else:
+    # Tartalék megoldás, ha nincsenek fent a fájlok
+    MAIN_FONT = "Helvetica"
+    BOLD_FONT = "Helvetica-Bold"
+
 st.set_page_config(page_title="Interfood Etikett", layout="wide")
+st.title("🚚 Interfood Menetterv Generátor")
 
 # Futár adatok a sidebarban
 st.sidebar.header("Beállítások")
 futar_nev = st.sidebar.text_input("Név:", "Ebéd Elek")
-futar_tel = st.sidebar.text_input("Tel:", "+36 20 886 8971")
+futar_tel = st.sidebar.text_input("Tel:", "+36207654321")
 
 def extract_simple(pdf_file):
     reader = PdfReader(pdf_file)
@@ -18,7 +36,7 @@ def extract_simple(pdf_file):
     
     for page in reader.pages:
         text = page.extract_text()
-        # Tisztítás: a táblázat fejléceit és az oldalszámokat kivesszük
+        # Tisztítás: felesleges sorok kiszűrése
         lines = [l.strip() for l in text.split('\n') if len(l.strip()) > 2]
         
         current_id = ""
@@ -28,14 +46,15 @@ def extract_simple(pdf_file):
         current_info = ""
 
         for line in lines:
-            # Sorszám keresése az elején (pl. "1", "10", "21")
+            # Fejléc adatok átugrása, hogy ne legyen "szemét" matrica
+            if any(x in line for x in ["Nyomtatta:", "Oldal", "Járatszám", "Menetterv"]):
+                continue
+
             id_match = re.match(r'^(\d+)$', line)
-            # Ügyfélkód keresése (pl. "P-428867")
             kod_match = re.search(r'([PZ]-\d+)', line)
 
             if id_match or kod_match:
-                # Ha már van adatunk, mentsük el az előzőt
-                if current_nev:
+                if current_nev and current_cim: # Csak akkor mentünk, ha van neve ÉS címe
                     data.append({
                         'id': current_id,
                         'nev': current_nev,
@@ -44,9 +63,9 @@ def extract_simple(pdf_file):
                         'info': current_info
                     })
                 
-                # Új kezdése
                 if id_match: current_id = id_match.group(1)
-                current_nev = line if not id_match else ""
+                # Ha a sorban benne van a kód, levágjuk az elejét, hogy csak a név maradjon
+                current_nev = line if not kod_match else line.split(kod_match.group(1))[-1].strip()
                 current_cim = ""
                 current_rendeles = []
                 current_info = ""
@@ -55,15 +74,16 @@ def extract_simple(pdf_file):
                 current_cim = line
             elif re.search(r'\d-[A-Z0-9]', line):
                 codes = re.findall(r'\d-[A-Z0-9]+', line)
-                if codes: current_rendeles.extend(codes)
-            elif any(x in line.lower() for x in ['kód', 'kk', 'kapu', 'itthon', 'kcs']):
+                if codes: 
+                    for c in codes:
+                        if c not in current_rendeles: current_rendeles.append(c)
+            elif any(x in line.lower() for x in ['kód', 'kk', 'kapu', 'itthon', 'kcs', 'kulcs']):
                 current_info += " " + line
             elif not current_cim and len(line) > 5:
                 if not current_nev: current_nev = line
                 else: current_nev += " " + line
 
-        # Utolsó elem
-        if current_nev:
+        if current_nev and current_cim:
             data.append({'id': current_id, 'nev': current_nev, 'cim': current_cim, 'rendeles': ", ".join(current_rendeles), 'info': current_info})
             
     return data
@@ -73,13 +93,11 @@ uploaded_file = st.file_uploader("Menetterv PDF feltöltése", type="pdf")
 if uploaded_file:
     extracted = extract_simple(uploaded_file)
     if extracted:
-        st.success(f"{len(extracted)} etikett generálható!")
+        st.success(f"{len(extracted)} etikett készen áll!")
         
         output = io.BytesIO()
         c = canvas.Canvas(output, pagesize=A4)
         width, height = A4
-        
-        # 3 oszlop, 7 sor
         c_w, c_h = (width-20)/3, (height-40)/7
         
         for i, item in enumerate(extracted):
@@ -91,23 +109,25 @@ if uploaded_file:
             c.rect(x+2, y+2, c_w-4, c_h-4)
             
             c.setFillColorRGB(0, 0, 0)
-            c.setFont("Helvetica-Bold", 9)
-            c.drawString(x+8, y+c_h-15, f"{item['id']}. {item['nev'][:30]}")
+            c.setFont(BOLD_FONT, 9)
+            c.drawString(x+8, y+c_h-15, f"{item['id']}. {item['nev'][:32]}")
             
-            c.setFont("Helvetica", 8)
-            c.drawString(x+8, y+c_h-25, f"{item['cim'][:35]}")
+            c.setFont(MAIN_FONT, 8)
+            tiszta_cim = item['cim'].replace("4031 Debrecen, ", "").replace("4002 Debrecen, ", "")
+            c.drawString(x+8, y+c_h-25, f"{tiszta_cim[:38]}")
             
             if item['info']:
                 c.setFillColorRGB(0.8, 0, 0)
-                c.setFont("Helvetica-Bold", 7)
+                c.setFont(BOLD_FONT, 7)
                 c.drawString(x+8, y+c_h-35, f"INFÓ: {item['info'].strip()[:40]}")
                 c.setFillColorRGB(0, 0, 0)
             
-            c.setFont("Helvetica-Bold", 12)
+            c.setFont(BOLD_FONT, 14) # Megnövelt méret a rendelésnek
             c.drawString(x+8, y+30, f"{item['rendeles'][:25]}")
             
-            c.setFont("Helvetica", 7)
+            c.setFont(MAIN_FONT, 7) # Itt is Roboto-t használunk
             c.drawString(x+8, y+12, f"{futar_nev} | {futar_tel}")
+            c.drawRightString(x+c_w-10, y+12, "JÓ ÉTVÁGYAT!")
 
         c.save()
-        st.download_button("LETÖLTÉS", output.getvalue(), "etikettek.pdf")
+        st.download_button("📥 MATRICÁK LETÖLTÉSE", output.getvalue(), "interfood_matricak.pdf")

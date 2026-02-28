@@ -17,14 +17,13 @@ if os.path.exists(font_path) and os.path.exists(font_bold_path):
 else:
     M_FONT, B_FONT = "Helvetica", "Helvetica-Bold"
 
-st.set_page_config(page_title="Interfood Profi v4.7", layout="wide")
-st.title("🚚 Interfood Etikett - Véglegesített Verzió")
+st.set_page_config(page_title="Interfood Profi v4.8", layout="wide")
+st.title("🚚 Interfood Végleges Etikett v4.8")
 
-st.sidebar.header("Futár adatai")
-input_nev = st.sidebar.text_input("Saját Név:", value="", placeholder="Pl: Kovács János")
-input_tel = st.sidebar.text_input("Saját Tel:", value="", placeholder="Pl: +36201234567")
+input_nev = st.sidebar.text_input("Saját Név:", placeholder="Kovács János")
+input_tel = st.sidebar.text_input("Saját Tel:", placeholder="+36201234567")
 
-def extract_data_v47(pdf_file):
+def extract_all_data(pdf_file):
     reader = PdfReader(pdf_file)
     customers = {} 
     
@@ -34,44 +33,46 @@ def extract_data_v47(pdf_file):
         lines = [l.strip() for l in text.split('\n') if len(l.strip()) > 1]
         
         last_id = None
+        current_day = None
+        
         for line in lines:
-            # Ügyfél azonosítása: [Nap]-[Szám]
+            # Nap és ügyfélkód keresése
             match = re.search(r'([HKSCPZ])-(\d+)', line)
             if match:
-                nap, szid = match.group(1), match.group(2)
-                last_id = szid
+                current_day, last_id = match.group(1), match.group(2)
                 if last_id not in customers:
                     name_p = line.split(match.group(0))[-1].strip()
-                    # Tisztítás: levágjuk a felesleges karaktereket az elejéről
                     name_p = re.sub(r'^[?. ]+', '', name_p)
-                    customers[last_id] = {'nev': name_p, 'cim': '', 'rend': [], 'kk': '', 'napok': {nap}}
+                    customers[last_id] = {
+                        'nev': name_p, 'cim': '', 
+                        'P_rend': [], 'Z_rend': [], # Külön gyűjtjük
+                        'kk': '', 'napok': {current_day}
+                    }
                 else:
-                    customers[last_id]['napok'].add(nap)
+                    customers[last_id]['napok'].add(current_day)
             
             elif last_id:
-                # Cím keresése
+                # Cím (4 számjegy)
                 if re.match(r'^\d{4}\s+', line):
                     customers[last_id]['cim'] = line
-                # Ételkódok vadászata (Pl: 1-L1K, 1-DK, 12-A)
-                # Keresünk minden szám-betű kombinációt a sorban
-                potential_codes = re.findall(r'\b\d{1,2}-[A-Z0-9]{1,4}\b', line)
-                if potential_codes:
-                    customers[last_id]['rend'].extend(potential_codes)
                 # Kapukód
                 elif any(x in line.lower() for x in ['kód', 'kk', 'kapu', 'kcs', 'kulcs']):
                     if line not in customers[last_id]['kk']:
                         customers[last_id]['kk'] = (customers[last_id]['kk'] + " " + line).strip()
+                
+                # Ételkódok (pl. 1-A, 1-L1K) vadászata minden sorban
+                codes = re.findall(r'\b\d{1,2}-[A-Z0-9]{1,4}\b', line)
+                if codes:
+                    # Ha épp egy P- vagy Z- sor alatt vagyunk, oda tesszük
+                    target_key = 'Z_rend' if current_day == 'Z' else 'P_rend'
+                    customers[last_id][target_key].extend(codes)
     
     return [c for c in customers.values() if len(c['nev']) > 1]
 
-uploaded_file = st.file_uploader("Válaszd ki a PDF-et", type="pdf")
+uploaded_file = st.file_uploader("Menetterv feltöltése", type="pdf")
 
-if uploaded_file:
-    if not input_nev.strip() or not input_tel.strip():
-        st.error("❌ Add meg a neved és a számod!")
-        st.stop()
-    
-    data = extract_data_v47(uploaded_file)
+if uploaded_file and input_nev and input_tel:
+    data = extract_all_data(uploaded_file)
     if data:
         output = io.BytesIO()
         p = canvas.Canvas(output, pagesize=A4)
@@ -85,7 +86,7 @@ if uploaded_file:
             p.rect(x+2, y+2, cw-4, ch-4)
 
             if i < len(data):
-                # --- ÜGYFÉL ETIKETT ---
+                # --- ÜGYFÉL CÍMKE ---
                 item = data[i]
                 p.setFillColorRGB(0, 0, 0)
                 p.rect(x+2, y+ch-12, cw-4, 10, fill=1)
@@ -98,44 +99,52 @@ if uploaded_file:
                 
                 p.setFillColorRGB(0, 0, 0)
                 p.setFont(B_FONT, 10)
-                p.drawString(x+8, y+ch-25, item['nev'][:32]) # NÉV
-                p.setFont(M_FONT, 8.5)
-                p.drawString(x+8, y+ch-38, item['cim'][:42]) # CÍM
+                p.drawString(x+8, y+ch-25, item['nev'][:32])
+                p.setFont(M_FONT, 8)
+                p.drawString(x+8, y+ch-36, item['cim'][:42])
                 
                 if item['kk']:
                     p.setFillColorRGB(0.8, 0, 0)
                     p.setFont(B_FONT, 7.5)
-                    p.drawString(x+8, y+ch-48, f"KÓD: {item['kk']}"[:45])
+                    p.drawString(x+8, y+ch-45, f"KCS: {item['kk']}"[:45])
                 
-                unique_rend = sorted(list(set(item['rend'])))
+                # Rendelés összesítő (P és Z bontásban)
+                p_list = sorted(list(set(item['P_rend'])))
+                z_list = sorted(list(set(item['Z_rend'])))
+                total = len(p_list) + len(z_list)
+                
                 p.setFillColorRGB(0, 0, 0)
-                p.setFont(B_FONT, 10)
-                p.drawString(x+8, y+28, f"Összesen: {len(unique_rend)} tétel")
-                p.setFont(B_FONT, 12)
-                p.drawString(x+8, y+16, f"Rend: {', '.join(unique_rend)}")
+                p.setFont(B_FONT, 9)
+                p.drawString(x+8, y+26, f"Összesen: {total} tétel")
                 
-                # Lábléc csak az ügyfélnek
+                rend_str = ""
+                if p_list: rend_str += f"P: {', '.join(p_list)}"
+                if z_list: rend_str += f" | Sz: {', '.join(z_list)}"
+                
+                p.setFont(B_FONT, 10)
+                p.drawString(x+8, y+16, rend_str[:38])
+                
+                # Lábléc
                 p.setFont(M_FONT, 7.5)
                 p.line(x+10, y+13, x+cw-10, y+13)
-                p.drawString(x+8, y+5, f"{input_nev} | {input_tel}")
+                p.drawString(x+8, y+5.5, f"{input_nev} | {input_tel}")
+                p.drawRightString(x+cw-10, y+5.5, "JÓ ÉTVÁGYAT!")
             else:
-                # --- MARKETING ETIKETT ---
+                # --- MARKETING CÍMKE (LETISZTÍTVA) ---
                 p.setFillColorRGB(0, 0, 0)
                 p.setFont(B_FONT, 13)
-                p.drawCentredString(x+cw/2, y+ch-20, "15% kedvezmény* 3 hétig")
+                p.drawCentredString(x+cw/2, y+ch-25, "15% kedvezmény* 3 hétig")
                 p.setFont(B_FONT, 11)
-                p.drawCentredString(x+cw/2, y+ch-33, "Új Ügyfeleink részére!")
+                p.drawCentredString(x+cw/2, y+ch-40, "Új Ügyfeleink részére!")
+                
                 p.setFont(M_FONT, 9)
                 p.drawCentredString(x+cw/2, y+ch/2 - 2, "Rendelés leadás:")
                 p.setFont(B_FONT, 10.5)
                 p.drawCentredString(x+cw/2, y+ch/2 - 15, f"{input_nev}, tel: {input_tel}")
+                
                 p.setFont(M_FONT, 5.5)
-                p.drawCentredString(x+cw/2, y+24, "* a kedvezmény telefonon leadott rendelésekre")
-                p.drawCentredString(x+cw/2, y+19, "érvényesíthető területi képviselőnk által")
-
-            # Közös Jó Étvágyat a legaljára
-            p.setFont(M_FONT, 7.5)
-            p.drawRightString(x+cw-10, y+5, "JÓ ÉTVÁGYAT!")
+                p.drawCentredString(x+cw/2, y+18, "* a kedvezmény telefonon leadott rendelésekre")
+                p.drawCentredString(x+cw/2, y+12, "érvényesíthető területi képviselőnk által")
 
         p.save()
-        st.download_button("📥 KÉSZ PDF LETÖLTÉSE", output.getvalue(), "interfood_v47_final.pdf")
+        st.download_button("📥 KÉSZ PDF LETÖLTÉSE", output.getvalue(), "interfood_final_v4.8.pdf")

@@ -8,7 +8,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 import io
 import re
 
-# Betűtípusok
+# Betűtípusok beállítása
 font_path, font_bold_path = "Roboto-Regular.ttf", "Roboto-Bold.ttf"
 if os.path.exists(font_path) and os.path.exists(font_bold_path):
     pdfmetrics.registerFont(TTFont('Roboto', font_path))
@@ -17,85 +17,90 @@ if os.path.exists(font_path) and os.path.exists(font_bold_path):
 else:
     M_FONT, B_FONT = "Helvetica", "Helvetica-Bold"
 
-st.set_page_config(page_title="Interfood Profi v5.4", layout="wide")
-st.title("🚚 Interfood Etikett v5.4")
+st.set_page_config(page_title="Interfood Profi v5.5", layout="wide")
+st.title("🚚 Interfood Etikett v5.5")
 
 input_nev = st.sidebar.text_input("Saját Név:", placeholder="Kovács János")
 input_tel = st.sidebar.text_input("Saját Tel:", placeholder="+36201234567")
 
-def extract_v54(pdf_file):
+def extract_v55(pdf_file):
     reader = PdfReader(pdf_file)
-    raw_data = []
+    customers = []
     
     for page in reader.pages:
         text = page.extract_text()
         if not text: continue
-        # Egyben kezeljük az oldalt, hogy az oszlopok ne zavarjanak be
-        blocks = re.split(r'(\d{1,3}\n[PZSC]-\d{6})', text)
         
-        for i in range(1, len(blocks), 2):
-            header = blocks[i]
-            content = blocks[i+1] if i+1 < len(blocks) else ""
-            full_block = header + content
-            
-            # Ügyfélkód és Nap
-            id_match = re.search(r'([PZSC])-(\d{6})', header)
+        # A PDF-et sorokra bontjuk, de figyelünk a táblázatos szerkezetre
+        lines = text.split('\n')
+        
+        for i, line in enumerate(lines):
+            # 1. Horgony: Ügyfélkód keresése (P-428867 formátum)
+            id_match = re.search(r'([PZSC])-(\d{6})', line)
             if id_match:
                 day, code = id_match.group(1), id_match.group(2)
                 
-                # Név keresése (Az Ügyintéző oszlopból, ami a cím után jön a PDF-ben)
-                # Olyan szavakat keresünk, amik nagybetűvel kezdődnek és nem címek
-                name_search = re.findall(r'([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+\s[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+)?)', content)
+                # Keressük az adatokat a környező sorokban
+                # A táblázatban a Név az "Ügyintéző" oszlopban van (általában ugyanaz a sor vagy +1)
                 name = ""
-                for n in name_search:
-                    if "Debrecen" not in n and "Kft" not in n:
+                cim = ""
+                tel = ""
+                penz = "0 Ft"
+                rendelesek = []
+                
+                # Keresési ablak az adatokhoz
+                search_window = lines[max(0, i-1):min(len(lines), i+5)]
+                full_context = " ".join(search_window)
+                
+                # Név: A kód utáni rész, vagy a következő sor eleje, ami nem cím
+                # A feltöltött PDF alapján a "Tőkés István" típusú neveket keressük
+                names = re.findall(r'([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+\s[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+)?)', full_context)
+                for n in names:
+                    if "Debrecen" not in n and "Kft" not in n and "Interfood" not in n:
                         name = n
                         break
                 
-                # Cím
-                cim_match = re.search(r'(\d{4}\s+Debrecen,.*)', full_block)
-                cim = cim_match.group(1).split('\n')[0] if cim_match else ""
-                
-                # Telefon
-                tel_match = re.search(r'(\d{2}/\d{7}|\d{10,11})', full_block)
-                tel = tel_match.group(1) if tel_match else ""
-                
-                # Pénz
-                money_match = re.search(r'(\d[\d\s]*\s?Ft)', full_block)
-                money = money_match.group(1) if money_match else "0 Ft"
+                # Cím: 4 számjegy + Debrecen
+                cim_m = re.search(r'(\d{4}\s+Debrecen,.*)', full_context)
+                if cim_m: cim = cim_m.group(1).split(',')[0] + "," + cim_m.group(1).split(',')[1].split(' ')[1] if ',' in cim_m.group(1) else cim_m.group(1)
 
-                # Rendelés kódok
-                codes = re.findall(r'\b\d{1,2}-[A-Z0-9]{1,4}\b', full_block)
-                
-                raw_data.append({
+                # Telefon: 06... vagy 20/...
+                tel_m = re.search(r'(\d{2}/\d{7}|\d{10,11})', full_context)
+                if tel_m: tel = tel_m.group(1)
+
+                # Pénz: Ft-tal a végén
+                money_m = re.search(r'(\d[\d\s]*\s?Ft)', full_context)
+                if money_m: penz = money_m.group(1)
+
+                # Ételkódok: csak a szám-betűk (pl. 1-L1K)
+                codes = re.findall(r'\b\d{1,2}-[A-Z0-9]{1,4}\b', full_context)
+                rendelesek = sorted(list(set(codes)))
+
+                customers.append({
                     'kod': code, 'nev': name, 'cim': cim, 
-                    'codes': sorted(list(set(codes))), 
-                    'day': day, 'tel': tel, 'penz': money
+                    'rend': rendelesek, 'day': day, 'tel': tel, 'penz': penz
                 })
     
-    # Csoportosítás (Péntek + Szombat összevonása)
-    final_customers = {}
-    for item in raw_data:
-        k = item['kod']
-        if k not in final_customers:
-            final_customers[k] = {
-                'kod': k, 'nev': item['nev'], 'cim': item['cim'],
-                'P': [], 'Z': [], 'tel': item['tel'], 'penz': item['penz'], 'napok': {item['day']}
-            }
-        
-        if item['day'] == 'Z':
-            final_customers[k]['Z'].extend(item['codes'])
-            final_customers[k]['napok'].add('Z')
+    # Duplikátumok szűrése és napok összevonása
+    merged = {}
+    for c in customers:
+        k = c['kod']
+        if k not in merged:
+            merged[k] = c
+            merged[k]['napok'] = {c['day']}
+            merged[k]['P_rend'] = c['rend'] if c['day'] != 'Z' else []
+            merged[k]['Z_rend'] = c['rend'] if c['day'] == 'Z' else []
         else:
-            final_customers[k]['P'].extend(item['codes'])
-            final_customers[k]['napok'].add(item['day'])
+            merged[k]['napok'].add(c['day'])
+            if c['day'] == 'Z': merged[k]['Z_rend'].extend(c['rend'])
+            else: merged[k]['P_rend'].extend(c['rend'])
             
-    return list(final_customers.values())
+    return list(merged.values())
 
-uploaded_file = st.file_uploader("Menetterv feltöltése (v5.4)", type="pdf")
+uploaded_file = st.file_uploader("Menetterv feltöltése (v5.5)", type="pdf")
 
 if uploaded_file and input_nev and input_tel:
-    data = extract_v54(uploaded_file)
+    data = extract_v55(uploaded_file)
     if data:
         output = io.BytesIO()
         p = canvas.Canvas(output, pagesize=A4)
@@ -111,23 +116,23 @@ if uploaded_file and input_nev and input_tel:
             if i < len(data):
                 item = data[i]
                 
-                # FEJLÉC (P+Sz vagy Sz)
+                # FEJLÉC
                 if 'Z' in item['napok']:
                     p.setFillColorRGB(0, 0, 0)
                     p.rect(x+2, y+ch-12, cw-4, 10, fill=1)
                     p.setFillColorRGB(1, 1, 1)
                     p.setFont(B_FONT, 9)
-                    p.drawCentredString(x+cw/2, y+ch-9, "Péntek + Szombat!" if 'P' in item['napok'] or 'S' in item['napok'] else "Szombat")
+                    p.drawCentredString(x+cw/2, y+ch-9, "Péntek + Szombat!" if 'P' in item['napok'] else "Szombat")
                 
                 p.setFillColorRGB(0, 0, 0)
-                # 1. SOR: NÉV (bal) | KÓD (jobb)
+                # NÉV és KÓD (Szigorúan bal-jobb)
                 p.setFont(B_FONT, 10)
                 p.drawString(x+8, y+ch-25, item['nev'][:25] if item['nev'] else "Ügyfél")
                 p.drawRightString(x+cw-10, y+ch-25, item['kod'])
                 
-                # 2. SOR: CÍM
-                p.setFont(M_FONT, 8.5)
-                p.drawString(x+8, y+ch-36, item['cim'][:45])
+                # CÍM (Külön sorban)
+                p.setFont(M_FONT, 9)
+                p.drawString(x+8, y+ch-36, item['cim'][:42])
                 
                 # TEL és PÉNZ
                 p.setFont(M_FONT, 8)
@@ -137,15 +142,16 @@ if uploaded_file and input_nev and input_tel:
                     p.drawRightString(x+cw-10, y+ch-46, item['penz'])
 
                 # RENDELÉS
+                p_list = sorted(list(set(item['P_rend'])))
+                z_list = sorted(list(set(item['Z_rend'])))
                 p.setFont(B_FONT, 9)
-                total = len(item['P']) + len(item['Z'])
-                p.drawString(x+8, y+30, f"Összesen: {total} tétel")
+                p.drawString(x+8, y+30, f"Összesen: {len(p_list)+len(z_list)} tétel")
                 
                 p.setFont(B_FONT, 10)
-                if item['P']: p.drawString(x+8, 20, f"P: {', '.join(sorted(list(set(item['P']))))}"[:40])
-                if item['Z']: p.drawString(x+8, 10 if item['P'] else 20, f"Sz: {', '.join(sorted(list(set(item['Z']))))}"[:40])
+                if p_list: p.drawString(x+8, 20, f"P: {', '.join(p_list)}"[:40])
+                if z_list: p.drawString(x+8, 10 if p_list else 20, f"Sz: {', '.join(z_list)}"[:40])
 
-                # LÁBLÉC (Saját)
+                # LÁBLÉC
                 p.setFont(M_FONT, 7.5)
                 p.line(x+10, y+6, x+cw-10, y+6)
                 p.drawString(x+8, y+4, f"{input_nev} | {input_tel}")
@@ -166,4 +172,4 @@ if uploaded_file and input_nev and input_tel:
                 p.drawCentredString(x+cw/2, y+14, "érvényesíthető területi képviselőnk által")
 
         p.save()
-        st.download_button("📥 PDF LETÖLTÉSE (V5.4)", output.getvalue(), "interfood_v54.pdf")
+        st.download_button("📥 PDF LETÖLTÉSE (V5.5)", output.getvalue(), "interfood_v55.pdf")

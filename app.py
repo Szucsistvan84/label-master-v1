@@ -4,76 +4,71 @@ import pandas as pd
 import io
 import re
 
-def extract_v10(pdf_file):
-    extracted_data = []
+def extract_v11(pdf_file):
+    all_customers = []
     
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            # FIX OSZLOP HATÁROK (Pixelben mérve az A4-es lapon)
-            # 0-45: Sorszám | 45-250: Ügyfél+Cím | 250-380: Ügyintéző | 380-530: Rendelés | 530+: Összeg
-            # Ezeket az értékeket az Interfood menetterv standard elrendezéséhez lőttem be.
-            
-            # Kinyerjük a szavakat koordinátákkal együtt
             words = page.extract_words()
             
-            # Sorokba rendezzük a szavakat a függőleges (top) pozíciójuk alapján
-            lines = {}
+            # 1. Keressük meg a sorszámok helyzetét (y koordináta)
+            # Az Interfoodnál a sorszám a bal szélen van (x0 < 40)
+            markers = []
             for w in words:
-                y = round(w['top'], 0) # Kerekítünk, hogy az egy sorban lévők egy csoportba kerüljenek
-                if y not in lines: lines[y] = []
-                lines[y].append(w)
+                if w['x0'] < 40 and re.match(r'^\d+$', w['text']):
+                    markers.append({'num': w['text'], 'top': w['top']})
             
-            # Feldolgozzuk a sorokat
-            for y in sorted(lines.keys()):
-                line_words = lines[y]
+            # 2. Határozzuk meg a sávokat
+            for i in range(len(markers)):
+                top = markers[i]['top']
+                # A sáv alja a következő sorszám teteje, vagy az oldal alja
+                bottom = markers[i+1]['top'] if i+1 < len(markers) else page.height
                 
-                # Oszlopok szerinti szétosztás
-                col_sor = " ".join([w['text'] for w in line_words if w['x0'] < 45])
-                col_ugyfel = " ".join([w['text'] for w in line_words if 45 <= w['x0'] < 250])
-                col_rendeles = " ".join([w['text'] for w in line_words if 380 <= w['x0'] < 530])
+                # 3. Szívjuk be az összes szót ebben a magasságban
+                block_words = [w for w in words if top - 2 <= w['top'] < bottom - 2]
                 
-                # Ha van sorszám, új ügyfelet kezdünk
-                s_match = re.match(r'^(\d+)$', col_sor.strip())
-                if s_match:
-                    sorszam = s_match.group(1)
-                    extracted_data.append({
-                        "Sorszám": sorszam,
-                        "Név": col_ugyfel.strip(),
-                        "Cím": "", # A következő sorokban fogjuk megtalálni
-                        "Telefon": "",
-                        "Rendelés": [],
-                        "Megjegyzés": ""
-                    })
-                elif extracted_data:
-                    # Ha nincs sorszám, az előző ügyfél adatait folytatjuk (Cím, Rendelés, Telefon)
-                    curr = extracted_data[-1]
-                    
-                    # Cím keresése (Irányítószám vagy Debrecen kulcsszó)
-                    if "Debrecen" in col_ugyfel or re.search(r'\d{4}', col_ugyfel):
-                        curr["Cím"] = col_ugyfel.strip()
-                    
-                    # Telefonszám és Rendelés kódok a megfelelő oszlopból
-                    if col_rendeles:
-                        tel = re.search(r'(\d{2}/\d{6,})', col_rendeles.replace(" ", ""))
-                        if tel: curr["Telefon"] = tel.group(1)
-                        
-                        rend_codes = re.findall(r'(\d+-[A-Z0-9]+)', col_rendeles)
-                        curr["Rendelés"].extend(rend_codes)
+                # 4. Válogassunk (szöveg összerakása)
+                full_text = " ".join([w['text'] for w in block_words])
+                
+                # Adat kinyerés a blokkból
+                kod_match = re.search(r'([PZSC]-\d{6})', full_text)
+                tel_match = re.search(r'(\d{2}/\d{6,10})', full_text.replace(" ", ""))
+                # Cím: 4000-től Debrecenen át az első vesszőig vagy hosszabb részig
+                addr_match = re.search(r'(\d{4}\s+Debrecen,[^,]+(?:,[^,]+)?)', full_text)
+                
+                # Név: A kód és a cím közötti rész, vagy a kód utáni rész
+                kod = kod_match.group(1) if kod_match else ""
+                cim = addr_match.group(1) if addr_match else ""
+                
+                # Tisztított név keresése
+                name_text = full_text.replace(kod, "").replace(cim, "").strip()
+                # Az ügyintézők nevei gyakran "Takács Ildikó" stb., ezeket próbáljuk leválasztani
+                nev = name_text.split('/')[0].strip() if '/' in name_text else name_text.split(' ')[0:3]
+                nev = " ".join(nev) if isinstance(nev, list) else nev
 
-    # Tisztítás: csak azokat tartjuk meg, ahol van név
-    final_data = [d for d in extracted_data if len(d["Név"]) > 2]
-    return pd.DataFrame(final_data)
+                # Rendelések (X-YYYY)
+                rendelesek = re.findall(r'(\d+-[A-Z0-9]+)', full_text)
 
-# --- Streamlit UI ---
-st.title("Interfood Profiler v10")
-uploaded_file = st.file_uploader("Menetterv PDF (4002)", type="pdf")
+                all_customers.append({
+                    "Sorszám": markers[i]['num'],
+                    "Kód": kod,
+                    "Név": nev[:30],
+                    "Cím": cim,
+                    "Telefon": tel_match.group(1) if tel_match else "",
+                    "Rendelés": ", ".join(rendelesek),
+                    "Db": len(rendelesek)
+                })
 
-if uploaded_file:
-    df = extract_v10(uploaded_file)
-    if not df.empty:
-        # A listákat stringgé alakítjuk a megjelenítéshez
-        df['Rendelés'] = df['Rendelés'].apply(lambda x: ", ".join(x))
-        st.success(f"Beolvasva: {len(df)} ügyfél")
-        st.dataframe(df)
-    else:
-        st.error("Próbáljuk meg más beállításokkal, nem találtam adatot.")
+    return pd.DataFrame(all_customers)
+
+# --- Streamlit UI v11 ---
+st.title("Interfood Porszívó v11")
+file = st.file_uploader("Menetterv PDF", type="pdf")
+
+if file:
+    df = extract_v11(file)
+    st.dataframe(df)
+    
+    # CSV letöltés teszteléshez
+    csv = df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button("Export CSV", csv, "interfood_v11.csv", "text/csv")

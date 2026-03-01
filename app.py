@@ -5,46 +5,54 @@ import re
 from fpdf import FPDF
 import os
 
-# --- 1. AZ "ADAT-MÁGNES" TISZTÍTÓ (v77) ---
+# --- 1. AZ ADAT-MÁGNES JAVÍTVA (v77.1) ---
 def clean_tabula_row(df_raw):
     cleaned_data = []
     
-    # Végigmegyünk a nyers táblázat minden során
     for index, row in df_raw.iterrows():
+        # Sor összefűzése szöveggé a kereséshez
         row_str = " ".join(str(val) for val in row.values if str(val) != 'nan')
         
-        # Keressük az ügyfél-kódot (P- vagy Z-), ez az új ügyfél kezdete
+        # Ügyfél kezdete: P- vagy Z- kód
         if re.search(r'[PZ]-\d+', row_str):
-            # NÉV kinyerése (P-kód utáni rész, de a cím előtt)
-            name_match = re.search(r'[PZ]-\d+\s+(.*?)(?=\d{4}\s+|$)', row_str)
-            name = name_match.group(1).strip() if name_match else ""
-            
-            # CÍM kinyerése (Irányítószámtól kezdve)
-            addr_match = re.search(r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ].*)', row_str)
-            addr = addr_match.group(1).strip() if addr_m else "Cím a sorban..."
-            
-            # TELEFON (06 vagy +36 vagy 20/30/70)
+            # 1. TELEFON (06, +36, 20, 30, 70)
             tel_m = re.search(r'((?:\+36|06|20|30|70)[\s/]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', row_str)
             tel = tel_m.group(1) if tel_m else "NINCS"
             
-            # RENDELÉS (Tipikus Interfood kódok: szám-betűk)
+            # 2. CÍM (Irányítószám + Város + Utca)
+            addr_m = re.search(r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-z-]+\b.*)', row_str)
+            addr = addr_m.group(1).strip() if addr_m else "Cím a sorban..."
+            
+            # 3. NÉV (A technikai kód és a cím közötti rész)
+            name = ""
+            name_match = re.search(r'[PZ]-\d+\s+(.*?)(?=\d{4}\s+|$)', row_str)
+            if name_match:
+                name = name_match.group(1).strip()
+            
+            # Ha a név üres maradt, nézzük meg a táblázat oszlopait külön
+            if len(name) < 3:
+                for val in row.values:
+                    v_str = str(val)
+                    if len(v_str) > 3 and not re.search(r'\d{4}', v_str) and "nan" not in v_str.lower():
+                        name = v_str
+                        break
+
+            # 4. RENDELÉS (Szám-Betű kódok)
             rend_list = re.findall(r'(\d+-[A-Z0-9]+)', row_str)
             rend = ", ".join(rend_list) if rend_list else ""
 
-            # Ha a név túl rövid vagy szemét, nézzük meg a szomszédos oszlopokat (Tabula hiba javítása)
-            if len(name) < 3:
-                # Ilyenkor gyakran a következő oszlopban van a név
-                for val in row.values:
-                    if isinstance(val, str) and len(val) > 3 and not re.search(r'\d{4}', val):
-                        name = val
-                        break
-
+            # Csak ha van értékelhető név
             if len(name) > 2 and "ÖSSZESÍTŐ" not in row_str:
-                cleaned_data.append({"Ügyintéző": name, "Telefon": tel, "Cím": addr, "Rendelés": rend})
+                cleaned_data.append({
+                    "Ügyintéző": name[:40], 
+                    "Telefon": tel, 
+                    "Cím": addr, 
+                    "Rendelés": rend
+                })
     
     return pd.DataFrame(cleaned_data)
 
-# --- 2. A MÁR BIZONYÍTOTT FIX RÁCSOS PDF GENERÁTOR ---
+# --- 2. GENERÁTOR ---
 def create_pdf_v77(df):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=False)
@@ -61,7 +69,7 @@ def create_pdf_v77(df):
         
         pdf.set_xy(x + 5, y + 5)
         pdf.set_font(f_main, "B", 10)
-        pdf.cell(60, 5, str(row['Ügyintéző'])[:40], 0, 1)
+        pdf.cell(60, 5, str(row['Ügyintéző']), 0, 1)
         
         pdf.set_xy(x + 5, y + 12)
         pdf.set_font(f_main, "B", 9)
@@ -77,31 +85,33 @@ def create_pdf_v77(df):
         
     return pdf.output()
 
-# --- 3. STREAMLIT APP ---
-st.title("Interfood Etikett v77 - A Megoldás")
+# --- 3. APP ---
+st.title("Interfood Etikett v77.1")
 
 f = st.file_uploader("Eredeti PDF feltöltése", type="pdf")
 
 if f:
-    with st.spinner('Adatok kinyerése és rendezése...'):
+    with st.spinner('Feldolgozás folyamatban...'):
         try:
+            # Ideiglenes fájl a Tabulának
+            with open("temp.pdf", "wb") as tp:
+                tp.write(f.getvalue())
+            
             # Tabula beolvasás
-            with open("temp.pdf", "wb") as tp: tp.write(f.read())
             dfs = tabula.read_pdf("temp.pdf", pages='all', stream=True, guess=True)
             
             if dfs:
                 raw_df = pd.concat(dfs, ignore_index=True)
-                # Itt történik a varázslat: rendberakjuk a szétesett sorokat
                 final_df = clean_tabula_row(raw_df)
                 final_df = final_df.drop_duplicates(subset=['Ügyintéző', 'Cím'])
                 
-                st.success(f"Siker! {len(final_df)} ügyfél rendszerezve.")
+                st.write(f"Talált ügyfelek: {len(final_df)}")
                 st.dataframe(final_df)
                 
                 if not final_df.empty:
                     pdf_out = create_pdf_v77(final_df)
-                    st.download_button("💾 ETIKETTEK LETÖLTÉSE (PDF)", bytes(pdf_out), "etikettek_v77.pdf")
+                    st.download_button("💾 PDF LETÖLTÉSE", bytes(pdf_out), "etikettek_v77.pdf")
             
             os.remove("temp.pdf")
         except Exception as e:
-            st.error(f"Hiba: {e}")
+            st.error(f"Hiba történt: {e}")

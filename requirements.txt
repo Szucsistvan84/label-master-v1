@@ -3,3 +3,4 @@ pypdf
 pdfplumber
 reportlab
 pandas
+fpdf

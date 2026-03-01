@@ -5,27 +5,29 @@ import re
 from fpdf import FPDF
 import os
 
-# --- 1. PROFI TISZTÍTÓ (v71 - Az adatkinyerés logikája maradt a jól bevált v70) ---
-def clean_v71(name_text, block_text):
-    # Név alapozás
+# --- 1. PROFI TISZTÍTÓ (v72) ---
+def clean_v72(name_text, block_text):
+    # Név alapozás (P- és Z- kódok levágása)
     name = re.sub(r'^[A-Z]-\d+\s+', '', name_text)
     name = re.sub(r'^\d+\s+', '', name).strip()
     
-    # Judit és Tímea szétválasztása (cím alapján)
+    # Judit és Tímea szétválasztása
     if "Judit" in name and "Tímea" in name:
         if "Richter" in block_text:
             name = "Szabó-Salák Tímea"
         elif "Kígyóhagyma" in block_text:
             name = "Földi-Michnyóczki Judit"
 
-    # Tiltólista
+    # Tiltólista kiegészítve a Mo.kft-vel
     trash = ["Csokimax", "Ford", "Expert", "Globiz", "International", "Kft", "Zrt", "Bt", 
              "Harro", "Höfliger", "Hungary", "Richter", "Gedeon", "Portán", "Optipont", "üzlet"]
     
     for t in trash:
         name = re.sub(r'\b' + t + r'\b', '', name, flags=re.IGNORECASE).strip()
-    
-    name = name.strip("/- ").strip()
+        
+    # Ponttal végződő cégnevek durva irtása
+    name = name.replace("Mo.kft.", "").replace("Mo.kft", "").replace("Kft.", "")
+    name = name.strip("/-., ").strip()
 
     # Telefonszám
     tel_m = re.search(r'((?:\+36|06|20|30|70)[\s/]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', block_text)
@@ -44,8 +46,8 @@ def clean_v71(name_text, block_text):
         
     return name, tel, addr, rend
 
-# --- 2. PDF GENERÁLÁS (A KRITIKUS JAVÍTÁS: FIX KOORDINÁTÁK) ---
-def create_pdf_v71(df):
+# --- 2. PDF GENERÁLÁS (A JÓL BEVÁLT FIX RÁCSRENDSZER) ---
+def create_pdf_v72(df):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=False)
     font_path = "DejaVuSans.ttf" 
@@ -59,18 +61,18 @@ def create_pdf_v71(df):
     for i, row in df.iterrows():
         if i % 21 == 0: pdf.add_page()
         
-        # Etikett pozíciójának kiszámítása (3 oszlop, 7 sor)
+        # Etikett pozíciójának kiszámítása
         col = i % 3
         line = (i // 3) % 7
         x = col * 70
         y = line * 42.4
         
-        # 1. NÉV (Fixen 5 mm-re a felső széltől, max 45 karakter hosszan)
+        # 1. NÉV (Fixen 4 mm-re a felső széltől)
         pdf.set_xy(x + 5, y + 4)
         pdf.set_font(f_main, "B", 10)
         pdf.multi_cell(60, 4, str(row['Ügyintéző'])[:45], 0, 'L')
         
-        # 2. TELEFON (Fixen 14 mm-re a felső széltől)
+        # 2. TELEFON (Fixen 13 mm-re a felső széltől)
         pdf.set_xy(x + 5, y + 13)
         pdf.set_font(f_main, "B", 9)
         pdf.cell(60, 4, f"TEL: {row['Telefon']}", 0, 1)
@@ -80,7 +82,7 @@ def create_pdf_v71(df):
         pdf.set_font(f_main, "", 8)
         pdf.multi_cell(60, 3.5, str(row['Cím']), 0, 'L')
         
-        # 4. RENDELÉS (Fixen 27 mm-re a felső széltől, apró betűvel)
+        # 4. RENDELÉS (Fixen 27 mm-re a felső széltől)
         pdf.set_xy(x + 5, y + 27) 
         pdf.set_font(f_main, "", 6)
         pdf.multi_cell(60, 2.5, f"REND: {row['Rendelés']}", 0, 'L')
@@ -88,7 +90,7 @@ def create_pdf_v71(df):
     return pdf.output()
 
 # --- 3. STREAMLIT APP ---
-st.title("Interfood Etikett Mester v71")
+st.title("Interfood Etikett Mester v72")
 f = st.file_uploader("Feltöltés (PDF)", type="pdf")
 
 if f:
@@ -96,10 +98,20 @@ if f:
     with pdfplumber.open(f) as pdf:
         for page in pdf.pages:
             words = page.extract_words()
-            markers = [w for w in words if re.match(r'^\d+$', w['text']) and w['x0'] < 550]
+            
+            # --- AZ ÚJ ARANY HORGONY LOGIKA ---
+            # Csak azt a számot tekintjük sorszámnak, ami után KÖZVETLENÜL egy P- vagy Z- kód jön!
+            markers = []
+            for i in range(len(words) - 1):
+                # Ha a szó egy szám ÉS a következő szó betűvel és kötőjellel kezdődik (pl. P-428867)
+                if re.match(r'^\d+$', words[i]['text']) and re.match(r'^[A-Z]-\d+$', words[i+1]['text']):
+                    markers.append(words[i])
+            
+            # Rendezzük a markereket fentről lefelé, balról jobbra
             markers.sort(key=lambda x: (x['top'], x['x0']))
             
             for m in markers:
+                # Pontos ablak nyitása a megtalált horgony körül
                 x0, top = max(0, m['x0'] - 2), max(0, m['top'] - 2)
                 x1, bottom = min(page.width, x0 + 195), min(page.height, top + 70)
                 
@@ -108,12 +120,13 @@ if f:
                     block_text = crop.extract_text()
                     
                     if block_text:
-                        lines = block_text.split('\n')
-                        raw_name = lines[0]
+                        lines = [line for line in block_text.split('\n') if line.strip()]
+                        raw_name = lines[0] if lines else ""
                         
-                        name, tel, addr, rend = clean_v71(raw_name, block_text)
+                        name, tel, addr, rend = clean_v72(raw_name, block_text)
                         
-                        if not re.match(r'^\d{4}', name) and len(name) > 2:
+                        # Csak valós adatokat engedünk át
+                        if len(name) > 2 and not re.match(r'^\d{4}$', name):
                             if "ÖSSZESÍTŐ" not in rend:
                                 results.append({"Ügyintéző": name, "Telefon": tel, "Cím": addr, "Rendelés": rend})
                 except Exception:
@@ -123,5 +136,5 @@ if f:
     st.dataframe(df)
     
     if not df.empty:
-        pdf_out = create_pdf_v71(df)
-        st.download_button("💾 PDF LETÖLTÉSE (v71)", bytes(pdf_out), "etikettek_v71.pdf", "application/pdf")
+        pdf_out = create_pdf_v72(df)
+        st.download_button("💾 PDF LETÖLTÉSE (v72)", bytes(pdf_out), "etikettek_v72.pdf", "application/pdf")

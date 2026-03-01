@@ -1,5 +1,6 @@
 import streamlit as st
 import pdfplumber
+import pandas as pd
 import io
 import re
 from reportlab.pdfgen import canvas
@@ -12,10 +13,8 @@ st.set_page_config(page_title="Interfood Etikett v8.5", layout="wide")
 
 def get_fonts():
     try:
-        # Ha van saját TTF fájlod, itt töltheted be
-        pdfmetrics.registerFont(TTFont('Roboto-Bold', 'Roboto-Bold.ttf'))
-        pdfmetrics.registerFont(TTFont('Roboto-Regular', 'Roboto-Regular.ttf'))
-        return "Roboto-Regular", "Roboto-Bold"
+        # Alapértelmezett Helvetica, ha nincs betöltve egyedi font
+        return "Helvetica", "Helvetica-Bold"
     except:
         return "Helvetica", "Helvetica-Bold"
 
@@ -23,7 +22,7 @@ M_FONT, B_FONT = get_fonts()
 
 # --- Felület ---
 st.title("🚚 Interfood Etikett Generátor v8.5")
-st.markdown("A rendszer **pdfplumber** technológiával olvassa a táblázatokat a pontosabb kinyerés érdekében.")
+st.markdown("Adatkinyerés táblázatos PDF struktúrából (pdfplumber).")
 
 with st.sidebar:
     st.header("Futár adatai")
@@ -37,7 +36,6 @@ def extract_interfood_data(pdf_file):
     extracted_data = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            # Táblázat kinyerése rácsvonalak alapján
             table = page.extract_table({
                 "vertical_strategy": "lines",
                 "horizontal_strategy": "lines",
@@ -47,41 +45,41 @@ def extract_interfood_data(pdf_file):
             if not table: continue
             
             for row in table:
-                # row[0]: Sorszám, row[1]: Ügyfél/Cím, row[2]: Ügyintéző, row[3]: Telefon/Rendelés
+                # row[0]: Sorszám (pl. 1, 2, 3...)
                 sorszam_raw = str(row[0]).strip() if row[0] else ""
                 
-                # Csak a számmal kezdődő sorokat dolgozzuk fel
-                if not re.match(r'^\d+$', sorszam_raw):
+                # Csak a számmal kezdődő sorokat dolgozzuk fel (Sorszám oszlop)
+                if not re.match(r'^\d+$', sorszam_raw.split('\n')[0]):
                     continue
                 
                 content_col = row[1] if row[1] else ""
                 order_col = row[3] if row[3] else ""
                 
-                # Adat kinyerés RegEx-el a cellán belül
+                # Ügyfélkód kinyerése (P-123456)
                 kod_match = re.search(r'([PZSC]-\d{6})', content_col)
                 kod = kod_match.group(1) if kod_match else ""
                 
-                # Cím: Irányítószámtól a végéig (vagy következő sorig)
+                # Cím: 40xx Debrecen...
                 addr_match = re.search(r'(\d{4}\s+Debrecen,.*)', content_col, re.DOTALL)
                 cim = addr_match.group(1).replace('\n', ' ').strip() if addr_match else "Cím nem található"
                 
-                # Név: A kód utáni első sor
-                nev_lines = content_col.replace(kod, "").strip().split('\n')
-                nev = nev_lines[0].strip() if nev_lines else "Ismeretlen"
+                # Név: A cella első sora a kód után
+                nev_parts = content_col.replace(kod, "").strip().split('\n')
+                nev = nev_parts[0].strip() if nev_parts else "Ismeretlen"
                 
-                # Telefon és Rendelések a 3. oszlopból
+                # Telefon és Rendelések a 4. oszlopból (Index 3)
                 tel_match = re.search(r'(\d{2}/\d{3,}-?\d{3,})', order_col)
                 rendelesek = re.findall(r'(\d+-[A-Z0-9]{1,4})', order_col)
                 
-                # Megjegyzés keresése (pl. kapukód)
+                # Megjegyzés kinyerése (pl. Kapukód)
                 megj = ""
                 if "kapukód" in content_col.lower():
                     m = re.search(r'(kapukód:?\s*[^\n]+)', content_col, re.IGNORECASE)
                     megj = m.group(1) if m else ""
 
                 extracted_data.append({
-                    'sorszam': sorszam_raw,
-                    'nev': nev[:30],
+                    'sorszam': sorszam_raw.split('\n')[0],
+                    'nev': nev[:25],
                     'cim': cim,
                     'tel': tel_match.group(1) if tel_match else "",
                     'rendelesek': rendelesek,
@@ -96,9 +94,7 @@ def create_label_pdf(data, f_nev, f_tel):
     c = canvas.Canvas(output, pagesize=A4)
     width, height = A4
     
-    # Margók és méretek
-    cols = 3
-    rows = 7
+    cols, rows = 3, 7
     label_w = (width - 20) / cols
     label_h = (height - 40) / rows
     
@@ -110,51 +106,41 @@ def create_label_pdf(data, f_nev, f_tel):
         col = idx % cols
         row = rows - 1 - (idx // cols)
         
-        x = 10 + col * label_w
-        y = 20 + row * label_h
+        x, y = 10 + col * label_w, 20 + row * label_h
         
-        # Keret rajzolása
         c.setStrokeColorRGB(0.8, 0.8, 0.8)
         c.rect(x + 2, y + 2, label_w - 4, label_h - 4)
         
         u = data[i]
         c.setFillColorRGB(0, 0, 0)
         
-        # 1. Sor: Sorszám és Darabszám
+        # Adatok felírása
         c.setFont(B_FONT, 10)
         c.drawString(x + 8, y + label_h - 15, f"{u['sorszam']}.")
         c.drawRightString(x + label_w - 10, y + label_h - 15, f"{len(u['rendelesek'])} db")
         
-        # 2. Sor: Név
         c.setFont(B_FONT, 11)
         c.drawString(x + 8, y + label_h - 28, u['nev'])
         
-        # 3. Sor: Telefon
         c.setFont(M_FONT, 9)
         c.drawString(x + 8, y + label_h - 40, f"Tel: {u['tel']}")
         
-        # 4. Sor: Cím (tördelve, ha hosszú)
         c.setFont(M_FONT, 8)
         c_text = u['cim']
-        if len(c_text) > 40:
-            c.drawString(x + 8, y + label_h - 52, c_text[:40])
-            c.drawString(x + 8, y + label_h - 62, c_text[40:80])
+        if len(c_text) > 38:
+            c.drawString(x + 8, y + label_h - 52, c_text[:38])
+            c.drawString(x + 8, y + label_h - 62, c_text[38:76])
         else:
             c.drawString(x + 8, y + label_h - 52, c_text)
             
-        # 5. Rendelések kódjai
         rend_str = ", ".join(u['rendelesek'])
         c.setFont(B_FONT, 8)
-        c.drawString(x + 8, y + 25, f"Kódok: {rend_str[:45]}")
+        c.drawString(x + 8, y + 25, f"Kód: {rend_str[:40]}")
         
-        # Megjegyzés (ha van)
         if u['megjegyzes']:
             c.setFont(M_FONT, 7)
-            c.setFillColorRGB(0.8, 0, 0) # Pirosas szín a figyelemfelhíváshoz
-            c.drawString(x + 8, y + 15, u['megjegyzes'][:45])
-            c.setFillColorRGB(0, 0, 0)
+            c.drawString(x + 8, y + 16, u['megjegyzes'][:45])
 
-        # Lábléc: Futár adatai
         c.setFont(M_FONT, 7)
         c.drawString(x + 8, y + 6, f"Futár: {f_nev} | {f_tel}")
 
@@ -163,25 +149,19 @@ def create_label_pdf(data, f_nev, f_tel):
 
 # --- Fő folyamat ---
 if uploaded_file:
-    with st.spinner("Adatok beolvasása folyamatban..."):
+    with st.spinner("Processing..."):
         try:
             data = extract_interfood_data(uploaded_file)
             if data:
-                st.success(f"Sikeresen beolvasva: {len(data)} ügyfél.")
+                st.success(f"Beolvasva: {len(data)} ügyfél.")
                 
-                # Táblázatos előnézet (opcionális, ellenőrzéshez)
-                with st.expander("Beolvasott adatok ellenőrzése"):
+                # Itt volt a hiba: most már a 'pd' (pandas) definiálva van!
+                with st.expander("Előnézet (első 10 sor)"):
                     st.table(pd.DataFrame(data).head(10))
                 
-                # PDF generálás gomb
                 pdf_bytes = create_label_pdf(data, futar_nev, futar_tel)
-                st.download_button(
-                    label="📥 Etikett PDF letöltése",
-                    data=pdf_bytes,
-                    file_name="interfood_etikett_v85.pdf",
-                    mime="application/pdf"
-                )
+                st.download_button("📥 PDF Letöltése", pdf_bytes, "interfood_v85.pdf", "application/pdf")
             else:
-                st.error("Nem találtam feldolgozható adatokat a PDF-ben. Ellenőrizd a fájl formátumát!")
+                st.warning("Nem sikerült adatokat kinyerni. Ellenőrizd a PDF-et!")
         except Exception as e:
             st.error(f"Hiba történt: {e}")

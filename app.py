@@ -3,14 +3,17 @@ import pdfplumber
 import pandas as pd
 import re
 
-def extract_v25(pdf_file):
+def extract_v26(pdf_file):
     all_customers = []
     
+    # Drasztikusan bővített tiltólista
     stop_words = [
         "csokimax", "harro", "höfliger", "hungary", "pearl", "enterprises", "kft", "zrt", 
         "expert", "globiz", "ford", "szalon", "debrecen", "utca", "út", "tér", "emelet", 
-        "ajtó", "porta", "ft", "db", "tétel", "kérem", "hívni", "kapu", "kód", "csöngessen", 
-        "vigye", "fel", "le", "fszt", "tető", "udvar", "bejárat", "mellék", "szám", "vagyok"
+        "ajtó", "porta", "portán", "ft", "db", "tétel", "kérem", "kérlek", "hívni", "kapu", 
+        "kód", "csöngessen", "vigye", "fel", "le", "fszt", "tető", "udvar", "bejárat", 
+        "mellék", "szám", "vagyok", "süteményes", "gyógyszertár", "fest-é-ker", "bolt", 
+        "üzlet", "iroda", "recepció", "műszak", "ügyelet", "raktár", "emelet", "férfi", "női"
     ]
     
     order_code_pattern = r'^[A-Z0-9]{1,4}$'
@@ -29,7 +32,6 @@ def extract_v25(pdf_file):
                 block_words = [w for w in words if top - 2 <= w['top'] < bottom - 2]
                 full_text = " ".join([w['text'] for w in block_words])
                 
-                # 1. FIX ADATOK
                 kod_m = re.search(r'([PZSC]-\d{6})', full_text)
                 kod = kod_m.group(1) if kod_m else ""
                 cim_m = re.search(r'(\d{4}\s+Debrecen,\s*.*?\d+[\s/]*[A-Z-]*\.?)', full_text)
@@ -37,29 +39,41 @@ def extract_v25(pdf_file):
                 tel_m = re.search(r'(\d{2}/\d{6,10})', full_text.replace(" ", ""))
                 tel = tel_m.group(1) if tel_m else "Nincs tel."
 
-                # 2. ÜGYINTÉZŐ KERESÉSE (Duplikáció elleni védelemmel)
+                # ÜGYINTÉZŐ KERESÉSE
                 search_area = full_text.replace(kod, "").replace(cim, "")
                 raw_parts = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', search_area)
                 
-                filtered = []
+                # 1. Alapszűrés (tiltólista + hossz)
+                base_filtered = []
                 for p in raw_parts:
                     if (p.lower() not in stop_words and 
                         not re.match(order_code_pattern, p) and 
                         len(p) > 2):
-                        # Csak akkor adjuk hozzá, ha még nincs benne (duplikáció szűrés)
-                        if p not in filtered:
-                            filtered.append(p)
+                        base_filtered.append(p)
                 
-                ugyintezo = ""
-                if len(filtered) >= 3:
-                    # Megnézzük, hogy az utolsó 3 szó egyedi-e
-                    ugyintezo = f"{filtered[-3]} {filtered[-2]} {filtered[-1]}"
-                elif len(filtered) == 2:
-                    ugyintezo = f"{filtered[0]} {filtered[1]}"
-                elif len(filtered) == 1:
-                    ugyintezo = filtered[0]
+                # 2. Duplikáció és részleges egyezés szűrése (pl. Hajós vs Hajós-Szabó)
+                final_parts = []
+                for p in base_filtered:
+                    is_duplicate = False
+                    for existing in final_parts:
+                        # Ha a szó már benne van egy másikban, vagy fordítva
+                        if p in existing or existing in p:
+                            is_duplicate = True
+                            # Ha az új szó hosszabb (pl. kötőjeles), cseréljük le a rövidebbet
+                            if len(p) > len(existing):
+                                final_parts[final_parts.index(existing)] = p
+                            break
+                    if not is_duplicate:
+                        final_parts.append(p)
 
-                # 3. RENDELÉS ÉS PÉNZ
+                ugyintezo = ""
+                if len(final_parts) >= 3:
+                    ugyintezo = f"{final_parts[-3]} {final_parts[-2]} {final_parts[-1]}"
+                elif len(final_parts) == 2:
+                    ugyintezo = f"{final_parts[0]} {final_parts[1]}"
+                elif len(final_parts) == 1:
+                    ugyintezo = final_parts[0]
+
                 money_m = re.search(r'(\d[\d\s]*)\s*Ft', full_text)
                 fizetendo = money_m.group(1).replace(" ", "") if money_m else "0"
                 rendelesek = re.findall(r'(\d+-[A-Z0-9]+)', full_text)
@@ -76,10 +90,10 @@ def extract_v25(pdf_file):
     return pd.DataFrame(all_customers)
 
 # --- UI ---
-st.title("Interfood v25 - Duplikáció Szűrő")
+st.title("Interfood v26 - Az Okos Szűrő")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = extract_v25(f)
-    st.write("### Ellenőrzés: Hajós-Szabó Anett és Nagy Izabella Ilona")
+    df = extract_v26(f)
+    st.write("### Ellenőrzés: Hajós-Szabó Anett, Süteményes, Fest-É-ker...")
     st.dataframe(df)
-    st.download_button("Export v25 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v25.csv")
+    st.download_button("Export v26 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v26.csv")

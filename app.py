@@ -5,32 +5,35 @@ import re
 from fpdf import FPDF
 import os
 
-def clean_name_v95(text):
-    """Kiszűri a nevet a zavaros cellákból is."""
-    if not text or text == "nan": return None
-    
-    # 1. Ha van benne perjel, a perjel utáni rész a név (pl. Cég Kft / Kovács János)
-    if "/" in text:
-        text = text.split("/")[-1]
-    
-    # 2. Távolítsuk el az irányítószámokat és házszámokat (4+ számjegy vagy számok a végén)
-    text = re.sub(r'\d{4,}', '', text) # Irányítószám ki
-    text = re.sub(r'\d+$', '', text)    # Sor végi számok ki
-    
-    # 3. Alapvető takarítás
-    text = text.strip(",. ")
-    
-    # Ha maradt benne betű és legalább 3 karakter, akkor ez lesz a név
-    if len(text) > 3 and re.search(r'[a-zA-ZÁÉÍÓÖŐÚÜŰ]', text):
-        return text
-    return None
+def extract_name_v96(cells, row_str):
+    """Mélyelemzéssel megkeresi a nevet a sorban."""
+    # 1. Próbálkozás: Perjel utáni rész (leggyakoribb a cégesnél)
+    slash_match = re.search(r'/\s*([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű.\-\s]{3,})', row_str)
+    if slash_match:
+        cand = slash_match.group(1).strip()
+        if not re.search(r'\d{4}', cand): # Ne legyen benne irányítószám
+            return cand
 
-def parse_v95(df_raw):
+    # 2. Próbálkozás: Olyan cella, ami legalább két szóból áll, Nagybetűs, és nincs benne szám
+    for c in cells:
+        c = c.strip()
+        if len(c.split()) >= 2 and re.match(r'^[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ\-\s]+$', c):
+            if "Debrecen" not in c and "utca" not in c and "út" not in c:
+                return c
+
+    # 3. Próbálkozás: Ha a cím cellájában van benne a név a végén (pl. "... 4030 Debrecen, Kiss Géza")
+    addr_name_match = re.search(r'\d{4}\s+Debrecen,?\s+.*?\s+([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+)', row_str)
+    if addr_name_match:
+        return addr_name_match.group(1).strip()
+
+    return "Név hiányzik"
+
+def parse_v96(df_raw):
     temp_storage = {} 
     order_list = [] 
 
     for idx, row in df_raw.iterrows():
-        cells = [str(c).strip() for c in row.values if str(c) != 'nan']
+        cells = [str(c).strip() for c in row.values if str(c) != 'nan' and str(c) != '']
         row_str = " ".join(cells)
         
         code_match = re.search(r'([A-Z])-\s?(\d{6})', row_str)
@@ -38,37 +41,21 @@ def parse_v95(df_raw):
         
         day_prefix, cust_id = code_match.group(1), code_match.group(2)
         
-        # Alapadatok
-        name, tel, addr, raw_rend = "Név hiányzik", "NINCS", "Cím hiányzik", ""
-
-        # --- NÉV KERESÉSE (Prioritás: 2-es index, majd a többi) ---
-        # Megpróbáljuk a fix helyet először
-        if len(row.values) > 2:
-            potential_name = clean_name_v95(str(row.values[2]))
-            if potential_name: name = potential_name
-
-        # Ha nem lett meg, végignézzük a cellákat
-        if name == "Név hiányzik":
-            for c in cells:
-                if "tétel" in c or "Ft" in c or "-" in c: continue # Ezek nem nevek
-                res = clean_name_v95(c)
-                if res:
-                    name = res
-                    break
-
-        # --- TELEFON, CÍM, RENDELÉS ---
+        # Név keresése az új logikával
+        name = extract_name_v96(cells, row_str)
+        
+        # Telefon, Cím, Rendelés marad a bevált v94/v95 logikán
+        tel, addr, raw_rend = "NINCS", "Cím hiányzik", ""
         for c in cells:
             if re.search(r'(\d{2}/[\d\s-]{7,})', c) or c.startswith(('+36', '06')):
                 tel_m = re.search(r'((?:\+36|06|20|30|70)[\s/]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', c)
-                if tel_m:
-                    tel = tel_m.group(1)
-                    raw_rend += " " + c.replace(tel, "").strip()
+                if tel_m: tel = tel_m.group(1); raw_rend += " " + c.replace(tel, "").strip()
             elif re.search(r'\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ]', c):
                 addr = c
             if re.search(r'\d+-[A-Z0-9]+', c):
                 raw_rend += " " + c
 
-        # PÉNZ KERESÉSE
+        # Pénz (keressük az aktuális és a következő sorban is)
         money = 0
         search_money = row_str
         if idx + 1 < len(df_raw):
@@ -76,7 +63,6 @@ def parse_v95(df_raw):
         money_m = re.search(r'(-?\d+[\s\d]*)\s*Ft', search_money)
         if money_m: money = int(re.sub(r'\s+', '', money_m.group(1)))
 
-        # ÖSSZEGZÉS ÉS TÁROLÁS
         rend_codes = re.findall(r'(\d+)-[A-Z0-9]+', raw_rend)
         current_rend_str = ", ".join(re.findall(r'(\d+-[A-Z0-9]+)', raw_rend))
         total_db = sum(int(c) for c in rend_codes)
@@ -101,8 +87,8 @@ def parse_v95(df_raw):
         "Összesen": f"{d['db']} tétel", "Pénz": f"{d['pénz']} Ft" if d['pénz'] != 0 else ""
     } for key, d in temp_storage.items()])
 
-# PDF generáló (v94-es design)
-def create_pdf_v95(df):
+# PDF generálás (Sorszám fontossága miatt marad a design)
+def create_pdf_v96(df):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=False)
     font_path, font_bold = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
@@ -123,15 +109,15 @@ def create_pdf_v95(df):
         pdf.set_xy(x + 5, y + 31); pdf.set_font(f_m, "", 7); pdf.multi_cell(60, 3, f"REND: {row['Rendelés']}", 0, 'L')
     return pdf.output()
 
-st.title("Interfood v95 - Névkereső Javítás")
+st.title("Interfood v96 - Névbányász")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
     with open("temp.pdf", "wb") as tp: tp.write(f.read())
     dfs = tabula.read_pdf("temp.pdf", pages='all', stream=True, guess=False)
     if dfs:
-        final_df = parse_v95(pd.concat(dfs, ignore_index=True))
+        final_df = parse_v96(pd.concat(dfs, ignore_index=True))
         st.write(f"Ügyfelek: {len(final_df)}")
         st.dataframe(final_df)
         if not final_df.empty:
-            st.download_button("💾 PDF LETÖLTÉSE", bytes(create_pdf_v95(final_df)), "etikettek_v95.pdf")
+            st.download_button("💾 PDF LETÖLTÉSE", bytes(create_pdf_v96(final_df)), "etikettek_v96.pdf")
     os.remove("temp.pdf")

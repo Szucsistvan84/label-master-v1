@@ -5,102 +5,106 @@ import re
 from fpdf import FPDF
 import os
 
-def parse_v97(df_raw):
-    # 1. Alakítsuk az egész táblázatot egy nagy szöveges mátrixszá, ahol minden cella tiszta
+def parse_v98(df_raw):
     matrix = df_raw.values.tolist()
     rows = len(matrix)
     cols = len(matrix[0])
     
-    customers = []
-    
-    # Végigszaladunk az összes létező cellán (függetlenül attól, hol van)
+    found_customers = []
+
     for r in range(rows):
         for c in range(cols):
             cell_val = str(matrix[r][c]).strip()
-            if cell_val == "nan" or cell_val == "": continue
             
-            # KERESSÜK A HORGONYT (Ügyfélkód: pl. P-123456 vagy "89 P-446205")
+            # ÜGYFÉLKÓD KERESÉSE (P-123456 vagy Z-123456)
             code_match = re.search(r'([PZ])\s?-\s?(\d{6})', cell_val)
             if code_match:
-                day_prefix = code_match.group(1)
-                cust_id = code_match.group(2)
+                prefix = code_match.group(1)
+                cid = code_match.group(2)
                 
-                # Találtunk egy ügyfelet! Most gyűjtsük össze a környezetéből az adatokat.
-                # Megnézzük a horgony celláját és a környező cellákat (5 soron és 10 oszlopon belül)
-                search_area = []
-                for ri in range(max(0, r-1), min(rows, r+4)):
-                    for ci in range(max(0, c-2), min(cols, c+15)): # Bőven nézzünk jobbra (F, K, P, V oszlopok miatt)
+                # --- NÉV KERESÉSE (Közvetlen környezetben: felette, mellette, benne) ---
+                name = "Név hiányzik"
+                search_candidates = []
+                
+                # 1. Megnézzük ugyanazt a cellát (hátha benne van a név is)
+                search_candidates.append(cell_val)
+                # 2. Megnézzük a felette lévő cellát (nagyon gyakori!)
+                if r > 0: search_candidates.append(str(matrix[r-1][c]))
+                # 3. Megnézzük a balra lévő cellát
+                if c > 0: search_candidates.append(str(matrix[r][c-1]))
+                # 4. Megnézzük a jobbra lévő cellát
+                if c < cols - 1: search_candidates.append(str(matrix[r][c+1]))
+
+                for cand in search_candidates:
+                    cand = cand.strip()
+                    if cand == "nan" or cand == "": continue
+                    # Tisztítás: ha benne van a kód, vágjuk le
+                    clean_cand = re.sub(r'[PZ]\s?-\s?\d{6}', '', cand).strip()
+                    clean_cand = re.sub(r'^\d+\s+', '', clean_cand).strip() # Sorszám le
+                    
+                    # Ha maradt értelmes név (2 szó, nincs benne 'tétel' vagy 'Ft')
+                    if len(clean_cand.split()) >= 2 and not re.search(r'\d{3,}', clean_cand):
+                        if "tétel" not in clean_cand.lower() and "beszedendő" not in clean_cand.lower():
+                            name = clean_cand
+                            break
+
+                # --- TELEFON, CÍM, RENDELÉS, PÉNZ ---
+                # Itt egy kicsit tágabb kört nézünk, mert ezek el tudnak csúszni (ahogy írtad)
+                context = []
+                for ri in range(max(0, r-2), min(rows, r+6)):
+                    for ci in range(max(0, c-2), min(cols, c+15)):
                         val = str(matrix[ri][ci]).strip()
-                        if val != "nan" and val != "":
-                            search_area.append(val)
+                        if val != "nan" and val != "": context.append(val)
                 
-                full_text = " | ".join(search_area)
+                full_context = " | ".join(context)
                 
-                # ADATOK KINYERÉSE A KÖRNYEZETBŐL
-                # 1. Telefonszám
                 tel = "NINCS"
-                tel_m = re.search(r'((?:\+36|06|20|30|70)[\s/]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', full_text)
+                tel_m = re.search(r'((?:\+36|06|20|30|70)[\s/]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', full_context)
                 if tel_m: tel = tel_m.group(1)
                 
-                # 2. Ügyintéző név (Azt mondtad, külön cellában van - keressük a legvalószínűbbet)
-                name = "Név hiányzik"
-                for item in search_area:
-                    # Olyan szöveg, ami 2-3 szóból áll, nagybetűs, nincs benne kód, se "tétel", se "Ft"
-                    if len(item.split()) >= 2 and not re.search(r'\d', item) and "tétel" not in item.lower():
-                        if not any(x in item for x in ["Debrecen", "utca", "út", "tér", "Interfood"]):
-                            name = item
-                            break
-                
-                # 3. Cím (Irányítószám alapján)
                 addr = "Cím hiányzik"
-                addr_m = re.search(r'(\d{4}\s+Debrecen,?\s+[^|]+)', full_text)
+                addr_m = re.search(r'(\d{4}\s+Debrecen,?\s+[^|]+)', full_context)
                 if addr_m: addr = addr_m.group(1).strip()
                 
-                # 4. Pénz (Ft-ot keresünk)
                 money = 0
-                money_m = re.search(r'(-?\d+[\s\d]*)\s*Ft', full_text)
+                money_m = re.search(r'(-?\d+[\s\d]*)\s*Ft', full_context)
                 if money_m: money = int(re.sub(r'\s+', '', money_m.group(1)))
                 
-                # 5. Rendelés kódok (pl. 1-L3K)
-                rend_list = re.findall(r'(\d+-[A-Z0-9]+)', full_text)
-                current_rend_str = ", ".join(rend_list)
-                total_db = sum(int(re.search(r'(\d+)', x).group(1)) for x in rend_list if re.search(r'(\d+)', x))
-
-                customers.append({
-                    "id": cust_id, "prefix": day_prefix, "name": name, 
-                    "tel": tel, "addr": addr, "money": money, 
-                    "rend": current_rend_str, "db": total_db
+                rend_list = re.findall(r'(\d+-[A-Z0-9]+)', full_context)
+                
+                found_customers.append({
+                    "cid": cid, "prefix": prefix, "name": name, "tel": tel, 
+                    "addr": addr, "money": money, "rend": rend_list
                 })
 
-    # Duplikációk szűrése és összevonás (ha ugyanaz a név és cím)
-    final_data = {}
-    for c in customers:
-        key = (c["name"], c["addr"])
-        if key not in final_data:
-            final_data[key] = {
-                "kód": c["id"], "név": c["name"], "cím": c["addr"], "tel": c["tel"],
-                "P": "", "SZ": "", "db": 0, "pénz": 0
-            }
-        if c["prefix"] == "Z": final_data[key]["SZ"] = c["rend"]
-        else: final_data[key]["P"] = c["rend"]
-        final_data[key]["db"] += c["db"]
-        final_data[key]["pénz"] += c["money"]
+    # Összesítés (Péntek + Szombat összevonás)
+    final_dict = {}
+    for item in found_customers:
+        key = (item["name"], item["addr"])
+        if key not in final_dict:
+            final_dict[key] = {"id": item["cid"], "név": item["name"], "cím": item["addr"], 
+                               "tel": item["tel"], "P": [], "Z": [], "pénz": 0}
+        
+        if item["prefix"] == "Z": final_dict[key]["Z"].extend(item["rend"])
+        else: final_dict[key]["P"].extend(item["rend"])
+        final_dict[key]["pénz"] += item["money"]
 
     return pd.DataFrame([{
-        "Sorszám": i+1, "Ügyfélkód": d["kód"], "Ügyintéző": d["név"],
+        "Sorszám": i+1, "Ügyfélkód": d["id"], "Ügyintéző": d["név"],
         "Telefon": d["tel"], "Cím": d["cím"],
-        "Rendelés": f"P: {d['P']} | SZ: {d['SZ']}" if d['P'] and d['SZ'] else (d['P'] or d['SZ']),
-        "Összesen": f"{d['db']} tétel", "Pénz": f"{d['pénz']} Ft" if d['pénz'] != 0 else ""
-    } for i, d in enumerate(final_data.values())])
+        "Rendelés": f"P: {', '.join(set(d['P']))} | SZ: {', '.join(set(d['Z']))}".strip(" |"),
+        "Összesen": f"{len(d['P'])+len(d['Z'])} tétel",
+        "Pénz": f"{d['pénz']} Ft" if d['pénz'] > 0 else ""
+    } for i, d in enumerate(final_dict.values())])
 
-# A PDF generáló (v96 design) maradhat
-def create_pdf_v97(df):
+# PDF generáló marad
+def create_pdf_v98(df):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=False)
-    font_path, font_bold = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
-    f_m = "DejaVu" if os.path.exists(font_path) else "Arial"
+    f_path, f_bold = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
+    f_m = "DejaVu" if os.path.exists(f_path) else "Arial"
     if f_m == "DejaVu":
-        pdf.add_font("DejaVu", style="", fname=font_path); pdf.add_font("DejaVu", style="B", fname=font_bold)
+        pdf.add_font("DejaVu", style="", fname=f_path); pdf.add_font("DejaVu", style="B", fname=f_bold)
     for i, row in df.iterrows():
         if i % 21 == 0: pdf.add_page()
         x, y = (i % 3) * 70, ((i // 3) % 7) * 42.4
@@ -114,16 +118,15 @@ def create_pdf_v97(df):
         pdf.set_xy(x + 5, y + 31); pdf.set_font(f_m, "", 7); pdf.multi_cell(60, 3, f"REND: {row['Rendelés']}", 0, 'L')
     return pdf.output()
 
-st.title("Interfood v97 - A Hasáb-törő")
+st.title("Interfood v98 - Precíziós Horgony")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
     with open("temp.pdf", "wb") as tp: tp.write(f.read())
-    # Megpróbáljuk a lehető legnyersebb módon kinyerni az adatokat
-    dfs = tabula.read_pdf("temp.pdf", pages='all', stream=True, guess=False, lattice=False)
+    dfs = tabula.read_pdf("temp.pdf", pages='all', stream=True, guess=False)
     if dfs:
-        final_df = parse_v97(pd.concat(dfs, ignore_index=True))
-        st.write(f"Talált ügyfelek: {len(final_df)}")
+        final_df = parse_v98(pd.concat(dfs, ignore_index=True))
+        st.write(f"Ügyfelek: {len(final_df)}")
         st.dataframe(final_df)
         if not final_df.empty:
-            st.download_button("💾 PDF LETÖLTÉSE", bytes(create_pdf_v97(final_df)), "etikettek_v97.pdf")
+            st.download_button("💾 PDF LETÖLTÉSE", bytes(create_pdf_v98(final_df)), "etikettek_v98.pdf")
     os.remove("temp.pdf")

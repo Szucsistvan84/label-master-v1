@@ -3,14 +3,17 @@ import pdfplumber
 import pandas as pd
 import re
 
-def extract_v22(pdf_file):
+def extract_v23(pdf_file):
     all_customers = []
     
-    # Kibővített tiltólista: cégek + rendelési kódok + mértékegységek
-    stop_words = ["csokimax", "harro", "höfliger", "hungary", "pearl", "enterprises", "kft", "zrt", "expert", "globiz", 
-                  "ford", "szalon", "debrecen", "utca", "út", "tér", "emelet", "ajtó", "porta", "ft", "db", "tétel"]
+    # Kibővített tiltólista: cégek + kódok + megjegyzés-szavak
+    stop_words = [
+        "csokimax", "harro", "höfliger", "hungary", "pearl", "enterprises", "kft", "zrt", 
+        "expert", "globiz", "ford", "szalon", "debrecen", "utca", "út", "tér", "emelet", 
+        "ajtó", "porta", "ft", "db", "tétel", "kérem", "hívni", "kapu", "kód", "csöngessen", 
+        "vigye", "fel", "le", "fszt", "tető", "udvar", "bejárat", "mellék", "szám"
+    ]
     
-    # Ismert rendelési kód minták szűrése (1-2 betűs kódok vagy szám-betű kombinációk)
     order_code_pattern = r'^[A-Z0-9]{1,4}$'
 
     with pdfplumber.open(pdf_file) as pdf:
@@ -37,12 +40,10 @@ def extract_v22(pdf_file):
 
                 # 2. ÜGYINTÉZŐ KERESÉSE
                 search_area = full_text.replace(kod, "").replace(cim, "")
-                # Nagybetűs szavak gyűjtése
                 raw_parts = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', search_area)
                 
                 filtered = []
                 for p in raw_parts:
-                    # Szűrés: Ne legyen a tiltólistán, ne legyen rövid kód, és ne legyen csak szám
                     if (p.lower() not in stop_words and 
                         not re.match(order_code_pattern, p) and 
                         len(p) > 2):
@@ -50,21 +51,20 @@ def extract_v22(pdf_file):
                 
                 ugyintezo = ""
                 if len(filtered) >= 2:
-                    # Ha van kötőjeles (pl. Szabó-Salák), és az az elején van
+                    # Ha az első szó kötőjeles (pl. Szabó-Salák), az a vezetéknév
                     if "-" in filtered[0]:
                         ugyintezo = f"{filtered[0]} {filtered[1]}"
                     else:
-                        # Általában az utolsó két megmaradt szó az emberi név
+                        # Az utolsó két értelmes szó általában az emberi név
+                        # (Kiszűri a cégnevet az elejéről és a "Kérem"-et a végéről)
                         ugyintezo = f"{filtered[-2]} {filtered[-1]}"
                 elif len(filtered) == 1:
                     ugyintezo = filtered[0]
 
-                # 3. PÉNZ ÉS DB
+                # 3. RENDELÉS ÉS PÉNZ
                 money_m = re.search(r'(\d[\d\s]*)\s*Ft', full_text)
                 fizetendo = money_m.group(1).replace(" ", "") if money_m else "0"
-                
                 rendelesek = re.findall(r'(\d+-[A-Z0-9]+)', full_text)
-                db_clean = str(len(rendelesek)) # Ez a legbiztosabb darabszám forrás
 
                 all_customers.append({
                     "Sorszám": markers[i]['num'],
@@ -72,17 +72,18 @@ def extract_v22(pdf_file):
                     "Cím": cim,
                     "Telefon": tel,
                     "Rendelés": ", ".join(rendelesek),
-                    "Db": db_clean,
+                    "Db": str(len(rendelesek)),
                     "Fizetendő": fizetendo + " Ft"
                 })
     return pd.DataFrame(all_customers)
 
 # --- UI ---
-st.title("Interfood v22 - A Szigorú Névtisztító")
+st.title("Interfood v23 - Zéró Tolerancia")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = extract_v22(f)
-    st.write("### Első sor ellenőrzése (Tőkés István):")
-    st.table(df.head(1))
+    df = extract_v23(f)
+    st.write("### 13. sor ellenőrzése (Ilona):")
+    st.dataframe(df[df["Sorszám"] == "13"])
+    st.write("### Teljes táblázat:")
     st.dataframe(df)
-    st.download_button("Export v22 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v22.csv")
+    st.download_button("Export v23 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v23.csv")

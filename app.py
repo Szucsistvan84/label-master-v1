@@ -4,7 +4,7 @@ import pandas as pd
 import io
 import re
 
-def extract_v14(pdf_file):
+def extract_v15(pdf_file):
     all_customers = []
     
     with pdfplumber.open(pdf_file) as pdf:
@@ -21,49 +21,49 @@ def extract_v14(pdf_file):
                 block_words = [w for w in words if top - 2 <= w['top'] < bottom - 2]
                 full_text = " ".join([w['text'] for w in block_words])
                 
-                # --- PRECIZIÓS BONTÁS ---
-                
-                # 1. Cím (A horgony)
+                # --- 1. FIX ADATOK KINYERÉSE ---
+                # Cím
                 cim_m = re.search(r'(\d{4}\s+Debrecen,\s*[^,]+?[\d/A-Z\-]+\.?)', full_text)
                 cim = cim_m.group(1) if cim_m else ""
                 
-                # 2. Telefonszám (A második horgony)
+                # Telefon (Horgony a névhez)
                 tel_m = re.search(r'(\d{2}/\d{6,10})', full_text.replace(" ", ""))
                 tel = tel_m.group(1) if tel_m else ""
 
-                # 3. ÜGYINTÉZŐ TISZTÍTÁSA (A lényeg!)
-                # Kivesszük a címet a szövegből, hogy ne zavarjon
-                text_no_address = full_text.replace(cim, "")
-                
-                # Keressük a neveket: 2 vagy 3 egymást követő nagybetűs szó
-                # Ami NEM tartalmaz számot és NEM a "Debrecen"
-                name_m = re.findall(r'\b([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+)?)\b', text_no_address)
-                
-                ugyintezo = ""
-                if name_m:
-                    # Az első talált név lesz az ügyintéző (kiszűrve a "Debrecen"-t ha véletlen benne maradt)
-                    for n in name_m:
-                        if "Debrecen" not in n:
-                            ugyintezo = n
-                            break
-
-                # 4. Rendelések
+                # Rendelések
                 rendelesek = re.findall(r'(\d+-[A-Z0-9]+)', full_text)
                 
-                # 5. Összeg
+                # Összeg
                 osszeg_m = re.search(r'(\d[\d\s]*)\s*Ft', full_text)
                 osszeg = osszeg_m.group(1).strip() if osszeg_m else "0"
 
-                # 6. Megjegyzés (maradék keresés)
+                # --- 2. ÜGYINTÉZŐ KERESÉSE (A horgonyok között) ---
+                ugyintezo = ""
+                if cim and tel:
+                    # Megkeressük mi van a Cím és a Telefonszám között
+                    # Ehhez a telefonszám első pár számjegyét keressük a szövegben
+                    tel_start = tel[:2] + "/"
+                    pattern = f"{re.escape(cim)}(.*?){tel_start}"
+                    name_area = re.search(pattern, full_text)
+                    
+                    if name_area:
+                        raw_name = name_area.group(1).strip()
+                        # Tisztítás: levágjuk a cégneveket (amik per jellel vagy kft-vel végződnek)
+                        # Csak a valódi nevet tartjuk meg (Nagybetűs szavak a végén)
+                        clean_name = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+\b', raw_name)
+                        if len(clean_name) >= 2:
+                            ugyintezo = " ".join(clean_name[-2:]) # Az utolsó két nagybetűs szó általában a név
+
+                # --- 3. MEGJEGYZÉS ---
                 megj = ""
-                for keyword in ["kapukód", "porta", "kcs", "kulcs", "új épület", "hívni"]:
-                    if keyword in full_text.lower():
-                        m_m = re.search(f'({keyword}[^,]+)', full_text, re.IGNORECASE)
+                for kw in ["kapukód", "porta", "kcs", "kulcs", "hívni"]:
+                    if kw in full_text.lower():
+                        m_m = re.search(f'({kw}[^,]+)', full_text, re.IGNORECASE)
                         if m_m: megj = m_m.group(1)
 
                 all_customers.append({
                     "Sorszám": markers[i]['num'],
-                    "Ügyintéző": ugyintezo,
+                    "Ügyintéző": ugyintezo if ugyintezo else "Név nem lelt",
                     "Cím": cim,
                     "Telefon": tel,
                     "Rendelés": ", ".join(rendelesek),
@@ -74,13 +74,14 @@ def extract_v14(pdf_file):
     return pd.DataFrame(all_customers)
 
 # --- UI ---
-st.title("Interfood v14 - Névtisztító")
+st.title("Interfood v15 - Szikra")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 
 if f:
-    df = extract_v14(f)
-    # Csak a kért oszlopokat mutatjuk, tiszta névvel
-    st.dataframe(df[["Sorszám", "Ügyintéző", "Cím", "Telefon", "Rendelés", "Összeg", "Megjegyzés"]])
+    df = extract_v15(f)
+    st.write("### Ellenőrzés: Csak az Ügyintéző és a Cím")
+    st.table(df[["Sorszám", "Ügyintéző", "Cím", "Összeg"]].head(10))
     
+    st.dataframe(df)
     csv = df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button("Exportálás CSV-be", csv, "interfood_tisztitott.csv")
+    st.download_button("Export CSV", csv, "interfood_v15.csv")

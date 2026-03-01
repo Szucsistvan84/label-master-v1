@@ -5,37 +5,40 @@ import re
 from fpdf import FPDF
 import os
 
-# --- 1. FINOMHANGOLT TISZTÍTÓ LOGIKA (v57) ---
-def final_clean_v57(text, address_text):
-    # Kibővített tiltólista a legújabb hibák alapján
-    blacklist = [
-        "Nem", "Ifjúsági", "Összesítés", "Összesen", "Sorszám", "Hiv", "VDK", "DKM", 
-        "CICA", "Portán", "Kérlek", "Csokimax", "Gyógyszertár", "Főnix", "Ker Ipark",
-        "OTP", "Gázkészülék", "Iskola", "Medgyessy", "Javítsd", "Magad", "Csemege",
-        "Kft", "Zrt", "Hungary", "Expert", "Mister", "Minit", "Pláza", "Bolt"
+# --- 1. A LEGSZIGORÚBB TISZTÍTÓ (v58) ---
+def ultra_clean_v58(text, address_text):
+    # Minden olyan szó, ami NEM emberi név része az Interfood PDF-ben
+    trash = [
+        "Harro", "Höfliger", "Hungary", "Richter", "Gedeon", "Csokimax", "Globiz", 
+        "International", "Expert", "Krones", "Kft", "Zrt", "DKM", "VDK", "Hiv", 
+        "DMJV", "Móricz", "Medgyessy", "Iskola", "Általános", "Gyógyszertár", "Főnix",
+        "OTP", "Gázkészülék", "Fodrászat", "CATL", "Wallau", "Mister", "Minit", "Pláza",
+        "Nem", "Ifjúsági", "Összesítés", "Összesen", "Sorszám", "Portán", "Kérlek",
+        "Csemege", "Javítsd", "Magad", "KCS", "RZK", "DEKK", "Kenézy", "Triton"
     ]
 
-    # Cím szavai ne zavarjanak be
+    # Cím darabjai
     addr_parts = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+\b', address_text)
     
-    # Szavak kinyerése (Nagybetűs, min 3 karakter, kivéve ha ékezetes rövid név)
+    # Szavak kinyerése a blokkból
     words = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', text)
     
-    filtered = []
+    clean_parts = []
     for w in words:
-        # Ha a szó benne van a blacklistben vagy a cím része, kihagyjuk
-        if (w not in blacklist and 
-            w not in addr_parts and 
-            not any(bad.lower() == w.lower() for bad in blacklist) and
-            w != "Debrecen" and len(w) > 2):
-            if w not in filtered:
-                filtered.append(w)
+        # Csak akkor tartjuk meg, ha nincs a tiltólistán, nem a cím része és nem Debrecen
+        is_trash = any(t.lower() == w.lower() for t in trash)
+        if not is_trash and w not in addr_parts and w != "Debrecen" and len(w) > 2:
+            if w not in clean_parts:
+                clean_parts.append(w)
     
-    # Csak az első 2-3 szót tartjuk meg (Név)
-    return " ".join(filtered[:3]).strip()
+    # Ha a név végén maradt egy magányos 'Kft' vagy 'Nem', levágjuk
+    if clean_parts and clean_parts[-1] in ["Kft", "Nem", "Hiv"]:
+        clean_parts.pop()
 
-# --- 2. PDF GENERÁLÁS (3x7 Etikett) ---
-def create_pdf_v57(df):
+    return " ".join(clean_parts[:3]).strip()
+
+# --- 2. PDF GENERÁLÁS (A megszokott 3x7 elrendezés) ---
+def create_pdf_v58(df):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=False)
     
@@ -45,7 +48,7 @@ def create_pdf_v57(df):
         pdf.add_font("DejaVu", style="B", fname=font_bold)
         f_name = "DejaVu"
     else:
-        st.error("Fontok hiányoznak!")
+        st.error("Hiányzó fontok!")
         return None
 
     for i, row in df.iterrows():
@@ -53,22 +56,18 @@ def create_pdf_v57(df):
         col, line = i % 3, (i // 3) % 7
         x, y = col * 70, line * 42.4
         
-        # NÉV
         pdf.set_xy(x + 5, y + 8)
         pdf.set_font(f_name, "B", 11)
         pdf.cell(60, 5, str(row['Ügyintéző']), 0, 1)
         
-        # TELEFON
         pdf.set_x(x + 5)
         pdf.set_font(f_name, "B", 9)
         pdf.cell(60, 5, f"TEL: {row['Telefon']}", 0, 1)
         
-        # CÍM
         pdf.set_x(x + 5)
         pdf.set_font(f_name, "", 8)
         pdf.cell(60, 4, str(row['Cím']), 0, 1)
         
-        # RENDELÉS
         pdf.set_x(x + 5)
         pdf.set_font(f_name, "", 7)
         pdf.multi_cell(60, 3.5, f"REND: {row['Rendelés']}", 0)
@@ -76,38 +75,41 @@ def create_pdf_v57(df):
     return pdf.output()
 
 # --- 3. STREAMLIT APP ---
-st.title("Interfood Etikett Mester v57")
+st.title("Interfood Etikett Mester v58")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 
 if f:
-    all_rows = []
+    extracted = []
     with pdfplumber.open(f) as pdf:
         for page in pdf.pages:
             words = page.extract_words()
-            markers = [{'num': w['text'], 'top': w['top']} for w in words if w['x0'] < 45 and re.match(r'^\d+$', w['text'])]
+            # Sorszámok (a bal szélen)
+            markers = [{'num': w['text'], 'top': w['top'], 'x1': w['x1']} for w in words if w['x0'] < 45 and re.match(r'^\d+$', w['text'])]
             
             for i in range(len(markers)):
                 top = markers[i]['top']
                 bottom = markers[i+1]['top'] if i+1 < len(markers) else page.height
                 
-                # Szigorúbb blokk-határ (hogy ne nyúljon át a következő sorba vagy az összesítőbe)
-                block_words = [w for w in words if top - 1 <= w['top'] < bottom - 3]
+                # CSAK a sorszámtól jobbra lévő szavakat nézzük a blokkon belül!
+                # Ezzel kiejtjük a sorszám felett lévő cégneveket.
+                block_words = [w for w in words if (top - 1.5 <= w['top'] < bottom - 2) and (w['x0'] >= markers[i]['x1'])]
                 block_text = " ".join([w['text'] for w in block_words])
                 
-                # Ha a blokkban benne van az "Összesítés" szó, vágjuk le onnantól
+                # Összesítés levágása
                 block_text = block_text.split("Összesítés")[0]
                 
-                # Adatok kinyerése
-                cim = (re.search(r'(\d{4}\s+Debrecen,\s*.*?\d+[\s/]*[A-Z-]*\.?)', block_text).group(1) if re.search(r'(\d{4}\s+Debrecen,\s*.*?\d+[\s/]*[A-Z-]*\.?)', block_text) else "")
-                tel = (re.search(r'((?:\+36|06|20/|30/|70/)[\s-]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', block_text).group(1) if re.search(r'((?:\+36|06|20/|30/|70/)[\s-]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', block_text) else "NINCS")
+                # Adat kinyerés
+                cim_m = re.search(r'(\d{4}\s+Debrecen,\s*.*?\d+[\s/]*[A-Z-]*\.?)', block_text)
+                cim = cim_m.group(1).strip() if cim_m else ""
                 
-                # Név tisztítása
-                name = final_clean_v57(block_text, cim)
+                tel_m = re.search(r'((?:\+36|06|20/|30/|70/)[\s-]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', block_text)
+                tel = tel_m.group(1) if tel_m else "NINCS"
                 
-                # Rendelések
+                name = ultra_clean_v58(block_text, cim)
+                
                 rend_list = sorted(list(set(re.findall(r'(\d+-[A-Z0-9]+)', block_text))))
                 
-                all_rows.append({
+                extracted.append({
                     "Sorszám": markers[i]['num'],
                     "Ügyintéző": name,
                     "Telefon": tel,
@@ -115,9 +117,9 @@ if f:
                     "Rendelés": ", ".join(rend_list)
                 })
 
-    df = pd.DataFrame(all_rows)
+    df = pd.DataFrame(extracted)
     st.dataframe(df)
     
-    pdf_bytes = create_pdf_v57(df)
+    pdf_bytes = create_pdf_v58(df)
     if pdf_bytes:
-        st.download_button("💾 PDF LETÖLTÉSE (v57)", bytes(pdf_bytes), "etikettek_v57.pdf", "application/pdf")
+        st.download_button("💾 PDF LETÖLTÉSE (v58)", bytes(pdf_bytes), "etikettek_v58.pdf", "application/pdf")

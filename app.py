@@ -5,50 +5,65 @@ import re
 from fpdf import FPDF
 import os
 
-def parse_v91(df_raw):
+def parse_v92(df_raw):
     temp_storage = {} 
     order_list = [] 
 
     for idx, row in df_raw.iterrows():
         row_str = " ".join([str(v) for v in row.values if str(v) != 'nan'])
+        # Csak azokat a sorokat nézzük, ahol van ügyfélkód
         if not re.search(r'[A-Z]-\s?\d{6}', row_str): continue
         
         next_row_text = ""
         if idx + 1 < len(df_raw):
             next_row_text = " ".join([str(val) for val in df_raw.iloc[idx + 1].values if str(val) != 'nan'])
 
+        # 5-ös blokkok kezelése (hasábos elrendezés miatt)
         for i in range(0, len(row.values), 5):
             if i + 4 >= len(row.values): break
             
-            # 1. ÜGYFÉLKÓD ÉS CÍM (1-es index)
+            # 1. ÜGYFÉLKÓD (Mindig az 1-es index környékén)
             code_cell = str(row.values[i+1])
             code_match = re.search(r'([A-Z])-\s?(\d{6})', code_cell)
             if not code_match: continue
             day_prefix, cust_id = code_match.group(1), code_match.group(2)
 
-            # 2. ÜGYINTÉZŐ NEVE (2-es index - SZÍNTISZTA NÉV)
-            name = str(row.values[i+2]).strip()
-            if name == "nan" or len(name) < 2:
-                name = "Név hiba"
+            # 2. ÜGYINTÉZŐ NEVE (Visszahozzuk a v89-es logikát)
+            name = "Név nem található"
+            for offset in [2, 1, 3]: # Megnézzük a szomszédos cellákat is
+                cand = str(row.values[i+offset]).strip()
+                # Ha nem nan, nem csak szám, nem kód és van benne legalább 4 karakter
+                if cand != "nan" and not re.match(r'^\d+$', cand) and not re.search(r'[A-Z]-\d{6}', cand) and len(cand) > 3:
+                    if "/" in cand and not re.search(r'\d{2}/', cand): # Ha cégnév/név, de nem telefon
+                        name = cand.split("/")[-1].strip()
+                    else:
+                        name = cand
+                    break
 
-            # 3. TELEFONSZÁM ÉS RENDELÉS (3-as index - EGYET JOBBRA!)
-            tel_rend_cell = str(row.values[i+3]).strip()
+            # 3. TELEFON ÉS RENDELÉS (A 3-as vagy 4-es cellából)
             tel = "NINCS"
-            raw_rend = tel_rend_cell
+            raw_rend = ""
+            # Megnézzük a 3-as és 4-es indexet is telefonszámért
+            target_cells = [str(row.values[i+3]), str(row.values[i+4])]
             
-            # Csak akkor vágunk space mentén, ha a cella telefonszámmal indul
-            if re.match(r'^(\+|06|\d{2})', tel_rend_cell):
-                if " " in tel_rend_cell:
-                    tel, raw_rend = tel_rend_cell.split(" ", 1)
+            for cell in target_cells:
+                cell = cell.strip()
+                if cell == "nan": continue
+                
+                # Ha van benne telefonszám minta (perjel és számok)
+                tel_m = re.search(r'((?:\+36|06|20|30|70)[\s/]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', cell)
+                if tel_m:
+                    tel = tel_m.group(1)
+                    # A maradék a rendelés
+                    raw_rend += " " + cell.replace(tel, "").strip()
                 else:
-                    tel = tel_rend_cell
-                    raw_rend = ""
-            
+                    raw_rend += " " + cell
+
             rend_codes = re.findall(r'(\d+)-[A-Z0-9]+', raw_rend)
             current_rend_str = ", ".join(re.findall(r'(\d+-[A-Z0-9]+)', raw_rend))
             total_db = sum(int(c) for c in rend_codes)
 
-            # 4. CÍM
+            # 4. CÍM (Az 1-es cellából az irányítószámtól)
             addr = "Cím nem található"
             addr_m = re.search(r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ].*)', code_cell)
             if addr_m: addr = addr_m.group(1).strip()
@@ -58,6 +73,7 @@ def parse_v91(df_raw):
             money_m = re.search(r'(-?\d+[\s\d]*)\s*Ft', next_row_text)
             if money_m: money = int(re.sub(r'\s+', '', money_m.group(1)))
 
+            # TÁROLÁS
             customer_key = (name, addr)
             if customer_key not in temp_storage:
                 temp_storage[customer_key] = {
@@ -85,8 +101,8 @@ def parse_v91(df_raw):
         })
     return pd.DataFrame(res)
 
-# PDF generálás (Sorszám, Kód, Név, Telefon, Cím, Rendelés sorrendben)
-def create_pdf_v91(df):
+# PDF generálás (A v90-ben dicsért kék telefonos design)
+def create_pdf_v92(df):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=False)
     font_path = "DejaVuSans.ttf" 
@@ -102,7 +118,7 @@ def create_pdf_v91(df):
         pdf.set_xy(x + 5, y + 5); pdf.set_font(f_m, "B", 10); pdf.cell(60, 5, str(row['Ügyintéző'])[:30])
         pdf.set_xy(x + 5, y + 10); pdf.set_font(f_m, "B", 8); pdf.cell(60, 4, f"{row['Összesen']} {row['Pénz']}")
         
-        # TELEFON - Most már tényleg a számnak kell itt lennie
+        # TELEFON - Kiemelve
         pdf.set_xy(x + 5, y + 15); pdf.set_font(f_m, "B", 10); pdf.set_text_color(0, 0, 150)
         pdf.cell(60, 5, f"TEL: {row['Telefon']}", 0, 1)
         pdf.set_text_color(0, 0, 0)
@@ -111,14 +127,14 @@ def create_pdf_v91(df):
         pdf.set_xy(x + 5, y + 31); pdf.set_font(f_m, "", 7); pdf.multi_cell(60, 3, f"REND: {row['Rendelés']}", 0, 'L')
     return pdf.output()
 
-st.title("Interfood v91 - Precíziós Telefonszám")
+st.title("Interfood v92 - Rekonstrukciós Verzió")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
     with open("temp.pdf", "wb") as tp: tp.write(f.read())
     dfs = tabula.read_pdf("temp.pdf", pages='all', stream=True, guess=True)
     if dfs:
-        final_df = parse_v91(pd.concat(dfs, ignore_index=True))
+        final_df = parse_v92(pd.concat(dfs, ignore_index=True))
         st.dataframe(final_df)
         if not final_df.empty:
-            st.download_button("💾 PDF LETÖLTÉSE", bytes(create_pdf_v91(final_df)), "etikettek_v91.pdf")
+            st.download_button("💾 PDF LETÖLTÉSE", bytes(create_pdf_v92(final_df)), "etikettek_v92.pdf")
     os.remove("temp.pdf")

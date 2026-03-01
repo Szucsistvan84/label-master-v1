@@ -1,4 +1,5 @@
 streamlit
-pdfplumber
+tabula-py
 pandas
-fpdf2
+xlsxwriter
+jpype1

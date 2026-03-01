@@ -5,45 +5,40 @@ import re
 from fpdf import FPDF
 import os
 
-# --- 1. AZ ULTIMATE TISZTÍTÓ LOGIKA (v54) ---
-def ultra_clean_v54(text, address_text):
-    # Brutális tiltólista a beküldött adatok alapján
-    hard_blacklist = [
-        "Portán", "Kérlek", "CICA", "HARAPÓS", "OTP", "Gázkészülék", "Gázkészülékbolt",
-        "Hiv", "DMJV", "Móricz", "Kormányhivatal", "Férfi", "Fodrászat", "Ker Ipark",
-        "Javítsd Magad", "Csemege", "Gyógyszertár", "Általános", "Iskola", "Kft", "Zrt",
-        "Hungary", "DKM", "KCS", "CATL", "Globiz", "International", "Ford", "Pearl",
-        "Expert", "Mister Minit", "Pláza", "Optipont", "Richter", "Gedeon", "Zaza",
-        "Süteményes", "Fsz", "VDK", "LGM", "RZK", "DEKK", "Kenézy", "Triton"
+# --- 1. A LEGSZIGORÚBB NÉV-TISZTÍTÓ (v56) ---
+def final_name_cleaner_v56(text, address_text):
+    # Brutális tiltólista (szavak és töredékek)
+    blacklist = [
+        "Csokimax", "Harro", "Höfliger", "Hungary", "DKM", "Pearl", "Enterprises", "Kft", "Zrt",
+        "DEKK", "Kenézy", "KCS", "Fest-É-ker", "RZK", "Triton", "Services", "Lapostetős",
+        "Matrackirály", "ZsoZso", "Color", "LGM", "DMJV", "Hiv", "VDK", "Ker Ipark", "Fsz",
+        "HARAPÓS", "CICA", "Bolt", "CATL", "Krones", "Globiz", "International", "Ford", "Expert",
+        "HKH", "Mister", "Minit", "Pláza", "Optipont", "Richter", "Gedeon", "Zaza", "Süteményes",
+        "Portán", "Kérlek", "Köszönöm", "OTP", "Gázkészülék", "Kormányhivatal", "Fodrászat", 
+        "Iskola", "Általános", "Medgyessy", "Javítsd", "Magad", "Csemege", "Házgyár", "Határ"
     ]
+
+    # Cím darabjainak eltávolítása (pl. 'Richter Gedeon u.' ne legyen a névben)
+    addr_parts = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+\b', address_text)
     
-    clean_text = text
-    # 1. Töröljük a cím szavait a szövegből (hogy ne legyen 'Házgyár István')
-    addr_words = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+\b', address_text)
+    # Csak nagybetűs szavak kigyűjtése
+    words = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', text)
     
-    # 2. Szavakra bontás és szűrés
-    words = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', clean_text)
-    
-    final_name_parts = []
+    filtered = []
     for w in words:
-        # Tisztítás: csak akkor tartjuk meg, ha nincs a tiltólistán és nem a város neve
-        if (w not in ["Debrecen", "Sorszám", "Összesen", "Rendelés", "Telefon"] and 
-            w not in addr_words and 
-            w not in hard_blacklist and
-            not any(x.upper() in w.upper() for x in hard_blacklist) and
-            len(w) > 2):
-            
-            if w not in final_name_parts:
-                final_name_parts.append(w)
+        is_bad = False
+        for bad in blacklist:
+            if bad.lower() in w.lower(): is_bad = True; break
+        
+        if not is_bad and w not in ["Debrecen", "Sorszám", "Összesen"] and w not in addr_parts and len(w) > 2:
+            if w not in filtered: filtered.append(w)
     
-    # Különleges eset: "Asztalos Károlyné Nem" -> "Nem" törlése ha a név után van
-    if len(final_name_parts) > 1 and final_name_parts[-1] in ["Nem", "Vagyok", "Itthon"]:
-        final_name_parts.pop()
+    # Speciális eset: Ha "Kovácsné" után ott maradt valami szemét
+    clean_res = " ".join(filtered[:3]).strip()
+    return clean_res if clean_res else "Ismeretlen"
 
-    return " ".join(final_name_parts[:3]).strip()
-
-# --- 2. PDF GENERÁLÁS (A kért tartalommal) ---
-def create_pdf_v54(df):
+# --- 2. PDF GENERÁLÁS (3x7 Etikett) ---
+def create_pdf_v56(df):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=False)
     
@@ -53,7 +48,7 @@ def create_pdf_v54(df):
         pdf.add_font("DejaVu", style="B", fname=font_bold)
         f_name = "DejaVu"
     else:
-        st.error("Fontok hiányoznak!")
+        st.error("Hiányzó fontok!")
         return None
 
     for i, row in df.iterrows():
@@ -61,56 +56,81 @@ def create_pdf_v54(df):
         col, line = i % 3, (i // 3) % 7
         x, y = col * 70, line * 42.4
         
-        # Ügyintéző Neve
+        # NÉV
         pdf.set_xy(x + 5, y + 8)
         pdf.set_font(f_name, "B", 11)
         pdf.cell(60, 5, str(row['Ügyintéző']), 0, 1)
         
-        # Telefonszám
+        # TELEFON (Kiemelve, ha van)
         pdf.set_x(x + 5)
-        pdf.set_font(f_name, "", 9)
-        pdf.cell(60, 5, f"Tel: {row['Telefon']}", 0, 1)
+        pdf.set_font(f_name, "B", 9)
+        pdf.cell(60, 5, f"TEL: {row['Telefon']}", 0, 1)
         
-        # Cím
+        # CÍM
         pdf.set_x(x + 5)
         pdf.set_font(f_name, "", 8)
-        pdf.cell(60, 5, str(row['Cím']), 0, 1)
+        pdf.cell(60, 4, str(row['Cím']), 0, 1)
         
-        # Rendelés összesítő
+        # RENDELÉS
         pdf.set_x(x + 5)
-        pdf.set_font(f_name, "B", 8)
-        pdf.multi_cell(60, 4, f"Rend: {row['Rendelés']}", 0)
+        pdf.set_font(f_name, "", 7)
+        pdf.multi_cell(60, 3.5, f"REND: {row['Rendelés']}", 0)
         
     return pdf.output()
 
 # --- 3. STREAMLIT APP ---
-st.title("Interfood Etikett Mester v54")
-f = st.file_uploader("Interfood PDF feltöltése", type="pdf")
+st.title("Interfood Etikett Mester v56")
+f = st.file_uploader("PDF feltöltése", type="pdf")
 
 if f:
-    extracted = []
+    all_rows = []
     with pdfplumber.open(f) as pdf:
         for page in pdf.pages:
+            text_full = page.extract_text()
             words = page.extract_words()
-            markers = [{'num': w['text'], 'top': w['top']} for w in words if w['x0'] < 40 and re.match(r'^\d+$', w['text'])]
+            
+            # Sorszámok keresése
+            markers = [{'num': w['text'], 'top': w['top'], 'bottom': 0} for w in words if w['x0'] < 45 and re.match(r'^\d+$', w['text'])]
             
             for i in range(len(markers)):
-                top, bottom = markers[i]['top'], (markers[i+1]['top'] if i+1 < len(markers) else page.height)
-                block = " ".join([w['text'] for w in words if top - 2 <= w['top'] < bottom - 2])
+                top = markers[i]['top']
+                bottom = markers[i+1]['top'] if i+1 < len(markers) else page.height
                 
-                # Cím, Telefon, Rendelés kinyerése
-                cim = (re.search(r'(\d{4}\s+Debrecen,\s*.*?\d+[\s/]*[A-Z-]*\.?)', block).group(1) if re.search(r'(\d{4}\s+Debrecen,\s*.*?\d+[\s/]*[A-Z-]*\.?)', block) else "")
-                tel = (re.search(r'((?:\+36|06)[\s-]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', block).group(1) if re.search(r'((?:\+36|06)[\s-]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', block) else "Nincs megadva")
-                rend_codes = ", ".join(re.findall(r'(\d+-[A-Z0-9]+)', block))
+                # Az adott sorszámhoz tartozó szövegblokk kinyerése
+                block_words = [w for w in words if top - 2 <= w['top'] < bottom - 2]
+                block_text = " ".join([w['text'] for w in block_words])
                 
-                # A NÉV TISZTÍTÁSA
-                name = ultra_clean_v54(block, cim)
+                # CÍM KERESÉSE
+                cim_m = re.search(r'(\d{4}\s+Debrecen,\s*.*?\d+[\s/]*[A-Z-]*\.?)', block_text)
+                cim = cim_m.group(1).strip() if cim_m else ""
                 
-                extracted.append({"Sorszám": markers[i]['num'], "Ügyintéző": name, "Telefon": tel, "Cím": cim, "Rendelés": rend_codes})
-    
-    df = pd.DataFrame(extracted)
+                # TELEFON KERESÉSE (Kibővített regex: 06..., +36..., 20/..., 30/..., 70/...)
+                tel_m = re.search(r'((?:\+36|06|20/|30/|70/)[\s-]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', block_text)
+                tel = tel_m.group(1) if tel_m else "NINCS"
+                
+                # Ha nem találta meg a blokkban, megnézzük a block_text végét hátha ott van "kopaszon"
+                if tel == "NINCS":
+                    tel_alt = re.search(r'(\d{2}/\d{3}-?\d{4})', block_text)
+                    if tel_alt: tel = tel_alt.group(1)
+
+                # NÉV TISZTÍTÁSA
+                name = final_name_cleaner_v56(block_text, cim)
+                
+                # RENDELÉSEK
+                rend_list = sorted(list(set(re.findall(r'(\d+-[A-Z0-9]+)', block_text))))
+                rend_str = ", ".join(rend_list)
+                
+                all_rows.append({
+                    "Sorszám": markers[i]['num'],
+                    "Ügyintéző": name,
+                    "Telefon": tel,
+                    "Cím": cim,
+                    "Rendelés": rend_str
+                })
+
+    df = pd.DataFrame(all_rows)
     st.dataframe(df)
     
-    pdf_out = create_pdf_v54(df)
-    if pdf_out:
-        st.download_button("💾 PDF LETÖLTÉSE (v54)", bytes(pdf_out), "etikettek_v54.pdf", "application/pdf")
+    pdf_bytes = create_pdf_v56(df)
+    if pdf_bytes:
+        st.download_button("💾 PDF LETÖLTÉSE (v56)", bytes(pdf_bytes), "etikettek_v56.pdf", "application/pdf")

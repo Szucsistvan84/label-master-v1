@@ -3,26 +3,47 @@ import pdfplumber
 import pandas as pd
 import re
 
-def clean_v36(text):
-    # 1. Nagytakarítás: Cégek, helyszínek, intézmények
-    blacklist = [
-        r"Optipont", r"Pláza", r"Ford\s*Szalon", r"Ford", r"ZsoZso\s*Color", 
-        r"LGM", r"Harro\s*Höfliger", r"Richter\s*Gedeon", r"Micskey\s*Ügyvédi",
-        r"DEKK", r"Kenézy\s*Gyula", r"DMJV", r"Hiv", r"Portán", r"Tűzoltósági",
-        r"HKH", r"Krones", r"Globiz", r"Pearl\s*Enterprises"
+def clean_name_final(text):
+    # 1. Minden olyan kifejezés, ami MUNKAHELY vagy CÉG (A te listád alapján)
+    workplace_blacklist = [
+        "Kft", "Zrt", "Bt", "Csokimax", "Harro Höfliger", "Hungary", "Pearl Enterprises",
+        "Gyógyszertár", "Főnix", "Fest-É-ker", "Medgyessy", "Általános Iskola", "Iskola",
+        "Javítsd Magad", "István Csemege", "Triton Services", "Lapostetős", "Matrackirály",
+        "Ifjúsági Ház", "Ifjúsági", "Kormányhivatal", "Kormány", "Harapós", "Bolt",
+        "Gázkészülékbolt", "Gázkészülék", "Optipont", "Pláza", "Ford Szalon", "Ford",
+        "ZsoZso Color", "LGM", "DEKK", "Kenézy Gyula", "DMJV", "Micskey Ügyvédi",
+        "Tűzoltósági", "HKH", "Krones", "Globiz", "International", "Medvés Nagyker",
+        "Otthon Centrum", "Önkiszolgáló", "Portán", "Rövid", "Hiv", "Üzlet"
     ]
-    cleaned = text
-    for p in blacklist:
-        cleaned = re.sub(p, "", cleaned, flags=re.IGNORECASE)
     
-    # 2. Technikai kódok és szemét törlése
-    trash = ["DKM", "RZK", "VDK", "KCS", "OTP", "FSZ", "FSZT", "CICA", "NEM"]
-    for t in trash:
-        cleaned = re.sub(r'\b' + t + r'\b', "", cleaned, flags=re.IGNORECASE)
-        
-    return cleaned.strip()
+    cleaned = text
+    # Teljes szavakat/kifejezéseket törlünk, nem vágunk bele a közepébe
+    for phrase in workplace_blacklist:
+        cleaned = re.sub(r'\b' + re.escape(phrase) + r'\b', '', cleaned, flags=re.IGNORECASE)
+    
+    # 2. Tisztítás a felesleges karakterektől
+    cleaned = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ\s-]', ' ', cleaned)
+    
+    # 3. Duplikációk kiszűrése (pl. Móricz Móricz-Nagy -> Móricz-Nagy)
+    parts = cleaned.split()
+    final_parts = []
+    for p in parts:
+        # Csak akkor adjuk hozzá, ha még nincs benne, és nem Debrecen vagy Sorszám
+        if p.lower() not in [x.lower() for x in final_parts] and p.lower() not in ["debrecen", "sorszám"]:
+            if len(p) > 2 or p.isupper(): # Rövidítések (pl. M.) maradhatnak ha nagybetűsek
+                final_parts.append(p)
+    
+    # 4. Ha a vezetéknév része a kötőjeles névnek, csak a hosszabbat tartsuk meg
+    # (Juhász Juhász-Takács -> Juhász-Takács)
+    result_name = " ".join(final_parts)
+    for p1 in final_parts:
+        for p2 in final_parts:
+            if p1 != p2 and p1 in p2 and "-" in p2:
+                result_name = result_name.replace(p1, "").strip()
 
-def extract_v36(pdf_file):
+    return " ".join(result_name.split()) # Dupla szóközök ellen
+
+def extract_v37(pdf_file):
     all_customers = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -32,44 +53,27 @@ def extract_v36(pdf_file):
             for i in range(len(markers)):
                 top = markers[i]['top']
                 bottom = markers[i+1]['top'] if i+1 < len(markers) else page.height
-                
                 block_words = [w for w in words if top - 2 <= w['top'] < bottom - 2]
                 raw_text = " ".join([w['text'] for w in block_words if "Összesen" not in w['text']])
                 
-                # Sterilizálás
-                clean_text = clean_v36(raw_text)
-                
-                # Cím és kód
+                # Adatok kinyerése
                 kod_m = re.search(r'([PZSC]-\d{6})', raw_text)
-                kod = kod_m.group(1) if kod_m else ""
                 cim_m = re.search(r'(\d{4}\s+Debrecen,\s*.*?\d+[\s/]*[A-Z-]*\.?)', raw_text)
-                cim = cim_m.group(1).strip() if cim_m else "Cím nem található"
                 
-                # NÉVÉPÍTÉS - DUPLIKÁCIÓ ELLENI VÉDELEMMEL
-                search_area = clean_text.replace(kod, "").replace(cim, "")
-                potential = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]*\b', search_area)
+                # NÉV TISZTÍTÁSA
+                ugyintezo = clean_name_final(raw_text.replace(kod_m.group(0) if kod_m else "", "").replace(cim_m.group(0) if cim_m else "", ""))
                 
-                name_parts = []
-                for p in potential:
-                    # Csak ha nem tiltott, nem Debrecen, és MÉG NINCS BENNE a listában
-                    if p not in ["Debrecen", "Sorszám"] and len(p) > 2:
-                        # Ez a sor akadályozza meg a Batiz Batiz-t:
-                        if p not in name_parts:
-                            name_parts.append(p)
-
-                # Összeállítás (Vezetéknév + Keresztnév)
-                ugyintezo = " ".join(name_parts[:3]) if len(name_parts) >= 2 else (name_parts[0] if name_parts else "Név hiba")
-
                 all_customers.append({
                     "Sorszám": markers[i]['num'],
-                    "Ügyintéző": ugyintezo,
-                    "Cím": cim,
+                    "Ügyintéző": ugyintezo if ugyintezo else "Név nem található",
+                    "Cím": cim_m.group(1).strip() if cim_m else "Cím hiba",
                     "Rendelés": ", ".join(re.findall(r'(\d+-[A-Z0-9]+)', raw_text))
                 })
     return pd.DataFrame(all_customers)
 
-st.title("Interfood v36 - A Duplikáció-gyilkos")
+st.title("Interfood v37 - A Végleges Névtisztító")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = extract_v36(f)
+    df = extract_v37(f)
     st.dataframe(df)
+    st.download_button("v37 CSV Letöltése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v37.csv")

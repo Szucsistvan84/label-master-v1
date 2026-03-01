@@ -11,10 +11,10 @@ def clean_phone(tel_str):
         if len(parts) > 1: return f"{parts[0]}/{parts[1]}"
     return cleaned
 
-def extract_v29(pdf_file):
+def extract_v30(pdf_file):
     all_customers = []
     
-    # Bővített tiltólista - cégek és felesleges szavak
+    # Kibővített tiltólista és rendelési kódok
     stop_words = [
         "csokimax", "harro", "höfliger", "hungary", "pearl", "enterprises", "kft", "zrt", 
         "expert", "globiz", "ford", "szalon", "debrecen", "utca", "út", "tér", "emelet", 
@@ -26,7 +26,8 @@ def extract_v29(pdf_file):
         "color", "zsozso", "ifjúsági", "ház", "hiv", "kormányhivatal", "fodrászat", "ipark",
         "bhs", "international", "pláza", "harapós", "gázkészülék", "gázkészülékbolt", 
         "szállításkor", "általános", "javítsd", "magad", "csemege", "triton", "services", 
-        "mister", "minit", "lapostetős", "optipont", "krones", "istván", "úti"
+        "mister", "minit", "lapostetős", "optipont", "kones", "istván", "úti",
+        "kcs", "dkm", "rzk", "vdk", "otp", "lgm", "hkh", "cica", "nem", "fsz"
     ]
 
     with pdfplumber.open(pdf_file) as pdf:
@@ -55,23 +56,32 @@ def extract_v29(pdf_file):
                 tel_m = re.search(r'(\d{2}[^0-9]*\d{6,10})', full_text.replace(" ", ""))
                 tel = clean_phone(tel_m.group(1)) if tel_m else "Nincs tel."
 
-                # ÜGYINTÉZŐ KERESÉSE - Finomhangolt logika
+                # NÉV KINYERÉSE - Új "Szedd szét és tisztítsd" logika
                 search_area = full_text.replace(kod, "").replace(cim, "")
                 raw_parts = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]*\b', search_area)
                 
                 filtered = []
                 for p in raw_parts:
-                    if p.lower() not in stop_words and len(p) > 2:
+                    p_clean = p.strip().lower()
+                    if p_clean not in stop_words and len(p) > 2:
                         if p not in filtered: filtered.append(p)
                 
-                # Név összeállítása: próbálunk 2-3 szót fogni a lista végéről, 
-                # de vigyázunk a duplikációra
-                if len(filtered) >= 3:
-                    ugyintezo = f"{filtered[-3]} {filtered[-2]} {filtered[-1]}"
-                elif len(filtered) == 2:
-                    ugyintezo = f"{filtered[0]} {filtered[1]}"
-                elif len(filtered) == 1:
-                    ugyintezo = filtered[0]
+                # Hajós-Szabó típusú duplikációk javítása
+                final_parts = []
+                for p in filtered:
+                    is_sub = False
+                    for idx, existing in enumerate(final_parts):
+                        if p in existing: is_sub = True; break
+                        if existing in p: final_parts[idx] = p; is_sub = True; break
+                    if not is_sub: final_parts.append(p)
+
+                # Speciális esetek kezelése (pl. ha a PDF-ben elöl van a vezetéknév de a szűrő kidobná)
+                if len(final_parts) >= 3:
+                    ugyintezo = f"{final_parts[0]} {final_parts[1]} {final_parts[2]}"
+                elif len(final_parts) == 2:
+                    ugyintezo = f"{final_parts[0]} {final_parts[1]}"
+                elif len(final_parts) == 1:
+                    ugyintezo = final_parts[0]
                 else:
                     ugyintezo = "Név nem azonosítható"
 
@@ -90,11 +100,10 @@ def extract_v29(pdf_file):
                 })
     return pd.DataFrame(all_customers)
 
-# --- UI ---
-st.title("Interfood v29 - Az Utolsó Simítás")
+st.title("Interfood v30 - A Sziklaszilárd Verzió")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = extract_v29(f)
-    st.write("### Ellenőrzés (Nyitrai Edit, Kiss Tímea, Zöld Ernő Imre):")
+    df = extract_v30(f)
+    st.write("### Ellenőrzés (Tőkés István, Kertész Ádám, Ander Éva):")
     st.dataframe(df)
-    st.download_button("Export v29 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v29.csv")
+    st.download_button("v30 CSV Letöltése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v30.csv")

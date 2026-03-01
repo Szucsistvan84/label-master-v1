@@ -3,17 +3,20 @@ import pdfplumber
 import pandas as pd
 import re
 
-def extract_v26(pdf_file):
+def extract_v27(pdf_file):
     all_customers = []
     
-    # Drasztikusan bővített tiltólista
+    # 1. BRUTÁLIS TILTÓLISTA (Munkahelyek, megjegyzések, rövidítések)
     stop_words = [
         "csokimax", "harro", "höfliger", "hungary", "pearl", "enterprises", "kft", "zrt", 
         "expert", "globiz", "ford", "szalon", "debrecen", "utca", "út", "tér", "emelet", 
         "ajtó", "porta", "portán", "ft", "db", "tétel", "kérem", "kérlek", "hívni", "kapu", 
         "kód", "csöngessen", "vigye", "fel", "le", "fszt", "tető", "udvar", "bejárat", 
         "mellék", "szám", "vagyok", "süteményes", "gyógyszertár", "fest-é-ker", "bolt", 
-        "üzlet", "iroda", "recepció", "műszak", "ügyelet", "raktár", "emelet", "férfi", "női"
+        "üzlet", "iroda", "recepció", "műszak", "ügyelet", "raktár", "férfi", "női",
+        "gedeon", "richter", "zaza", "főnix", "medgyessy", "iskola", "gimnázium", "matrackirály",
+        "color", "zsozso", "ifjúsági", "ház", "hiv", "kormányhivatal", "fodrászat", "ipark",
+        "bhs", "international", "pláza", "harapós", "gázkészülék", "gázkészülékbolt", "szállításkor"
     ]
     
     order_code_pattern = r'^[A-Z0-9]{1,4}$'
@@ -29,8 +32,14 @@ def extract_v26(pdf_file):
             for i in range(len(markers)):
                 top = markers[i]['top']
                 bottom = markers[i+1]['top'] if i+1 < len(markers) else page.height
+                
+                # SZÖVEG KINYERÉSE ÉS AZONNALI VÁGÁS AZ ÖSSZESÍTÉSNÉL
                 block_words = [w for w in words if top - 2 <= w['top'] < bottom - 2]
-                full_text = " ".join([w['text'] for w in block_words])
+                full_text = ""
+                for w in block_words:
+                    if "Összesen" in w['text'] or "Összesítés" in w['text']:
+                        break
+                    full_text += w['text'] + " "
                 
                 kod_m = re.search(r'([PZSC]-\d{6})', full_text)
                 kod = kod_m.group(1) if kod_m else ""
@@ -41,25 +50,26 @@ def extract_v26(pdf_file):
 
                 # ÜGYINTÉZŐ KERESÉSE
                 search_area = full_text.replace(kod, "").replace(cim, "")
-                raw_parts = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', search_area)
+                # Csak nagybetűs szavakat keresünk, amik nem csak számok
+                raw_parts = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]*\b', search_area)
                 
-                # 1. Alapszűrés (tiltólista + hossz)
-                base_filtered = []
+                filtered = []
                 for p in raw_parts:
-                    if (p.lower() not in stop_words and 
-                        not re.match(order_code_pattern, p) and 
-                        len(p) > 2):
-                        base_filtered.append(p)
+                    p_clean = p.strip().lower()
+                    # Szigorú szűrés
+                    if (p_clean not in stop_words and 
+                        not re.match(order_code_pattern, p.upper()) and 
+                        len(p) > 2 and 
+                        not any(stop in p_clean for stop in ["kft", "zrt", "kht"])):
+                        filtered.append(p)
                 
-                # 2. Duplikáció és részleges egyezés szűrése (pl. Hajós vs Hajós-Szabó)
+                # Duplikáció és részleges egyezés szűrése (pl. Hajós vs Hajós-Szabó)
                 final_parts = []
-                for p in base_filtered:
+                for p in filtered:
                     is_duplicate = False
                     for existing in final_parts:
-                        # Ha a szó már benne van egy másikban, vagy fordítva
                         if p in existing or existing in p:
                             is_duplicate = True
-                            # Ha az új szó hosszabb (pl. kötőjeles), cseréljük le a rövidebbet
                             if len(p) > len(existing):
                                 final_parts[final_parts.index(existing)] = p
                             break
@@ -67,8 +77,10 @@ def extract_v26(pdf_file):
                         final_parts.append(p)
 
                 ugyintezo = ""
+                # Ha túl sok szó maradt, valószínűleg a megjegyzés elejét is behúztuk, 
+                # de a név általában 2-3 szóból áll
                 if len(final_parts) >= 3:
-                    ugyintezo = f"{final_parts[-3]} {final_parts[-2]} {final_parts[-1]}"
+                    ugyintezo = f"{final_parts[0]} {final_parts[1]} {final_parts[2]}"
                 elif len(final_parts) == 2:
                     ugyintezo = f"{final_parts[0]} {final_parts[1]}"
                 elif len(final_parts) == 1:
@@ -90,10 +102,10 @@ def extract_v26(pdf_file):
     return pd.DataFrame(all_customers)
 
 # --- UI ---
-st.title("Interfood v26 - Az Okos Szűrő")
+st.title("Interfood v27 - A „Végre tiszta” verzió")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = extract_v26(f)
-    st.write("### Ellenőrzés: Hajós-Szabó Anett, Süteményes, Fest-É-ker...")
+    df = extract_v27(f)
+    st.write("### Ellenőrizd a kényes sorokat (101. Varga Ibolya, Harapós, Matrackirály):")
     st.dataframe(df)
-    st.download_button("Export v26 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v26.csv")
+    st.download_button("Export v27 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v27.csv")

@@ -3,15 +3,14 @@ import pdfplumber
 import pandas as pd
 import re
 
-def extract_v23(pdf_file):
+def extract_v24(pdf_file):
     all_customers = []
     
-    # Kibővített tiltólista: cégek + kódok + megjegyzés-szavak
     stop_words = [
         "csokimax", "harro", "höfliger", "hungary", "pearl", "enterprises", "kft", "zrt", 
         "expert", "globiz", "ford", "szalon", "debrecen", "utca", "út", "tér", "emelet", 
         "ajtó", "porta", "ft", "db", "tétel", "kérem", "hívni", "kapu", "kód", "csöngessen", 
-        "vigye", "fel", "le", "fszt", "tető", "udvar", "bejárat", "mellék", "szám"
+        "vigye", "fel", "le", "fszt", "tető", "udvar", "bejárat", "mellék", "szám", "vagyok"
     ]
     
     order_code_pattern = r'^[A-Z0-9]{1,4}$'
@@ -38,7 +37,7 @@ def extract_v23(pdf_file):
                 tel_m = re.search(r'(\d{2}/\d{6,10})', full_text.replace(" ", ""))
                 tel = tel_m.group(1) if tel_m else "Nincs tel."
 
-                # 2. ÜGYINTÉZŐ KERESÉSE
+                # 2. ÜGYINTÉZŐ KERESÉSE (3 szavas név támogatással)
                 search_area = full_text.replace(kod, "").replace(cim, "")
                 raw_parts = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', search_area)
                 
@@ -50,14 +49,12 @@ def extract_v23(pdf_file):
                         filtered.append(p)
                 
                 ugyintezo = ""
-                if len(filtered) >= 2:
-                    # Ha az első szó kötőjeles (pl. Szabó-Salák), az a vezetéknév
-                    if "-" in filtered[0]:
-                        ugyintezo = f"{filtered[0]} {filtered[1]}"
-                    else:
-                        # Az utolsó két értelmes szó általában az emberi név
-                        # (Kiszűri a cégnevet az elejéről és a "Kérem"-et a végéről)
-                        ugyintezo = f"{filtered[-2]} {filtered[-1]}"
+                if len(filtered) >= 3:
+                    # Ha 3 vagy több szavunk maradt, és az utolsó három "emberi névnek" tűnik
+                    # Pl: Nagy Izabella Ilona
+                    ugyintezo = f"{filtered[-3]} {filtered[-2]} {filtered[-1]}"
+                elif len(filtered) == 2:
+                    ugyintezo = f"{filtered[0]} {filtered[1]}"
                 elif len(filtered) == 1:
                     ugyintezo = filtered[0]
 
@@ -78,12 +75,13 @@ def extract_v23(pdf_file):
     return pd.DataFrame(all_customers)
 
 # --- UI ---
-st.title("Interfood v23 - Zéró Tolerancia")
+st.title("Interfood v24 - A Háromszavas Név Mentő")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = extract_v23(f)
-    st.write("### 13. sor ellenőrzése (Ilona):")
-    st.dataframe(df[df["Sorszám"] == "13"])
-    st.write("### Teljes táblázat:")
+    df = extract_v24(f)
+    st.write("### Ellenőrzés: Nagy Izabella Ilona")
+    # Megkeressük az Ilonát a táblázatban
+    st.dataframe(df[df["Ügyintéző"].str.contains("Ilona", na=False)])
+    st.write("### Teljes lista:")
     st.dataframe(df)
-    st.download_button("Export v23 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v23.csv")
+    st.download_button("Export v24 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v24.csv")

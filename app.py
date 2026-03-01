@@ -5,12 +5,12 @@ import re
 from fpdf import FPDF
 import os
 
-def parse_v99(pdf_path):
+def parse_v100(pdf_path):
     all_customers = []
     # Oldalanként olvassuk be, hogy ne csússzanak össze a hasábok
-    total_pages = tabula.read_pdf(pdf_path, pages='all', stream=True, guess=False)
+    dfs = tabula.read_pdf(pdf_path, pages='all', stream=True, guess=False)
     
-    for df_page in total_pages:
+    for df_page in dfs:
         matrix = df_page.values.tolist()
         page_text_list = []
         for row in matrix:
@@ -31,36 +31,45 @@ def parse_v99(pdf_path):
             
             if idx == -1: continue
 
-            # NÉV KERESÉSE: Megnézzük az összes cellát az oldalon, 
-            # ami NEM tartalmaz kódot, de 2-3 szóból áll és Nagybetűs
+            # NÉV KERESÉSE: Megnézzük az összes cellát az oldalon
             name = "Név hiányzik"
-            # Először nézzük meg a kód ELŐTTI 3 cellát (legvalószínűbb)
-            for i in range(max(0, idx-5), idx+5):
-                cand = page_text_list[i]
-                clean = re.sub(r'[PZ]\s?-\s?\d{6}', '', cand).strip()
-                clean = re.sub(r'^\d+\s+', '', clean).strip()
-                if len(clean.split()) >= 2 and not re.search(r'\d{2,}', clean):
-                    if not any(x in clean for i, x in enumerate(["Debrecen", "utca", "út", "tér", "tétel", "Ft"])):
-                        name = clean
-                        break
+            # Szélesebb körben keresünk a név után (az oldal bármely részén, ahol a kód szerepelhet)
+            for cand in page_text_list:
+                if cid in cand:
+                    # Ha a cellában benne van a kód, hátha benne van a név is
+                    clean = re.sub(r'[PZ]\s?-\s?\d{6}', '', cand).strip()
+                    clean = re.sub(r'^\d+\s+', '', clean).strip()
+                    if len(clean.split()) >= 2 and not re.search(r'\d{3,}', clean):
+                        if not any(x in clean for x in ["Debrecen", "utca", "út", "tér", "tétel", "Ft"]):
+                            name = clean
+                            break
+            
+            # Ha még mindig nincs név, nézzük a kód körüli cellákat
+            if name == "Név hiányzik":
+                for i in range(max(0, idx-5), min(len(page_text_list), idx+5)):
+                    cand = page_text_list[i]
+                    clean = re.sub(r'[PZ]\s?-\s?\d{6}', '', cand).strip()
+                    clean = re.sub(r'^\d+\s+', '', clean).strip()
+                    if len(clean.split()) >= 2 and not re.search(r'\d{3,}', clean):
+                        if not any(x in clean for x in ["Debrecen", "utca", "út", "tér", "tétel", "Ft"]):
+                            name = clean
+                            break
 
-            # TELEFON: Bárhol az oldalon, ami a kód közelében van
+            # TELEFON, CÍM, PÉNZ, RENDELÉS (pásztázó üzemmód)
+            search_area = " ".join(page_text_list[max(0, idx-15):min(len(page_text_list), idx+25)])
+            
             tel = "NINCS"
-            search_area = " ".join(page_text_list[max(0, idx-10):min(len(page_text_list), idx+20)])
             tel_m = re.search(r'((?:\+36|06|20|30|70)[\s/]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', search_area)
             if tel_m: tel = tel_m.group(1)
 
-            # CÍM: Irányítószám alapján
             addr = "Cím hiányzik"
             addr_m = re.search(r'(\d{4}\s+Debrecen,?\s+[^|]+)', search_area)
             if addr_m: addr = addr_m.group(1).strip()
 
-            # PÉNZ:
             money = 0
             money_m = re.search(r'(-?\d+[\s\d]*)\s*Ft', search_area)
             if money_m: money = int(re.sub(r'\s+', '', money_m.group(1)))
 
-            # RENDELÉS:
             rends = re.findall(r'(\d+-[A-Z0-9]+)', search_area)
 
             all_customers.append({
@@ -68,7 +77,7 @@ def parse_v99(pdf_path):
                 "addr": addr, "money": money, "rend": rends
             })
 
-    # Összesítés és duplikátum szűrés
+    # Összesítés
     final_dict = {}
     for item in all_customers:
         key = (item["name"], item["addr"])
@@ -87,8 +96,7 @@ def parse_v99(pdf_path):
         "Pénz": f"{d['pénz']} Ft" if d['pénz'] > 0 else ""
     } for i, d in enumerate(final_dict.values())])
 
-# PDF generáló változatlan
-def create_pdf_v99(df):
+def create_pdf_v100(df):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=False)
     f_p, f_b = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
@@ -108,13 +116,13 @@ def create_pdf_v99(df):
         pdf.set_xy(x+5, y+31); pdf.set_font(f_m, "", 7); pdf.multi_cell(60, 3, f"REND: {row['Rendelés']}", 0, 'L')
     return pdf.output()
 
-st.title("Interfood v99 - A Detektív")
+st.title("Interfood v100 - A Mátrix")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
     with open("temp.pdf", "wb") as tp: tp.write(f.read())
-    final_df = parse_v99("temp.pdf")
+    final_df = parse_v100("temp.pdf")
     st.write(f"Ügyfelek: {len(final_df)}")
     st.dataframe(final_df)
     if not final_df.empty:
-        st.download_button("💾 PDF LETÖLTÉSE", bytes(create_pdf_v99(final_df)), "etikettek_v99.pdf")
+        st.download_button("💾 PDF LETÖLTÉSE", bytes(create_pdf_v100(final_df)), "etikettek_v100.pdf")
     os.remove("temp.pdf")

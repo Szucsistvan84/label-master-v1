@@ -3,47 +3,47 @@ import pdfplumber
 import pandas as pd
 import re
 
-def clean_v38(raw_text):
-    # 1. Brutális tiltólista (csak teljes szavakra!)
-    blacklist = [
-        "Kft", "Zrt", "Bt", "Csokimax", "Harro", "Höfliger", "Hungary", "Richter", "Gedeon",
-        "Főnix", "Gyógyszertár", "Állatorvosi", "Fest-É-ker", "Medgyessy", "Iskola", "Általános",
-        "Javítsd", "Magad", "Triton", "Services", "Matrackirály", "Gázkészülék", "Bolt",
-        "Micskey", "Ügyvédi", "Tűzoltósági", "Kormányhivatal", "Hivatal", "Kormány",
-        "Porta", "Portán", "Teherporta", "Épület", "Lapostetős", "Rövid", "LGM", "HKH", "Krones"
+def super_clean_v39(text):
+    # 1. Töröljük a cégneveket TELJES kifejezésként, hogy ne maradjon belőlük roncs
+    firms = [
+        "Harro Höfliger Hungary", "Harro Höfliger", "Pearl Enterprises", "DEKK Kenézy Gyula",
+        "Kenézy Gyula", "DEKK", "Főnix Gyógyszertár", "Főnix Állatorvosi", "Fest-É-ker",
+        "Medgyessy Gimnázium", "Általános Iskola", "Triton Services", "Javítsd Magad",
+        "Matrackirály", "Ford Szalon", "ZsoZso Color", "Kormányhivatal", "Gázkészülékbolt"
     ]
+    for f in firms:
+        text = re.sub(re.escape(f), '', text, flags=re.IGNORECASE)
+
+    # 2. Töröljük a maradék szemetet
+    trash = [
+        "Hungary", "Kft", "Zrt", "Porta", "Portán", "Teherporta", "Hiv", "Rövid", 
+        "LGM", "HKH", "Krones", "Csokimax", "Mo ", "Expert", "Bolt"
+    ]
+    for t in trash:
+        text = re.sub(r'\b' + re.escape(t) + r'\b', '', text, flags=re.IGNORECASE)
+
+    # 3. Név kinyerése: Csak nagybetűvel kezdődő, legalább 3 betűs szavak
+    # Kizárjuk a "Debrecen" szót és a technikai kódokat
+    words = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', text)
     
-    # 2. Vegyük ki a kódokat (P-123456) és a Debrecen... részt
-    text_no_code = re.sub(r'[PZSC]-\d{6}', '', raw_text)
-    text_no_address = re.sub(r'\d{4}\s+Debrecen.*', '', text_no_code)
-    
-    # 3. Csak a nagybetűs szavakat gyűjtsük ki, amik nem tiltottak
-    words = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]*\b', text_no_address)
-    
-    final_name_parts = []
+    clean_parts = []
     for w in words:
-        low_w = w.lower()
-        # Ne legyen tiltott, ne legyen "Debrecen", és ne legyen duplikáció
-        if low_w not in [b.lower() for b in blacklist] and low_w != "debrecen":
-            # Duplikáció szűrés: ha a "Móricz-Nagy" már benne van, a "Móricz" ne kerüljön be
-            is_duplicate = False
-            for existing in final_name_parts:
-                if low_w in existing.lower() or existing.lower() in low_w:
-                    is_duplicate = True
-                    # Ha a mostani szó hosszabb (pl. kötőjeles), cseréljük le a rövidet
-                    if len(w) > len(existing):
-                        final_name_parts[final_name_parts.index(existing)] = w
-                    break
-            if not is_duplicate:
-                final_name_parts.append(w)
+        if w not in ["Debrecen", "Sorszám", "Összesen"] and len(w) > 2:
+            if w not in clean_parts:
+                # Duplikáció szűrés (Hajós Hajós-Szabó -> Hajós-Szabó)
+                is_sub = False
+                for idx, existing in enumerate(clean_parts):
+                    if w in existing: is_sub = True; break
+                    if existing in w: clean_parts[idx] = w; is_sub = True; break
+                if not is_sub:
+                    clean_parts.append(w)
+    
+    return " ".join(clean_parts[:3])
 
-    return " ".join(final_name_parts[:3]) # Max 3 szó a névnek
-
-def extract_v38(pdf_file):
-    data = []
+def extract_v39(pdf_file):
+    all_data = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            # Itt a sorszámok alapján blokkolunk, ahogy eddig
             words = page.extract_words()
             markers = [{'num': w['text'], 'top': w['top']} for w in words if w['x0'] < 40 and re.match(r'^\d+$', w['text'])]
             
@@ -52,23 +52,27 @@ def extract_v38(pdf_file):
                 bottom = markers[i+1]['top'] if i+1 < len(markers) else page.height
                 block_text = " ".join([w['text'] for w in words if top - 2 <= w['top'] < bottom - 2])
                 
-                # Cím kinyerése (ez kell az etikettre)
+                # Cím és Rendelés kódok
                 cim_m = re.search(r'(\d{4}\s+Debrecen,\s*.*?\d+[\s/]*[A-Z-]*\.?)', block_text)
+                rendelesek = re.findall(r'(\d+-[A-Z0-9]+)', block_text)
                 
-                # Név tisztítása
-                name = clean_v38(block_text)
+                # NÉV TISZTÍTÁS
+                name = super_clean_v39(block_text)
                 
-                data.append({
+                all_data.append({
                     "Sorszám": markers[i]['num'],
-                    "Ügyintéző": name,
+                    "Ügyintéző": name if name else "Név keresése...",
                     "Cím": cim_m.group(1).strip() if cim_m else "Cím hiba",
-                    "Rendelés": ", ".join(re.findall(r'(\d+-[A-Z0-9]+)', block_text))
+                    "Rendelés": ", ".join(rendelesek)
                 })
-    return pd.DataFrame(data)
+    return pd.DataFrame(all_data)
 
-# --- UI ---
-st.title("Interfood v38 - A Tisztasági Teszt")
+st.title("Interfood v39 - A Végső Exportőr")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = extract_v38(f)
-    st.table(df.head(20)) # Táblázatban mutatjuk az első 20-at az ellenőrzéshez
+    df = extract_v39(f)
+    st.write("### Az elkészült lista (Első 20 sor):")
+    st.dataframe(df.head(20))
+    # Itt az export gomb, ami az egészet letölti!
+    csv = df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button("TELJES LISTA LETÖLTÉSE (CSV)", csv, "interfood_final_v39.csv")

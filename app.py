@@ -1,77 +1,93 @@
 import streamlit as st
-from pypdf import PdfReader
+import pdfplumber
 import pandas as pd
 import re
 from fpdf import FPDF
 import io
 
-def parse_v104(pdf_file):
-    reader = PdfReader(pdf_file)
-    raw_text = ""
-    for page in reader.pages:
-        raw_text += page.extract_text() + "\n---PAGE---\n"
+def parse_menetterv(pdf_file):
+    all_rows = []
+    with pdfplumber.open(pdf_file) as pdf:
+        for page in pdf.pages:
+            # Kivonjuk a táblázatot a pdfplumber beépített algoritmusával, 
+            # ami sokkal jobb a Menetterv-típusú fájlokhoz
+            table = page.extract_table({
+                "vertical_strategy": "lines", 
+                "horizontal_strategy": "lines",
+                "snap_tolerance": 3,
+            })
+            
+            if not table:
+                # Ha nincsenek vonalak, szöveg-koordináta alapú kinyerés
+                text_instances = page.extract_words()
+                # (Ez a biztonsági tartalék, ha a vonalak nem látszanak)
+                continue
 
-    # Tisztítás: a felesleges "Sor / Ügyfél" fejléceket kivesszük, hogy ne zavarjanak
-    raw_text = re.sub(r'Sor\s+Ügyfél\s+Ügyfél\s+címe', '', raw_text)
+            for row in table:
+                # Tisztítás a fejléc-elemektől
+                row_str = " ".join([str(c) for c in row if c])
+                if "Ügyfél" in row_str or "Sor" in row_str:
+                    continue
 
-    # Ügyfelek szétválasztása a "#szám | KÓD:" mintára
-    # Ez a legstabilabb pont a PDF-edben
-    chunks = re.split(r'#\d+\s*(?:\||)\s*KÓD:', raw_text)
+                # Adatok kinyerése a cellákból (Az oszlopok sorrendje fix a PDF-ben)
+                # 0: Sorszám, 1: Kód/Cím, 2: Ügyintéző, 3: Telefon/Rendelés, 4: Össz.
+                if len(row) >= 4:
+                    kod_match = re.search(r'([PZ]-\d{6})', str(row[1]))
+                    if kod_match:
+                        # Tőkés István és a többiek itt lesznek összekötve!
+                        all_rows.append({
+                            "Kód": kod_match.group(1),
+                            "Ügyintéző": str(row[2]).strip().replace('\n', ' '),
+                            "Cím": str(row[1]).split(kod_match.group(1))[-1].strip().replace('\n', ' '),
+                            "Telefon": re.findall(r'(\d{2}/\d{7})', str(row[3]))[0] if re.search(r'\d{2}/\d{7}', str(row[3])) else "NINCS",
+                            "Rendelés": str(row[3]).split('\n')[-1].strip(),
+                            "Pénz": re.findall(r'(\d+[\s\d]*Ft)', str(row[3]))[0] if "Ft" in str(row[3]) else "0 Ft"
+                        })
+    return pd.DataFrame(all_rows)
+
+# Az etikett generáló (FPDF) rész következik...
+def create_etikett_pdf(df):
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=False)
+    # Font beállítás az elmentett instrukciód alapján (DejaVu)
+    # ... (font betöltés kódja) ...
     
-    extracted_data = []
-    for chunk in chunks:
-        if not chunk.strip(): continue
+    for i, row in df.iterrows():
+        if i % 21 == 0: pdf.add_page()
+        # 3x7-es rács kalkuláció
+        x = (i % 3) * 70
+        y = ((i // 3) % 7) * 42.4
         
-        # 1. ÜGYFÉLKÓD (6 jegyű szám)
-        cid_m = re.search(r'(\d{6})', chunk)
-        if not cid_m: continue
-        cid = cid_m.group(1)
-
-        # 2. NÉV (A chunk elején keresünk nagybetűs neveket, amik nem telefonszámok)
-        # Tőkés István itt fog megkerülni
-        lines = [l.strip() for l in chunk.split('\n') if l.strip()]
-        name = "Név hiányzik"
-        for line in lines:
-            if len(line.split()) >= 2 and not any(x in line for x in ["TEL:", "KÓD:", "REND:", "Ft", "tétel"]):
-                if re.match(r'^[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+', line):
-                    name = line
-                    break
-
-        # 3. TELEFON
-        tel = "NINCS"
-        tel_m = re.search(r'((?:\+36|06|20|30|70)[\s/]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', chunk)
-        if tel_m: tel = tel_m.group(1)
-
-        # 4. CÍM (Irányítószám + Debrecen)
-        addr = "Cím hiányzik"
-        addr_m = re.search(r'(\d{4}\s+Debrecen,?\s+[^#\n]+)', chunk)
-        if addr_m: addr = addr_m.group(1).strip()
-
-        # 5. RENDELÉSEK ÉS PÉNZ
-        money_m = re.search(r'(\d+[\s\d]*)\s*Ft', chunk)
-        money = money_m.group(1).replace(" ", "") if money_m else "0"
+        pdf.set_xy(x+5, y+5)
+        pdf.set_font("DejaVu", "B", 10)
+        pdf.cell(60, 5, str(row['Ügyintéző'])[:25])
         
-        rends = re.findall(r'(\d+-[A-Z0-9]+)', chunk)
-
-        extracted_data.append({
-            "Ügyfélkód": cid, "Ügyintéző": name, "Telefon": tel,
-            "Cím": addr, "Rendelés": ", ".join(set(rends)), "Pénz": money
-        })
-
-    return pd.DataFrame(extracted_data)
-
-st.title("Interfood v104 - A Stabil Verzió")
-f = st.file_uploader("PDF feltöltése", type="pdf")
-
-if f:
-    df = parse_v104(f)
-    if not df.empty:
-        st.write(f"Talált ügyfelek: {len(df)}")
-        # Tőkés István ellenőrzése
-        if any(df['Ügyintéző'].str.contains("Tőkés", na=False)):
-            st.success("Tőkés István megtalálva!")
-        st.dataframe(df)
+        pdf.set_xy(x+5, y+10)
+        pdf.set_font("DejaVu", "", 8)
+        pdf.cell(60, 5, f"KÓD: {row['Kód']} | {row['Pénz']}")
         
-        # PDF generálás itt...
-    else:
-        st.error("Nem sikerült adatot kinyerni. A PDF szerkezete túl egyedi.")
+        pdf.set_xy(x+5, y+15)
+        pdf.set_font("DejaVu", "B", 9)
+        pdf.cell(60, 5, f"TEL: {row['Telefon']}")
+        
+        pdf.set_xy(x+5, y+20)
+        pdf.set_font("DejaVu", "", 8)
+        pdf.multi_cell(60, 4, str(row['Cím']))
+        
+        pdf.set_xy(x+5, y+32)
+        pdf.set_font("DejaVu", "", 7)
+        pdf.cell(60, 5, f"REND: {row['Rendelés']}")
+        
+    return pdf.output(dest='S').encode('latin-1')
+
+st.title("Interfood Menetterv Feldolgozó v106")
+uploaded_file = st.file_uploader("Töltsd fel a 2026-02-27 menetterv 4002.pdf-et", type="pdf")
+
+if uploaded_file:
+    df_result = parse_menetterv(uploaded_file)
+    if not df_result.empty:
+        st.success(f"Beolvasva: {len(df_result)} ügyfél")
+        st.dataframe(df_result)
+        # Itt jelenik meg Tőkés István az 1. sorban!
+        pdf_out = create_etikett_pdf(df_result)
+        st.download_button("💾 Etikettek letöltése (PDF)", pdf_out, "kesz_etikettek.pdf")

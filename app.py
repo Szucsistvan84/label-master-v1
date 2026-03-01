@@ -5,35 +5,37 @@ import re
 from fpdf import FPDF
 import os
 
-# --- 1. PROFI ADATTISZTÍTÓ (v66) ---
-def clean_v66(raw_name, raw_block_text):
+# --- 1. PROFI ADATTISZTÍTÓ (v67) ---
+def clean_v67(raw_name, raw_block_text):
     # 1. Név tisztítása
-    # Eltávolítjuk a technikai kódokat (P-..., Z-...) és a sorszámokat
-    name = re.sub(r'^[A-Z]-\d+\s+', '', raw_name)
-    name = re.sub(r'^\d+\s+', '', name).strip()
+    name = re.sub(r'^[A-Z]-\d+\s+', '', raw_name) # P-123456 le
+    name = re.sub(r'^\d+\s+', '', name).strip()    # Sorszám le
     
-    # Tiltólista (cégek, helyszínek)
+    # Tiltólista (cégek, amik bekavarhatnak)
     trash = ["Csokimax", "Ford", "Expert", "Globiz", "International", "Kft", "Zrt", "Bt", 
-             "Harro", "Höfliger", "Hungary", "Richter", "Gedeon", "Krones", "Mo.kft"]
+             "Harro", "Höfliger", "Hungary", "Richter", "Gedeon", "Krones", "Mo.kft", "üzlet"]
     
     for t in trash:
         name = re.sub(r'\b' + t + r'\b', '', name, flags=re.IGNORECASE).strip()
     
-    # 2. Telefonszám keresése (kibővített regex az Interfood formátumokhoz)
+    # Ha maradt benne perjel vagy kötőjel a szélén, levágjuk
+    name = name.strip("/- ").strip()
+    
+    # 2. Telefonszám (Intenzívebb keresés)
     tel_m = re.search(r'((?:\+36|06|20|30|70)[\s/]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', raw_block_text)
     tel = tel_m.group(1) if tel_m else "NINCS"
     
-    # 3. Cím keresése (4 jegyű irányítószámmal kezdődő sor)
+    # 3. Cím (4 jegyű irányítószám keresése)
     addr_m = re.search(r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-z-]+\b.*)', raw_block_text)
     addr = addr_m.group(1).strip() if addr_m else "Cím nem található"
     
-    # 4. Rendelés (Ételkódok)
+    # 4. Rendelés
     rend = ", ".join(sorted(list(set(re.findall(r'(\d+-[A-Z0-9]+)', raw_block_text)))))
     
     return name, tel, addr, rend
 
 # --- 2. PDF GENERÁLÁS (3x7 Etikett) ---
-def create_pdf_v66(df):
+def create_pdf_v67(df):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=False)
     font_reg, font_bold = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
@@ -57,52 +59,58 @@ def create_pdf_v66(df):
         
         pdf.set_font(f_name, "", 8)
         pdf.set_x(x + 5)
-        # Multi-cell a címnek, hogy ne vágjuk le
         pdf.multi_cell(60, 3.5, str(row['Cím']), 0)
         
-        pdf.set_font(f_name, "", 7)
         pdf.set_xy(x + 5, y + 32)
+        pdf.set_font(f_name, "", 7)
         pdf.cell(60, 4, f"REND: {row['Rendelés']}", 0, 1)
     return pdf.output()
 
 # --- 3. STREAMLIT APP ---
-st.title("Interfood Etikett Mester v66")
-f = st.file_uploader("Feltöltés", type="pdf")
+st.title("Interfood Etikett Mester v67")
+f = st.file_uploader("Interfood PDF feltöltése", type="pdf")
 
 if f:
     results = []
     with pdfplumber.open(f) as pdf:
         for page in pdf.pages:
             words = page.extract_words()
-            # Sorszámok keresése (a PDF-ben ezek a kis számok a blokkok elején)
+            # Keressük a sorszámokat
             markers = [w for w in words if re.match(r'^\d+$', w['text']) and w['x0'] < 550]
-            
-            # Sorszámok rendezése: először függőlegesen, aztán vízszintesen
             markers.sort(key=lambda x: (x['top'], x['x0']))
             
             for m in markers:
-                # Egy "dobozt" képzelünk a sorszám köré (kb. 180 pixel széles, 50 magas)
-                # Ez lefedi az adott ügyfél teljes blokkját
-                box = (m['x0'] - 2, m['top'] - 2, m['x0'] + 185, m['top'] + 50)
-                crop = page.within_bbox(box)
-                block_text = crop.extract_text()
+                # --- A HIBA JAVÍTÁSA: BIZTONSÁGI HATÁROK ---
+                x0 = max(0, m['x0'] - 2)
+                top = max(0, m['top'] - 2)
+                x1 = min(page.width, x0 + 190)   # Nem mehet túl a lap szélén
+                bottom = min(page.height, top + 55) # Nem mehet le a lapról
                 
-                if block_text:
-                    lines = block_text.split('\n')
-                    raw_name = lines[0]
-                    name, tel, addr, rend = clean_v66(raw_name, block_text)
+                box = (x0, top, x1, bottom)
+                
+                try:
+                    crop = page.within_bbox(box)
+                    block_text = crop.extract_text()
                     
-                    if len(name) > 2:
-                        results.append({
-                            "Ügyintéző": name,
-                            "Telefon": tel,
-                            "Cím": addr,
-                            "Rendelés": rend
-                        })
+                    if block_text:
+                        lines = block_text.split('\n')
+                        raw_name = lines[0]
+                        name, tel, addr, rend = clean_v67(raw_name, block_text)
+                        
+                        if len(name) > 2:
+                            results.append({
+                                "Ügyintéző": name,
+                                "Telefon": tel,
+                                "Cím": addr,
+                                "Rendelés": rend
+                            })
+                except Exception:
+                    continue # Ha mégis hiba lenne, ugorja át ezt a rekordot
 
-    df = pd.DataFrame(results).drop_duplicates().reset_index(drop=True)
+    df = pd.DataFrame(results).drop_duplicates(subset=['Ügyintéző', 'Cím']).reset_index(drop=True)
     st.dataframe(df)
     
     if not df.empty:
-        pdf_bytes = create_pdf_v66(df)
-        st.download_button("💾 PDF LETÖLTÉSE (v66)", bytes(pdf_bytes), "etikettek_v66.pdf", "application/pdf")
+        pdf_bytes = create_pdf_v67(df)
+        if pdf_bytes:
+            st.download_button("💾 PDF LETÖLTÉSE (v67)", bytes(pdf_bytes), "etikettek_v67.pdf", "application/pdf")

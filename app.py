@@ -6,95 +6,110 @@ from fpdf import FPDF
 import io
 import os
 
-def parse_menetterv(pdf_file):
+def parse_menetterv_v108(pdf_file):
     all_rows = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            # A menetterv speciális struktúrája miatt soronként olvassuk a szöveget
-            text = page.extract_text()
-            lines = text.split('\n')
+            # A Menetterv táblázatos, de a cellákban több sor van
+            table = page.extract_table({
+                "vertical_strategy": "text", 
+                "horizontal_strategy": "text",
+                "snap_tolerance": 4,
+            })
             
-            for line in lines:
-                # Keressük az ügyfélkódot (P- vagy Z- és 6 szám)
-                kod_match = re.search(r'([PZ]-\d{6})', line)
-                if kod_match:
-                    cid = kod_match.group(1)
-                    # Megpróbáljuk kinyerni a nevet (ami általában a kód után vagy előtt van a sorban)
-                    # Ebben a PDF-ben a név gyakran a kód mellett van közvetlenül
-                    name = "Név hiányzik"
-                    parts = line.split(cid)
-                    if len(parts) > 1:
-                        # A név keresése a sorban
-                        potential_name = parts[0].strip()
-                        if len(potential_name.split()) >= 2:
-                            name = potential_name
+            if not table: continue
+
+            for row in table:
+                # Tisztítás
+                c0 = str(row[0]) if row[0] else ""
+                c1 = str(row[1]) if row[1] else "" # Kód + Cím
+                c2 = str(row[2]) if row[2] else "" # Ügyintéző
+                c3 = str(row[3]) if row[3] else "" # Tel + Rendelés + Pénz
+                
+                if "Ügyfél" in c1 or "Sor" in c0: continue
+
+                # Ügyfélkód kinyerése
+                kod_m = re.search(r'([PZ]-\d{6})', c1)
+                if kod_m:
+                    kod = kod_m.group(1)
+                    # Cím: Minden, ami a kód után van a cellában
+                    cim = c1.split(kod)[-1].strip().replace('\n', ' ')
                     
-                    # Ha nem találtuk meg a sorban, nézzük a környezetet
+                    # Név: A 2. oszlop (Ügyintéző)
+                    nev = c2.strip().replace('\n', ' ')
+                    if not nev or len(nev) < 3: nev = "Név hiányzik"
+
+                    # Telefon: 06/ vagy 20/ stb.
+                    tel_m = re.search(r'(\d{2}/\d{7})', c3)
+                    tel = tel_m.group(1) if tel_m else "NINCS"
+
+                    # Pénz: "X Ft" formátum
+                    penz_m = re.search(r'(\d+[\s\d]*Ft)', c3)
+                    penz = penz_m.group(1) if penz_m else "0 Ft"
+
+                    # Rendelés: A cella alja
+                    rend = c3.split(penz)[-1].strip().replace('\n', ', ') if penz != "0 Ft" else c3.strip()
+
                     all_rows.append({
-                        "Kód": cid,
-                        "Ügyintéző": name,
-                        "Cím": "Debrecen (beolvasás alatt...)",
-                        "Telefon": "NINCS",
-                        "Rendelés": "Adat kinyerése...",
-                        "Pénz": "0 Ft"
+                        "Kód": kod, "Ügyintéző": nev, "Cím": cim,
+                        "Telefon": tel, "Rendelés": rend, "Pénz": penz
                     })
     return pd.DataFrame(all_rows)
 
-def create_etikett_pdf(df):
+def create_etikett_pdf_v108(df):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=False)
     
-    # HIBAJAVÍTÁS: Betűtípus ellenőrzése
-    # Megpróbáljuk betölteni a DejaVu-t, ha nincs meg, marad az Arial
-    font_name = "Arial"
-    try:
-        # Csak akkor próbálja meg, ha a fájlok léteznek a mappában
-        if os.path.exists("DejaVuSans.ttf"):
-            pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-            pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
-            font_name = "DejaVu"
-    except:
-        font_name = "Arial"
+    # Alapértelmezett font, hogy ne legyen hiba
+    pdf.set_font("Arial", size=10)
 
     for i, row in df.iterrows():
         if i % 21 == 0: pdf.add_page()
         x = (i % 3) * 70
         y = ((i // 3) % 7) * 42.4
         
-        # Ügyintéző név
+        # NÉV (Félkövér)
         pdf.set_xy(x+5, y+5)
-        pdf.set_font(font_name, "B", 10)
-        # latin-1 kódolás az Arialhoz, hogy ne legyen hiba
-        name_text = str(row['Ügyintéző'])[:25].encode('latin-1', 'replace').decode('latin-1')
-        pdf.cell(60, 5, name_text)
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(60, 5, str(row['Ügyintéző'])[:25].encode('latin-1', 'replace').decode('latin-1'))
         
-        # Kód és Pénz
-        pdf.set_xy(x+5, y+10)
-        pdf.set_font(font_name, "", 8)
-        pdf.cell(60, 5, f"KOD: {row['Kód']}")
+        # KÓD + PÉNZ
+        pdf.set_xy(x+5, y+11)
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(60, 4, f"KOD: {row['Kód']} | {row['Pénz']}".encode('latin-1', 'replace').decode('latin-1'))
         
-        # Cím (Multi-cell a hosszú címekhez)
-        pdf.set_xy(x+5, y+15)
-        pdf.set_font(font_name, "", 7)
-        pdf.multi_cell(60, 3.5, "Debrecen, Házgyár u. 12.") # Teszt adat
+        # TELEFON (Kiemelve)
+        pdf.set_xy(x+5, y+16)
+        pdf.set_font("Arial", "B", 9)
+        pdf.cell(60, 4, f"TEL: {row['Telefon']}")
         
-    return pdf.output(dest='S')
+        # CÍM
+        pdf.set_xy(x+5, y+21)
+        pdf.set_font("Arial", "", 8)
+        pdf.multi_cell(60, 3.5, str(row['Cím']).encode('latin-1', 'replace').decode('latin-1'))
+        
+        # RENDELÉS (Alul kicsiben)
+        pdf.set_xy(x+5, y+33)
+        pdf.set_font("Arial", "", 7)
+        pdf.cell(60, 4, f"REND: {str(row['Rendelés'])[:40]}".encode('latin-1', 'replace').decode('latin-1'))
+        
+    # FONTOS: Bájtokká alakítjuk a kimenetet a Streamlit számára
+    return bytes(pdf.output(dest='S'))
 
-st.title("Interfood Menetterv v107 - Fixált Fontok")
-f = st.file_uploader("Eredeti Menetterv PDF", type="pdf")
+st.title("Interfood Menetterv v108")
+f = st.file_uploader("Válaszd ki a Menetterv PDF-et", type="pdf")
 
 if f:
-    # Elmentjük ideiglenesen
-    with open("temp_mt.pdf", "wb") as tmp:
-        tmp.write(f.read())
-    
-    df = parse_menetterv("temp_mt.pdf")
-    
+    df = parse_menetterv_v108(f)
     if not df.empty:
-        st.write("Beolvasott adatok (Tőkés István ellenőrzése):")
+        st.success(f"Beolvasva: {len(df)} ügyfél")
         st.dataframe(df)
         
-        pdf_bytes = create_etikett_pdf(df)
-        st.download_button("💾 PDF Letöltése", pdf_bytes, "etikettek.pdf")
-    else:
-        st.error("Nem sikerült adatot találni a PDF-ben.")
+        # PDF Generálás
+        pdf_data = create_etikett_pdf_v108(df)
+        st.download_button(
+            label="💾 PDF Letöltése",
+            data=pdf_data,
+            file_name="interfood_etikettek.pdf",
+            mime="application/pdf"
+        )

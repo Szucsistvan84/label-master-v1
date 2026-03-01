@@ -16,80 +16,66 @@ def get_fonts():
 
 M_FONT, B_FONT = get_fonts()
 
-st.set_page_config(page_title="Interfood v8.3", layout="wide")
-st.title("🚚 Interfood Etikett v8.3 - Intelligens Újraszámozó")
+st.set_page_config(page_title="Interfood v8.4", layout="wide")
+st.title("🚚 Interfood Etikett v8.4 - Ügyintéző adatokkal")
 
 input_nev = st.sidebar.text_input("Saját Név:", value="Szűcs István")
 input_tel = st.sidebar.text_input("Saját Tel:", value="+36208868971")
 
-def process_v8_3(uploaded_file):
+def process_v8_4(uploaded_file):
     reader = PdfReader(uploaded_file)
-    customers = {}
-    ordered_ids = [] # A sorrend megtartásához
+    customers = []
     
-    # 1. Minden szöveg kinyerése egy nagy listába
-    all_lines = []
+    all_text = ""
     for page in reader.pages:
-        text = page.extract_text()
-        if text:
-            all_lines.extend([l.strip() for l in text.split('\n') if l.strip()])
-
-    # 2. Feldolgozás blokkokban
-    current_cust_id = None
+        all_text += page.extract_text() + "\n---PAGE---\n"
     
-    for i, line in enumerate(all_lines):
-        # Kód keresése (P-123456, Z-123456, stb.)
-        id_match = re.search(r'([PZSC])-(\d{6})', line)
+    # Keressük az ügyfél blokkokat. A kód (P-123456) a fix pontunk.
+    # Spliteljük a szöveget a kódok mentén, de tartsuk meg a kódokat.
+    raw_blocks = re.split(r'([PZSC]-\d{6})', all_text)
+    
+    # Az első elem a fejléc, azt eldobjuk
+    for i in range(1, len(raw_blocks), 2):
+        full_code = raw_blocks[i]      # pl. P-428867
+        block_content = raw_blocks[i+1] # A kód utáni szöveg a következő kódig
         
-        if id_match:
-            day_type = id_match.group(1)
-            cust_id = id_match.group(2)
-            
-            if cust_id not in customers:
-                current_cust_id = cust_id
-                ordered_ids.append(cust_id)
-                # Név kinyerése a kód mellől
-                name_candidate = line.replace(id_match.group(0), "").strip()
-                
-                customers[cust_id] = {
-                    'kod': cust_id,
-                    'auto_sorszam': len(ordered_ids),
-                    'nev': name_candidate if len(name_candidate) > 2 else "Ügyfél",
-                    'cim': "Debrecen",
-                    'rendelesek': set()
-                }
-            
-            # Ha már megvan az ügyfél, adjuk hozzá a rendelést a környezetből
-            # Megnézzük a sorban lévő ételkódokat
-            codes = re.findall(r'\b\d{1,2}-[A-Z0-9]{1,4}\b', line)
-            if codes:
-                customers[cust_id]['rendelesek'].update(codes)
+        cust_id = full_code.split('-')[1]
         
-        # Ha nincs új kód, de van egy aktív ügyfelünk, keressük a címet (Debrecen)
-        elif current_cust_id:
-            if "Debrecen" in line and customers[current_cust_id]['cim'] == "Debrecen":
-                customers[current_cust_id]['cim'] = line
-            # Ha ételkódot találunk a kód alatti sorokban
-            codes = re.findall(r'\b\d{1,2}-[A-Z0-9]{1,4}\b', line)
-            if codes:
-                customers[current_cust_id]['rendelesek'].update(codes)
+        # ÜGYFÉL TELEFON (pl. 30/6707456 vagy 0630...)
+        tel_match = re.search(r'(\d{2}/\d{3,}-?\d{3,})', block_content)
+        u_tel = tel_match.group(1) if tel_match else ""
+        
+        # CÍM (Irányítószámtól Debrecenig)
+        addr_match = re.search(r'(\d{4}\s+Debrecen,[^,\n]+)', block_content)
+        u_cim = addr_match.group(1).strip() if addr_match else "Debrecen"
+        
+        # ÜGYINTÉZŐ NEVE
+        # A PDF-ben az ügyintéző neve az ügyfél neve/címe után, de a telefon előtt van.
+        # Megpróbáljuk kiszedni a blokk elejéről, ami nem a cím.
+        clean_content = block_content.replace(u_cim, "").replace(u_tel, "").strip()
+        lines = [l.strip() for l in clean_content.split('\n') if len(l.strip()) > 2]
+        u_nev = lines[0] if lines else "Ügyfél"
 
-    # Lista összeállítása a sorrend alapján
-    final_data = []
-    for cid in ordered_ids:
-        c = customers[cid]
-        c['rend_lista'] = sorted(list(c['rendelesek']))
-        c['total'] = len(c['rend_lista'])
-        final_data.append(c)
+        # RENDELÉSEK
+        codes = re.findall(r'\b\d{1,2}-[A-Z0-9]{1,4}\b', block_content)
         
-    return final_data
+        customers.append({
+            'kod': cust_id,
+            'sorszam': len(customers) + 1,
+            'nev': u_nev[:25],
+            'tel': u_tel,
+            'cim': u_cim,
+            'rendelesek': sorted(list(set(codes)))
+        })
+        
+    return customers
 
 file = st.file_uploader("Menetterv PDF feltöltése", type="pdf")
 
 if file:
-    data = process_v8_3(file)
+    data = process_v8_4(file)
     if data:
-        st.success(f"Sikeresen beolvasva {len(data)} címke.")
+        st.success(f"Beolvasva: {len(data)} ügyfél")
         out = io.BytesIO()
         c = canvas.Canvas(out, pagesize=A4)
         w, h = (A4[0]-20)/3, (A4[1]-40)/7
@@ -105,44 +91,46 @@ if file:
                 u = data[i]
                 c.setFillColorRGB(0, 0, 0)
                 
-                # BAL FELSŐ: SAJÁT SORSZÁM (NAGYOBB)
-                c.setFont(B_FONT, 14)
-                c.drawString(x+8, y+h-18, f"{u['auto_sorszam']}.")
-                
-                # JOBB FELSŐ: ÖSSZESÍTŐ
+                # SORSZÁM (Kisebb, ahogy kérted)
                 c.setFont(B_FONT, 10)
-                c.drawRightString(x+w-10, y+h-15, f"Össz: {u['total']} db")
+                c.drawString(x+8, y+h-15, f"{u['sorszam']}.")
+                
+                # ÖSSZESÍTŐ
+                c.drawRightString(x+w-10, y+h-15, f"Össz: {len(u['rendelesek'])} db")
 
-                # NÉV ÉS KÓD
-                c.setFont(B_FONT, 10)
-                name_display = u['nev'].split('/')[0].strip()[:25]
-                c.drawString(x+8, y+h-32, name_display)
+                # ÜGYINTÉZŐ NEVE + KÓD
+                c.setFont(B_FONT, 11)
+                c.drawString(x+8, y+h-28, u['nev'])
                 c.setFont(M_FONT, 8)
-                c.drawRightString(x+w-10, y+h-32, u['kod'])
+                c.drawRightString(x+w-10, y+h-28, u['kod'])
                 
-                # CÍM
+                # ÜGYFÉL TELEFONJA (Új elem!)
+                if u['tel']:
+                    c.setFont(B_FONT, 9)
+                    c.drawString(x+8, y+h-38, f"Tel: {u['tel']}")
+                
+                # CÍM (Új sorban, elkülönítve)
                 c.setFont(M_FONT, 8)
-                c.drawString(x+8, y+h-42, u['cim'][:40])
+                y_addr = y+h-48 if u['tel'] else y+h-38
+                c.drawString(x+8, y_addr, u['cim'][:38])
                 
-                # RENDELÉSEK (Kisebb betűvel a zsúfoltság ellen)
-                rend_str = ", ".join(u['rend_lista'])
+                # RENDELÉSEK
+                rend_str = ", ".join(u['rendelesek'])
                 f_size = 9 if len(rend_str) < 30 else 7.5
                 c.setFont(B_FONT, f_size)
                 
-                # Sortörés kezelése, ha túl hosszú a rendelés
                 if len(rend_str) > 40:
                     c.drawString(x+8, y+22, rend_str[:40])
                     c.drawString(x+8, y+12, rend_str[40:80])
                 else:
                     c.drawString(x+8, y+18, rend_str)
 
-                # LÁBLÉC
+                # LÁBLÉC (Saját adatok)
                 c.setFont(M_FONT, 7)
                 c.drawString(x+8, y+5, f"{input_nev} | {input_tel}")
             else:
-                # Üres helyek kitöltése
-                c.setFont(B_FONT, 10)
-                c.drawCentredString(x+w/2, y+h/2, "ÜRES CÍMKE")
+                c.setFont(M_FONT, 8)
+                c.drawCentredString(x+w/2, y+h/2, "---")
 
         c.save()
-        st.download_button("📥 PDF LETÖLTÉSE (V8.3)", out.getvalue(), "interfood_v8_3.pdf")
+        st.download_button("📥 PDF LETÖLTÉSE (V8.4)", out.getvalue(), "interfood_v8_4.pdf")

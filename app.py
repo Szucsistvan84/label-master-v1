@@ -1,73 +1,77 @@
 import streamlit as st
-import pdfplumber
+from pypdf import PdfReader
 import pandas as pd
 import re
 from fpdf import FPDF
-import os
+import io
 
-def parse_v103(pdf_path):
-    all_data = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            # Szavak kinyerése koordinátákkal
-            words = page.extract_words(x_tolerance=2, y_tolerance=2)
-            
-            # 1. Keressük meg a horgonyokat (KÓD: XXXXXX)
-            for i, w in enumerate(words):
-                if re.search(r'\d{6}', w['text']):
-                    cid = re.search(r'\d{6}', w['text']).group()
-                    
-                    # NÉV KERESÉSE: Pontosan a kód felett lévő szavak
-                    name_parts = []
-                    for w2 in words:
-                        # Ha a szó a kód felett van (Y diff: 5-15) és vízszintesen takarásban vannak
-                        if 3 < (w['top'] - w2['bottom']) < 18 and abs(w['x0'] - w2['x0']) < 40:
-                            if not any(x in w2['text'].upper() for x in ["SOR", "ÜGYFÉL", "KÓD", "TÉTEL"]):
-                                name_parts.append(w2['text'])
-                    
-                    name = " ".join(name_parts).strip()
-                    if not name: name = "Név hiányzik"
+def parse_v104(pdf_file):
+    reader = PdfReader(pdf_file)
+    raw_text = ""
+    for page in reader.pages:
+        raw_text += page.extract_text() + "\n---PAGE---\n"
 
-                    # ADATOK (Telefon, Cím, Pénz) - a kód környezetében (max 40 pixel távolság)
-                    context = " ".join([word['text'] for word in words if abs(word['top'] - w['top']) < 40])
-                    
-                    tel = "NINCS"
-                    tel_m = re.search(r'((?:\+36|06|20|30|70)[\s/]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', context)
-                    if tel_m: tel = tel_m.group(1)
+    # Tisztítás: a felesleges "Sor / Ügyfél" fejléceket kivesszük, hogy ne zavarjanak
+    raw_text = re.sub(r'Sor\s+Ügyfél\s+Ügyfél\s+címe', '', raw_text)
 
-                    addr_m = re.search(r'(\d{4}\s+Debrecen,?\s+[^|]+)', context)
-                    addr = addr_m.group(1).split("REND:")[0].strip() if addr_m else "Cím hiányzik"
-
-                    money_m = re.search(r'(\d+[\s\d]*)\s*Ft', context)
-                    money = int(re.sub(r'\s+', '', money_m.group(1))) if money_m else 0
-
-                    rends = re.findall(r'(\d+-[A-Z0-9]+)', context)
-
-                    all_data.append({
-                        "id": cid, "name": name, "tel": tel, "addr": addr, 
-                        "money": money, "rend": rends, "page": page.page_number
-                    })
-
-    # Duplikátumok kiszűrése (ha egy kódot többször is megtalál az oldalon)
-    df = pd.DataFrame(all_data)
-    if df.empty: return df
+    # Ügyfelek szétválasztása a "#szám | KÓD:" mintára
+    # Ez a legstabilabb pont a PDF-edben
+    chunks = re.split(r'#\d+\s*(?:\||)\s*KÓD:', raw_text)
     
-    # Csoportosítás kódonként (Péntek + Szombat összevonása)
-    final = []
-    for cid, group in df.groupby("id"):
-        # A leghosszabb nevet választjuk (hátha az egyiknél hiányzik)
-        best_name = max(group["name"].tolist(), key=len)
-        best_addr = max(group["addr"].tolist(), key=len)
-        best_tel = max(group["tel"].tolist(), key=len)
-        all_rends = [r for sublist in group["rend"] for r in sublist]
-        total_money = group["money"].sum()
+    extracted_data = []
+    for chunk in chunks:
+        if not chunk.strip(): continue
         
-        final.append({
-            "Ügyfélkód": cid, "Ügyintéző": best_name, "Telefon": best_tel,
-            "Cím": best_addr, "Rendelés": ", ".join(set(all_rends)),
-            "Pénz": f"{total_money} Ft" if total_money > 0 else ""
-        })
-    
-    return pd.DataFrame(final).sort_values("Ügyfélkód")
+        # 1. ÜGYFÉLKÓD (6 jegyű szám)
+        cid_m = re.search(r'(\d{6})', chunk)
+        if not cid_m: continue
+        cid = cid_m.group(1)
 
-# (Az FPDF generáló rész marad a régi, 3x7-es elrendezéssel)
+        # 2. NÉV (A chunk elején keresünk nagybetűs neveket, amik nem telefonszámok)
+        # Tőkés István itt fog megkerülni
+        lines = [l.strip() for l in chunk.split('\n') if l.strip()]
+        name = "Név hiányzik"
+        for line in lines:
+            if len(line.split()) >= 2 and not any(x in line for x in ["TEL:", "KÓD:", "REND:", "Ft", "tétel"]):
+                if re.match(r'^[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+', line):
+                    name = line
+                    break
+
+        # 3. TELEFON
+        tel = "NINCS"
+        tel_m = re.search(r'((?:\+36|06|20|30|70)[\s/]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4})', chunk)
+        if tel_m: tel = tel_m.group(1)
+
+        # 4. CÍM (Irányítószám + Debrecen)
+        addr = "Cím hiányzik"
+        addr_m = re.search(r'(\d{4}\s+Debrecen,?\s+[^#\n]+)', chunk)
+        if addr_m: addr = addr_m.group(1).strip()
+
+        # 5. RENDELÉSEK ÉS PÉNZ
+        money_m = re.search(r'(\d+[\s\d]*)\s*Ft', chunk)
+        money = money_m.group(1).replace(" ", "") if money_m else "0"
+        
+        rends = re.findall(r'(\d+-[A-Z0-9]+)', chunk)
+
+        extracted_data.append({
+            "Ügyfélkód": cid, "Ügyintéző": name, "Telefon": tel,
+            "Cím": addr, "Rendelés": ", ".join(set(rends)), "Pénz": money
+        })
+
+    return pd.DataFrame(extracted_data)
+
+st.title("Interfood v104 - A Stabil Verzió")
+f = st.file_uploader("PDF feltöltése", type="pdf")
+
+if f:
+    df = parse_v104(f)
+    if not df.empty:
+        st.write(f"Talált ügyfelek: {len(df)}")
+        # Tőkés István ellenőrzése
+        if any(df['Ügyintéző'].str.contains("Tőkés", na=False)):
+            st.success("Tőkés István megtalálva!")
+        st.dataframe(df)
+        
+        # PDF generálás itt...
+    else:
+        st.error("Nem sikerült adatot kinyerni. A PDF szerkezete túl egyedi.")

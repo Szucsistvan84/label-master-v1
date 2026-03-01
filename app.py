@@ -3,12 +3,16 @@ import pdfplumber
 import pandas as pd
 import re
 
-def extract_v21(pdf_file):
+def extract_v22(pdf_file):
     all_customers = []
     
-    # Gyakori cégnevek és tiltott szavak listája
-    tiltolista = ["csokimax", "harro", "höfliger", "hungary", "pearl", "enterprises", "kft", "zrt", "expert", "globiz", "ford", "szalon"]
+    # Kibővített tiltólista: cégek + rendelési kódok + mértékegységek
+    stop_words = ["csokimax", "harro", "höfliger", "hungary", "pearl", "enterprises", "kft", "zrt", "expert", "globiz", 
+                  "ford", "szalon", "debrecen", "utca", "út", "tér", "emelet", "ajtó", "porta", "ft", "db", "tétel"]
     
+    # Ismert rendelési kód minták szűrése (1-2 betűs kódok vagy szám-betű kombinációk)
+    order_code_pattern = r'^[A-Z0-9]{1,4}$'
+
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             words = page.extract_words()
@@ -26,50 +30,41 @@ def extract_v21(pdf_file):
                 # 1. FIX ADATOK
                 kod_m = re.search(r'([PZSC]-\d{6})', full_text)
                 kod = kod_m.group(1) if kod_m else ""
-                
                 cim_m = re.search(r'(\d{4}\s+Debrecen,\s*.*?\d+[\s/]*[A-Z-]*\.?)', full_text)
                 cim = cim_m.group(1).strip() if cim_m else "Cím nem található"
-                
                 tel_m = re.search(r'(\d{2}/\d{6,10})', full_text.replace(" ", ""))
                 tel = tel_m.group(1) if tel_m else "Nincs tel."
 
-                # 2. ÜGYINTÉZŐ KERESÉSE (Emberi név logika)
-                clean_area = full_text.replace(kod, "").replace(cim, "")
-                # Szavak gyűjtése, amik nagybetűsek és nem tiltottak
-                raw_parts = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', clean_area)
+                # 2. ÜGYINTÉZŐ KERESÉSE
+                search_area = full_text.replace(kod, "").replace(cim, "")
+                # Nagybetűs szavak gyűjtése
+                raw_parts = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', search_area)
                 
                 filtered = []
                 for p in raw_parts:
-                    if p.lower() not in tiltolista and p.lower() not in ["debrecen", "utca", "út", "tér", "emelet", "ajtó"]:
+                    # Szűrés: Ne legyen a tiltólistán, ne legyen rövid kód, és ne legyen csak szám
+                    if (p.lower() not in stop_words and 
+                        not re.match(order_code_pattern, p) and 
+                        len(p) > 2):
                         filtered.append(p)
                 
                 ugyintezo = ""
                 if len(filtered) >= 2:
-                    # Ha több szó maradt, az utolsó kettőt-hármat vesszük, 
-                    # mert a cégnév (ha nem volt a tiltólistán) általában elöl van
-                    if "-" in filtered[0] or "-" in filtered[1]: # Kötőjeles név kezelése
-                        ugyintezo = " ".join(filtered[:3]) if len(filtered) >= 3 else " ".join(filtered)
+                    # Ha van kötőjeles (pl. Szabó-Salák), és az az elején van
+                    if "-" in filtered[0]:
+                        ugyintezo = f"{filtered[0]} {filtered[1]}"
                     else:
+                        # Általában az utolsó két megmaradt szó az emberi név
                         ugyintezo = f"{filtered[-2]} {filtered[-1]}"
                 elif len(filtered) == 1:
                     ugyintezo = filtered[0]
 
-                # 3. RENDELÉS, DB ÉS ÖSSZEG
-                rendelesek = re.findall(r'(\d+-[A-Z0-9]+)', full_text)
-                
-                # Pénzösszeg kinyerése (szóközök nélkül)
+                # 3. PÉNZ ÉS DB
                 money_m = re.search(r'(\d[\d\s]*)\s*Ft', full_text)
-                fizetendo_raw = money_m.group(1).replace(" ", "") if money_m else "0"
+                fizetendo = money_m.group(1).replace(" ", "") if money_m else "0"
                 
-                # Darabszám tisztítása (az összeg előtti szám)
-                db_clean = "0"
-                if money_m:
-                    text_before_money = full_text[:money_m.start()].strip()
-                    db_find = re.findall(r'\b(\d+)\b', text_before_money)
-                    if db_find: db_clean = db_find[-1]
-                
-                if db_clean == "0" or int(db_clean) > 50: # Hibaszűrés
-                    db_clean = str(len(rendelesek))
+                rendelesek = re.findall(r'(\d+-[A-Z0-9]+)', full_text)
+                db_clean = str(len(rendelesek)) # Ez a legbiztosabb darabszám forrás
 
                 all_customers.append({
                     "Sorszám": markers[i]['num'],
@@ -78,15 +73,16 @@ def extract_v21(pdf_file):
                     "Telefon": tel,
                     "Rendelés": ", ".join(rendelesek),
                     "Db": db_clean,
-                    "Fizetendő": fizetendo_raw + " Ft"
+                    "Fizetendő": fizetendo + " Ft"
                 })
     return pd.DataFrame(all_customers)
 
 # --- UI ---
-st.title("Interfood v21 - Emberi Név Tisztító")
-f = st.file_uploader("Menetterv PDF", type="pdf")
+st.title("Interfood v22 - A Szigorú Névtisztító")
+f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = extract_v21(f)
-    st.success("Adatok beolvasva! Ellenőrizd Tőkés Istvánt!")
+    df = extract_v22(f)
+    st.write("### Első sor ellenőrzése (Tőkés István):")
+    st.table(df.head(1))
     st.dataframe(df)
-    st.download_button("Export v21 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v21.csv")
+    st.download_button("Export v22 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v22.csv")

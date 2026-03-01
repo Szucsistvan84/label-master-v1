@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-def extract_v24(pdf_file):
+def extract_v25(pdf_file):
     all_customers = []
     
     stop_words = [
@@ -37,7 +37,7 @@ def extract_v24(pdf_file):
                 tel_m = re.search(r'(\d{2}/\d{6,10})', full_text.replace(" ", ""))
                 tel = tel_m.group(1) if tel_m else "Nincs tel."
 
-                # 2. ÜGYINTÉZŐ KERESÉSE (3 szavas név támogatással)
+                # 2. ÜGYINTÉZŐ KERESÉSE (Duplikáció elleni védelemmel)
                 search_area = full_text.replace(kod, "").replace(cim, "")
                 raw_parts = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', search_area)
                 
@@ -46,12 +46,13 @@ def extract_v24(pdf_file):
                     if (p.lower() not in stop_words and 
                         not re.match(order_code_pattern, p) and 
                         len(p) > 2):
-                        filtered.append(p)
+                        # Csak akkor adjuk hozzá, ha még nincs benne (duplikáció szűrés)
+                        if p not in filtered:
+                            filtered.append(p)
                 
                 ugyintezo = ""
                 if len(filtered) >= 3:
-                    # Ha 3 vagy több szavunk maradt, és az utolsó három "emberi névnek" tűnik
-                    # Pl: Nagy Izabella Ilona
+                    # Megnézzük, hogy az utolsó 3 szó egyedi-e
                     ugyintezo = f"{filtered[-3]} {filtered[-2]} {filtered[-1]}"
                 elif len(filtered) == 2:
                     ugyintezo = f"{filtered[0]} {filtered[1]}"
@@ -75,13 +76,10 @@ def extract_v24(pdf_file):
     return pd.DataFrame(all_customers)
 
 # --- UI ---
-st.title("Interfood v24 - A Háromszavas Név Mentő")
+st.title("Interfood v25 - Duplikáció Szűrő")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = extract_v24(f)
-    st.write("### Ellenőrzés: Nagy Izabella Ilona")
-    # Megkeressük az Ilonát a táblázatban
-    st.dataframe(df[df["Ügyintéző"].str.contains("Ilona", na=False)])
-    st.write("### Teljes lista:")
+    df = extract_v25(f)
+    st.write("### Ellenőrzés: Hajós-Szabó Anett és Nagy Izabella Ilona")
     st.dataframe(df)
-    st.download_button("Export v24 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v24.csv")
+    st.download_button("Export v25 CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v25.csv")

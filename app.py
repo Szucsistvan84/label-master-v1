@@ -36,49 +36,67 @@ def extract_interfood_data(pdf_file):
     extracted_data = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
+            # Finomhangolt táblázatfelismerés
             table = page.extract_table({
                 "vertical_strategy": "lines",
                 "horizontal_strategy": "lines",
-                "snap_tolerance": 3,
+                "snap_tolerance": 4, # Megengedőbb illesztés
             })
             
             if not table: continue
             
             for row in table:
-                # row[0]: Sorszám (pl. 1, 2, 3...)
-                sorszam_raw = str(row[0]).strip() if row[0] else ""
+                # row[0]: Sorszám | row[1]: Ügyfél/Cím | row[3]: Rendelés/Telefon
+                s_raw = str(row[0]).strip() if row[0] else ""
                 
-                # Csak a számmal kezdődő sorokat dolgozzuk fel (Sorszám oszlop)
-                if not re.match(r'^\d+$', sorszam_raw.split('\n')[0]):
-                    continue
+                # Sorszám ellenőrzés (tisztítás a sortörésektől)
+                s_match = re.search(r'(\d+)', s_raw)
+                if not s_match: continue
+                sorszam = s_match.group(1)
                 
                 content_col = row[1] if row[1] else ""
                 order_col = row[3] if row[3] else ""
                 
-                # Ügyfélkód kinyerése (P-123456)
+                # --- 1. KÓD (P-123456) ---
                 kod_match = re.search(r'([PZSC]-\d{6})', content_col)
                 kod = kod_match.group(1) if kod_match else ""
                 
-                # Cím: 40xx Debrecen...
-                addr_match = re.search(r'(\d{4}\s+Debrecen,.*)', content_col, re.DOTALL)
-                cim = addr_match.group(1).replace('\n', ' ').strip() if addr_match else "Cím nem található"
+                # --- 2. NÉV ---
+                # A cella első sorai általában a nevet tartalmazzák
+                lines = [l.strip() for l in content_col.split('\n') if l.strip()]
+                # Kiszűrjük a kódot a sorokból
+                clean_lines = [l.replace(kod, "").strip() for l in lines]
+                clean_lines = [l for l in clean_lines if l]
+                nev = clean_lines[0] if clean_lines else "Ismeretlen"
                 
-                # Név: A cella első sora a kód után
-                nev_parts = content_col.replace(kod, "").strip().split('\n')
-                nev = nev_parts[0].strip() if nev_parts else "Ismeretlen"
+                # --- 3. CÍM (Minden, ami Debrecen környékén van) ---
+                cim = ""
+                for line in clean_lines:
+                    if "Debrecen" in line or re.search(r'\d{4}', line):
+                        cim = line
+                        break
+                # Ha nem talált Debrecen kulcsszót, vegyük a második sort
+                if not cim and len(clean_lines) > 1:
+                    cim = clean_lines[1]
+
+                # --- 4. TELEFON ÉS RENDELÉSEK ---
+                # Telefon: keresünk bármit ami 06... vagy 20/ 30/ 70/ 52/
+                tel_match = re.search(r'(\d{2}/\d{6,10}|\d{10,11})', order_col.replace(" ", ""))
                 
-                # Telefon és Rendelések a 4. oszlopból (Index 3)
-                tel_match = re.search(r'(\d{2}/\d{3,}-?\d{3,})', order_col)
-                rendelesek = re.findall(r'(\d+-[A-Z0-9]{1,4})', order_col)
+                # Rendelések: Minden X-YYYY formátum (pl 1-L1K)
+                # Itt nem csak a kódokat, hanem a darabszámot is gyűjtjük
+                rendelesek = re.findall(r'(\d+-[A-Z0-9]+)', order_col)
                 
-                # Megjegyzés kinyerése (pl. Kapukód)
+                # --- 5. MEGJEGYZÉS ---
                 megj = ""
-                if "kapukód" in content_col.lower():
-                    m = re.search(r'(kapukód:?\s*[^\n]+)', content_col, re.IGNORECASE)
-                    megj = m.group(1) if m else ""
+                # Ha a cella alján van extra infó (pl. kapukód, porta)
+                specialis = ["kapu", "kcs", "porta", "kulcs", "hívni", "akaszt"]
+                for line in lines:
+                    if any(s in line.lower() for s in specialis):
+                        megj = line
 
                 extracted_data.append({
-                    'sorszam': sorszam_raw.split('\n')[0],
+                    'sorszam': sorszam,
                     'nev': nev[:25],
                     'cim': cim,
                     'tel': tel_match.group(1) if tel_match else "",
@@ -165,3 +183,4 @@ if uploaded_file:
                 st.warning("Nem sikerült adatokat kinyerni. Ellenőrizd a PDF-et!")
         except Exception as e:
             st.error(f"Hiba történt: {e}")
+

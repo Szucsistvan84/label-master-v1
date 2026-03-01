@@ -1,17 +1,15 @@
 import streamlit as st
 import pdfplumber
 import pandas as pd
-import io
 import re
 
-def extract_v17(pdf_file):
+def extract_v19(pdf_file):
     all_customers = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             words = page.extract_words()
             markers = []
             for w in words:
-                # Sorszám keresése a bal oldalon
                 if w['x0'] < 40 and re.match(r'^\d+$', w['text']):
                     markers.append({'num': w['text'], 'top': w['top']})
             
@@ -21,38 +19,47 @@ def extract_v17(pdf_file):
                 block_words = [w for w in words if top - 2 <= w['top'] < bottom - 2]
                 full_text = " ".join([w['text'] for w in block_words])
                 
-                # --- 1. CÍM KERESÉSE (Bővített minta) ---
-                # Keressük az irányítószámot, Debrecent, és mindent, ami házszámnak tűnik a végén
+                # --- 1. CÍM ÉS TELEFON ---
                 cim_m = re.search(r'(\d{4}\s+Debrecen,\s*.*?\d+[\s/]*[A-Z-]*\.?)', full_text)
-                cim = cim_m.group(1) if cim_m else ""
+                cim = cim_m.group(1).strip() if cim_m else "Cím nem található"
                 
-                # --- 2. TELEFON KERESÉSE ---
                 tel_m = re.search(r'(\d{2}/\d{6,10})', full_text.replace(" ", ""))
-                tel = tel_m.group(1) if tel_m else ""
+                tel = tel_m.group(1) if tel_m else "Nincs tel."
 
-                # --- 3. ÜGYINTÉZŐ KERESÉSE (Kötőjel barát) ---
+                # --- 2. ÜGYINTÉZŐ KERESÉSE (Szuper-Mágnes) ---
+                # Kivesszük az irányítószámot és a Debrecent, hogy ne zavarjanak
+                clean_text = full_text.replace("Debrecen", "").replace("4031", "").replace("4002", "").replace("4030", "")
+                
+                # Minden szót megvizsgálunk, ami nagybetűvel kezdődik és nem kód/cím
+                names = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', clean_text)
+                # Szűrjük a tipikus nem-neveket
+                filtered_names = [n for n in names if n.lower() not in ["utca", "út", "tér", "kft", "zrt", "fszt", "emelet", "ajtó", "porta"]]
+                
                 ugyintezo = ""
-                if cim and tel:
-                    tel_start = tel[:2] + "/"
-                    pattern = f"{re.escape(cim)}(.*?){tel_start}"
-                    name_area = re.search(pattern, full_text)
-                    if name_area:
-                        # Olyan szavakat keresünk, amik nagybetűvel kezdődnek ÉS lehet bennük kötőjel
-                        names = re.findall(r'\b[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüűA-ZÁÉÍÓÖŐÚÜŰ-]+\b', name_area.group(1))
-                        # Kiszűrjük a "Debrecen" szót és a cégneveket ha tudjuk
-                        names = [n for n in names if n.lower() != "debrecen" and len(n) > 2]
-                        if len(names) >= 2:
-                            ugyintezo = " ".join(names[-2:])
+                if filtered_names:
+                    # Ha van kötőjeles (Szabó-Salák), az legyen az alap
+                    hyphens = [n for n in filtered_names if "-" in n]
+                    if hyphens:
+                        idx = filtered_names.index(hyphens[0])
+                        if idx + 1 < len(filtered_names): ugyintezo = f"{hyphens[0]} {filtered_names[idx+1]}"
+                        elif idx - 1 >= 0: ugyintezo = f"{filtered_names[idx-1]} {hyphens[0]}"
+                        else: ugyintezo = hyphens[0]
+                    else:
+                        # Sápi Réka, Nagy Ákos stb. esetén az utolsó két értelmes nagybetűs szó
+                        if len(filtered_names) >= 2:
+                            ugyintezo = f"{filtered_names[-2]} {filtered_names[-1]}"
+                        else:
+                            ugyintezo = filtered_names[0]
 
-                # --- 4. RENDELÉS ÖSSZESÍTŐ ÉS ÖSSZEG SZÉTVÁLASZTÁSA ---
+                # --- 3. RENDELÉS ÉS PÉNZ ---
                 rendelesek = re.findall(r'(\d+-[A-Z0-9]+)', full_text)
+                # Összesítő db (pl. "2 tétel" vagy "2 11 555 Ft" mintából a 2-es)
+                db_m = re.search(r'(\d+)\s+\d[\d\s]*\s*Ft', full_text)
+                db_osszesen = db_m.group(1) if db_m else str(len(rendelesek))
                 
-                # Keressük a mintát: [Összesítő szám] [Összeg] Ft
-                # Példa: "2 11 555 Ft" -> Darab: 2, Összeg: 11 555
-                osszesito_m = re.search(r'(\d+)\s+(\d[\d\s]*)\s*Ft', full_text)
-                
-                db_osszesen = osszesito_m.group(1) if osszesito_m else str(len(rendelesek))
-                fizetendo = osszeg_m.group(1).strip() if (osszeg_m := re.search(r'(\d[\d\s]*)\s*Ft', full_text)) else "0"
+                # Fizetendő (csak a számok a Ft előtt)
+                money_m = re.search(r'(\d[\d\s]*)\s*Ft', full_text)
+                fizetendo = money_m.group(1).replace(" ", "") if money_m else "0"
 
                 all_customers.append({
                     "Sorszám": markers[i]['num'],
@@ -60,20 +67,16 @@ def extract_v17(pdf_file):
                     "Cím": cim,
                     "Telefon": tel,
                     "Rendelés": ", ".join(rendelesek),
-                    "Összesen (db)": db_osszesen,
+                    "Db": db_osszesen,
                     "Fizetendő": fizetendo + " Ft"
                 })
     return pd.DataFrame(all_customers)
 
 # --- UI ---
-st.title("Interfood v17 - Hibajavító Verzió")
-uploaded_file = st.file_uploader("Menetterv PDF", type="pdf")
-
-if uploaded_file:
-    df = extract_v17(uploaded_file)
-    st.write("### Ellenőrizzük a javított adatokat:")
-    # Itt most már látnod kellene a teljes neveket és címeket
+st.title("Interfood v19 - Szuper-Mágnes")
+f = st.file_uploader("Menetterv PDF", type="pdf")
+if f:
+    df = extract_v19(f)
+    st.success("Adatok feldolgozva!")
     st.dataframe(df)
-    
-    csv = df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button("Export CSV", csv, "interfood_v17.csv")
+    st.download_button("CSV letöltése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v19.csv")

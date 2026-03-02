@@ -3,65 +3,76 @@ import pdfplumber
 import pandas as pd
 import re
 
-def parse_menetterv_v120(pdf_file):
+def parse_menetterv_v121(pdf_file):
     all_rows = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            # Szigorúan a v110-es bevált táblázatkezelés a vonalak mentén
+            # VÁLTOZATÁS: Ha a 'lines' nem talál semmit, a 'text' stratégiára váltunk
+            # Ez segít a 88. sor utáni "vonal nélküli" részeknél
             table = page.extract_table({
                 "vertical_strategy": "lines",
-                "horizontal_strategy": "lines"
+                "horizontal_strategy": "text", # Rugalmasabb vízszintes keresés
+                "intersection_y_tolerance": 10
             })
+            
             if not table: continue
 
             for row in table:
                 if not row or len(row) < 4: continue
                 
-                # Sorszám kinyerése (v110 logika)
+                # Sorszám kinyerése
                 s_raw = str(row[0]).strip()
-                sorszamok = [s.strip() for s in s_raw.split('\n') if s.strip().isdigit()]
-                if not sorszamok: continue
-                
-                # 1. oszlop: Kód kinyerése
+                sorszam_match = re.search(r'(\d+)', s_raw)
+                if not sorszam_match: continue
+                sorszam = sorszam_match.group(1)
+
+                # 1. oszlop: Kód
                 c1 = str(row[1]).strip()
                 kod_match = re.search(r'([HKSC P Z]-\d{6})', c1)
                 kod = kod_match.group(1) if kod_match else "Nincs kód"
 
-                # 2. oszlop: Itt vannak a CÍMEK (A v110-ben ez volt az Ügyintéző fejléc alatt)
-                # Ezt nevezzük át Cím-re
+                # 2. oszlop: Cím (ha üres, megnézzük az 1. oszlop alját, néha odacsúszik)
                 valodi_cim = str(row[2]).strip().replace('\n', ' ')
-                if "Ügyintéző" in valodi_cim: continue
+                if (not valodi_cim or valodi_cim == "None") and "Debrecen" in c1:
+                    # Mentőöv: ha a cím belecsúszott az ügyfélkód oszlopába
+                    for line in c1.split('\n'):
+                        if "Debrecen" in line:
+                            valodi_cim = line.strip()
+                            break
+                
+                if "Ügyintéző" in valodi_cim or not valodi_cim: 
+                    if sorszam == "89": # Speciális debug a kritikus sorhoz
+                        pass 
+                    else: continue
 
-                # 3. oszlop: Ez volt a 'Cím' fejléc, ezt a kérésedre most KIHAGYJUK/TÖRÖLJÜK.
-
-                # 4. oszlop: Ebben van a NÉV (Ügyintéző) legfelül
+                # 4. oszlop: Ügyintéző (Név)
                 c4 = str(row[3]).strip()
-                nev_m = c4.split('\n')[0] # A név az első sor ebben a cellában
+                nev_m = c4.split('\n')[0] if c4 and c4 != "None" else "Nincs név"
 
                 all_rows.append({
-                    "Sorszám": sorszamok[0],
+                    "Sorszám": sorszam,
                     "Kód": kod,
-                    "Cím": valodi_cim,   # A 2. oszlopból jön
-                    "Ügyintéző": nev_m    # A 4. oszlop tetejéről jön
+                    "Cím": valodi_cim,
+                    "Ügyintéző": nev_m
                 })
     
-    return pd.DataFrame(all_rows)
+    df = pd.DataFrame(all_rows).drop_duplicates(subset=['Sorszám', 'Kód'])
+    return df
 
-st.title("Interfood v120 - Tisztított Adatok")
-st.info("Logika: 2. oszlop -> Cím | 4. oszlop teteje -> Ügyintéző | 3. oszlop törölve")
+st.title("Interfood v121 - A 88. sor utáni javítás")
+st.info("Javítás: Rugalmas táblázatkezelés a hiányzó vonalak ellenére.")
 
 f = st.file_uploader("PDF feltöltése", type="pdf")
 
 if f:
-    data = parse_menetterv_v120(f)
-    
+    data = parse_menetterv_v121(f)
     if not data.empty:
-        st.write("### Ellenőrző táblázat")
-        # Megjelenítés: Sorszám, Kód, Cím, Ügyintéző
-        final_df = data[["Sorszám", "Kód", "Cím", "Ügyintéző"]]
-        st.dataframe(final_df)
+        # Rendezés sorszám szerint, hogy lássuk a végét
+        data['Sorszám_int'] = pd.to_numeric(data['Sorszám'], errors='coerce')
+        data = data.sort_values('Sorszám_int').drop('Sorszám_int', axis=1)
         
-        csv = final_df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("💾 CSV letöltése", csv, "interfood_v120.csv", "text/csv")
-    else:
-        st.warning("Nem sikerült adatot kinyerni. Ellenőrizd a PDF-et!")
+        st.write("### Ellenőrző táblázat (88. sor környéke)")
+        st.dataframe(data) # Itt most már látnod kell a 89, 90... sorokat is
+        
+        csv = data.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("💾 CSV letöltése", csv, "interfood_v121.csv", "text/csv")

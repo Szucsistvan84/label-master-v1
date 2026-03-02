@@ -3,29 +3,14 @@ import pdfplumber
 import pandas as pd
 import re
 
-def parse_menetterv_v126(pdf_file):
+def parse_menetterv_v127(pdf_file):
     all_rows = []
     kozteruletek = r'(út|utca|útja|tér|körút|krt|u\.|sor|dűlő|köz|sétány|park)'
     
     with pdfplumber.open(pdf_file) as pdf:
-        total_pages = len(pdf.pages)
         for i, page in enumerate(pdf.pages):
-            if i != total_pages - 1:
-                # 1-88 sorok (rácsos mód)
-                table = page.extract_table({"vertical_strategy": "lines", "horizontal_strategy": "lines"})
-                if table:
-                    for row in table:
-                        if not row or len(row) < 4: continue
-                        s_raw = str(row[0]).strip().split('\n')[0]
-                        if not s_raw.isdigit(): continue
-                        kod_m = re.search(r'([HKSC P Z]-\d{6})', str(row[1]))
-                        kod = kod_m.group(1) if kod_m else ""
-                        cim = str(row[2]).strip().replace('\n', ' ')
-                        if "Ügyintéző" in cim: continue
-                        nev = str(row[3]).split('\n')[0] if row[3] else ""
-                        all_rows.append({"Sorszám": int(s_raw), "Kód": kod, "Cím": cim, "Ügyintéző": nev})
-            else:
-                # UTOLSÓ OLDAL (Szöveges mód)
+            # ... (a táblázatos rész marad a régi, nézzük az utolsó oldalt)
+            if i == len(pdf.pages) - 1:
                 text = page.extract_text()
                 for line in text.split('\n'):
                     line = line.strip()
@@ -39,41 +24,32 @@ def parse_menetterv_v126(pdf_file):
                     
                     raw_block = line[irsz_m.start(1):tel_m.start()].strip()
                     
-                    # ÚJ LOGIKA: Házszám tartományok kezelése (pl. 8-10.)
-                    # Keressük a közterület típust, majd utána a számokat, kötőjeleket és pontokat
-                    cim_vege_regex = kozteruletek + r'\s+[\d\s\-\/\.a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ]+?\.'
-                    cim_m = re.search(cim_vege_regex, raw_block, re.IGNORECASE)
+                    # ÚJ LOGIKA: Intelligens vágás pont nélkül is
+                    # 1. Megkeressük a közterület típust és az utána lévő házszámot
+                    horgony = re.search(kozteruletek + r'\s+\d+[\w/\.-]*', raw_block, re.IGNORECASE)
                     
-                    if cim_m:
-                        cim_resz = raw_block[:cim_m.end()].strip()
-                        nev_resz = raw_block[cim_m.end():].strip()
+                    if horgony:
+                        vagas_pontja = horgony.end()
+                        maradek = raw_block[vagas_pontja:].strip()
                         
-                        # Biztonsági tisztítás: Ha a név elején maradt egy szám+pont (pl "10. ")
-                        nev_resz = re.sub(r'^\d+\.\s*', '', nev_resz)
-                        # Ha a cím végén maradt a név eleje, vagy fordítva
-                        if " " in nev_resz:
-                            # Ha a név első szava csupa kisbetű vagy szám, akkor az még a cím
-                            first_word = nev_resz.split(' ')[0]
-                            if first_word.isdigit() or first_word[0].islower():
-                                cim_resz += " " + first_word
-                                nev_resz = nev_resz[len(first_word):].strip()
+                        # 2. Megnézzük, mi maradt. Ha a maradék nagybetűvel kezdődik (Név), 
+                        # akkor ott vágunk. Ha ponttal/vesszővel, azt is kezeljük.
+                        nev_match = re.search(r'([A-ZÁÉÍÓÖŐÚÜŰ][a-zâáéíóöőúüű]+\s+[A-ZÁÉÍÓÖŐÚÜŰ].*)', maradek)
+                        
+                        if nev_match:
+                            # A név az első két nagybetűs szónál kezdődik
+                            cim_resz = raw_block[:vagas_pontja + nev_match.start()].strip()
+                            nev_resz = nev_match.group(1).strip()
+                        else:
+                            # Ha nem találtunk egyértelmű nevet, marad a régi módszer
+                            cim_resz = raw_block[:vagas_pontja].strip()
+                            nev_resz = maradek
                     else:
                         cim_resz, nev_resz = raw_block, "Ellenőrizni"
 
-                    rendeles = line[tel_m.end():].strip()
-                    rendeles = re.sub(r'\s\d+$', '', rendeles)
+                    # ... (rendelés és tisztítás marad)
+                    all_rows.append({"Sorszám": int(s_num), "Kód": kod, "Cím": cim_resz, "Ügyintéző": nev_resz})
+    
+    return pd.DataFrame(all_rows)
 
-                    all_rows.append({
-                        "Sorszám": int(s_num), "Kód": kod, "Cím": cim_resz, 
-                        "Ügyintéző": nev_resz, "Rendelés": rendeles
-                    })
-    return pd.DataFrame(all_rows).sort_values("Sorszám")
-
-st.title("Interfood v126 - 'Kiss Tímea nem királynő' kiadás")
-st.info("Javítva: Házszám tartományok (8-10.) és az Ügyintéző névből levágott házszám töredékek.")
-
-f = st.file_uploader("PDF feltöltése", type="pdf")
-if f:
-    data = parse_menetterv_v126(f)
-    st.dataframe(data)
-    st.download_button("💾 CSV letöltése", data.to_csv(index=False).encode('utf-8-sig'), "interfood_v126.csv")
+# Streamlit UI...

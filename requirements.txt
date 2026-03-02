@@ -3,3 +3,6 @@ tabula-py
 pandas
 xlsxwriter
 jpype1
+pdfplumber
+fpdf
+pypdf

@@ -4,7 +4,7 @@ import pandas as pd
 import re
 from fpdf import FPDF
 
-def parse_menetterv_v114(pdf_file):
+def parse_menetterv_v115(pdf_file):
     all_rows = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -17,27 +17,39 @@ def parse_menetterv_v114(pdf_file):
             for row in table:
                 if not row or len(row) < 4: continue
                 
-                # 0. Sorszám
-                sorszam_raw = str(row[0]).strip()
-                if not any(s.isdigit() for s in sorszam_raw): continue
-                sorszam = sorszam_raw.split('\n')[0]
+                # 0. Sorszám kinyerése
+                s_raw = str(row[0]).strip()
+                s_match = re.search(r'(\d+)', s_raw)
+                if not s_match: continue
+                sorszam = s_match.group(1)
 
-                # 1. Kód és Cím (Itt volt a keveredés)
+                # 1. oszlop tartalmának elemzése (Kód és Cím)
                 c1 = str(row[1]).strip()
-                kod_match = re.search(r'([PZ]-\d{6})', c1)
-                kod = kod_match.group(1) if kod_match else "Nincs kód"
+                kod_m = re.search(r'([PZ]-\d{6})', c1)
+                kod = kod_m.group(1) if kod_m else "Nincs kód"
                 
-                # Cím: Megkeressük a Debrecen szót és a környezetét
-                cim_lines = [l.strip() for l in c1.split('\n') if "Debrecen" in l]
-                cim = cim_lines[0] if cim_lines else "Cím a PDF-ben"
+                # Cím keresése: 4 számjegy + Város
+                cim_m = re.search(r'(\d{4}\s+[A-Z][a-z]+,?\s+[^0-9\n]+[^#\n]+)', c1)
+                cim = cim_m.group(1).replace('\n', ' ').strip() if cim_m else "Cím a PDF-ben"
+                # Ha még mindig nincs cím, keressük meg a "Debrecen" sort
+                if cim == "Cím a PDF-ben":
+                    for line in c1.split('\n'):
+                        if "Debrecen" in line:
+                            cim = line.strip()
+                            break
 
-                # 2. Ügyintéző (A tiszta név oszlopa)
-                nev_raw = str(row[2]).strip()
-                # Ha üres, vagy fejléc, átugorjuk
-                if not nev_raw or "Ügyintéző" in nev_raw: continue
-                nev = nev_raw.split('\n')[0] # Csak az első sor (a név)
+                # 2. oszlop: Ügyintéző (Név)
+                c2 = str(row[2]).strip()
+                nev = "Név hiányzik"
+                if c2 and "Ügyintéző" not in c2:
+                    nev = c2.split('\n')[0].strip()
+                
+                # Ha a név még mindig hiányzik, de a c1-ben van valami a kód előtt/után ami nem cím
+                if (nev == "Név hiányzik" or len(nev) < 3) and c1:
+                    lines = [l.strip() for l in c1.split('\n') if len(l.strip()) > 3 and "Debrecen" not in l and kod not in l]
+                    if lines: nev = lines[0]
 
-                # 3. Adatok (Telefon, Pénz, Rendelés)
+                # 3. oszlop: Adatok (Tel, Ft, Rendelés)
                 c3 = str(row[3]).strip()
                 tel_m = re.search(r'(\d{2}/\d{7})', c3)
                 tel = tel_m.group(1) if tel_m else "Nincs tel."
@@ -45,24 +57,17 @@ def parse_menetterv_v114(pdf_file):
                 penz_m = re.search(r'(\d+[\s\d]*Ft)', c3)
                 penz = penz_m.group(1) if penz_m else "0 Ft"
                 
-                # Rendelési kódok kigyűjtése
                 rend_m = re.findall(r'(\d+-[A-Z0-9]+)', c3)
                 rend = ", ".join(rend_m) if rend_m else "Lásd PDF"
 
                 all_rows.append({
-                    "Sorszám": sorszam,
-                    "Kód": kod,
-                    "Ügyintéző": nev,
-                    "Cím": cim,
-                    "Telefon": tel,
-                    "Pénz": penz,
-                    "Rendelés": rend
+                    "Sorszám": sorszam, "Kód": kod, "Ügyintéző": nev,
+                    "Cím": cim, "Telefon": tel, "Pénz": penz, "Rendelés": rend
                 })
     
-    df = pd.DataFrame(all_rows).drop_duplicates(subset=['Sorszám', 'Kód'])
-    return df
+    return pd.DataFrame(all_rows).drop_duplicates(subset=['Sorszám', 'Kód'])
 
-def create_pdf_v114(df):
+def create_pdf_v115(df):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=False)
     for i, (_, row) in enumerate(df.iterrows()):
@@ -71,9 +76,9 @@ def create_pdf_v114(df):
         
         pdf.set_font("Arial", "B", 10)
         pdf.set_xy(x+5, y+5)
-        # Név kiírása
+        # Név és sorszám
         safe_name = str(row['Ügyintéző']).encode('latin-1', 'replace').decode('latin-1')
-        pdf.cell(60, 5, f"#{row['Sorszám']} {safe_name[:25]}")
+        pdf.cell(60, 5, f"#{row['Sorszám']} {safe_name[:24]}")
         
         pdf.set_font("Arial", "", 8)
         pdf.set_xy(x+5, y+10)
@@ -94,14 +99,14 @@ def create_pdf_v114(df):
     
     return pdf.output(dest='S').encode('latin-1', 'replace')
 
-st.title("Interfood v114 - Stabil Oszlopok")
+st.title("Interfood v115 - A végső javítás")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 
 if f:
-    data = parse_menetterv_v114(f)
+    data = parse_menetterv_v115(f)
     st.write(f"Beolvasott sorok: **{len(data)}**")
     st.dataframe(data)
     
     if not data.empty:
-        pdf_bytes = create_pdf_v114(data)
+        pdf_bytes = create_pdf_v115(data)
         st.download_button("💾 PDF Letöltése", pdf_bytes, "etikettek.pdf", "application/pdf")

@@ -2,94 +2,77 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import re
-from fpdf import FPDF
 
-def parse_menetterv_v110(pdf_file):
+def parse_menetterv_v118(pdf_file):
     all_rows = []
-    # A PDF megnyitása
+    napok_szotar = {
+        'H': 'Hétfő', 'K': 'Kedd', 'S': 'Szerda', 
+        'C': 'Csütörtök', 'P': 'Péntek', 'Z': 'Szombat'
+    }
+    
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            # A táblázat kinyerése - a te menettervedhez ez a legjobb beállítás
+            # Szigorúan a v110-es táblázatkezelés
             table = page.extract_table({
                 "vertical_strategy": "lines",
                 "horizontal_strategy": "lines"
             })
-            
             if not table: continue
 
             for row in table:
-                # Az oszlopok ellenőrzése (0: Sor, 1: Ügyfél/Cím, 2: Ügyintéző, 3: Adatok)
                 if not row or len(row) < 4: continue
                 
-                c1 = str(row[1]) if row[1] else ""
-                # Ha a fejlécet látjuk, ugorjuk át
-                if "Ügyfél" in c1 or "Sor" in str(row[0]): continue
+                # 0. Sorszám
+                s_raw = str(row[0]).strip()
+                sorszamok = [s.strip() for s in s_raw.split('\n') if s.strip().isdigit()]
+                if not sorszamok: continue
                 
-                # Ügyfélkód keresése (P- vagy Z- és 6 szám)
-                kod_m = re.search(r'([PZ]-\d{6})', c1)
-                if kod_m:
-                    kod = kod_m.group(1)
-                    # Cím: a kód utáni rész a cellában
-                    cim = c1.split(kod)[-1].strip().replace('\n', ' ')
-                    # Név: a 3. oszlop (Takács Ildikó, Tőkés István stb.)
-                    nev = str(row[2]).strip().replace('\n', ' ')
-                    
-                    # 4. oszlop: Telefon, Pénz, Rendelés
-                    c3 = str(row[3]) if row[3] else ""
-                    tel_m = re.search(r'(\d{2}/\d{7})', c3)
-                    tel = tel_m.group(1) if tel_m else "NINCS"
-                    
-                    penz_m = re.search(r'(\d+[\s\d]*Ft)', c3)
-                    penz = penz_m.group(1) if penz_m else "0 Ft"
-                    
-                    # Rendelés (minden, ami nem telefon és nem pénz)
-                    rend_lines = [l.strip() for l in c3.split('\n') if l.strip() and "Ft" not in l and "/" not in l]
-                    rend = ", ".join(rend_lines) if rend_lines else "Lásd PDF"
-                    
-                    all_rows.append({
-                        "Kód": kod, "Ügyintéző": nev, "Cím": cim,
-                        "Telefon": tel, "Pénz": penz, "Rendelés": rend
-                    })
-    return pd.DataFrame(all_rows)
+                # 1. Kód kinyerése
+                c1 = str(row[1]).strip()
+                kod_match = re.findall(r'([HKSC P Z])-\d{6}', c1) # Nap kódja
+                teljes_kod = re.findall(r'([HKSC P Z]-\d{6})', c1)
+                
+                # Nap meghatározása
+                if len(set(kod_match)) > 1:
+                    nap = "Péntek+Szombat" # Vagy bármilyen összevont nap
+                elif kod_match:
+                    nap = napok_szotar.get(kod_match[0], kod_match[0])
+                else:
+                    nap = "Ismeretlen"
 
-def create_pdf_v110(df):
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=False)
-    for i, row in df.iterrows():
-        if i % 21 == 0: pdf.add_page()
-        x, y = (i % 3) * 70, ((i // 3) % 7) * 42.4
-        
-        pdf.set_font("Arial", "B", 10)
-        pdf.set_xy(x+5, y+5)
-        # Latin-1 kódolás, hogy ne szálljon el speciális karaktereknél
-        safe_name = str(row['Ügyintéző']).encode('latin-1', 'replace').decode('latin-1')
-        pdf.cell(60, 5, safe_name[:25])
-        
-        pdf.set_font("Arial", "", 8)
-        pdf.set_xy(x+5, y+10)
-        pdf.cell(60, 5, f"KOD: {row['Kód']} | {row['Pénz']}")
-        
-        pdf.set_font("Arial", "B", 9)
-        pdf.set_xy(x+5, y+15)
-        pdf.cell(60, 5, f"TEL: {row['Telefon']}")
-        
-        pdf.set_font("Arial", "", 8)
-        pdf.set_xy(x+5, y+20)
-        safe_addr = str(row['Cím']).encode('latin-1', 'replace').decode('latin-1')
-        pdf.multi_cell(60, 4, safe_addr)
+                # 2. Ügyintéző (A v110-ben ez a 'Rendelés' helyén volt)
+                # Itt a nevek vannak a PDF 2. oszlopában
+                ugyintezo = str(row[2]).strip().split('\n')[0]
+                if "Ügyintéző" in ugyintezo: continue
+
+                # 3. Cím (A v110-ben ez az 'Ügyintéző' helyén volt)
+                # Itt a címek vannak a PDF 1. oszlopában a Debrecen sorban
+                cim = "Nincs cím"
+                for line in c1.split('\n'):
+                    if "Debrecen" in line:
+                        cim = line.strip()
+                        break
+
+                all_rows.append({
+                    "Sorszám": sorszamok[0],
+                    "Ügyfélkód": teljes_kod[0] if teljes_kod else "Nincs kód",
+                    "Ügyintéző": ugyintezo,
+                    "Cím": cim,
+                    "Nap": nap
+                })
     
-    return pdf.output(dest='S').encode('latin-1', 'replace')
+    # Duplikátum szűrés (Összevonás kezelése)
+    df = pd.DataFrame(all_rows).drop_duplicates(subset=['Sorszám', 'Ügyfélkód'])
+    return df
 
-st.title("🚀 Interfood v110 - Fixált Telepítő")
-uploaded = st.file_uploader("Menetterv PDF (4002.pdf)", type="pdf")
+st.title("Interfood v118 - Lépésről lépésre")
+f = st.file_uploader("PDF feltöltése", type="pdf")
 
-if uploaded:
-    data = parse_menetterv_v110(uploaded)
-    if not data.empty:
-        st.success(f"Beolvasva: {len(data)} ügyfél")
-        st.dataframe(data)
-        
-        pdf_bytes = create_pdf_v110(data)
-        st.download_button("💾 PDF Letöltése", pdf_bytes, "etikettek.pdf", "application/pdf")
-    else:
-        st.error("Üres a táblázat! Biztos a 'menetterv 4002.pdf'-et töltötted fel?")
+if f:
+    data = parse_menetterv_v118(f)
+    st.write("### Ellenőrző táblázat")
+    # Megjelenítés a kért sorrendben
+    st.dataframe(data[["Sorszám", "Ügyfélkód", "Ügyintéző", "Cím", "Nap"]])
+    
+    csv = data.to_csv(index=False).encode('utf-8-sig')
+    st.download_button("CSV letöltése", csv, "interfood_v118.csv", "text/csv")

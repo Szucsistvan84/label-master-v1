@@ -3,8 +3,11 @@ import pdfplumber
 import pandas as pd
 import re
 
-def parse_menetterv_v124(pdf_file):
+def parse_menetterv_v125(pdf_file):
     all_rows = []
+    # Gyakori közterület típusok a cím azonosításához
+    kozteruletek = r'(út|utca|útja|tér|körút|krt|u\.|sor|dűlő|köz|sétány|park)'
+    
     with pdfplumber.open(pdf_file) as pdf:
         total_pages = len(pdf.pages)
         
@@ -12,7 +15,7 @@ def parse_menetterv_v124(pdf_file):
             is_last_page = (i == total_pages - 1)
             
             if not is_last_page:
-                # 1-88 sorok: Standard rácsos feldolgozás
+                # 1-88: Megbízható v120 rács mód
                 table = page.extract_table({"vertical_strategy": "lines", "horizontal_strategy": "lines"})
                 if table:
                     for row in table:
@@ -27,7 +30,7 @@ def parse_menetterv_v124(pdf_file):
                         all_rows.append({"Sorszám": int(s_raw), "Kód": kod, "Cím": cim, "Ügyintéző": nev})
             
             else:
-                # UTOLSÓ OLDAL: Speciális Regex horgonyok
+                # UTOLSÓ OLDAL: Intelligens szövegfelosztás
                 text = page.extract_text()
                 lines = text.split('\n')
                 
@@ -39,40 +42,46 @@ def parse_menetterv_v124(pdf_file):
                     s_num = main_match.group(1)
                     kod = main_match.group(2)
                     
-                    # Irányítószám keresése (4 jegy szóközökkel)
+                    # 1. Horgony: Irányítószám (4 jegy)
                     irsz_m = re.search(r'\s(\d{4})\s', line)
                     if not irsz_m: continue
                     idx_irsz = irsz_m.start(1)
                     
-                    # Telefonszám keresése (Mobil: 20/30/70, Vezetékes: körzet/szám)
+                    # 2. Horgony: Telefonszám
                     tel_m = re.search(r'(\d{2}/\d{6,7})', line)
                     if not tel_m: continue
                     idx_tel = tel_m.start()
                     
-                    # A szöveg az Irányítószámtól a Telefonszámig (Cím + Név)
+                    # A nyers blokk, amiben a Cím és a Név van
                     raw_block = line[idx_irsz:idx_tel].strip()
                     
-                    # FINOMHANGOLÁS: Cím és Név szétválasztása
-                    # 1. Szabály: A házszám utáni ". " lezárja a címet
-                    split_m = re.search(r'(\d+[a-z/]*\.)\s+', raw_block)
+                    # 3. Keresztmetszet: Hol van a közterület típusa és a házszám?
+                    # Keressük az "út", "utca" stb. utáni házszámot (szám + esetleges betű/jel)
+                    cim_vege_regex = kozteruletek + r'\s+\d+[/a-zA-Z\.]*'
+                    cim_m = re.search(cim_vege_regex, raw_block, re.IGNORECASE)
                     
-                    if split_m:
-                        cim_resz = raw_block[:split_m.end(1)].strip()
-                        nev_resz = raw_block[split_m.end(1):].strip()
+                    if cim_m:
+                        idx_split = cim_m.end()
+                        cim_resz = raw_block[:idx_split].strip()
+                        nev_resz = raw_block[idx_split:].strip()
+                        
+                        # Ha a név rész ponttal kezdődik (pl. ". Szuromi"), vágjuk le a pontot
+                        nev_resz = re.sub(r'^[^\w\s]+', '', nev_resz).strip()
                     else:
-                        # 2. Szabály (Hamar Szabolcs-eset): Nincs pont, de van házszám
-                        # Keresünk egy számot (házszám), ami után nagybetűs szó jön
-                        hazszam_m = re.search(r'(\d+[a-z/]*)\s+([A-ZÁÉÍÓÖŐÚÜŰ][a-zâáéíóöőúüű]+)', raw_block)
-                        if hazszam_m:
-                            cim_resz = raw_block[:hazszam_m.end(1)].strip()
-                            nev_resz = raw_block[hazszam_m.start(2):].strip()
+                        # Ha nincs házszám, de van város (Debrecen,)
+                        varos_m = re.search(r'[A-Z][a-zâáéíóöőúüű]+,', raw_block)
+                        if varos_m:
+                            # Próbálunk egy értelmes vágást a cím után
+                            cim_resz = raw_block
+                            nev_resz = "Név nem azonosítható"
                         else:
                             cim_resz = raw_block
                             nev_resz = "Ellenőrizni"
 
-                    # Rendelés kinyerése a tel.szám után
-                    rendeles_resz = line[tel_m.end():].strip()
-                    # Levágjuk az ellenőrző összeget a végéről (utolsó szám)
+                    rendeles_resz = line[idx_tel:].strip()
+                    # Tisztítás: Telefonszám leválasztása a rendelésről
+                    rendeles_resz = re.sub(r'^\d{2}/\d{6,7}\s*', '', rendeles_resz)
+                    # Sor végi összesítő darabszám levágása
                     rendeles_resz = re.sub(r'\s\d+$', '', rendeles_resz)
 
                     all_rows.append({
@@ -85,14 +94,14 @@ def parse_menetterv_v124(pdf_file):
 
     return pd.DataFrame(all_rows).sort_values("Sorszám")
 
-st.title("Interfood v124 - Precíziós Adatkinyerő")
-st.info("Javítva: Batiz Zoltán (vezetékes szám), Cím/Név elválasztás (. ) és Hamar Szabolcs logika.")
+st.title("Interfood v125 - Közterület-alapú felismerő")
+st.info("Finomítva: Mikepércsi út 73/c és Szuromi Fanni esetei kezelve.")
 
 f = st.file_uploader("PDF feltöltése", type="pdf")
 
 if f:
-    data = parse_menetterv_v124(f)
+    data = parse_menetterv_v125(f)
     if not data.empty:
         st.dataframe(data)
         csv = data.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("💾 CSV letöltése", csv, "interfood_v124.csv", "text/csv")
+        st.download_button("💾 CSV letöltése", csv, "interfood_v125.csv", "text/csv")

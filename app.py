@@ -3,59 +3,70 @@ import pdfplumber
 import pandas as pd
 import re
 
-def parse_menetterv_v133(pdf_file):
+def parse_menetterv_v134(pdf_file):
     all_rows = []
     ut_list = [' út', ' utca', ' útja', ' tér', ' körút', ' krt', ' u.', ' sor', ' dűlő', ' köz', ' sétány']
 
     with pdfplumber.open(pdf_file) as pdf:
         total_pages = len(pdf.pages)
         for i, page in enumerate(pdf.pages):
+            
+            # 1. RÉSZ: Táblázatos oldalak (FAGYÁSMENTESÍTVE)
             if i < total_pages - 1:
                 table = page.extract_table({"vertical_strategy": "lines", "horizontal_strategy": "lines"})
                 if table:
                     for row in table:
-                        if not row or len(row) < 6: continue
+                        if not row or len(row) < 5: continue
                         
-                        # Sorszámok kinyerése (lehet több is egy cellában: "1\n2")
-                        s_raw_list = str(row[0]).strip().split('\n')
-                        s_nums = [s.strip() for s in s_raw_list if s.strip().isdigit()]
-                        if not s_nums: continue
-
-                        # Adatok szétbontása sorokra (többsoros cellák kezelése)
-                        ugyintezok = str(row[3]).split('\n')
-                        rendelesek = str(row[5]).split('\n')
-                        adagok = str(row[6]).split('\n') if len(row) > 6 else ["1"]
+                        # Alap adatok kinyerése
+                        s_raw = str(row[0]).strip()
+                        if not any(c.isdigit() for c in s_raw): continue
+                        
+                        # Szétbontjuk, ha több sorszám van (pl. 1\n2)
+                        s_nums = [s.strip() for s in s_raw.split('\n') if s.strip().isdigit()]
+                        
+                        # A "Rendelése" cellát (row[5]) és az "Össz" cellát (row[6]) sorokra bontjuk
+                        rendeles_sorok = str(row[5]).split('\n') if len(row) > 5 else []
+                        ossz_sorok = str(row[6]).split('\n') if len(row) > 6 else []
+                        
+                        # Telefonszámot gyakran a rendelés cellába teszi a PDF
+                        tel_m = re.search(r'(\d{2}/\d{6,7})', str(row[5]) + str(row[4]))
+                        tel_szam = tel_m.group(1) if tel_m else ""
 
                         for idx, s_num in enumerate(s_nums):
-                            # Ügyintéző és Adag hozzárendelése (ha van elég elem a listában)
-                            nev = ugyintezok[idx].strip() if idx < len(ugyintezok) else (ugyintezok[0] if ugyintezok else "")
-                            adag = adagok[idx].strip() if idx < len(adagok) else (adagok[0] if adagok else "1")
+                            # Megkeressük az ehhez a sorszámhoz tartozó Ft összeget
+                            # Megnézzük a rendelés sorait, és az első "Ft"-os sort keressük
+                            ar = "0 Ft"
+                            etelek = []
                             
-                            # Rendelés és Összeg kibányászása a "Rendelése" blokkból
-                            # Megkeressük az összes Ft-ot és a kódokat
-                            curr_rendeles = str(row[5]).replace('\n', ' ')
-                            prices = re.findall(r'(\d[\d\s]*Ft)', curr_rendeles)
-                            price = prices[idx] if idx < len(prices) else "0 Ft"
+                            # Végigfutunk a rendelés sorain, és próbáljuk párosítani
+                            for r_line in rendeles_sorok:
+                                if "Ft" in r_line:
+                                    # Ha ez az első Ft, az az 1. sorszámé, stb.
+                                    # Egyszerűsítés: az összes Ft-ot begyűjtjük és sorrendben kiosztjuk
+                                    all_prices = re.findall(r'(\d[\d\s]*Ft)', str(row[5]).replace('\n', ' '))
+                                    if idx < len(all_prices):
+                                        ar = all_prices[idx]
+                                    break
                             
-                            # Ételkódok (tisztítás: leszedjük az árakat a szövegből)
-                            food_text = curr_rendeles
-                            for p in prices:
-                                food_text = food_text.replace(p, "")
-                            
+                            # Ételkódok: minden, ami nem Ft és nem telefon
+                            food_text = " ".join([l for l in rendeles_sorok if "Ft" not in l and "/" not in l]).strip()
+
                             all_rows.append({
                                 "Sorszám": int(s_num),
                                 "Kód": re.search(r'([HKSC P Z]-\d{6})', str(row[1])).group(1) if re.search(r'([HKSC P Z]-\d{6})', str(row[1])) else "",
                                 "Cím": str(row[2]).strip().replace('\n', ' '),
-                                "Ügyintéző": nev,
-                                "Telefon": "Lásd PDF", # A táblázatban a telefon sokszor a rendelésnél van, v134-ben pontosítjuk
-                                "Ételek": food_text.strip(),
-                                "Összeg": price,
-                                "Adag": adag
+                                "Ügyintéző": str(row[3]).split('\n')[idx] if idx < len(str(row[3]).split('\n')) else str(row[3]).split('\n')[0],
+                                "Telefon": tel_szam,
+                                "Ételek": food_text,
+                                "Összeg": ar,
+                                "Adag": ossz_sorok[idx].strip() if idx < len(ossz_sorok) else "1"
                             })
             
+            # 2. RÉSZ: Utolsó oldal (A v131-es stabil alapján)
             else:
-                # UTOLSÓ OLDAL JAVÍTÁSA (Az összeg regex bővítése)
                 text = page.extract_text()
+                if not text: continue
                 for line in text.split('\n'):
                     line = line.strip()
                     match = re.search(r'^(\d{1,3})\s+([HKSC P Z]-\d{6})', line)
@@ -66,31 +77,42 @@ def parse_menetterv_v133(pdf_file):
                     irsz_m = re.search(r'\s(\d{4})\s', line)
                     
                     if tel_m:
-                        # Rendelés rész a telefon után
                         rend_resz = line[tel_m.end():].strip()
-                        
-                        # Összeg keresése (rugalmasabb regex: \d után bármennyi szóköz és szám, majd Ft)
-                        osszeg_m = re.search(r'(\d[\d\s]*Ft)', rend_resz)
+                        osszeg_m = re.search(r'(\d[\d\s]{2,10}Ft)', rend_resz)
                         price = osszeg_m.group(1) if osszeg_m else "0 Ft"
                         
-                        # Adag (sor végi szám)
-                        adag_m = re.search(r'(\d+)$', rend_resz)
+                        adag_m = re.search(r'(\d+)$', line)
                         adag = adag_m.group(1) if adag_m else "1"
                         
-                        # Ételek (ami maradt)
-                        etelek = rend_resz.replace(price, "").strip()
-                        etelek = re.sub(r'\d+$', '', etelek).strip()
-
-                        # Cím/Név szeletelés (marad a bevált v130)
+                        # Cím/Név szétválasztás (v130/131 stabil verzió)
                         koztes = line[irsz_m.start(1):tel_m.start()].strip() if irsz_m else ""
-                        # ... (v130 szeletelő logika ide jön)
-                        
+                        cim_v, nev_v = koztes, "Ellenőrizni"
+                        for ut in ut_list:
+                            if ut.lower() in koztes.lower():
+                                pos = koztes.lower().find(ut.lower()) + len(ut)
+                                maradek = koztes[pos:].strip().split(' ')
+                                h_resz, n_resz, t_n = [], [], False
+                                for szo in maradek:
+                                    if (szo and szo[0].isupper() and len(szo) > 1 and not any(c.isdigit() for c in szo)) or t_n:
+                                        t_n = True; n_resz.append(szo)
+                                    else: h_resz.append(szo)
+                                cim_v = (koztes[:pos].strip() + " " + " ".join(h_resz)).strip()
+                                nev_v = " ".join(n_resz).strip()
+                                break
+
                         all_rows.append({
-                            "Sorszám": int(s_num), "Kód": kod, "Cím": "Utolsó oldali cím", 
-                            "Ügyintéző": "Utolsó oldali név", "Telefon": tel_m.group(1),
-                            "Ételek": etelek, "Összeg": price, "Adag": adag
+                            "Sorszám": int(s_num), "Kód": kod, "Cím": cim_v, "Ügyintéző": nev_v,
+                            "Telefon": tel_m.group(1), "Ételek": rend_resz.replace(price, "").strip(),
+                            "Összeg": price, "Adag": adag
                         })
 
     return pd.DataFrame(all_rows).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
 
-# UI...
+# --- Streamlit UI ---
+st.title("Interfood v134 - A Tőkés-Fixer")
+f = st.file_uploader("PDF feltöltése", type="pdf")
+if f:
+    df = parse_menetterv_v134(f)
+    st.dataframe(df, use_container_width=True)
+    st.metric("Összes adag", int(pd.to_numeric(df['Adag'], errors='coerce').sum()))
+    st.download_button("CSV Letöltése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v134.csv")

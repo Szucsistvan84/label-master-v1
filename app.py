@@ -3,28 +3,24 @@ import pdfplumber
 import pandas as pd
 import re
 
-st.set_page_config(page_title="Interfood v150.21 - Beton", layout="wide")
+st.set_page_config(page_title="Interfood v150.22 - Fix", layout="wide")
 
 def clean_phone(phone_str):
-    """Julianna-biztos telefonszám tisztító"""
     if not phone_str or phone_str == "Nincs": return " - "
     nums = re.sub(r'[^0-9]', '', str(phone_str))
-    # Ha túl rövid (pl. 30/01), akkor badarság -> " - "
     if len(nums) < 9: return " - "
-    # Ha túl hosszú (pl. összeget is beleolvasott), levágjuk a felesleget
     if len(nums) > 11:
         nums = nums[:11] if nums.startswith(('06', '36')) else nums[:9]
     return f"{nums[:2]}/{nums[2:]}"
 
-def parse_interfood_v150_21(pdf_file):
+def parse_interfood_v150_22(pdf_file):
     all_data = []
-    order_pattern = r'([1-9]-\s?[A-Z][A-Z0-9]*)' # Rendelési kódok (pl. 1-DK)
+    order_pattern = r'([1-9]-\s?[A-Z][A-Z0-9]*)'
     
     with pdfplumber.open(pdf_file) as pdf:
         pages = pdf.pages
         for i, page in enumerate(pages):
-            
-            # --- 1. LOGIKA: TÁBLÁZATOS OLDALAK (1. oldaltól az utolsó előttig) ---
+            # --- 1. TÁBLÁZATOS OLDALAK ---
             if i < len(pages) - 1:
                 table = page.extract_table({"vertical_strategy": "lines", "horizontal_strategy": "lines"})
                 if table:
@@ -40,7 +36,16 @@ def parse_interfood_v150_21(pdf_file):
 
                         for idx, snum in enumerate(s_nums):
                             s_int = int(snum)
-                            if s_int == 0 or s_int >= 400: continue # Sorszám szűrés
+                            if s_int == 0 or s_int >= 400: continue
                             
                             all_data.append({
-                                "Sorszám
+                                "Sorszám": s_int,
+                                "Ügyintéző": names[idx] if idx < len(names) else (names[0] if names else ""),
+                                "Cím": addresses[idx] if idx < len(addresses) else (addresses[0] if addresses else ""),
+                                "Telefon": clean_phone(tel_raw) if idx == 0 else " - ",
+                                "Rendelés": ", ".join(cikkszamok) if idx == 0 else "---"
+                            })
+
+            # --- 2. UTOLSÓ OLDAL (SORALAPÚ) ---
+            else:
+                text = page.

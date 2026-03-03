@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-st.set_page_config(page_title="Interfood v151.30 - Teljes", layout="wide")
+st.set_page_config(page_title="Interfood v151.40 - Final Fix", layout="wide")
 
 def clean_phone(p_str):
     if not p_str or p_str == "Nincs": return " - "
@@ -13,56 +13,51 @@ def clean_phone(p_str):
         nums = nums[:11] if nums.startswith(('06', '36')) else nums[:9]
     return f"{nums[:2]}/{nums[2:]}"
 
-def parse_interfood_v151_30(pdf_file):
+def parse_interfood_v151_40(pdf_file):
     all_data = []
     order_pat = r'([1-9]-\s?[A-Z][A-Z0-9]*)'
-    customer_code_pat = r'([PZ]-\d{5,7})' # Ügyfélkódok: P-123456 vagy Z-123456
+    customer_code_pat = r'([PZ]-\d{5,7})'
+    zip_pat = r'(\d{4})'
 
     with pdfplumber.open(pdf_file) as pdf:
         pages = pdf.pages
         for i, page in enumerate(pages):
-            # --- TÁBLÁZATOS OLDALAK (1-3) ---
+            # --- 1-3. OLDAL: TÁBLÁZAT ---
             if i < len(pages) - 1:
                 table = page.extract_table({"vertical_strategy": "lines", "horizontal_strategy": "lines"})
                 if not table: continue
                 for row in table:
-                    if not row or len(row) < 5: continue
+                    if not row or len(row) < 2: continue
                     s_nums = [s.strip() for s in str(row[0]).split('\n') if s.strip().isdigit()]
                     if not s_nums: continue
 
-                    # Rendelés és telefon a 4. oszlopból (minden sor!)
-                    cell_content = str(row[4])
-                    tel_match = re.search(r'\d{2}/\d{6,7}', cell_content.replace(" ",""))
-                    tel_final = clean_phone(tel_match.group(0)) if tel_match else " - "
-                    
-                    orders = re.findall(order_pat, cell_content)
+                    # RENDELÉS: Az egész sorban keresünk (biztos ami biztos)
+                    full_row_text = " ".join([str(x) for x in row])
+                    orders = re.findall(order_pat, full_row_text)
                     order_str = ", ".join(dict.fromkeys(orders))
-
-                    # Ügyfél adatok (Kóddal együtt!)
-                    raw_client_info = str(row[1]) # Ügyfél oszlop
-                    cust_codes = re.findall(customer_code_pat, raw_client_info)
                     
+                    # TELEFON: szintén az egész sorból
+                    tel_match = re.search(r'\d{2}/\d{6,7}', full_row_text.replace(" ",""))
+                    tel_final = clean_phone(tel_match.group(0)) if tel_match else " - "
+
+                    # ÜGYFÉLKÓD
+                    cust_codes = re.findall(customer_code_pat, str(row[1]))
                     names = [n.strip() for n in str(row[3]).split('\n') if n.strip()]
                     addresses = [a.strip() for a in str(row[2]).split('\n') if a.strip()]
 
                     for idx, snum in enumerate(s_nums):
                         s_int = int(snum)
                         if s_int >= 400: continue
-                        
-                        # Ügyfélkód hozzáfűzése a névhez, ha van
-                        code_prefix = cust_codes[idx] if idx < len(cust_codes) else ""
-                        name_val = names[idx] if idx < len(names) else (names[0] if names else "")
-                        
                         all_data.append({
                             "Sorszám": s_int,
-                            "Ügyfélkód": code_prefix,
-                            "Ügyintéző": name_val,
+                            "Ügyfélkód": cust_codes[idx] if idx < len(cust_codes) else (cust_codes[0] if cust_codes else ""),
+                            "Ügyintéző": names[idx] if idx < len(names) else (names[0] if names else ""),
                             "Cím": addresses[idx] if idx < len(addresses) else (addresses[0] if addresses else ""),
                             "Telefon": tel_final if idx == 0 else " - ",
                             "Rendelés": order_str if idx == 0 else "---"
                         })
 
-            # --- UTOLSÓ OLDAL (Soralapú 89-től) ---
+            # --- 4. OLDAL: SORALAPÚ ---
             else:
                 text = page.extract_text()
                 if not text: continue
@@ -78,13 +73,16 @@ def parse_interfood_v151_30(pdf_file):
                     t_m = re.search(r'(\d{2}/[0-9]{6,7})', l.replace(" ", ""))
                     u_t = clean_phone(t_m.group(0)) if t_m else " - "
 
-                    # ZIP alapú szétválasztás
-                    zip_m = re.search(r'(\d{4})', l)
+                    zip_m = re.search(zip_pat, l)
                     if zip_m:
-                        before_zip = l[:zip_m.start()].replace(str(sid), "", 1).strip()
-                        # Név kinyerése a kód után
-                        u_n = before_zip.split(u_code)[-1].replace("/", "").strip() if u_code else before_zip
-                        u_c = l[zip_m.start():].split(u_t.replace("/",""))[0].split("1-")[0].strip()
+                        # NÉV: Sorszám és Irányítószám között, kód nélkül
+                        name_area = l[m.end():zip_m.start()].replace(u_code, "").replace("/", "").strip()
+                        # Tisztítás a felesleges szóközöktől és "Kft"-től a név elején
+                        u_n = name_area.split("Kft")[-1].split("kft")[-1].strip()
+                        
+                        # CÍM: Irányítószámtól a telefonig
+                        addr_area = l[zip_m.start():]
+                        u_c = addr_area.split(u_t.replace("/",""))[0].split("1-")[0].strip()
                     else:
                         u_n, u_c = "Ellenőrizendő", l
 
@@ -92,13 +90,12 @@ def parse_interfood_v151_30(pdf_file):
                         "Sorszám": sid, "Ügyfélkód": u_code, "Ügyintéző": u_n, "Cím": u_c, "Telefon": u_t, "Rendelés": u_r
                     })
 
-    return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
+    df = pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
+    return df
 
-st.title("🛡️ Interfood v151.30 - Minden adat a helyén")
-st.success("Ügyfélkódok (P/Z), Rendelések, Tisztított Telefonok.")
-
-f = st.file_uploader("Menetterv PDF", type="pdf")
+st.title("🛡️ Interfood v151.40 - Final Fix")
+f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = parse_interfood_v151_30(f)
+    df = parse_interfood_v151_40(f)
     st.dataframe(df, use_container_width=True)
-    st.download_button("💾 Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_teljes_adat.csv")
+    st.download_button("💾 Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_javitott_v40.csv")

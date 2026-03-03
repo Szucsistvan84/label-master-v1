@@ -3,78 +3,77 @@ import pdfplumber
 import pandas as pd
 import re
 
-def clean_price_v143(raw_text):
+def clean_money_v144(raw_text):
     if not raw_text: return "0 Ft"
-    # Tisztítás a sortörésektől
-    text = str(raw_text).replace('\n', ' ').strip()
+    # Minden szóközt és újsort egységesítünk
+    t = " ".join(str(raw_text).split())
     
-    # Megkeressük az összes "szám + Ft" blokkot
-    matches = re.findall(r'(\d[\d\s]*)\s*Ft', text)
+    # A szabályod: Ha van szóköz a 0 előtt: " 0 Ft"
+    # Megkeressük az összes összeget
+    matches = re.findall(r'(\d[\d\s]*Ft)', t)
     if not matches: return "0 Ft"
     
-    final_prices = []
+    results = []
     for m in matches:
-        m = m.strip()
-        # A TE LOGIKÁD: Ha " 0" (szóköz nulla) van a Ft előtt, az gyanús
-        # De ha pl "10" vagy "11890", ott nincs szóköz a 0 előtt
-        if m == "0" or m.endswith(" 0"):
-            final_prices.append("0 Ft")
+        # Ha a "Ft" előtt közvetlenül egy magányos "0" áll, aminek szóköz van az elején
+        # Pl: "2 0 Ft" -> a " 0 Ft" rész miatt ez nulla
+        if re.search(r'\s0\s*Ft', " " + m):
+            results.append("0 Ft")
         else:
-            # Ha az elején van egy magányos szám (pl "2 11555"), levágjuk
-            parts = m.split()
-            if len(parts) > 1 and len(parts[0]) <= 2 and int(parts[0]) < 10:
-                final_prices.append(" ".join(parts[1:]) + " Ft")
+            # Ha valódi szám (nincs szóköz a 0 előtt, pl 11550), akkor tisztítjuk az elejét
+            parts = m.replace("Ft", "").strip().split()
+            if len(parts) > 1 and len(parts[0]) <= 2: # Levágjuk a magányos adagszámot
+                results.append(" ".join(parts[1:]) + " Ft")
             else:
-                final_prices.append(m + " Ft")
-    return final_prices
+                results.append(m)
+    return results
 
-def parse_menetterv_v143(pdf_file):
-    all_rows = []
+def parse_pdf_v144(pdf_file):
+    all_data = []
     with pdfplumber.open(pdf_file) as pdf:
         for i, page in enumerate(pdf.pages):
-            # 1-4. OLDALAK (Táblázatos)
-            if i < len(pdf.pages) - 1:
-                table = page.extract_table({"vertical_strategy": "lines", "horizontal_strategy": "lines"})
-                if not table: continue
-                for row in table:
-                    if not row or not str(row[0]).strip().replace('\n','').isdigit(): continue
+            text = page.extract_text()
+            if not text: continue
+            
+            # Keressük a sorokat: Sorszám + Kód (v131 logika)
+            lines = text.split('\n')
+            for j, line in enumerate(lines):
+                # Mint pl: "1 P-428867"
+                match = re.search(r'^(\d{1,3})\s+([HKSC P Z]-\d{6})', line.strip())
+                if match:
+                    s_num = match.group(1)
+                    kod = match.group(2)
                     
-                    s_nums = str(row[0]).strip().split('\n')
-                    # Pénzek kinyerése a szűrővel
-                    raw_prices = clean_price_v143(row[5])
+                    # Kontextus: a sor és az alatta lévő 3 sor (hogy minden infó meglegyen)
+                    context = " ".join(lines[j:j+4])
                     
-                    for idx, s_num in enumerate(s_nums):
-                        price = raw_prices[idx] if idx < len(raw_prices) else "0 Ft"
-                        all_rows.append({
-                            "Sorszám": int(s_num),
-                            "Kód": re.search(r'([HKSC P Z]-\d{6})', str(row[1])).group(1) if row[1] else "",
-                            "Cím": str(row[2]).replace('\n', ' '),
-                            "Ügyintéző": str(row[3]).split('\n')[idx] if idx < len(str(row[3]).split('\n')) else str(row[3]).split('\n')[0],
-                            "Telefon": re.search(r'(\d{2}/\d+)', str(row[5])).group(1) if re.search(r'(\d{2}/\d+)', str(row[5])) else "",
-                            "Összeg": price,
-                            "Adag": str(row[6]).split('\n')[idx] if len(row) > 6 and idx < len(str(row[6]).split('\n')) else "1"
-                        })
-            # UTOLSÓ OLDAL (Külön figyelemmel a nevekre)
-            else:
-                text = page.extract_text()
-                if not text: continue
-                for line in text.split('\n'):
-                    m = re.search(r'^(\d{1,3})\s+([HKSC P Z]-\d{6})\s+(.*?)\s+(\d{2}/\d+|$)', line.strip())
-                    if m:
-                        p_match = re.search(r'(\d[\d\s]*Ft)', line)
-                        all_rows.append({
-                            "Sorszám": int(m.group(1)), "Kód": m.group(2), 
-                            "Cím": "Utolsó oldali cím", "Ügyintéző": m.group(3).strip(), 
-                            "Telefon": m.group(4) if m.group(4) else "Nincs", 
-                            "Összeg": clean_price_v143(line)[0] if clean_price_v143(line) else "0 Ft",
-                            "Adag": "1"
-                        })
-    return pd.DataFrame(all_rows).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
+                    # Telefonszám (v131 szerint)
+                    tel = re.search(r'(\d{2}/\d{6,7})', context)
+                    
+                    # Összeg a te szóköz-szabályoddal
+                    prices = clean_money_v144(context)
+                    price = prices[0] if prices else "0 Ft"
+                    
+                    # Név keresése (a kód utáni rész a sorban)
+                    name_part = line.split(kod)[-1].strip()
+                    # Cím keresése (általában a következő sor eleje)
+                    address = lines[j+1].strip() if j+1 < len(lines) else ""
+
+                    all_data.append({
+                        "Sorszám": int(s_num),
+                        "Kód": kod,
+                        "Ügyintéző": name_part[:30], # Rövidítve, hogy ne csússzon el
+                        "Cím": address,
+                        "Telefon": tel.group(1) if tel else "Nincs",
+                        "Összeg": price
+                    })
+                    
+    return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
 
 # UI
-st.title("Interfood v143 - A 'Szóköz-szűrő' visszatér")
+st.title("Interfood v144 - A v131 Javított Kiadása")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = parse_menetterv_v143(f)
+    df = parse_pdf_v144(f)
     st.dataframe(df)
-    st.download_button("Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "v143_stabil.csv")
+    st.download_button("Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v144.csv")

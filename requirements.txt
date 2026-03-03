@@ -1,8 +1,5 @@
 streamlit
-tabula-py
-pandas
-xlsxwriter
-jpype1
 pdfplumber
-fpdf
-pypdf
+pandas
+requests
+beautifulsoup4

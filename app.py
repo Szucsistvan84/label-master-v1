@@ -3,64 +3,81 @@ import pdfplumber
 import pandas as pd
 import re
 
-def clean_money(text):
-    if not text or "Ft" not in text: return "0 Ft"
-    # Megkeressük a Ft-ot és az előtte lévő számokat
-    match = re.search(r'(\d[\d\s]*)\s*Ft', text)
-    if match:
-        num_part = match.group(1).strip()
-        # Ha szóközök vannak (pl. 2 11 555), csak az utolsó két blokkot tartjuk meg
-        # Mert az összeg 100 Ft és 99 999 Ft között mozoghat (2 vagy 3 számcsoport max)
-        parts = num_part.split()
-        if len(parts) > 2 and len(parts[0]) <= 2: # Ha az első szám gyanúsan kicsi (pl. egy adagszám "2")
-            return " ".join(parts[1:]) + " Ft"
-        return num_part + " Ft"
-    return "0 Ft"
-
-def parse_menetterv_v140(pdf_file):
+def parse_menetterv_v141(pdf_file):
     all_rows = []
+    # Telefonszám, Összeg és Adag minták
+    tel_re = re.compile(r'(\d{2}/\d{6,7})')
+    price_re = re.compile(r'(\d[\d\s]{0,10}Ft)')
+    
     with pdfplumber.open(pdf_file) as pdf:
-        for i, page in enumerate(pdf.pages):
-            # TÁBLÁZATOS OLDALAK
-            if i < len(pdf.pages) - 1:
-                table = page.extract_table({"vertical_strategy": "lines", "horizontal_strategy": "lines"})
-                if not table: continue
-                for row in table:
-                    if not row or not str(row[0]).strip().replace('\n','').isdigit(): continue
+        for page_idx, page in enumerate(pdf.pages):
+            text = page.extract_text()
+            if not text: continue
+            
+            # Oldalankénti táblázat a nevekhez/címekhez (v131 stílus)
+            table = page.extract_table()
+            
+            # Sorok feldolgozása nyers szövegből a fagyás ellen
+            lines = text.split('\n')
+            for i, line in enumerate(lines):
+                # Sorszám + Kód keresése (pl. 1 P-428867)
+                match = re.search(r'^(\d{1,3})\s+([HKSC P Z]-\d{6})', line.strip())
+                if match:
+                    s_num = int(match.group(1))
+                    kod = match.group(2)
                     
-                    s_nums = str(row[0]).strip().split('\n')
-                    # A "Rendelése" cella (row[5]) tartalmát szétbontjuk
-                    rendeles_cell = str(row[5]) if len(row) > 5 else ""
-                    prices = re.findall(r'(\d[\d\s]*Ft)', rendeles_cell.replace('\n', ' '))
+                    # Keresési tartomány: az aktuális sor és a következő 2 sor (Tőkés-huzat)
+                    context = " ".join(lines[i:i+3])
                     
-                    for idx, s_num in enumerate(s_nums):
-                        price_raw = prices[idx] if idx < len(prices) else "0 Ft"
-                        all_rows.append({
-                            "Sorszám": int(s_num),
-                            "Kód": re.search(r'([HKSC P Z]-\d{6})', str(row[1])).group(1) if row[1] else "",
-                            "Cím": str(row[2]).replace('\n', ' '),
-                            "Ügyintéző": str(row[3]).split('\n')[idx] if idx < len(str(row[3]).split('\n')) else str(row[3]).split('\n')[0],
-                            "Telefon": re.search(r'(\d{2}/\d+)', rendeles_cell).group(1) if re.search(r'(\d{2}/\d+)', rendeles_cell) else "",
-                            "Összeg": clean_money(price_raw),
-                            "Adag": str(row[6]).split('\n')[idx] if len(row) > 6 and idx < len(str(row[6]).split('\n')) else "1"
-                        })
-            # UTOLSÓ OLDAL (Stabil v131 logika)
-            else:
-                text = page.extract_text()
-                for line in text.split('\n'):
-                    m = re.search(r'^(\d{1,3})\s+([HKSC P Z]-\d{6})', line.strip())
-                    if m:
-                        p_match = re.search(r'(\d[\d\s]*Ft)', line)
-                        all_rows.append({
-                            "Sorszám": int(m.group(1)), "Kód": m.group(2), "Cím": "Ellenőrizni",
-                            "Ügyintéző": "Ellenőrizni", "Telefon": "Ellenőrizni",
-                            "Összeg": clean_money(p_match.group(1)) if p_match else "0 Ft", "Adag": "1"
-                        })
-    return pd.DataFrame(all_rows).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
+                    # 1. ÖSSZEG JAVÍTÁSA (A Te ötleted: Ft után vágunk)
+                    price = "0 Ft"
+                    if "Ft" in context:
+                        # Mindent levágunk az ELSŐ Ft után, ami a sorszámhoz tartozik
+                        cut_text = context[:context.find("Ft")+2]
+                        p_match = price_re.findall(cut_text)
+                        if p_match:
+                            # Az utolsó találat a levágott szövegben a miénk
+                            raw_p = p_match[-1].strip()
+                            # Tisztítás: ha "2 11 555 Ft", levágjuk a magányos adagszámot az elejéről
+                            p_parts = raw_p.split()
+                            if len(p_parts) > 2 and len(p_parts[0]) <= 2:
+                                price = " ".join(p_parts[1:])
+                            else:
+                                price = raw_p
 
-st.title("Interfood v140 - A stabil visszatérés")
+                    # 2. TELEFON ÉS ADAG
+                    tel = tel_re.search(context).group(1) if tel_re.search(context) else ""
+                    
+                    # Adag számítása a kódokból (1-L1K stb)
+                    adag_matches = re.findall(r'(\d+)-[A-Z0-9]+', context)
+                    calc_adag = sum(int(a) for a in adag_matches) if adag_matches else 1
+
+                    # 3. NÉV ÉS CÍM (Összefésülés a táblázattal, ha lehet)
+                    u_nev, u_cim = "Ismeretlen", "Ismeretlen"
+                    if table:
+                        for row in table:
+                            if row and str(row[0]).strip().startswith(str(s_num)):
+                                u_cim = str(row[2]).replace('\n', ' ') if len(row) > 2 else u_cim
+                                u_nev = str(row[3]).split('\n')[0] if len(row) > 3 else u_nev
+                                break
+
+                    all_rows.append({
+                        "Sorszám": s_num,
+                        "Kód": kod,
+                        "Cím": u_cim,
+                        "Ügyintéző": u_nev,
+                        "Telefon": tel,
+                        "Összeg": price,
+                        "Adag": calc_adag
+                    })
+
+    df = pd.DataFrame(all_rows).drop_duplicates(subset=['Sorszám', 'Kód'])
+    return df.sort_values("Sorszám")
+
+# UI
+st.title("Interfood v141 - Stabil & Ft-Stop")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = parse_menetterv_v140(f)
-    st.dataframe(df)
-    st.download_button("Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "v140.csv")
+    df = parse_menetterv_v141(f)
+    st.dataframe(df, use_container_width=True)
+    st.download_button("💾 CSV Letöltése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v141.csv")

@@ -3,95 +3,97 @@ import pdfplumber
 import pandas as pd
 import re
 
-def clean_money_v145(text_block):
-    """Szigorú pénzmosó: csak a valódi összegeket hagyja meg."""
-    if not text_block or "Ft" not in text_block:
-        return "0 Ft"
-    
-    # Sortörések eltüntetése a kereséshez
-    clean_block = " ".join(text_block.split())
-    
-    # Kikeressük az utolsó számblokkot a Ft előtt
-    matches = re.findall(r'(\d[\d\s]*)\s*Ft', clean_block)
-    if not matches:
-        return "0 Ft"
-    
-    raw_val = matches[-1].strip()
-    
-    # A TE SZABÁLYOD: Ha szóköz van a 0 előtt (" 0"), az nulla.
-    if raw_val == "0" or raw_val.endswith(" 0"):
-        return "0 Ft"
-    
-    # A 61-es sor javítása: levágjuk az elé ragadt adagszámot
-    parts = raw_val.split()
-    if len(parts) >= 2:
-        # Ha az utolsó rész 3 számjegy (pl. 935), akkor ezres tagolású
-        if len(parts[-1]) == 3:
-            return f"{parts[-2]} {parts[-1]} Ft"
-        return f"{parts[-1]} Ft"
-    
-    return f"{raw_val} Ft"
+def parse_menetterv_v131(pdf_file):
+    all_rows = []
+    ut_list = [' út', ' utca', ' útja', ' tér', ' körút', ' krt', ' u.', ' sor', ' dűlő', ' köz', ' sétány']
 
-def parse_pdf_v145(pdf_file):
-    all_data = []
     with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            if not text: continue
+        total_pages = len(pdf.pages)
+        for i, page in enumerate(pdf.pages):
             
-            lines = text.split('\n')
-            for i, line in enumerate(lines):
-                # Sorszám + Kód (pl. 61 P-437302)
-                match = re.search(r'^(\d{1,3})\s+([HKSC P Z]-\d{6})', line.strip())
-                if match:
-                    s_num = match.group(1)
-                    kod = match.group(2)
+            # 1. RÉSZ: Normál táblázatos oldalak
+            if i < total_pages - 1:
+                table = page.extract_table({"vertical_strategy": "lines", "horizontal_strategy": "lines"})
+                if table:
+                    for row in table:
+                        if not row or len(row) < 5: continue # Kell az 5. oszlop a telefonhoz
+                        s_raw = str(row[0]).strip().split('\n')[0]
+                        if not s_raw.isdigit(): continue
+                        
+                        kod_m = re.search(r'([HKSC P Z]-\d{6})', str(row[1]))
+                        tel_raw = str(row[4]).split('\n')[0] if row[4] else "" # Telefon oszlop
+                        
+                        all_rows.append({
+                            "Sorszám": int(s_raw),
+                            "Kód": kod_m.group(1) if kod_m else "",
+                            "Cím": str(row[2]).strip().replace('\n', ' '),
+                            "Ügyintéző": str(row[3]).split('\n')[0] if row[3] else "",
+                            "Telefon": tel_raw.strip()
+                        })
+            
+            # 2. RÉSZ: Utolsó oldal (A "Szeletelő" bővítése)
+            else:
+                text = page.extract_text()
+                if not text: continue
+                
+                for line in text.split('\n'):
+                    line = line.strip()
+                    match = re.search(r'^(\d{1,3})\s+([HKSC P Z]-\d{6})', line)
+                    if not match: continue
                     
-                    # Beolvassuk a környezetet a névhez, címhez és pénzhez (5 sor)
-                    context_lines = lines[i:i+6]
-                    full_context = " ".join(context_lines)
+                    s_num, kod = match.groups()
+                    irsz_m = re.search(r'\s(\d{4})\s', line)
+                    tel_m = re.search(r'(\d{2}/\d{6,7})', line) # Ez találja meg a telefonszámot
                     
-                    # Telefonszám
-                    tel = re.search(r'(\d{2}/\d{6,7})', full_context)
-                    
-                    # Név: a kód utáni rész az első sorban
-                    name = line.split(kod)[-1].strip()
-                    # Ha a névben benne van a cím eleje, megpróbáljuk tisztítani
-                    name = name.split('402')[0].split('403')[0].strip() 
+                    if irsz_m and tel_m:
+                        telefonszam = tel_m.group(1) # Elmentjük a számot
+                        koztes = line[irsz_m.start(1):tel_m.start()].strip()
+                        
+                        vagas_helye = -1
+                        for ut in ut_list:
+                            pos = koztes.lower().find(ut.lower())
+                            if pos != -1:
+                                ut_vege = pos + len(ut)
+                                maradek = koztes[ut_vege:].strip()
+                                
+                                szavak = maradek.split(' ')
+                                hazszam_resz = []
+                                nev_resz = []
+                                
+                                talalt_nevet = False
+                                for szo in szavak:
+                                    # Név felismerése (v130 logika megőrzése)
+                                    is_name_start = (szo and szo[0].isupper() and len(szo) > 1 and not any(c.isdigit() for c in szo))
+                                    if is_name_start or talalt_nevet:
+                                        talalt_nevet = True
+                                        nev_resz.append(szo)
+                                    else:
+                                        hazszam_resz.append(szo)
+                                
+                                cim_vegleges = (koztes[:ut_vege].strip() + " " + " ".join(hazszam_resz)).strip()
+                                nev_vegleges = " ".join(nev_resz).strip()
+                                vagas_helye = 1
+                                break
+                        
+                        if vagas_helye == -1:
+                            cim_vegleges, nev_vegleges = koztes, "Ellenőrizni"
 
-                    # Cím: általában a kód alatti sor
-                    address = lines[i+1].strip() if i+1 < len(lines) else "Nincs"
+                        all_rows.append({
+                            "Sorszám": int(s_num),
+                            "Kód": kod,
+                            "Cím": cim_vegleges,
+                            "Ügyintéző": nev_vegleges if nev_vegleges else "Nincs név",
+                            "Telefon": telefonszam
+                        })
 
-                    all_data.append({
-                        "Sorszám": int(s_num),
-                        "Kód": kod,
-                        "Ügyintéző": name,
-                        "Cím": address,
-                        "Telefon": tel.group(1) if tel else "Nincs",
-                        "Összeg": clean_money_v145(full_context)
-                    })
-    
-    return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
+    return pd.DataFrame(all_rows).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
 
-# --- UI ---
-st.set_page_config(page_title="Interfood v145", layout="wide")
-st.title("Interfood Menetterv Feldolgozó v145")
-st.info("Stabilizált nevek, címek és a 'Puskás-Kiss' féle pénzjavítás.")
+# Streamlit UI
+st.title("Interfood v131 - Telefonos Kiadás")
+st.info("A v130-as stabil címkezelés megmaradt, kiegészítve a Telefonszám oszloppal.")
 
-f = st.file_uploader("Válaszd ki a PDF fájlt", type="pdf")
-
+f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    with st.spinner('Feldolgozás...'):
-        df = parse_pdf_v145(f)
-    
-    if not df.empty:
-        st.success(f"Sikeresen beolvasva {len(df)} sor.")
-        st.dataframe(df, use_container_width=True)
-        
-        csv = df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button(
-            label="💾 CSV fájl letöltése",
-            data=csv,
-            file_name=f"interfood_v145_{f.name.replace('.pdf','')}.csv",
-            mime="text/csv",
-        )
+    df = parse_menetterv_v131(f)
+    st.dataframe(df, use_container_width=True)
+    st.download_button("💾 Letöltés CSV-ben", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v131.csv")

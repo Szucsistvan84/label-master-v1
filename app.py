@@ -3,31 +3,59 @@ import pdfplumber
 import pandas as pd
 import re
 
-def clean_price_v138(raw_text):
-    if not raw_text or "Ft" not in raw_text:
-        return "0 Ft"
-    
-    # 1. Megkeressük az utolsó "Ft" előtti részt
-    # 2. Csak a számokat és a szóközöket tartjuk meg közvetlenül a Ft előtt
-    # Regex magyarázat: keress számokat, amik szóközökkel vannak elválasztva, de csak ha a Ft követi őket
-    match = re.findall(r'(\d[\d\s]*)\s*Ft', raw_text)
-    if match:
-        # Az utolsó talált számcsoportot tisztítjuk (szóközök ki, ezresek be)
-        pure_num = re.sub(r'\s+', '', match[-1])
-        if pure_num.isdigit():
-            return f"{int(pure_num):,}".replace(',', ' ') + " Ft"
-    return "0 Ft"
-
-def parse_menetterv_v138(pdf_file):
+def parse_menetterv_v139(pdf_file):
     all_rows = []
-    # ... (A v137-es alapstruktúra marad) ...
+    # Az összeg keresése: számok és szóközök, amiket a "Ft" zár le
+    price_regex = re.compile(r'(\d[\d\s]*Ft)')
     
-    # A sorsdöntő változás a kinyerésnél:
-    # search_area = line + next_line
-    # price = clean_price_v138(search_area)
-    
-    # ... (táblázat-összefésülés marad) ...
-    return pd.DataFrame(all_rows)
+    with pdfplumber.open(pdf_file) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if not text: continue
+            
+            lines = text.split('\n')
+            for i, line in enumerate(lines):
+                # Sorszám és Kód azonosítása
+                match = re.search(r'^(\d{1,3})\s+([HKSC P Z]-\d{6})', line.strip())
+                if match:
+                    s_num = int(match.group(1))
+                    kod = match.group(2)
+                    
+                    # 1. LÉPÉS: Megkeressük a Ft-ot és levágunk mindent, ami UTÁNA van
+                    search_area = line
+                    if i + 1 < len(lines): search_area += " " + lines[i+1]
+                    
+                    if "Ft" in search_area:
+                        # Levágjuk a Ft utáni részt, hogy a darabszám ne kavarjon be
+                        clean_area = search_area[:search_area.find("Ft") + 2]
+                        price_match = price_regex.search(clean_area)
+                        price = price_match.group(1) if price_match else "0 Ft"
+                    else:
+                        price = "0 Ft"
 
-st.title("Interfood v138 - Tiszta Összegek")
-# UI...
+                    # 2. LÉPÉS: Adagszám kiszámolása a kódokból (pl. 1-L1K -> 1)
+                    # Megkeressük a "szám-betűkód" mintákat
+                    adag_talalatok = re.findall(r'(\d+)-[A-Z0-9]+', search_area)
+                    kalkulalt_adag = sum(int(a) for a in adag_talalatok) if adag_talalatok else 1
+
+                    all_rows.append({
+                        "Sorszám": s_num,
+                        "Kód": kod,
+                        "Összeg": price.strip(),
+                        "Számolt Adag": kalkulalt_adag,
+                        "Eredeti sor": line[:40] # Csak ellenőrzéshez
+                    })
+
+    df = pd.DataFrame(all_rows).drop_duplicates(subset=['Sorszám'])
+    return df.sort_values("Sorszám")
+
+# Streamlit interfész
+st.title("Interfood v139 - Ft-Stop & Adagszám Számító")
+st.info("Ez a verzió a 'Ft' után mindent levág, az adagszámot pedig a rendelési kódokból számolja ki.")
+
+f = st.file_uploader("PDF feltöltése", type="pdf")
+if f:
+    df = parse_menetterv_v139(f)
+    st.dataframe(df, use_container_width=True)
+    st.metric("Összesített adagszám (számolt)", int(df['Számolt Adag'].sum()))
+    st.download_button("💾 CSV Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v139.csv")

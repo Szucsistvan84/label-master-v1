@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-def parse_menetterv_v131(pdf_file):
+def parse_menetterv_v131_1(pdf_file):
     all_rows = []
     ut_list = [' út', ' utca', ' útja', ' tér', ' körút', ' krt', ' u.', ' sor', ' dűlő', ' köz', ' sétány']
 
@@ -16,22 +16,29 @@ def parse_menetterv_v131(pdf_file):
                 table = page.extract_table({"vertical_strategy": "lines", "horizontal_strategy": "lines"})
                 if table:
                     for row in table:
-                        if not row or len(row) < 5: continue # Kell az 5. oszlop a telefonhoz
+                        if not row or len(row) < 5: continue 
                         s_raw = str(row[0]).strip().split('\n')[0]
                         if not s_raw.isdigit(): continue
                         
                         kod_m = re.search(r'([HKSC P Z]-\d{6})', str(row[1]))
-                        tel_raw = str(row[4]).split('\n')[0] if row[4] else "" # Telefon oszlop
+                        
+                        # Telefon és Ételek szétválasztása a 4. oszlopból
+                        tel_cell = str(row[4]) if row[4] else ""
+                        tel_parts = tel_cell.split('\n')
+                        telefonszam = tel_parts[0].strip() if len(tel_parts) > 0 else ""
+                        # Minden, ami nem a telefon, az megy az Ételekhez
+                        etelek = ", ".join([p.strip() for p in tel_parts[1:] if p.strip()])
                         
                         all_rows.append({
                             "Sorszám": int(s_raw),
                             "Kód": kod_m.group(1) if kod_m else "",
                             "Cím": str(row[2]).strip().replace('\n', ' '),
                             "Ügyintéző": str(row[3]).split('\n')[0] if row[3] else "",
-                            "Telefon": tel_raw.strip()
+                            "Telefon": telefonszam,
+                            "Ételek": etelek
                         })
             
-            # 2. RÉSZ: Utolsó oldal (A "Szeletelő" bővítése)
+            # 2. RÉSZ: Utolsó oldal
             else:
                 text = page.extract_text()
                 if not text: continue
@@ -43,10 +50,13 @@ def parse_menetterv_v131(pdf_file):
                     
                     s_num, kod = match.groups()
                     irsz_m = re.search(r'\s(\d{4})\s', line)
-                    tel_m = re.search(r'(\d{2}/\d{6,7})', line) # Ez találja meg a telefonszámot
+                    tel_m = re.search(r'(\d{2}/\d{6,7})', line) 
                     
                     if irsz_m and tel_m:
-                        telefonszam = tel_m.group(1) # Elmentjük a számot
+                        telefonszam = tel_m.group(1)
+                        # A telefon UTÁNI rész az utolsó oldalon az étel rendelés
+                        rendeles_resz = line[tel_m.end():].strip()
+                        
                         koztes = line[irsz_m.start(1):tel_m.start()].strip()
                         
                         vagas_helye = -1
@@ -55,14 +65,11 @@ def parse_menetterv_v131(pdf_file):
                             if pos != -1:
                                 ut_vege = pos + len(ut)
                                 maradek = koztes[ut_vege:].strip()
-                                
                                 szavak = maradek.split(' ')
                                 hazszam_resz = []
                                 nev_resz = []
-                                
                                 talalt_nevet = False
                                 for szo in szavak:
-                                    # Név felismerése (v130 logika megőrzése)
                                     is_name_start = (szo and szo[0].isupper() and len(szo) > 1 and not any(c.isdigit() for c in szo))
                                     if is_name_start or talalt_nevet:
                                         talalt_nevet = True
@@ -83,17 +90,22 @@ def parse_menetterv_v131(pdf_file):
                             "Kód": kod,
                             "Cím": cim_vegleges,
                             "Ügyintéző": nev_vegleges if nev_vegleges else "Nincs név",
-                            "Telefon": telefonszam
+                            "Telefon": telefonszam,
+                            "Ételek": rendeles_resz
                         })
 
     return pd.DataFrame(all_rows).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
 
 # Streamlit UI
-st.title("Interfood v131 - Telefonos Kiadás")
-st.info("A v130-as stabil címkezelés megmaradt, kiegészítve a Telefonszám oszloppal.")
+st.set_page_config(page_title="Interfood v131.1", layout="wide")
+st.title("Interfood v131.1 - Rendelés Gyűjtő")
+st.success("Visszaállítva a stabil v131-es címkezelés. Pénz elrejtve, Ételek oszlop hozzáadva.")
 
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = parse_menetterv_v131(f)
-    st.dataframe(df, use_container_width=True)
-    st.download_button("💾 Letöltés CSV-ben", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v131.csv")
+    df = parse_menetterv_v131_1(f)
+    # Csak azokat az oszlopokat mutatjuk, amik kellenek
+    st.dataframe(df[["Sorszám", "Kód", "Ügyintéző", "Cím", "Telefon", "Ételek"]], use_container_width=True)
+    
+    csv = df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button("💾 Letöltés CSV-ben", csv, f"interfood_rendelesek_{f.name}.csv")

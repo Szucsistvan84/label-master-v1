@@ -3,10 +3,13 @@ import pdfplumber
 import pandas as pd
 import re
 
-st.set_page_config(page_title="Interfood v150.8 - Teljes Adat", layout="wide")
+st.set_page_config(page_title="Interfood v150.9 - Adat Tisztító", layout="wide")
 
-def parse_interfood_v150_8(pdf_file):
+def parse_interfood_v150_9(pdf_file):
     all_rows = []
+    # Olyan minta, ami darabszámmal kezdődik, kötőjel, majd BETŰVEL kezdődő kód (pl. 1-L1K)
+    # Így a házszámokat (pl. 2-26) kihagyja.
+    order_pattern = r'(\d-\s?[A-Z][A-Z0-9]*)'
     ut_list = [' út', ' utca', ' útja', ' tér', ' körút', ' krt', ' u.', ' sor', ' dűlő', ' köz', ' sétány']
     
     with pdfplumber.open(pdf_file) as pdf:
@@ -23,7 +26,9 @@ def parse_interfood_v150_8(pdf_file):
                         if not s_nums: continue
                         
                         full_row_text = " ".join([str(cell) for cell in row if cell])
-                        cikkszamok = re.findall(r'(\d-\s?[A-Z0-9]+)', full_row_text)
+                        
+                        # CSAK a betűvel kezdődő kódokat gyűjtjük ki
+                        cikkszamok = re.findall(order_pattern, full_row_text)
                         rendeles_str = ", ".join(cikkszamok) if cikkszamok else "Nincs kód"
                         
                         tel_m = re.search(r'(\d{2}/\d{6,7})', full_row_text)
@@ -41,21 +46,27 @@ def parse_interfood_v150_8(pdf_file):
                                 "Rendelés": rendeles_str if idx == 0 else "---"
                             })
             
-            # 2. RÉSZ: UTOLSÓ OLDAL (Szeletelő logika a nevekhez és címekhez)
+            # 2. RÉSZ: UTOLSÓ OLDAL (Szeletelő + 92-es javítás)
             else:
                 text = page.extract_text()
                 if not text: continue
-                for line in text.split('\n'):
-                    match = re.search(r'^(\d{1,3})\s+([HKSC P Z]-\d{6})', line.strip())
+                # Tisztítjuk a szöveget a 92-eshez hasonló törések ellen
+                lines = text.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    # Keresünk sorszámot a sor elején
+                    match = re.search(r'^(\d{1,3})\s+', line)
                     if not match: continue
                     
-                    s_num, kod = match.groups()
+                    s_num = match.group(1)
                     irsz_m = re.search(r'\s(\d{4})\s', line)
                     tel_m = re.search(r'(\d{2}/\d{6,7})', line)
-                    cikkszamok = re.findall(r'(\d-\s?[A-Z0-9]+)', line)
+                    
+                    # Cikkszámok szűrése itt is: csak betűvel kezdődő kód jöhet
+                    cikkszamok = re.findall(order_pattern, line)
                     rendeles_str = ", ".join(cikkszamok) if cikkszamok else "Nincs kód"
                     
-                    # Név és cím visszahozása az utolsó oldalon (v131 logika)
+                    # Név és cím logika
                     cim_v, nev_v = "Lásd PDF", "Nincs név"
                     if irsz_m and tel_m:
                         koztes = line[irsz_m.start(1):tel_m.start()].strip()
@@ -88,11 +99,11 @@ def parse_interfood_v150_8(pdf_file):
     return pd.DataFrame(all_rows).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
 
 # --- UI ---
-st.title("🎯 Interfood v150.8 - Minden Adat Megvan")
-st.info("Javítva: 1-88 cikkszámok és 89+ ügyféladatok.")
+st.title("🎯 Interfood v150.9 - Házszám-szűrő Kiadás")
+st.info("Javítva: 92-es sorszám és a házszámok (pl. 2-26) kiszűrése a rendelések közül.")
 
-f = st.file_uploader("Menetterv PDF feltöltése", type="pdf")
+f = st.file_uploader("Menetterv PDF", type="pdf")
 if f:
-    df = parse_interfood_v150_8(f)
+    df = parse_interfood_v150_9(f)
     st.dataframe(df, use_container_width=True)
-    st.download_button("💾 CSV Mentése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_teljes_adat.csv")
+    st.download_button("💾 CSV Mentése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_tisztitott.csv")

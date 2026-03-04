@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-st.set_page_config(page_title="Interfood v152.40 - Polír", layout="wide")
+st.set_page_config(page_title="Interfood v152.50 - Adat-Vámház", layout="wide")
 
 def clean_phone(p_str):
     if not p_str: return " - "
@@ -11,33 +11,53 @@ def clean_phone(p_str):
     if len(nums) < 9: return " - "
     return f"{nums[:2]}/{nums[2:]}"
 
-def clean_name(name_str):
-    """Tisztítja a nevet: tiltott karakterek és prefixumok kezelése"""
-    if not name_str: return ""
-    # Csak betűk, szóköz, kötőjel és pont maradhat (vessző és számok repülnek)
-    cleaned = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-\.]', '', name_str)
+def process_name_and_address(raw_name, raw_addr):
+    """
+    Kiszűri a cím-elemeket a névből és áthelyezi őket a cím végére.
+    Tisztítja a nevet a tiltott karakterektől.
+    """
+    # Gyakori cím-elemek és rövidítések
+    addr_parts = ['lph', 'lépcsőház', 'porta', 'u', 'utca', 'út', 'útja', 'tér', 'ép', 'épület', 'fszt', 'em', 'LGM']
+    allowed_prefixes = ['Dr.', 'Prof.', 'Ifj.', 'Id.', 'Özv.']
     
-    # Pontok kezelése: csak a megengedett előtagoknál maradhat meg a pont
-    allowed_prefixes = ['Dr.', 'Prof.', 'Ifj.', 'Id.']
-    # Ideiglenesen elmentjük a pontokat a prefixekben
+    words = raw_name.split()
+    clean_name_words = []
+    moved_to_address = []
+
+    for i, word in enumerate(words):
+        clean_word = word.strip(',. ')
+        # Feltételek, amik alapján egy szó a CÍM-be való:
+        # 1. Benne van a listában (pl. lph, porta)
+        # 2. Kisbetűvel kezdődik és nem allowed prefix (pl. "porta", "u")
+        # 3. Csupa nagybetű és rövid (cégnév maradvány pl. LGM)
+        is_addr_marker = clean_word.lower() in [p.lower() for p in addr_parts]
+        is_lowercase_junk = word[0].islower() and word + "." not in allowed_prefixes
+        is_corporate_shout = word.isupper() and len(word) <= 4
+        
+        if is_addr_marker or is_lowercase_junk or is_corporate_shout:
+            moved_to_address.append(word)
+        else:
+            clean_name_words.append(word)
+
+    # Név végső tisztítása (számok és vesszők ki)
+    final_name = " ".join(clean_name_words)
+    final_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-\.]', '', final_name)
+    
+    # Prefix pontok megvédése
     for pref in allowed_prefixes:
-        cleaned = cleaned.replace(pref, pref.replace('.', '___'))
-    
-    # Minden egyéb pontot törlünk
-    cleaned = cleaned.replace('.', '')
-    
-    # Visszatesszük a prefixek pontjait
-    cleaned = cleaned.replace('___', '.')
-    return cleaned.strip()
+        final_name = final_name.replace(pref, pref.replace('.', '___'))
+    final_name = final_name.replace('.', '').replace('___', '.')
 
-def clean_address(addr_str):
-    """Cím tisztítása: mindent vágunk az irányítószám (4 számjegy) elől"""
-    zip_match = re.search(r'(\d{4})', addr_str)
-    if zip_match:
-        return addr_str[zip_match.start():].strip()
-    return addr_str.strip()
+    # Cím összeállítása: Irányítószámtól indul + a névből áthelyezett részek
+    zip_match = re.search(r'(\d{4})', raw_addr)
+    base_addr = raw_addr[zip_match.start():].strip() if zip_match else raw_addr.strip()
+    
+    extra_info = " ".join(moved_to_address).strip()
+    final_addr = f"{base_addr} {extra_info}".strip() if extra_info else base_addr
 
-def parse_interfood_v152_40(pdf_file):
+    return final_name.strip(), final_addr
+
+def parse_interfood_v152_50(pdf_file):
     all_data = []
     customer_code_pat = r'([PZ]-\d{5,7})'
     order_pat = r'([1-9]-\s?[A-Z][A-Z0-9]*)'
@@ -75,9 +95,8 @@ def parse_interfood_v152_40(pdf_file):
 
                 u_code = "".join(re.findall(customer_code_pat, " ".join(b2)))
                 
-                # CÍM ÉS NÉV TISZTÍTÁSA AZ ÚJ FÜGGVÉNYEKKEL
-                u_cim = clean_address(" ".join(b3))
-                u_nev = clean_name(" ".join(b4))
+                # A NÉV ÉS CÍM KÖZÖS FELDOLGOZÁSA
+                u_nev, u_cim = process_name_and_address(" ".join(b4), " ".join(b3))
                 
                 b5_str = " ".join(b5)
                 t_m = re.search(r'\d{2}/\d{6,7}', b5_str.replace(" ",""))
@@ -93,17 +112,13 @@ def parse_interfood_v152_40(pdf_file):
                     "Rendelés": u_rend
                 })
 
-    if not all_data:
-        return pd.DataFrame(columns=["Sorszám", "Ügyfélkód", "Ügyintéző", "Cím", "Telefon", "Rendelés"])
-    
     return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
 
-st.title("🛡️ Interfood v152.40 - Polír Verzió")
-st.markdown("Tisztított nevek (számok/vesszők nélkül) és irányítószámmal induló címek.")
+st.title("🚀 Interfood v152.50 - Adat-Vámház")
+st.markdown("Áthelyezi a 'porta', 'lph', 'u.' stb. kifejezéseket az Ügyintézőtől a Cím végére.")
 
 f = st.file_uploader("Feltöltés", type="pdf")
 if f:
-    df = parse_interfood_v152_40(f)
-    if not df.empty:
-        st.dataframe(df, use_container_width=True)
-        st.download_button("💾 CSV Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_polir.csv")
+    df = parse_interfood_v152_50(f)
+    st.dataframe(df, use_container_width=True)
+    st.download_button("💾 CSV Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_vamhaz.csv")

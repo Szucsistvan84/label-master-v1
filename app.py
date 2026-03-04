@@ -138,4 +138,144 @@ def create_label_pdf(df, fn, ft):
                 p_part, z_part = r_text.split(" | ")
                 p.drawString(x+5*mm, y+19.5*mm, p_part[:55])
                 p.drawString(x+5*mm, y+15.5*mm, z_part[:55])
-            else
+            else:
+                p.drawString(x+5*mm, y+17.5*mm, r_text[:55])
+            
+            p.setFont(f_bold, 8)
+            p.drawRightString(x+lw-5*mm, y+11*mm, f"Össz: {r['Összesen']} db")
+            p.setFont(f_reg, 6)
+            p.drawCentredString(x+lw/2, y+5*mm, f"Futár: {fn} ({ft}) | Jó étvágyat! :)")
+        else:
+            p.setFont(f_bold, 9)
+            p.drawCentredString(x+lw/2, y+32*mm, "TÁJÉKOZTATÁS")
+            p.setFont(f_reg, 8)
+            for j, line in enumerate(m_lines):
+                p.drawCentredString(x+lw/2, y+25*mm-(j*4.2*mm), line)
+
+    p.save()
+    buf.seek(0)
+    return buf
+
+# --- KOMPAKT TÁBLÁZATOS MENETTERV OLDALSZÁMMAL ÉS ARRÉBB TOLT OSZLOPOKKAL ---
+def create_compact_itinerary(df, fn):
+    f_reg, f_bold = register_fonts()
+    buf = BytesIO()
+    p = canvas.Canvas(buf, pagesize=A4)
+    w, h = A4
+    
+    total_items = len(df)
+    items_per_page = 32
+    total_pages = math.ceil(total_items / items_per_page)
+
+    for page_num in range(1, total_pages + 1):
+        p.setFont(f_bold, 12)
+        p.drawString(15*mm, h-15*mm, f"MENETTERV - {fn}")
+        p.setFont(f_reg, 8)
+        p.drawRightString(w-15*mm, h-15*mm, f"Összesen: {total_items} cím")
+        
+        y = h - 25*mm
+        # FEJLÉC - Új pozíciókkal
+        p.setFont(f_bold, 7)
+        p.drawString(15*mm, y, "SOR")
+        p.drawString(25*mm, y, "NÉV / CÍM")
+        p.drawString(85*mm, y, "TELEFON") # Arrébb tolva balra (eredeti 110 volt)
+        p.drawString(110*mm, y, "RENDELÉS") # Arrébb tolva balra (eredeti 140 volt)
+        p.drawRightString(w-15*mm, y, "DB")
+        y -= 3*mm
+        p.line(15*mm, y, w-15*mm, y)
+        y -= 5*mm
+
+        start_idx = (page_num - 1) * items_per_page
+        end_idx = min(start_idx + items_per_page, total_items)
+        
+        page_df = df.iloc[start_idx:end_idx]
+
+        for _, r in page_df.iterrows():
+            p.setFont(f_bold, 8)
+            p.drawString(15*mm, y, f"#{r['Sorrend']}")
+            p.drawString(25*mm, y, str(r['Ügyintéző'])[:32])
+            p.setFont(f_reg, 7)
+            p.drawString(85*mm, y, str(r['Telefon']))
+            p.setFont(f_bold, 6.5) # Kicsit kisebb rendelés a listán is a több helyért
+            p.drawString(110*mm, y, str(r['Rendelés'])[:85])
+            p.drawRightString(w-15*mm, y, str(r['Összesen']))
+            
+            y -= 3.8*mm
+            p.setFont(f_reg, 7)
+            p.drawString(25*mm, y, str(r['Cím'])[:65])
+            y -= 2*mm
+            p.setStrokeColor(colors.lightgrey)
+            p.line(15*mm, y, w-15*mm, y)
+            p.setStrokeColor(colors.black)
+            y -= 4*mm
+        
+        # OLDALSZÁMOZÁS
+        p.setFont(f_reg, 7)
+        p.drawCentredString(w/2, 10*mm, f"- {page_num}. oldal / {total_pages} -")
+        
+        if page_num < total_pages:
+            p.showPage()
+        
+    p.save()
+    buf.seek(0)
+    return buf
+
+# --- UI ---
+with st.sidebar.form("setup"):
+    st.write("🚚 Szállítási adatok")
+    fn = st.text_input("Futár neve", value=st.session_state.get('n', "Szűcs István"))
+    ft = st.text_input("Telefonszáma", value=st.session_state.get('t', "+36208868971"))
+    if st.form_submit_button("MENTÉS"):
+        st.session_state.n, st.session_state.t = fn, ft
+        st.rerun()
+
+if not st.session_state.get('n'):
+    st.title("Interfood Címke Master")
+    st.warning("👈 Add meg a futár adatait!")
+    st.stop()
+
+st.title("🏷️ Logisztikai Központ v198.7")
+up_files = st.file_uploader("Menetterv PDF-ek", accept_multiple_files=True)
+
+if up_files:
+    file_order_data = [{"Sorszám": i+1, "Fájl": f.name} for i, f in enumerate(up_files)]
+    st.write("📂 Fájlok sorrendje (húzd vagy írd át):")
+    fo_df = st.data_editor(file_order_data, hide_index=True)
+    
+    if st.button("BEOLVASÁS"):
+        sorted_names = pd.DataFrame(fo_df).sort_values("Sorszám")["Fájl"].tolist()
+        raw = []
+        for name in sorted_names:
+            fobj = next(f for f in up_files if f.name == name)
+            raw.extend(parse_interfood_pro(fobj))
+        merged = merge_weekend_data(raw)
+        mdf = pd.DataFrame(merged)
+        mdf.insert(0, "Sorrend", [str(i+1) for i in range(len(mdf))])
+        st.session_state.mdf = mdf
+        st.rerun()
+
+if st.session_state.get('mdf') is not None:
+    st.divider()
+    edf = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True)
+    
+    if not edf.equals(st.session_state.mdf):
+        def sf(x):
+            try: return float(str(x).replace(',','.'))
+            except: return 999.0
+        edf['sk'] = edf['Sorrend'].apply(sf)
+        new = edf.sort_values('sk').drop(columns=['sk'])
+        new['Sorrend'] = [str(i+1) for i in range(len(new))]
+        st.session_state.mdf = new
+        st.rerun()
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("📥 ETIKETTEK LETÖLTÉSE"):
+            pdf = create_label_pdf(st.session_state.mdf, st.session_state.n, st.session_state.t)
+            pages = math.ceil(len(st.session_state.mdf) / 21)
+            st.success(f"Kész! Helyezz be {pages} db etikettlapot CÍMKÉVEL LEFELÉ!")
+            st.download_button("Fájl mentése", pdf, "interfood_etikett.pdf")
+    with c2:
+        if st.button("📋 TÁBLÁZATOS MENETTERV"):
+            pdf = create_compact_itinerary(st.session_state.mdf, st.session_state.n)
+            st.download_button("Menetterv mentése", pdf, "kiszallitasi_lista.pdf")

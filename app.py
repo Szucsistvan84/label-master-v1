@@ -10,31 +10,20 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-st.set_page_config(page_title="Interfood v196.0 - Full Ékezet Support", layout="wide")
+st.set_page_config(page_title="Interfood v197.0 - Összevont Hétvégi", layout="wide")
 
-# --- 1. BETŰTÍPUSOK REGISZTRÁLÁSA (A GitHub mappádból) ---
+# --- 1. BETŰTÍPUSOK REGISZTRÁLÁSA ---
 def register_fonts():
-    # A GitHubra feltöltött fájljaid nevei (kis/nagybetű érzékeny!)
-    font_normal = "DejaVuSans.ttf"
-    font_bold = "DejaVuSans-Bold.ttf"
-    
+    # A GitHub mappádban lévő fájlnevekhez igazítva
+    f_n, f_b = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
     try:
-        if os.path.exists(font_normal):
-            pdfmetrics.registerFont(TTFont('DejaVu', font_normal))
-        else:
-            st.error(f"Hiányzik a fájl: {font_normal}")
-            
-        if os.path.exists(font_bold):
-            pdfmetrics.registerFont(TTFont('DejaVu-Bold', font_bold))
-        else:
-            st.error(f"Hiányzik a fájl: {font_bold}")
-            
+        if os.path.exists(f_n): pdfmetrics.registerFont(TTFont('DejaVu', f_n))
+        if os.path.exists(f_b): pdfmetrics.registerFont(TTFont('DejaVu-Bold', f_b))
         return "DejaVu", "DejaVu-Bold"
-    except Exception as e:
-        st.error(f"Betűtípus hiba: {e}")
-        return "Helvetica", "Helvetica-Bold" # Tartalék, ha elszállna
+    except:
+        return "Helvetica", "Helvetica-Bold"
 
-# --- 2. PDF FELDOLGOZÓ (P/Z prefix + Telefon + Czinege-fix) ---
+# --- 2. PDF FELDOLGOZÓ MOTOR ---
 def parse_interfood_pro(pdf_file):
     rows = []
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
@@ -81,8 +70,7 @@ def parse_interfood_pro(pdf_file):
                 for o in orders:
                     parts = o.split('-')
                     if len(parts) < 2: continue
-                    q = int(parts[0])
-                    if q >= 10: q = int(str(q)[-1])
+                    q = int(parts[0]); q = int(str(q)[-1]) if q >= 10 else q
                     valid_o.append(f"{q}-{parts[1]}")
                     sq += q
                 
@@ -94,7 +82,31 @@ def parse_interfood_pro(pdf_file):
                     })
     return rows
 
-# --- 3. PDF GENERÁTOR (3x7 ív) ---
+# --- 3. ÖSSZEVONÓ LOGIKA ---
+def merge_weekend_data(raw_rows):
+    if not raw_rows: return []
+    df = pd.DataFrame(raw_rows)
+    merged = []
+    
+    for uid, group in df.groupby("ID", sort=False):
+        base = group.iloc[0].copy().to_dict()
+        p_items = group[group['Prefix'] == 'P']['Rendelés'].tolist()
+        z_items = group[group['Prefix'] == 'Z']['Rendelés'].tolist()
+        
+        # Rendelés szöveg összeállítása elválasztóval
+        order_str = ""
+        if p_items: order_str += f"P: {', '.join(p_items)}"
+        if z_items:
+            if order_str: order_str += " | "
+            order_str += f"SZ: {', '.join(z_items)}"
+            base['Prefix'] = 'Z' # Szombati tétel esetén vastag keret
+            
+        base['Rendelés'] = order_str
+        base['Összesen'] = group['Összesen'].sum()
+        merged.append(base)
+    return merged
+
+# --- 4. PDF GENERÁTOR (3x7) ---
 def create_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
@@ -109,69 +121,78 @@ def create_pdf(df, fn, ft):
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = mx + col*lw, my + row_i*lh
         
-        p.setLineWidth(1.5 if r['Prefix'] == 'Z' else 0.2)
+        p.setLineWidth(1.2 if r['Prefix'] == 'Z' else 0.2)
         p.rect(x+2*mm, y+2*mm, lw-4*mm, lh-4*mm)
         
+        # Sorszám és ID
         p.setFont(f_bold, 10)
-        p.drawString(x+5*mm, y+35*mm, f"#{r['Sorrend']}  {r['ID']}")
-        p.drawRightString(x+lw-5*mm, y+35*mm, "SZOMBAT" if r['Prefix'] == 'Z' else "PÉNTEK")
+        p.drawString(x+5*mm, y+35.5*mm, f"#{r['Sorrend']}  {r['ID']}")
         
-        p.setFont(f_bold, 10)
-        p.drawString(x+5*mm, y+28*mm, str(r['Ügyintéző'])[:24])
+        # Név és Telefon
+        p.setFont(f_bold, 9.5)
+        p.drawString(x+5*mm, y+30*mm, str(r['Ügyintéző'])[:24])
         p.setFont(f_reg, 8)
-        p.drawRightString(x+lw-5*mm, y+28*mm, str(r['Telefon']))
+        p.drawRightString(x+lw-5*mm, y+30*mm, str(r['Telefon']))
         
-        p.setFont(f_reg, 8)
-        p.drawString(x+5*mm, y+23*mm, str(r['Cím'])[:45])
+        # Cím
+        p.setFont(f_reg, 8.5)
+        p.drawString(x+5*mm, y+25*mm, str(r['Cím'])[:45])
         
+        # Rendelés megjelenítése (Péntek és Szombat külön sorban, ha van mindkettő)
         p.setFont(f_bold, 8)
-        p.drawString(x+5*mm, y+15*mm, f"{str(r['Rendelés'])[:38]}")
+        r_text = str(r['Rendelés'])
+        if " | " in r_text:
+            p_part, z_part = r_text.split(" | ")
+            p.drawString(x+5*mm, y+19*mm, p_part[:42])
+            p.drawString(x+5*mm, y+15*mm, z_part[:42])
+        else:
+            p.drawString(x+5*mm, y+17*mm, r_text[:42])
+            
         p.drawRightString(x+lw-5*mm, y+15*mm, f"Össz: {r['Összesen']} db")
         
-        p.setFont(f_reg, 7)
-        p.drawCentredString(x+lw/2, y+6*mm, f"Futár: {fn} ({ft}) | Jó étvágyat! :)")
+        # Kisebb betűs futár sor
+        p.setFont(f_reg, 6)
+        p.drawCentredString(x+lw/2, y+5*mm, f"Futár: {fn} ({ft}) | Jó étvágyat! :)")
         
     p.save()
     buf.seek(0)
     return buf
 
-# --- 4. STREAMLIT UI ---
-with st.sidebar.form("futar_form"):
+# --- 5. FELÜLET ---
+with st.sidebar.form("setup"):
     st.write("🚚 Szállítási adatok")
-    n = st.text_input("Futár neve", value=st.session_state.get('n', ""))
-    t = st.text_input("Telefonszáma", value=st.session_state.get('t', ""))
-    if st.form_submit_button("ADATOK MENTÉSE"):
-        st.session_state.n, st.session_state.t = n, t
+    fn = st.text_input("Futár neve", value=st.session_state.get('n', ""))
+    ft = st.text_input("Telefonszáma", value=st.session_state.get('t', ""))
+    if st.form_submit_button("MENTÉS"):
+        st.session_state.n, st.session_state.t = fn, ft
         st.rerun()
 
 if not st.session_state.get('n'):
     st.title("Interfood Címke Master")
-    st.warning("👈 Kérlek, add meg a futár adatait bal oldalt a kezdéshez!")
+    st.warning("👈 Add meg a futár adatait a kezdéshez!")
     st.stop()
 
-st.title(f"🏷️ Etikett Generátor - Üdv, {st.session_state.n}!")
-files = st.file_uploader("PDF menettervek feltöltése", accept_multiple_files=True)
+st.title(f"🏷️ Hétvégi Összevont Etikett")
+up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True)
 
-if files:
-    st.subheader("Járatok sorrendje")
-    fo = st.data_editor([{"Sorszám": i+1, "Fájlnév": f.name} for i, f in enumerate(files)], hide_index=True)
-    
-    if st.button("BEOLVASÁS ÉS FELDOLGOZÁS"):
-        sorted_names = pd.DataFrame(fo).sort_values("Sorszám")["Fájlnév"].tolist()
-        res = []
-        for sn in sorted_names:
-            fobj = next(f for f in files if f.name == sn)
-            res.extend(parse_interfood_pro(fobj))
+if up_files:
+    fo = st.data_editor([{"Sorszám": i+1, "Fájl": f.name} for i, f in enumerate(up_files)], hide_index=True)
+    if st.button("BEOLVASÁS ÉS ÖSSZEVONÁS"):
+        sorted_f = pd.DataFrame(fo).sort_values("Sorszám")["Fájl"].tolist()
+        raw = []
+        for s in sorted_f:
+            fobj = next(f for f in up_files if f.name == s)
+            raw.extend(parse_interfood_pro(fobj))
         
-        df = pd.DataFrame(res)
-        df.insert(0, "Sorrend", [str(i+1) for i in range(len(df))])
-        st.session_state.mdf = df
+        merged = merge_weekend_data(raw)
+        mdf = pd.DataFrame(merged)
+        mdf.insert(0, "Sorrend", [str(i+1) for i in range(len(mdf))])
+        st.session_state.mdf = mdf
         st.rerun()
 
 if st.session_state.get('mdf') is not None:
     st.divider()
-    st.subheader("Címek végleges sorrendje")
-    edf = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True, key="main_editor")
+    edf = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True)
     
     if not edf.equals(st.session_state.mdf):
         def sf(x):
@@ -183,6 +204,5 @@ if st.session_state.get('mdf') is not None:
         st.session_state.mdf = new
         st.rerun()
     
-    st.divider()
-    pdf_out = create_pdf(st.session_state.mdf, st.session_state.n, st.session_state.t)
-    st.download_button("📥 3x7-es PDF Etikett Letöltése", pdf_out, "interfood_etikett.pdf", "application/pdf", use_container_width=True)
+    pdf = create_pdf(st.session_state.mdf, st.session_state.n, st.session_state.t)
+    st.download_button("📥 3x7-es PDF Letöltése", pdf, "etikett_v197.pdf", "application/pdf", use_container_width=True)

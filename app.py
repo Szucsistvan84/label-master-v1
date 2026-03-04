@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-st.set_page_config(page_title="Interfood v153.00 - Final Clean", layout="wide")
+st.set_page_config(page_title="Interfood v153.10 - Laser Clean", layout="wide")
 
 def clean_phone(p_str):
     if not p_str: return " - "
@@ -15,33 +15,38 @@ def process_name_and_address(raw_name, raw_addr):
     to_move = ['lph', 'lp', 'porta', 'u', 'utca', 'út', 'útja', 'tér', 'ép', 'épület', 'fszt', 'em', 'LGM', 'kft', 'bt', 'zrt']
     allowed_prefixes = ['Dr.', 'Prof.', 'Ifj.', 'Id.', 'Özv.']
     
+    # 1. RENDELÉSKÓD FIX: Ha a név végén ott fityeg a kód (pl. "Juliánna-DKM")
+    # Eltávolítjuk a kötőjellel kapcsolt nagybetűs kódokat a név legvégéről
+    raw_name = re.sub(r'-[A-Z0-9]+$', '', raw_name.strip())
+    
     words = raw_name.split()
     clean_name_words = []
     moved_to_address = []
 
     for word in words:
+        # Tisztított verzió az elemzéshez
         clean_word_comp = re.sub(r'[^a-zA-Z]', '', word).lower()
         
-        # 1. Ételkód töredék
-        if re.match(r'^-[A-Z0-9]+$', word):
-            continue
-            
-        # 2. Magányos betűk szűrése (pl. az az "a" betű)
+        # 2. Magányos betűk (pl. az "a" betű)
         if len(word) == 1 and word.lower() != 'é':
             moved_to_address.append(word)
             continue
 
-        # 3. Vámház check (lp, porta, stb)
+        # 3. Különálló rendeléskód töredék (pl. "-DKM")
+        if re.match(r'^-[A-Z0-9]+$', word):
+            continue
+
+        # 4. Vámház check
         if clean_word_comp in [x.lower() for x in to_move]:
             moved_to_address.append(word)
             continue
 
-        # 4. Cégnév rövidítés (LGM)
+        # 5. Cégnév rövidítés
         if word.isupper() and 2 <= len(word) <= 4:
             moved_to_address.append(word)
             continue
 
-        # 5. Kisbetűs szemét
+        # 6. Kisbetűs szemét
         if len(word) > 0 and word[0].islower():
             if (word.capitalize() + "." not in allowed_prefixes):
                 moved_to_address.append(word)
@@ -49,13 +54,17 @@ def process_name_and_address(raw_name, raw_addr):
             
         clean_name_words.append(word)
 
+    # Név végső polírozása
     final_name = " ".join(clean_name_words)
+    # Csak a betűket, pontot és kötőjelet hagyjuk meg (számokat nem!)
     final_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-\.]', '', final_name)
+    
     for pref in allowed_prefixes:
         final_name = final_name.replace(pref, pref.replace('.', '___'))
     final_name = final_name.replace('.', '').replace('___', '.')
     final_name = " ".join(final_name.split())
 
+    # Cím összeállítása
     zip_match = re.search(r'(\d{4})', raw_addr)
     base_addr = raw_addr[zip_match.start():].strip() if zip_match else raw_addr.strip()
     extra_info = " ".join(moved_to_address).strip()
@@ -63,7 +72,8 @@ def process_name_and_address(raw_name, raw_addr):
 
     return final_name.strip(), final_addr
 
-def parse_interfood_v153(pdf_file):
+# A parse_interfood_v153_10 függvény megegyezik az előzővel
+def parse_interfood_v153_10(pdf_file):
     all_data = []
     customer_code_pat = r'([HKSCPZ]-\d{5,7})'
     order_pat = r'([1-9]-\s?[A-Z][A-Z0-9]*)'
@@ -116,10 +126,10 @@ def parse_interfood_v153(pdf_file):
                 })
     return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
 
-st.title("🚀 Interfood v153.00 - Final Clean")
-f = st.file_uploader("Válassz PDF fájlt", type="pdf")
+st.title("🛡️ Interfood v153.10 - Lézeres Tisztítás")
+f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
-    df = parse_interfood_v153(f)
+    df = parse_interfood_v153_10(f)
     if not df.empty:
         st.dataframe(df, use_container_width=True)
-        st.download_button("💾 Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_final.csv")
+        st.download_button("💾 Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_final_v153.csv")

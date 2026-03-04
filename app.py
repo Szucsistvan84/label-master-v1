@@ -13,7 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.platypus import Table, TableStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.7", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.8", layout="wide")
 
 def register_fonts():
     f_n, f_b = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
@@ -23,7 +23,7 @@ def register_fonts():
         return "DejaVu", "DejaVu-Bold"
     except: return "Helvetica", "Helvetica-Bold"
 
-# --- PDF PARSER (H-Z prefixek) ---
+# --- PDF PARSER ---
 def parse_interfood_pro(pdf_file):
     rows = []
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
@@ -92,9 +92,73 @@ def merge_data_flexible(raw_rows):
             for _, row in group.iterrows(): merged.append(row.to_dict())
     return merged
 
-# --- ETIKETT & MENETTERV GENERÁLÁS (Változatlan) ---
-# ... (create_label_pdf és create_manifest_pdf függvények) ...
-# (Itt a marketing etikett logika továbbra is benne van a v203.5 alapján)
+# --- ETIKETT GENERÁLÓ (FIXED) ---
+def create_label_pdf(df, fn, ft):
+    f_reg, f_bold = register_fonts()
+    buf = BytesIO()
+    p = canvas.Canvas(buf, pagesize=A4)
+    w, h = A4
+    lw, lh = 70*mm, 42.4*mm
+    mx, my = (w - 3*lw)/2, (h - 7*lh)/2
+    m_lines = ["15% kedvezmény* 3 hétig", "Új Ügyfeleink részére!", "Rendelés leadás:", f"{fn}, tel: {ft}", "* a kedvezmény telefonon leadott rendelésekre", "érvényesíthető területi képviselőnk által"]
+    
+    total_labels = len(df)
+    total_slots = math.ceil(total_labels / 21) * 21
+    for i in range(total_slots):
+        idx = i % 21
+        if idx == 0 and i > 0: p.showPage()
+        col, row_i = idx % 3, 6 - (idx // 3)
+        x, y = mx + col*lw, my + row_i*lh
+        p.setLineWidth(0.2); p.rect(x+2*mm, y+2*mm, lw-4*mm, lh-4*mm)
+        if i < total_labels:
+            r = df.iloc[i]
+            p.setLineWidth(1.2 if str(r.get('Prefix','')) == 'Z' else 0.2); p.rect(x+2*mm, y+2*mm, lw-4*mm, lh-4*mm)
+            p.setFont(f_bold, 10); p.drawString(x+5*mm, y+36*mm, f"#{int(float(r['Sorrend']))}")
+            p.drawRightString(x+lw-5*mm, y+36*mm, f"ID: {r['ID']}")
+            p.setFont(f_bold, 9); p.drawString(x+5*mm, y+31*mm, str(r['Ügyintéző'])[:24])
+            p.setFont(f_reg, 7.5); p.drawRightString(x+lw-5*mm, y+31*mm, str(r['Telefon']))
+            p.setFont(f_reg, 7.5); p.drawString(x+5*mm, y+27*mm, str(r['Cím'])[:45])
+            p.setFont(f_bold, 7); r_text = str(r['Rendelés'])
+            if " | " in r_text:
+                pts = r_text.split(" | ")
+                p.drawString(x+5*mm, y+20*mm, pts[0][:55]); p.drawString(x+5*mm, y+16*mm, pts[1][:55])
+            else: p.drawString(x+5*mm, y+18*mm, r_text[:55])
+            p.setFont(f_bold, 8); p.drawRightString(x+lw-5*mm, y+10*mm, f"Össz: {r['Összesen']} db")
+            p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+5*mm, f"Futár: {fn} ({ft})")
+        else:
+            p.setFont(f_bold, 9.5); p.drawCentredString(x+lw/2, y+34*mm, m_lines[0])
+            p.setFont(f_reg, 9); p.drawCentredString(x+lw/2, y+29*mm, m_lines[1])
+            p.setFont(f_bold, 8); p.drawCentredString(x+lw/2, y+23*mm, m_lines[2])
+            p.setFont(f_reg, 8.5); p.drawCentredString(x+lw/2, y+18*mm, m_lines[3])
+            p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+10*mm, m_lines[4]); p.drawCentredString(x+lw/2, y+7*mm, m_lines[5])
+    p.save(); buf.seek(0)
+    return buf
+
+# --- MENETTERV GENERÁLÓ (FIXED) ---
+def create_manifest_pdf(df, fn):
+    f_reg, f_bold = register_fonts()
+    buf = BytesIO()
+    p = canvas.Canvas(buf, pagesize=A4)
+    w, h = A4
+    rows_per_page = 22
+    total_p = math.ceil(len(df)/rows_per_page)
+    for p_idx in range(total_p):
+        p.setFont(f_bold, 12); p.drawString(15*mm, h-15*mm, f"MENETTERV - {fn}")
+        y_table_top = h - 25*mm
+        data = [["SOR", "NÉV / CÍM", "TELEFON", "RENDELÉS", "DB"]]
+        subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
+        for _, r in subset.iterrows():
+            name_addr = f"{r['Ügyintéző']}\n{r['Cím']}"
+            data.append([f"#{int(float(r['Sorrend']))}", name_addr, r['Telefon'], r['Rendelés'], r['Összesen']])
+        t = Table(data, colWidths=[12*mm, 65*mm, 28*mm, 65*mm, 10*mm])
+        t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,0), f_bold), ('FONTSIZE', (0,0), (-1,0), 8), ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke), ('FONTNAME', (0,1), (-1,-1), f_reg), ('FONTSIZE', (0,1), (-1,-1), 7.5), ('GRID', (0,0), (-1,-1), 0.1, colors.grey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
+        tw, th = t.wrap(w - 30*mm, h - 50*mm)
+        t.drawOn(p, 15*mm, y_table_top - th)
+        p.line(15*mm, 20*mm, w-15*mm, 20*mm)
+        p.setFont(f_reg, 8); p.drawCentredString(w/2, 12*mm, f"{p_idx+1} / {total_p} oldal")
+        if p_idx < total_p - 1: p.showPage()
+    p.save(); buf.seek(0)
+    return buf
 
 # --- UI ---
 with st.sidebar:
@@ -102,37 +166,30 @@ with st.sidebar:
     fn = st.text_input("Futár neve", "Szűcs István")
     ft = st.text_input("Telefonszáma", "+36208868971")
 
-st.title("🏷️ Interfood Logisztika v203.7")
+st.title("🏷️ Interfood Logisztika v203.8")
 up_files = st.file_uploader("PDF feltöltése", accept_multiple_files=True)
 
 if up_files:
-    # A fájlok sorrendjénél is engedünk tört számot a biztonság kedvéért
     f_order_data = [{"Sorrend": float(i+1), "Fájl": f.name} for i, f in enumerate(up_files)]
     f_order = st.data_editor(f_order_data, hide_index=True)
-    
     if st.button("FELDOLGOZÁS"):
         raw = []
         for name in pd.DataFrame(f_order).sort_values("Sorrend")["Fájl"]:
             fobj = next(f for f in up_files if f.name == name)
             raw.extend(parse_interfood_pro(fobj))
-        
         mdf = pd.DataFrame(merge_data_flexible(raw))
-        # Itt FLOAT típusra kényszerítjük a Sorrend oszlopot!
         mdf.insert(0, "Sorrend", range(1, len(mdf)+1))
         st.session_state.mdf = mdf.astype({"Sorrend": float})
         st.rerun()
 
 if st.session_state.get('mdf') is not None:
     st.subheader("📋 Ellenőrzés és Sorrendezés")
-    st.write("Tipp: Beírhatsz tört számot (pl. 1.1), majd nyomd meg a 'LISTA FRISSÍTÉSE' gombot.")
-    
-    # Interaktív táblázat - Float típus engedélyezve
+    # Tört számok engedélyezése az editorban
     edited_df = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True)
     
     col_a, col_b = st.columns([1, 4])
     with col_a:
         if st.button("🔄 LISTA FRISSÍTÉSE"):
-            # Sorba rendezzük a beírt (akár tört) számok alapján, majd újraindexeljük egészekre
             new_df = edited_df.sort_values("Sorrend").copy()
             new_df["Sorrend"] = range(1, len(new_df) + 1)
             st.session_state.mdf = new_df.astype({"Sorrend": float})

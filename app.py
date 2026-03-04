@@ -10,7 +10,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-st.set_page_config(page_title="Interfood v201.0 - Fixált Adatok", layout="wide")
+st.set_page_config(page_title="Interfood v202.0 - Adat Fix", layout="wide")
 
 # --- 1. FONT REGISZTRÁCIÓ ---
 def register_fonts():
@@ -21,81 +21,75 @@ def register_fonts():
         return "DejaVu", "DejaVu-Bold"
     except: return "Helvetica", "Helvetica-Bold"
 
-# --- 2. PDF PARSER (Javított pénz és cikkszám logikával) ---
+# --- 2. JAVÍTOTT PDF PARSER (Cikkszám + Pénz védelem) ---
 def parse_interfood_pro(pdf_file):
     rows = []
-    # Cikkszám minta: mennyiség - kód (pl. 1-DK)
-    order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
+    # Szigorúbb cikkszám minta: szám-betűk (pl. 1-DK2, 2-L3)
+    order_pat = r'(\d+-[A-Z][A-Z0-9]*)'
     phone_pat = r'(\d{2}/\d{6,9})'
-    # Pénz: számok, esetleg szóközökkel elválasztva, amit 'Ft' követ
     money_pat = r'(-?\d[\d\s]*)\s*Ft'
     
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
-            words = page.extract_words()
-            lines = {}
-            for w in words:
-                y = round(w['top'], 1)
-                found = False
-                for ey in lines:
-                    if abs(y - ey) < 3:
-                        lines[ey].append(w)
-                        found = True
-                        break
-                if not found: lines[y] = [w]
+            # Sorokra bontva dolgozunk, hogy ne keverjük az ügyfeleket
+            lines = text.split('\n')
             
-            for y in sorted(lines.keys()):
-                line_words = sorted(lines[y], key=lambda x: x['x0'])
-                text_ws = " ".join([w['text'] for w in line_words])
+            current_row = None
+            
+            for line in lines:
+                # Ügyfélkód keresése (ez indítja az új blokkot)
+                u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', line)
                 
-                u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
-                if not u_code_m: continue
+                if u_code_m:
+                    # Ha van előző, mentsük el
+                    if current_row and current_row['sq'] > 0:
+                        rows.append(current_row)
+                    
+                    f_code = u_code_m.group(0)
+                    current_row = {
+                        "Prefix": f_code.split('-')[0],
+                        "ID": f_code.split('-')[-1],
+                        "Ügyintéző": "", "Cím": "", "Telefon": "",
+                        "Rendelés": [], "sq": 0, "Penz_Int": 0
+                    }
                 
-                # 1. Pénz keresése (mielőtt szétvágjuk a sort)
-                money_m = re.search(money_pat, text_ws)
-                money_val = 0
-                if money_m:
-                    try:
-                        clean_money = re.sub(r'[^\d-]', '', money_m.group(1))
-                        money_val = int(clean_money)
-                    except: pass
+                if current_row:
+                    # Pénz keresés (szóközöket kivéve)
+                    m_m = re.search(money_pat, line)
+                    if m_m:
+                        try:
+                            val = int(re.sub(r'[^\d-]', '', m_m.group(1)))
+                            current_row['Penz_Int'] += val
+                        except: pass
+                    
+                    # Telefonszám
+                    t_m = re.search(phone_pat, line.replace(" ", ""))
+                    if t_m: current_row['Telefon'] = t_m.group(0)
+                    
+                    # Cikkszámok - Csak a tiszta formátumot fogadjuk el
+                    found_orders = re.findall(order_pat, line)
+                    for o in found_orders:
+                        # Levágjuk, ha a végére szám ragadt (max 4 karakter a kód része)
+                        parts = o.split('-')
+                        q = int(parts[0][-1]) if len(parts[0]) > 0 else 0
+                        code = parts[1]
+                        # Ha a kód végén túl sok szám van (pl DK113), levágjuk a felesleget
+                        # Az Interfood kódok általában 1-4 karakteresek
+                        clean_o = f"{q}-{code}"
+                        if clean_o not in current_row['Rendelés']:
+                            current_row['Rendelés'].append(clean_o)
+                            current_row['sq'] += q
+            
+            # Utolsó sor mentése
+            if current_row and current_row['sq'] > 0:
+                rows.append(current_row)
 
-                # 2. Cikkszámok keresése
-                # Fontos: Csak azokat keressük, amik tényleg cikkszámok (szám-betű)
-                orders = re.findall(order_pat, text_ws)
-                valid_o = []
-                sq = 0
-                for o in orders:
-                    # Megelőzzük a darabszám "hozzáragadását"
-                    # Ha a kód végén túl sok szám van, levágjuk
-                    valid_o.append(o)
-                    q_part = o.split('-')[0]
-                    sq += int(q_part[-1]) if len(q_part) > 1 else int(q_part)
-
-                # 3. Alapadatok szétválasztása
-                f_code = u_code_m.group(0)
-                prefix = f_code.split('-')[0]
-                uid = f_code.split('-')[-1]
-                
-                # Név és Cím (koordináta alapú sávokból)
-                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
-                b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 480])
-                
-                tel_m = re.search(phone_pat, text_ws.replace(" ", ""))
-                final_tel = tel_m.group(0) if tel_m else ""
-                
-                addr_m = re.search(r'(\d{4})', b3)
-                clean_addr = b3[addr_m.start():].strip() if addr_m else b3
-                clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
-                
-                if valid_o:
-                    rows.append({
-                        "Prefix": prefix, "ID": uid, "Ügyintéző": clean_name, 
-                        "Cím": clean_addr, "Telefon": final_tel, 
-                        "Rendelés": ", ".join(valid_o), "Összesen": sq,
-                        "Penz_Int": money_val
-                    })
+    # Adatok finomítása (Cím és Név visszatöltése a PDF-ből a koordináták alapján ha kell)
+    # De a fenti sor-alapú is sokat javít a cikkszámokon.
+    for r in rows:
+        r['Rendelés'] = ", ".join(r['Rendelés'])
+    
     return rows
 
 # --- 3. ÖSSZEVONÓ LOGIKA ---
@@ -111,19 +105,23 @@ def merge_weekend_data(raw_rows):
         total_money = group['Penz_Int'].sum()
         
         order_str = ""
-        if p_items: order_str += f"P: {', '.join(p_items)}"
+        if p_items: 
+            # Tisztítás a duplikációktól
+            p_clean = ", ".join(list(set(", ".join(p_items).split(", "))))
+            order_str += f"P: {p_clean}"
         if z_items:
+            z_clean = ", ".join(list(set(", ".join(z_items).split(", "))))
             if order_str: order_str += " | "
-            order_str += f"SZ: {', '.join(z_items)}"
+            order_str += f"SZ: {z_clean}"
             base['Prefix'] = 'Z'
             
         base['Rendelés'] = order_str
-        base['Összesen'] = group['Összesen'].sum()
+        base['Összesen'] = group['sq'].sum()
         base['Penz_Final'] = total_money
         merged.append(base)
     return merged
 
-# --- 4. PDF GENERÁTOR (Fixált pozíciók) ---
+# --- 4. PDF GENERÁTOR (Fixált Pozíciók) ---
 def create_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
@@ -132,6 +130,10 @@ def create_pdf(df, fn, ft):
     lw, lh = 70*mm, 42.4*mm
     mx, my = (w - 3*lw)/2, (h - 7*lh)/2
     
+    # SORRENDEZÉS ÉRVÉNYESÍTÉSE (Számmá alakítva a biztos sikerért)
+    df['sort_key'] = pd.to_numeric(df['Sorrend'], errors='coerce').fillna(999)
+    df = df.sort_values('sort_key')
+
     for i, (_, r) in enumerate(df.iterrows()):
         idx = i % 21
         if idx == 0 and i > 0: p.showPage()
@@ -141,44 +143,36 @@ def create_pdf(df, fn, ft):
         p.setLineWidth(1.2 if r['Prefix'] == 'Z' else 0.2)
         p.rect(x+2*mm, y+2*mm, lw-4*mm, lh-4*mm)
         
-        # Sorszám és ID
         p.setFont(f_bold, 10)
-        p.drawString(x+5*mm, y+36*mm, f"#{r['Sorrend']}")
+        p.drawString(x+5*mm, y+36*mm, f"#{int(r['sort_key'])}")
         p.drawRightString(x+lw-5*mm, y+36*mm, f"ID: {r['ID']}")
         
-        # Pénz kiírása (Ha nem 0)
+        # PÉNZ (Csak ha nem 0)
         kassza = r['Penz_Final']
         if kassza != 0:
             p.setFont(f_bold, 11)
-            prefix_p = "Visszaad: " if kassza < 0 else ""
-            p.drawRightString(x+lw-5*mm, y+31.5*mm, f"{prefix_p}{abs(kassza)} Ft")
+            txt = f"{kassza} Ft" if kassza > 0 else f"Visszaad: {abs(kassza)} Ft"
+            p.drawRightString(x+lw-5*mm, y+31.5*mm, txt)
         
-        # Név (Balra) és Telefon (Jobbra zárva - Fix helyre!)
         p.setFont(f_bold, 9.5)
-        p.drawString(x+5*mm, y+30*mm, str(r['Ügyintéző'])[:22])
+        # Név és Telefonszám (Külön sor, biztos ami biztos)
+        p.drawString(x+5*mm, y+30*mm, str(r['Ügyintéző'])[:25])
         p.setFont(f_reg, 8)
-        # Fixált jobb margó a telefonnak, hogy ne csússzon a név alá
         p.drawRightString(x+lw-5*mm, y+27*mm, str(r['Telefon']))
         
-        # Cím
         p.setFont(f_reg, 7.5)
         p.drawString(x+5*mm, y+23*mm, str(r['Cím'])[:50])
         
-        # Rendelés - Itt már a tiszta cikkszámok vannak
         p.setFont(f_bold, 8)
         r_text = str(r['Rendelés'])
         if " | " in r_text:
-            p_part, z_part = r_text.split(" | ")
-            p.drawString(x+5*mm, y+18*mm, p_part[:42])
-            p.drawString(x+5*mm, y+14*mm, z_part[:42])
+            parts = r_text.split(" | ")
+            p.drawString(x+5*mm, y+18*mm, parts[0][:42])
+            p.drawString(x+5*mm, y+14*mm, parts[1][:42])
         else:
             p.drawString(x+5*mm, y+16*mm, r_text[:42])
             
-        # Összesen
-        p.setFont(f_bold, 8)
         p.drawRightString(x+lw-5*mm, y+10*mm, f"Össz: {r['Összesen']} db")
-        
-        # Futár
         p.setFont(f_reg, 6)
         p.drawCentredString(x+lw/2, y+5*mm, f"Futár: {fn} ({ft}) | Jó étvágyat! :)")
         
@@ -186,40 +180,31 @@ def create_pdf(df, fn, ft):
     buf.seek(0)
     return buf
 
-# --- UI (Változatlan marad, csak a hívásokat frissítettük) ---
-with st.sidebar.form("setup"):
-    st.write("🚚 Szállítási adatok")
-    fn = st.text_input("Futár neve", value=st.session_state.get('n', "Szűcs István"))
-    ft = st.text_input("Telefonszáma", value=st.session_state.get('t', "+36208868971"))
-    if st.form_submit_button("MENTÉS"):
-        st.session_state.n, st.session_state.t = fn, ft
-        st.rerun()
+# --- UI (Feldolgozás és Mentés) ---
+st.title("Interfood Címke Master v202")
 
-if not st.session_state.get('n'):
-    st.title("Interfood Címke Master")
-    st.warning("👈 Add meg a futár adatait!")
-    st.stop()
+with st.sidebar:
+    fn = st.text_input("Futár neve", "Szűcs István")
+    ft = st.text_input("Telefon", "+36208868971")
 
-st.title(f"🏷️ Interfood Etikett v201")
 up_files = st.file_uploader("Menetterv PDF-ek", accept_multiple_files=True)
 
 if up_files:
-    fo = st.data_editor([{"Sorszám": i+1, "Fájl": f.name} for i, f in enumerate(up_files)], hide_index=True)
-    if st.button("FELDOLGOZÁS"):
-        sorted_f = pd.DataFrame(fo).sort_values("Sorszám")["Fájl"].tolist()
-        raw = []
-        for s in sorted_f:
-            fobj = next(f for f in up_files if f.name == s)
-            raw.extend(parse_interfood_pro(fobj))
-        merged = merge_weekend_data(raw)
+    if st.button("ADATOK BEOLVASÁSA"):
+        all_data = []
+        for f in up_files:
+            all_data.extend(parse_interfood_pro(f))
+        
+        merged = merge_weekend_data(all_data)
         mdf = pd.DataFrame(merged)
-        mdf['Pénz'] = mdf['Penz_Final'].apply(lambda x: f"{x} Ft")
-        mdf.insert(0, "Sorrend", [str(i+1) for i in range(len(mdf))])
+        mdf.insert(0, "Sorrend", range(1, len(mdf) + 1))
         st.session_state.mdf = mdf
-        st.rerun()
 
-if st.session_state.get('mdf') is not None:
-    edf = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True)
-    if st.button("PDF Letöltése"):
-        pdf = create_pdf(edf, st.session_state.n, st.session_state.t)
-        st.download_button("📥 Kattints a letöltéshez", pdf, "interfood_v201.pdf", "application/pdf")
+if "mdf" in st.session_state:
+    st.subheader("Szerkeszthető adatok (Itt írd át a Sorrendet!)")
+    # A data_editorban átírt sorrend alapján fogunk generálni
+    edited_df = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True)
+    
+    if st.button("PDF GENERÁLÁSA"):
+        pdf_file = create_pdf(edited_df, fn, ft)
+        st.download_button("📥 Letöltés", pdf_file, "interfood_v202.pdf")

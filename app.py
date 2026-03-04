@@ -3,82 +3,92 @@ import pdfplumber
 import pandas as pd
 import re
 
-st.set_page_config(page_title="Interfood v152.20 - Virtual Lines", layout="wide")
+st.set_page_config(page_title="Interfood v152.30 - Fix Blokk", layout="wide")
 
 def clean_phone(p_str):
-    if not p_str or p_str == "Nincs": return " - "
+    if not p_str: return " - "
     nums = re.sub(r'[^0-9]', '', str(p_str))
     if len(nums) < 9: return " - "
-    if len(nums) > 11:
-        nums = nums[:11] if nums.startswith(('06', '36')) else nums[:9]
     return f"{nums[:2]}/{nums[2:]}"
 
-def parse_interfood_v152_20(pdf_file):
+def parse_interfood_v152_30(pdf_file):
     all_data = []
-    order_pat = r'([1-9]-\s?[A-Z][A-Z0-9]*)'
     customer_code_pat = r'([PZ]-\d{5,7})'
-    
-    # EZEK A VIRTUÁLIS VONALAK (x koordináták pixelben)
-    # A PDF szélessége általában ~600 pont. Ezeket a határokat a Te PDF-edhez lőttem be:
-    v_lines = [35, 75, 260, 410, 540] 
+    order_pat = r'([1-9]-\s?[A-Z][A-Z0-9]*)'
 
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            # Itt "rajzoljuk be" a vonalakat az explicit_vertical_lines paraméterrel
-            table = page.extract_table({
-                "vertical_strategy": "explicit", 
-                "explicit_vertical_lines": v_lines,
-                "horizontal_strategy": "text",
-                "snap_tolerance": 3,
-            })
+            # Kivonjuk a szavakat pozícióval
+            words = page.extract_words()
             
-            if not table: continue
+            # Sorokba rendezzük (y koordináta alapján)
+            lines = {}
+            for w in words:
+                y = round(w['top'], 1) 
+                found = False
+                for existing_y in lines:
+                    if abs(y - existing_y) < 3: # 3 pixel tűrés egy soron belül
+                        lines[existing_y].append(w)
+                        found = True
+                        break
+                if not found: lines[y] = [w]
 
-            for row in table:
-                # Csak sorszámmal kezdődő sorokat dolgozunk fel
-                if not row or not str(row[0]).strip().replace('\n','').isdigit():
-                    continue
+            for y in sorted(lines.keys()):
+                line_words = sorted(lines[y], key=lambda x: x['x0'])
                 
-                try:
-                    # 1. blokk: Sorszám
-                    s_id = int(str(row[0]).strip())
-                    if s_id >= 400: continue
+                # Meghatározzuk a 6 blokkot vízszintes pozíció (x0) alapján
+                # Ezek az értékek a PDF standard szélességéhez (595 pt) vannak igazítva
+                b1, b2, b3, b4, b5 = [], [], [], [], []
+                
+                for w in line_words:
+                    x = w['x0']
+                    if x < 45: b1.append(w['text'])       # 1. blokk: Sorszám
+                    elif x < 150: b2.append(w['text'])    # 2. blokk: Ügyfél / Kód
+                    elif x < 330: b3.append(w['text'])    # 3. blokk: Cím
+                    elif x < 450: b4.append(w['text'])    # 4. blokk: Ügyintéző (A NÉV!)
+                    else: b5.append(w['text'])            # 5. blokk: Tel/Rendelés
+                
+                s_id_str = "".join(b1).strip()
+                if not s_id_str.isdigit(): continue
+                
+                s_id = int(s_id_str)
+                if s_id >= 400: continue
 
-                    # 2. blokk: Ügyfélkód (Csak a kódot tartjuk meg)
-                    c_code_match = re.search(customer_code_pat, str(row[1]))
-                    u_code = c_code_match.group(0) if c_code_match else ""
+                # 2. blokk: Csak a kód
+                u_code = "".join(re.findall(customer_code_pat, " ".join(b2)))
+                
+                # 3. blokk: Cím (Irányítószám + Utca)
+                u_cim = " ".join(b3).strip()
+                
+                # 4. blokk: Ügyintéző (Ez az a blokk, amit kértél!)
+                u_nev = " ".join(b4).strip()
+                
+                # 5. blokk: Telefon és Rendelés
+                b5_str = " ".join(b5)
+                t_m = re.search(r'\d{2}/\d{6,7}', b5_str.replace(" ",""))
+                u_tel = clean_phone(t_m.group(0)) if t_m else " - "
+                u_rend = ", ".join(dict.fromkeys(re.findall(order_pat, b5_str))) or "---"
 
-                    # 3. blokk: Cím (Változatlanul)
-                    u_cim = str(row[2]).replace("\n", " ").strip()
+                all_data.append({
+                    "Sorszám": s_id,
+                    "Ügyfélkód": u_code,
+                    "Ügyintéző": u_nev,
+                    "Cím": u_cim,
+                    "Telefon": u_tel,
+                    "Rendelés": u_rend
+                })
 
-                    # 4. blokk: Ügyintéző (Ami neked nagyon kell!)
-                    u_nev = str(row[3]).replace("\n", " ").strip()
+    if not all_data:
+        return pd.DataFrame(columns=["Sorszám", "Ügyfélkód", "Ügyintéző", "Cím", "Telefon", "Rendelés"])
+    
+    return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
 
-                    # 5. blokk: Telefon és Rendelés
-                    cell_5 = str(row[4])
-                    t_m = re.search(r'\d{2}/\d{6,7}', cell_5.replace(" ",""))
-                    u_tel = clean_phone(t_m.group(0)) if t_m else " - "
-                    u_rend = ", ".join(dict.fromkeys(re.findall(order_pat, cell_5))) or "---"
-
-                    all_data.append({
-                        "Sorszám": s_id,
-                        "Ügyfélkód": u_code,
-                        "Ügyintéző": u_nev,
-                        "Cím": u_cim,
-                        "Telefon": u_tel,
-                        "Rendelés": u_rend
-                    })
-                except:
-                    continue
-
-    df = pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
-    return df
-
-st.title("🛡️ Interfood v152.20 - Virtuális Vonalakkal")
-st.info("Ez a verzió kényszerített oszlophatárokat használ, így a nevek nem csúsznak át a címbe.")
-
-f = st.file_uploader("Menetterv PDF", type="pdf")
+st.title("🛡️ Interfood v152.30 - Fix Blokk Verzió")
+f = st.file_uploader("Feltöltés", type="pdf")
 if f:
-    df = parse_interfood_v152_20(f)
-    st.dataframe(df, use_container_width=True)
-    st.download_button("💾 Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_virtual.csv")
+    df = parse_interfood_v152_30(f)
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+        st.download_button("💾 CSV Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_fix.csv")
+    else:
+        st.error("Nem sikerült adatot kinyerni. Ellenőrizd a PDF-et!")

@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-st.set_page_config(page_title="Interfood v153.120 - Final Fix", layout="wide")
+st.set_page_config(page_title="Interfood v155.0 - Absolute Truth", layout="wide")
 
 def clean_phone(p_str):
     if not p_str: return " - "
@@ -15,10 +15,9 @@ def process_name_and_address(raw_name, raw_addr):
     to_move = ['lph', 'lp', 'porta', 'u', 'utca', 'út', 'útja', 'tér', 'ép', 'épület', 'fszt', 'em', 'LGM', 'kft', 'bt', 'zrt']
     allowed_prefixes = ['Dr.', 'Prof.', 'Ifj.', 'Id.', 'Özv.']
     
-    # 1. KÓDOK TÖRLÉSE A NÉVBŐL: csak ha magányos -K vagy hasonló (szóköz után)
-    name_text = raw_name.replace('–', '-').replace('—', '-')
-    name_text = re.sub(r'\s+-[A-Z0-9]+\b', '', name_text)
-    # A mennyiségeket (pl. 1-) ITT NEM TÖRÖLJÜK, mert az a név tisztításakor amúgy is kiesik a szám-szűrőn
+    # Tisztítás
+    name_text = re.sub(r'^[aA]\s+', '', raw_name.strip())
+    name_text = name_text.replace('–', '-').replace('—', '-')
     
     words = name_text.split()
     clean_name_words = []
@@ -41,27 +40,25 @@ def process_name_and_address(raw_name, raw_addr):
                 continue
         clean_name_words.append(word)
 
-    # Név végső tisztítása: CSAK betűk maradnak, így az ottfelejtett sorszámok/mennyiségek eltűnnek
+    # Végső név (számok és magányos kötőjelek nélkül)
     final_name = " ".join(clean_name_words)
     final_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-\.]', '', final_name)
-    
     for pref in allowed_prefixes:
         final_name = final_name.replace(pref, pref.replace('.', '___'))
     final_name = final_name.replace('.', '').replace('___', '.')
-    final_name = re.sub(r'^[aA]\s+', '', final_name).strip()
-
+    
     zip_match = re.search(r'(\d{4})', raw_addr)
     base_addr = raw_addr[zip_match.start():].strip() if zip_match else raw_addr.strip()
     extra_info = " ".join(moved_to_address).strip()
     final_addr = f"{base_addr} {extra_info}".strip() if extra_info else base_addr
 
-    return final_name, final_addr
+    return final_name.strip(), final_addr
 
 def parse_interfood(pdf_file):
     all_data = []
-    customer_code_pat = r'([HKSCPZ]-\d{5,7})'
-    # Ez a regex most már minden variációt elkap (számmal vagy anélkül)
-    order_pat = r'(\b\d+-[A-Z][A-Z0-9]*|-[A-Z][A-Z0-9]*)'
+    # SZIGORÚ REGEX: Kötelező a szám az elején! (pl. 1-M vagy 2-SP1)
+    # Kezeli a szóközt is a kötőjel után: "1- M" -> "1-M"
+    order_pat = r'(\d+-\s?[A-Z][A-Z0-9]*)'
 
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -70,66 +67,68 @@ def parse_interfood(pdf_file):
             for w in words:
                 y = round(w['top'], 1)
                 found = False
-                for existing_y in lines:
-                    if abs(y - existing_y) < 3:
-                        lines[existing_y].append(w)
+                for ey in lines:
+                    if abs(y - ey) < 3:
+                        lines[ey].append(w)
                         found = True
                         break
                 if not found: lines[y] = [w]
 
             for y in sorted(lines.keys()):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
+                # Összeragasztjuk a szavakat, hogy az "1-" és az "M" találkozzon
                 full_line_text = " ".join([w['text'] for w in line_words])
+                # Speciális eset: ha a PDF-ben "1 - M" van, csináljunk belőle "1-M"-et a kereséshez
+                search_text = re.sub(r'(\d+)\s*-\s*([A-Z])', r'\1-\2', full_line_text)
                 
-                # SORSZÁM KERESÉS: Bárhol a sor elején
+                # Sorszám keresés
                 s_match = re.search(r'^(\d+)', full_line_text.strip())
                 if not s_match: continue
                 s_id = int(s_match.group(1))
 
-                # Oszlopok szétosztása
-                b3, b4 = [], []
-                for w in line_words:
-                    x = w['x0']
-                    if 150 <= x < 330: b3.append(w['text'])
-                    elif 330 <= x < 480: b4.append(w['text'])
-
-                # RENDELÉSEK: A teljes sorból szedjük ki, mielőtt bármit törölnénk!
-                raw_orders = re.findall(order_pat, full_line_text)
-                unique_orders = []
-                seen = set()
+                # Rendelések kinyerése a javított szövegből
+                found_orders = re.findall(order_pat, search_text)
+                clean_orders = []
                 total_qty = 0
-                for o in raw_orders:
-                    clean_o = o.strip()
-                    if clean_o not in seen:
-                        unique_orders.append(clean_o)
-                        seen.add(clean_o)
-                        qty_match = re.match(r'^(\d+)-', clean_o)
-                        total_qty += int(qty_match.group(1)) if qty_match else 1
+                for o in found_orders:
+                    o_clean = o.replace(" ", "")
+                    if o_clean not in clean_orders:
+                        clean_orders.append(o_clean)
+                        qty = int(re.match(r'^(\d+)', o_clean).group(1))
+                        total_qty += qty
 
-                u_nev, u_cim = process_name_and_address(" ".join(b4), " ".join(b3))
-                u_code_m = re.search(customer_code_pat, full_line_text)
+                # Ha nincs rendelés a sorban, átugorjuk (fejlécek kiszűrése)
+                if total_qty == 0: continue
+
+                # Oszlopok (Cím és Ügyintéző tartománya)
+                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 330])
+                b4 = " ".join([w['text'] for w in line_words if 330 <= w['x0'] < 480])
+
+                u_nev, u_cim = process_name_and_address(b4, b3)
+                
+                # Ügyfélkód és Telefon
+                u_code_m = re.search(r'([HKSCPZ]-\d{5,7})', full_line_text)
                 u_code = u_code_m.group(0) if u_code_m else ""
                 t_m = re.search(r'\d{2}/\d{6,7}', full_line_text.replace(" ",""))
                 u_tel = clean_phone(t_m.group(0)) if t_m else " - "
 
-                if u_nev or u_code: # Csak ha van értékelhető adat
-                    all_data.append({
-                        "Sorszám": s_id,
-                        "Ügyfélkód": u_code,
-                        "Ügyintéző": u_nev,
-                        "Cím": u_cim,
-                        "Telefon": u_tel,
-                        "Rendelés": ", ".join(unique_orders) or "---",
-                        "Összesen": f"{total_qty} db"
-                    })
+                all_data.append({
+                    "Sorszám": s_id,
+                    "Ügyfélkód": u_code,
+                    "Ügyintéző": u_nev,
+                    "Cím": u_cim,
+                    "Telefon": u_tel,
+                    "Rendelés": ", ".join(clean_orders),
+                    "Összesen": f"{total_qty} db"
+                })
 
     df = pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
-    return df[df['Sorszám'] > 0] # A biztonság kedvéért a 0-ás sorokat eldobjuk
+    return df
 
-st.title("🛡️ Interfood v153.120 - Final Fix")
+st.title("🛡️ Interfood v155.0 - Absolute Truth")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
     df = parse_interfood(f)
     if not df.empty:
         st.dataframe(df, use_container_width=True)
-        st.download_button("💾 Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_final.csv")
+        st.download_button("💾 CSV Mentése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v155.csv")

@@ -24,6 +24,7 @@ def register_fonts():
 # --- 2. PDF PARSER (Változatlanul stabil) ---
 def parse_interfood_pro(pdf_file):
     rows = []
+    # Szigorú minta a kódokra
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
     phone_pat = r'(\d{2}/\d{6,7})'
     with pdfplumber.open(pdf_file) as pdf:
@@ -45,24 +46,35 @@ def parse_interfood_pro(pdf_file):
                 text_ns = "".join([w['text'] for w in line_words])
                 u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
                 if not u_code_m: continue
+                
                 b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
                 b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 480])
                 f_code = u_code_m.group(0)
                 prefix = f_code.split('-')[0]
                 uid = f_code.split('-')[-1]
+                
                 tel_m = re.search(phone_pat, text_ns)
                 final_tel = tel_m.group(0) if tel_m else ""
                 addr_m = re.search(r'(\d{4})', b3)
                 clean_addr = b3[addr_m.start():].strip() if addr_m else b3
                 clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
+                
+                # Cikkszámok kinyerése és a darabszám-hozzátapadás javítása
                 orders = re.findall(order_pat, text_ns)
                 valid_o, sq = [], 0
                 for o in orders:
                     parts = o.split('-')
                     if len(parts) < 2: continue
                     q = int(parts[0]); q = int(str(q)[-1]) if q >= 10 else q
-                    valid_o.append(f"{q}-{parts[1]}")
+                    
+                    # FIX: Levágjuk a kód végéről a rátapadt számot (pl. D113 -> D11)
+                    # Az Interfood kódok általában nem végződnek 2+ számjegyre a darabszám mellett
+                    clean_code = re.sub(r'(\d{2,})$', lambda m: m.group(1)[0], parts[1])
+                    if not clean_code: clean_code = parts[1]
+                    
+                    valid_o.append(f"{q}-{clean_code}")
                     sq += q
+                    
                 if sq > 0:
                     rows.append({"Prefix": prefix, "ID": uid, "Ügyintéző": clean_name, "Cím": clean_addr, "Telefon": final_tel, "Rendelés": ", ".join(valid_o), "Összesen": sq})
     return rows
@@ -102,26 +114,21 @@ def create_pdf(df, fn, ft):
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = mx + col*lw, my + row_i*lh
         
-        # Keret
         p.setLineWidth(1.2 if r['Prefix'] == 'Z' else 0.2)
         p.rect(x+2*mm, y+2*mm, lw-4*mm, lh-4*mm)
         
-        # Sorszám BALRA, Ügyfélkód JOBBRA a tetején
         p.setFont(f_bold, 10)
         p.drawString(x+5*mm, y+36*mm, f"#{r['Sorrend']}")
         p.drawRightString(x+lw-5*mm, y+36*mm, f"ID: {r['ID']}")
         
-        # Név és Telefon
         p.setFont(f_bold, 9.5)
         p.drawString(x+5*mm, y+30*mm, str(r['Ügyintéző'])[:24])
         p.setFont(f_reg, 8)
         p.drawRightString(x+lw-5*mm, y+30*mm, str(r['Telefon']))
         
-        # CÍM - KISEBB BETŰVEL (7.5 pt)
         p.setFont(f_reg, 7.5)
         p.drawString(x+5*mm, y+25.5*mm, str(r['Cím'])[:50])
         
-        # Rendelés
         p.setFont(f_bold, 8)
         r_text = str(r['Rendelés'])
         if " | " in r_text:
@@ -131,11 +138,7 @@ def create_pdf(df, fn, ft):
         else:
             p.drawString(x+5*mm, y+17.5*mm, r_text[:42])
             
-        # ÖSSZESÍTŐ SOR - EGY SORRAL LENTEBB (11 mm magasságban)
-        p.setFont(f_bold, 8)
         p.drawRightString(x+lw-5*mm, y+11*mm, f"Össz: {r['Összesen']} db")
-        
-        # Futár sor (Kicsi)
         p.setFont(f_reg, 6)
         p.drawCentredString(x+lw/2, y+5*mm, f"Futár: {fn} ({ft}) | Jó étvágyat! :)")
         
@@ -143,7 +146,7 @@ def create_pdf(df, fn, ft):
     buf.seek(0)
     return buf
 
-# --- 5. STREAMLIT UI (Teljes kód része) ---
+# --- 5. UI ---
 with st.sidebar.form("setup"):
     st.write("🚚 Szállítási adatok")
     fn = st.text_input("Futár neve", value=st.session_state.get('n', ""))

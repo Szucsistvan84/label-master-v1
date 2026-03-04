@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-st.set_page_config(page_title="Interfood v171.0 - Szigorú Tisztítás", layout="wide")
+st.set_page_config(page_title="Interfood v173.0 - Szabad Rendelés", layout="wide")
 
 def clean_phone(p_str):
     if not p_str or p_str == " - ": return "nincs tel. szám"
@@ -12,7 +12,7 @@ def clean_phone(p_str):
     return nums_only
 
 def process_name_and_address(raw_name, raw_addr):
-    # Ügyfélkód és szemét eltávolítása
+    # Tisztítások: kódok és szemét eltávolítása a névből
     name_clean = re.sub(r'[HS]-\d+', '', raw_name).strip()
     name_clean = re.sub(r'^[a-z \.\,]+', '', name_clean)
     name_clean = re.sub(r'\s*-\s*[A-Z0-9+*]+$', '', name_clean)
@@ -64,64 +64,66 @@ def parse_interfood(pdf_file):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 full_line_text = " ".join([w['text'] for w in line_words])
                 
+                # 1. SZABÁLY: Kulcsszó-tiltás (Fejléc/Lábjegyzet elkerülése)
+                if any(x in full_line_text for x in ["Nyomtatta", "Oldal:", "Összesen"]):
+                    continue
+
                 s_match = re.search(r'^(\d+)', full_line_text.strip())
                 if not s_match: continue
                 s_id = int(s_match.group(1))
 
-                # Telefonszám
+                # 3. SZABÁLY: Ügyfélkód kényszerítése (Ez a legfontosabb szűrő)
+                u_code_m = re.search(r'([HKSCPZ]-\d{5,7})', full_line_text)
+                if not u_code_m: 
+                    continue # Ha nincs kód, ez biztosan nem ügyfél-sor
+                u_code = u_code_m.group(0)
+
+                # Telefonszám és Rendelés kinyerése
                 tel_search = re.search(r'(\d{2}/\d{6,7})', full_line_text.replace(" ", ""))
                 final_tel = clean_phone(tel_search.group(0) if tel_search else " - ")
 
-                # Rendelés
                 search_text = re.sub(r'(\d+)\s*-\s*([A-Z])', r'\1-\2', full_line_text)
                 found_orders = re.findall(order_pat, search_text)
                 
+                # Itt már NINCS tétel-limit, jöhet bármennyi kaja!
                 clean_orders = []
                 total_qty = 0
                 for o in found_orders:
                     qty_m = re.match(r'^(\d+)', o)
                     if qty_m:
                         qty = int(qty_m.group(1))
-                        if qty > 9: qty = int(str(qty)[-1])
-                        if 0 < qty < 50:
-                            clean_orders.append(f"{qty}-{o.split('-', 1)[1]}")
+                        # Csak a gyanúsan nagy (50+) darabszámokat korlátozzuk, 
+                        # mert az valószínűleg elírás vagy koordináta-hiba
+                        if qty < 50:
+                            clean_orders.append(o)
                             total_qty += qty
 
-                # --- SZIGORÍTÁS ---
-                # Ha nincs rendelés, vagy nincs név, eldobjuk a sort
                 if total_qty == 0: continue
 
+                # Név és cím oszlopok
                 b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
                 b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 480])
 
                 u_nev, u_cim = process_name_and_address(b4, b3)
-                u_code_m = re.search(r'([HKSCPZ]-\d{5,7})', full_line_text)
-                u_code = u_code_m.group(0) if u_code_m else ""
 
-                # Csak akkor adjuk hozzá, ha van értékelhető név vagy kód
-                if len(u_nev) > 3 or u_code:
-                    page_data.append({
-                        "Járat": pdf_file.name.replace(".pdf", "").replace("menetterv ", ""),
-                        "Sorszám": s_id, "Ügyfélkód": u_code, "Ügyintéző": u_nev,
-                        "Cím": u_cim, "Telefon": final_tel, "Rendelés": ", ".join(clean_orders),
-                        "Összesen": f"{total_qty} db"
-                    })
+                page_data.append({
+                    "Járat": pdf_file.name.replace(".pdf", "").replace("menetterv ", ""),
+                    "Sorszám": s_id, "Ügyfélkód": u_code, "Ügyintéző": u_nev,
+                    "Cím": u_cim, "Telefon": final_tel, "Rendelés": ", ".join(clean_orders),
+                    "Összesen": f"{total_qty} db"
+                })
     return page_data
 
-st.title("🛡️ Interfood v171.0 - Szigorú Szűrés")
-st.markdown("A program most már automatikusan kidobja a fejléc-maradványokat és a szellem-sorokat.")
-
+# UI
+st.title("🚀 Interfood v173.0 - Korlátlan Rendelés & Tiszta Lista")
 uploaded_files = st.file_uploader("PDF-ek feltöltése", type="pdf", accept_multiple_files=True)
 
 if uploaded_files:
-    all_extracted_data = []
+    all_data = []
     for f in uploaded_files:
-        all_extracted_data.extend(parse_interfood(f))
+        all_data.extend(parse_interfood(f))
             
-    if all_extracted_data:
-        df = pd.DataFrame(all_extracted_data)
-        # Sorszám és Járat szerinti rendezés
-        df = df.sort_values(by=["Járat", "Sorszám"])
-        
+    if all_data:
+        df = pd.DataFrame(all_data).sort_values(by=["Járat", "Sorszám"])
         st.dataframe(df, use_container_width=True)
-        st.download_button("💾 Összesített CSV", df.to_csv(index=False).encode('utf-8-sig'), "interfood_pro_osszesitett.csv")
+        st.download_button("💾 CSV Mentése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v173.csv")

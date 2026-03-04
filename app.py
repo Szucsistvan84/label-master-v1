@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-st.set_page_config(page_title="Interfood v152.50 - Adat-Vámház", layout="wide")
+st.set_page_config(page_title="Interfood v152.70 - Weekly", layout="wide")
 
 def clean_phone(p_str):
     if not p_str: return " - "
@@ -12,43 +12,36 @@ def clean_phone(p_str):
     return f"{nums[:2]}/{nums[2:]}"
 
 def process_name_and_address(raw_name, raw_addr):
-    """
-    Kiszűri a cím-elemeket a névből és áthelyezi őket a cím végére.
-    Tisztítja a nevet a tiltott karakterektől.
-    """
-    # Gyakori cím-elemek és rövidítések
-    addr_parts = ['lph', 'lépcsőház', 'porta', 'u', 'utca', 'út', 'útja', 'tér', 'ép', 'épület', 'fszt', 'em', 'LGM']
+    # Bővített cím-elemek (lp és egyéb maradványok)
+    addr_parts = ['lph', 'lp', 'lépcsőház', 'porta', 'u', 'utca', 'út', 'útja', 'tér', 'ép', 'épület', 'fszt', 'em', 'LGM']
     allowed_prefixes = ['Dr.', 'Prof.', 'Ifj.', 'Id.', 'Özv.']
     
     words = raw_name.split()
     clean_name_words = []
     moved_to_address = []
 
-    for i, word in enumerate(words):
+    for word in words:
         clean_word = word.strip(',. ')
-        # Feltételek, amik alapján egy szó a CÍM-be való:
-        # 1. Benne van a listában (pl. lph, porta)
-        # 2. Kisbetűvel kezdődik és nem allowed prefix (pl. "porta", "u")
-        # 3. Csupa nagybetű és rövid (cégnév maradvány pl. LGM)
+        
+        # Feltételek az áthelyezéshez:
         is_addr_marker = clean_word.lower() in [p.lower() for p in addr_parts]
         is_lowercase_junk = word[0].islower() and word + "." not in allowed_prefixes
         is_corporate_shout = word.isupper() and len(word) <= 4
-        
-        if is_addr_marker or is_lowercase_junk or is_corporate_shout:
+        # Magányos 'a' betű vagy egyéb 1 karakteres zavaró tényező
+        is_single_letter_junk = len(clean_word) == 1 and clean_word.lower() not in ['é']
+
+        if is_addr_marker or is_lowercase_junk or is_corporate_shout or is_single_letter_junk:
             moved_to_address.append(word)
         else:
             clean_name_words.append(word)
 
-    # Név végső tisztítása (számok és vesszők ki)
     final_name = " ".join(clean_name_words)
     final_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-\.]', '', final_name)
     
-    # Prefix pontok megvédése
     for pref in allowed_prefixes:
         final_name = final_name.replace(pref, pref.replace('.', '___'))
     final_name = final_name.replace('.', '').replace('___', '.')
 
-    # Cím összeállítása: Irányítószámtól indul + a névből áthelyezett részek
     zip_match = re.search(r'(\d{4})', raw_addr)
     base_addr = raw_addr[zip_match.start():].strip() if zip_match else raw_addr.strip()
     
@@ -57,9 +50,10 @@ def process_name_and_address(raw_name, raw_addr):
 
     return final_name.strip(), final_addr
 
-def parse_interfood_v152_50(pdf_file):
+def parse_interfood_v152_70(pdf_file):
     all_data = []
-    customer_code_pat = r'([PZ]-\d{5,7})'
+    # Most már az összes nap kódját keresi (H, K, S, C, P, Z)
+    customer_code_pat = r'([HKSCPZ]-\d{5,7})'
     order_pat = r'([1-9]-\s?[A-Z][A-Z0-9]*)'
 
     with pdfplumber.open(pdf_file) as pdf:
@@ -82,29 +76,29 @@ def parse_interfood_v152_50(pdf_file):
                 
                 for w in line_words:
                     x = w['x0']
-                    if x < 45: b1.append(w['text'])
-                    elif x < 150: b2.append(w['text'])
+                    if x < 40: b1.append(w['text'])
+                    elif x < 160: b2.append(w['text'])
                     elif x < 330: b3.append(w['text'])
-                    elif x < 450: b4.append(w['text'])
+                    elif x < 460: b4.append(w['text'])
                     else: b5.append(w['text'])
                 
                 s_id_str = "".join(b1).strip()
                 if not s_id_str.isdigit(): continue
-                s_id = int(s_id_str)
-                if s_id >= 400: continue
-
-                u_code = "".join(re.findall(customer_code_pat, " ".join(b2)))
                 
-                # A NÉV ÉS CÍM KÖZÖS FELDOLGOZÁSA
+                full_line_text = " ".join([w['text'] for w in line_words])
+                
+                u_code_match = re.search(customer_code_pat, full_line_text)
+                u_code = u_code_match.group(0) if u_code_match else ""
+                
+                # Név és Cím tisztítása
                 u_nev, u_cim = process_name_and_address(" ".join(b4), " ".join(b3))
                 
-                b5_str = " ".join(b5)
-                t_m = re.search(r'\d{2}/\d{6,7}', b5_str.replace(" ",""))
+                t_m = re.search(r'\d{2}/\d{6,7}', full_line_text.replace(" ",""))
                 u_tel = clean_phone(t_m.group(0)) if t_m else " - "
-                u_rend = ", ".join(dict.fromkeys(re.findall(order_pat, b5_str))) or "---"
+                u_rend = ", ".join(dict.fromkeys(re.findall(order_pat, full_line_text))) or "---"
 
                 all_data.append({
-                    "Sorszám": s_id,
+                    "Sorszám": int(s_id_str),
                     "Ügyfélkód": u_code,
                     "Ügyintéző": u_nev,
                     "Cím": u_cim,
@@ -114,11 +108,9 @@ def parse_interfood_v152_50(pdf_file):
 
     return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
 
-st.title("🚀 Interfood v152.50 - Adat-Vámház")
-st.markdown("Áthelyezi a 'porta', 'lph', 'u.' stb. kifejezéseket az Ügyintézőtől a Cím végére.")
-
-f = st.file_uploader("Feltöltés", type="pdf")
+st.title("🛡️ Interfood v152.70 - Heti Ciklus")
+f = st.file_uploader("Menetterv PDF", type="pdf")
 if f:
-    df = parse_interfood_v152_50(f)
+    df = parse_interfood_v152_70(f)
     st.dataframe(df, use_container_width=True)
-    st.download_button("💾 CSV Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_vamhaz.csv")
+    st.download_button("💾 Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_final.csv")

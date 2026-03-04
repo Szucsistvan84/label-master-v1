@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-st.set_page_config(page_title="Interfood v168.0 - Végső Simítások", layout="wide")
+st.set_page_config(page_title="Interfood v170.0 - Multi-PDF Feldolgozó", layout="wide")
 
 def clean_phone(p_str):
     if not p_str or p_str == " - ": return "nincs tel. szám"
@@ -12,13 +12,11 @@ def clean_phone(p_str):
     return nums_only
 
 def process_name_and_address(raw_name, raw_addr):
-    # 1. JAVÍTÁS: Ügyfélkód (H-xxxxxx) eltávolítása a névből, ha belecsúszott
+    # Ügyfélkód eltávolítása a névből
     name_clean = re.sub(r'[HS]-\d+', '', raw_name).strip()
-    
-    # Levágjuk a magányos kisbetűket és pontokat az elejéről (pl. "a ")
+    # Magányos kisbetűk/pontok az elejéről
     name_clean = re.sub(r'^[a-z \.\,]+', '', name_clean)
-    
-    # 2. JAVÍTÁS: A név végére ragadt rendelés-maradványok (pl. "-M", "-AK") levágása
+    # Név végére ragadt rendelés-kód (-M, -AK)
     name_clean = re.sub(r'\s*-\s*[A-Z0-9+*]+$', '', name_clean)
 
     to_move = ['lph', 'lp', 'porta', 'u', 'utca', 'út', 'útja', 'tér', 'ép', 'épület', 'fszt', 'em', 'LGM', 'kft', 'bt', 'zrt']
@@ -27,15 +25,12 @@ def process_name_and_address(raw_name, raw_addr):
     moved_to_address = []
 
     for word in words:
-        # Ha a szó csak szám, az valószínűleg cím-darab vagy kódtöredék
         if word.isdigit():
             moved_to_address.append(word)
             continue
-            
         if len(word) == 1 and word != 'É':
             moved_to_address.append(word)
             continue
-            
         clean_word_comp = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ]', '', word).lower()
         if clean_word_comp in [x.lower() for x in to_move]:
             moved_to_address.append(word)
@@ -43,7 +38,6 @@ def process_name_and_address(raw_name, raw_addr):
         clean_name_words.append(word)
 
     final_name = " ".join(clean_name_words)
-    # Csak betűket, szóközt és kötőjelet hagyunk meg a névben
     final_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', final_name).strip()
     
     zip_match = re.search(r'(\d{4})', raw_addr)
@@ -54,7 +48,7 @@ def process_name_and_address(raw_name, raw_addr):
     return final_name, final_addr
 
 def parse_interfood(pdf_file):
-    all_data = []
+    page_data = []
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
 
     with pdfplumber.open(pdf_file) as pdf:
@@ -79,11 +73,9 @@ def parse_interfood(pdf_file):
                 if not s_match: continue
                 s_id = int(s_match.group(1))
 
-                # Telefonszám szigorúan
                 tel_search = re.search(r'(\d{2}/\d{6,7})', full_line_text.replace(" ", ""))
                 final_tel = clean_phone(tel_search.group(0) if tel_search else " - ")
 
-                # Rendelés tisztítása (marad a v167 bevált logikája)
                 search_text = re.sub(r'(\d+)\s*-\s*([A-Z])', r'\1-\2', full_line_text)
                 found_orders = re.findall(order_pat, search_text)
                 
@@ -103,7 +95,6 @@ def parse_interfood(pdf_file):
 
                 if total_qty == 0: continue
 
-                # Koordináta sávok (v167-es stabil beállítás)
                 b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
                 b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 480])
 
@@ -111,17 +102,35 @@ def parse_interfood(pdf_file):
                 u_code_m = re.search(r'([HKSCPZ]-\d{5,7})', full_line_text)
                 u_code = u_code_m.group(0) if u_code_m else ""
 
-                all_data.append({
+                page_data.append({
+                    "Forrásfájl": pdf_file.name, # Látjuk, melyik fájlból jött
                     "Sorszám": s_id, "Ügyfélkód": u_code, "Ügyintéző": u_nev,
                     "Cím": u_cim, "Telefon": final_tel, "Rendelés": ", ".join(clean_orders),
                     "Összesen": f"{total_qty} db"
                 })
+    return page_data
 
-    return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
+# --- Streamlit UI ---
+st.title("🚀 Interfood v170.0 - Multi-PDF Daráló")
+st.info("Húzz be több PDF fájlt egyszerre, és a program összefűzi őket egyetlen CSV-be!")
 
-st.title("🛡️ Interfood v168.0 - Névtakarítás Kész")
-f = st.file_uploader("PDF feltöltése", type="pdf")
-if f:
-    df = parse_interfood(f)
-    st.dataframe(df, use_container_width=True)
-    st.download_button("💾 CSV Mentése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_v168.csv")
+uploaded_files = st.file_uploader("PDF-ek feltöltése", type="pdf", accept_multiple_files=True)
+
+if uploaded_files:
+    all_extracted_data = []
+    
+    with st.spinner(f'{len(uploaded_files)} fájl feldolgozása folyamatban...'):
+        for f in uploaded_files:
+            data = parse_interfood(f)
+            all_extracted_data.extend(data)
+            
+    if all_extracted_data:
+        df = pd.DataFrame(all_extracted_data)
+        # Rendezés: először fájlnév, aztán sorszám szerint
+        df = df.sort_values(by=["Forrásfájl", "Sorszám"])
+        
+        st.success(f"Kész! Összesen {len(df)} sor kinyerve.")
+        st.dataframe(df, use_container_width=True)
+        
+        csv = df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("💾 Összesített CSV Mentése", csv, "interfood_osszesitett.csv")

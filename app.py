@@ -90,4 +90,47 @@ def parse_interfood(pdf_file):
                 if not found: lines[y] = [w]
 
             for y in sorted(lines.keys()):
-                line_words = sorted
+                line_words = sorted(lines[y], key=lambda x: x['x0'])
+                b1, b2, b3, b4, b5 = [], [], [], [], []
+                for w in line_words:
+                    x = w['x0']
+                    if x < 40: b1.append(w['text'])
+                    elif x < 160: b2.append(w['text'])
+                    elif x < 330: b3.append(w['text'])
+                    elif x < 460: b4.append(w['text'])
+                    else: b5.append(w['text'])
+                
+                s_id_str = "".join(b1).strip()
+                if not s_id_str.isdigit(): continue
+                
+                full_line_text = " ".join([w['text'] for w in line_words])
+                u_code_match = re.search(customer_code_pat, full_line_text)
+                u_code = u_code_match.group(0) if u_code_match else ""
+                
+                u_nev, u_cim = process_name_and_address(" ".join(b4), " ".join(b3))
+                
+                t_m = re.search(r'\d{2}/\d{6,7}', full_line_text.replace(" ",""))
+                u_tel = clean_phone(t_m.group(0)) if t_m else " - "
+                u_rend = ", ".join(dict.fromkeys(re.findall(order_pat, full_line_text))) or "---"
+
+                all_data.append({
+                    "Sorszám": int(s_id_str),
+                    "Ügyfélkód": u_code,
+                    "Ügyintéző": u_nev,
+                    "Cím": u_cim,
+                    "Telefon": u_tel,
+                    "Rendelés": u_rend
+                })
+    return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
+
+# Felület kialakítása
+st.title("🛡️ Interfood v153.80 - The Neutralizer")
+st.markdown("Tisztított névmezők: nincs felesleges névelő és kötőjeles kód.")
+
+f = st.file_uploader("PDF feltöltése", type="pdf")
+if f:
+    df = parse_interfood(f)
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+        csv = df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("💾 Letöltés (CSV)", csv, "interfood_v153_80.csv", "text/csv")

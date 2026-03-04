@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-st.set_page_config(page_title="Interfood v153.90 - The Counter", layout="wide")
+st.set_page_config(page_title="Interfood v153.100 - The Accurate", layout="wide")
 
 def clean_phone(p_str):
     if not p_str: return " - "
@@ -15,14 +15,19 @@ def process_name_and_address(raw_name, raw_addr):
     to_move = ['lph', 'lp', 'porta', 'u', 'utca', 'út', 'útja', 'tér', 'ép', 'épület', 'fszt', 'em', 'LGM', 'kft', 'bt', 'zrt']
     allowed_prefixes = ['Dr.', 'Prof.', 'Ifj.', 'Id.', 'Özv.']
     
+    # Csak a nevet tisztítjuk, a rendeléskódokat (szám-kötőjel-betű) kíméljük
     normalized_name = raw_name.replace('–', '-').replace('—', '-')
-    normalized_name = re.sub(r'\s*-[A-Z0-9]+\b', '', normalized_name)
+    
+    # Szigorúbb név-tisztítás: csak a magányos kódokat vesszük ki a névből
+    # A regex most már figyeli, hogy ne vágjon bele a mennyiségbe
+    normalized_name = re.sub(r'\s+-[A-Z0-9]+\b', '', normalized_name)
     
     words = normalized_name.split()
     clean_name_words = []
     moved_to_address = []
 
     for word in words:
+        # Egybetűs szűrő (Árpád "a" betűje)
         if len(word) == 1:
             if word == 'É': clean_name_words.append(word)
             else: moved_to_address.append(word)
@@ -56,7 +61,8 @@ def process_name_and_address(raw_name, raw_addr):
 def parse_interfood(pdf_file):
     all_data = []
     customer_code_pat = r'([HKSCPZ]-\d{5,7})'
-    order_pat = r'([1-9]-\s?[A-Z][A-Z0-9]*|-[A-Z][A-Z0-9]*)' # Kibővítve a szám nélküli kódokra is
+    # Javított rendelés regex: kötelezően keresi a számot is az elején, ha van
+    order_pat = r'(\d+-[A-Z][A-Z0-9]*|-[A-Z][A-Z0-9]*)'
 
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -89,22 +95,26 @@ def parse_interfood(pdf_file):
                 full_line_text = " ".join([w['text'] for w in line_words])
                 u_code_match = re.search(customer_code_pat, full_line_text)
                 u_code = u_code_match.group(0) if u_code_match else ""
+                
+                # A név tisztítása most már nem bántja a számokat a sor elején
                 u_nev, u_cim = process_name_and_address(" ".join(b4), " ".join(b3))
+                
                 t_m = re.search(r'\d{2}/\d{6,7}', full_line_text.replace(" ",""))
                 u_tel = clean_phone(t_m.group(0)) if t_m else " - "
                 
-                # --- DARABSZÁM SZÁMÍTÁS ---
-                raw_orders = list(dict.fromkeys(re.findall(order_pat, full_line_text)))
-                total_qty = 0
-                for order in raw_orders:
-                    qty_match = re.match(r'^(\d+)-', order)
-                    if qty_match:
-                        total_qty += int(qty_match.group(1))
-                    else:
-                        total_qty += 1 # Ha nincs szám (pl. -L2K), az 1 darab
+                # Rendelések kinyerése és darabszám számítás
+                raw_orders = re.findall(order_pat, full_line_text)
+                # Duplikátumok kiszűrése sorrend megtartásával
+                seen = set()
+                unique_orders = [x for x in raw_orders if not (x in seen or seen.add(x))]
                 
-                u_rend = ", ".join(raw_orders) or "---"
-                u_osszesen = f"{total_qty} db" if total_qty > 0 else "0 db"
+                total_qty = 0
+                for order in unique_orders:
+                    qty_match = re.match(r'^(\d+)-', order)
+                    total_qty += int(qty_match.group(1)) if qty_match else 1
+                
+                u_rend = ", ".join(unique_orders) or "---"
+                u_osszesen = f"{total_qty} db"
 
                 all_data.append({
                     "Sorszám": int(s_id_str),
@@ -117,11 +127,11 @@ def parse_interfood(pdf_file):
                 })
     return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
 
-st.title("🛡️ Interfood v153.90 - The Counter")
+st.title("🛡️ Interfood v153.100 - The Accurate")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
     df = parse_interfood(f)
     if not df.empty:
         st.dataframe(df, use_container_width=True)
         csv = df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("💾 Letöltés (CSV)", csv, "interfood_v153_90.csv", "text/csv")
+        st.download_button("💾 Letöltés (CSV)", csv, "interfood_final_v100.csv", "text/csv")

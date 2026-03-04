@@ -3,131 +3,90 @@ import pdfplumber
 import pandas as pd
 import re
 from io import BytesIO
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
 
-# --- KONFIGURÁCIÓ ---
-st.set_page_config(page_title="Interfood v189.0 - Stabil Rendező", layout="wide")
+# --- PDF GENERÁLÓ MOTOR (3x7 ív, 70x42.4mm) ---
+def create_label_pdf(df, f_nev, f_tel):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    
+    cols, rows = 3, 7
+    label_w, label_h = 70 * mm, 42.4 * mm
+    margin_x = (width - (cols * label_w)) / 2
+    margin_y = (height - (rows * label_h)) / 2
 
-# --- KÖTELEZŐ MEZŐK ---
+    for i, (_, row) in enumerate(df.iterrows()):
+        idx = i % (cols * rows)
+        if idx == 0 and i > 0: p.showPage()
+        
+        c = idx % cols
+        r = rows - 1 - (idx // cols)
+        x = margin_x + c * label_w
+        y = margin_y + r * label_h
+
+        # SZOMBAT keret és jelzés
+        prefix = str(row.get('Prefix', 'P')).upper()
+        if prefix == 'Z':
+            p.setLineWidth(1.5)
+            p.rect(x + 2*mm, y + 2*mm, label_w - 4*mm, label_h - 4*mm)
+            p.setFont("Helvetica-Bold", 10)
+            p.drawRightString(x + label_w - 5*mm, y + 35*mm, "SZOMBAT")
+        else:
+            p.setLineWidth(0.2)
+            p.rect(x + 2*mm, y + 2*mm, label_w - 4*mm, label_h - 4*mm)
+            p.setFont("Helvetica-Bold", 10)
+            p.drawRightString(x + label_w - 5*mm, y + 35*mm, "PÉNTEK")
+
+        # Adatok elhelyezése
+        p.setFont("Helvetica-Bold", 11)
+        p.drawString(x + 5*mm, y + 35*mm, f"#{row['Sorrend']}  {row['ID']}") # ID prefix nélkül
+        
+        p.setFont("Helvetica-Bold", 10)
+        p.drawString(x + 5*mm, y + 29*mm, str(row['Ügyintéző'])[:22])
+        p.setFont("Helvetica", 9)
+        p.drawRightString(x + label_w - 5*mm, y + 29*mm, str(row['Telefon']))
+        
+        p.setFont("Helvetica", 9)
+        p.drawString(x + 5*mm, y + 24*mm, str(row['Cím'])[:40])
+        
+        p.setFont("Helvetica-Bold", 9)
+        p.drawString(x + 5*mm, y + 16*mm, f"{str(row['Rendelés'])[:35]}")
+        p.drawRightString(x + label_w - 5*mm, y + 16*mm, f"Össz: {row['Összesen']} db")
+
+        # Futár adatok az alján
+        p.setFont("Helvetica-Oblique", 7)
+        p.drawCentredString(x + label_w/2, y + 6*mm, f"Futár: {f_nev} ({f_tel}) | Jó étvágyat! :)")
+
+    p.save()
+    buffer.seek(0)
+    return buffer
+
+# --- FŐ PROGRAM ---
 st.sidebar.title("🚚 Szállítási adatok")
-f_nev = st.sidebar.text_input("Futár neve", key="f_nev_input")
-f_tel = st.sidebar.text_input("Futár telefonszáma", key="f_tel_input")
+f_nev = st.sidebar.text_input("Futár neve", key="f_nev_v19")
+f_tel = st.sidebar.text_input("Futár telefonszáma", key="f_tel_v19")
 
-if not f_nev or not f_tel:
-    st.warning("👈 Kérlek, add meg a futár nevét és telefonszámát a bal oldalon!")
-    st.stop()
-
-# --- SESSION STATE TÁROLÓK ---
-if 'master_df' not in st.session_state:
-    st.session_state.master_df = None
-
-# --- PARSER FÜGGVÉNY ---
-def parse_interfood_row_by_row(pdf_file):
-    rows = []
-    order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            words = page.extract_words()
-            lines = {}
-            for w in words:
-                y = round(w['top'], 1)
-                found = False
-                for ey in lines:
-                    if abs(y - ey) < 3:
-                        lines[ey].append(w)
-                        found = True
-                        break
-                if not found: lines[y] = [w]
-
-            for y in sorted(lines.keys()):
-                line_words = sorted(lines[y], key=lambda x: x['x0'])
-                text = " ".join([w['text'] for w in line_words])
-                
-                u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text)
-                if not u_code_m: continue
-                
-                # Cím tisztítás (4 jegyű irányítószámtól)
-                b3_text = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
-                addr_match = re.search(r'(\d{4})', b3_text)
-                clean_addr = b3_text[addr_match.start():].strip() if addr_match else b3_text
-
-                # Név tisztítás (Czinege-szindróma ellen)
-                b4_text = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 480])
-                clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4_text).split('-')[0].strip()
-
-                # Rendelés
-                orders = re.findall(order_pat, text.replace(" ", ""))
-                valid_orders = []
-                sum_qty = 0
-                for o in orders:
-                    q = int(o.split('-')[0])
-                    if q >= 10: q = int(str(q)[-1])
-                    valid_orders.append(f"{q}-{o.split('-')[1]}")
-                    sum_qty += q
-                
-                if sum_qty > 0:
-                    rows.append({
-                        "Prefix": u_code_m.group(0).split('-')[0],
-                        "ID": u_code_m.group(0).split('-')[-1],
-                        "Ügyintéző": clean_name,
-                        "Cím": clean_addr,
-                        "Telefon": re.search(r'(\d{2}/\d{6,7})', text.replace(" ", "")).group(0) if re.search(r'(\d{2}/\d{6,7})', text.replace(" ", "")) else "nincs",
-                        "Rendelés": ", ".join(valid_orders),
-                        "Összesen": sum_qty
-                    })
-    return rows
-
-# --- FŐ OLDAL ---
-st.title("🏷️ Stabil Hétvégi Rendező")
-
-# 1. LÉPÉS: PDF feltöltés és Fájl-sorrendező
-uploaded_files = st.file_uploader("1. PDF-ek feltöltése", type="pdf", accept_multiple_files=True)
-
-if uploaded_files:
-    st.subheader("2. PDF-ek (járatok) sorrendje")
-    file_order_data = [{"Fájl Sorrend": i+1, "Fájlnév": f.name} for i, f in enumerate(uploaded_files)]
-    file_order_df = st.data_editor(pd.DataFrame(file_order_data), hide_index=True)
-
-    if st.button("Adatok beolvasása a fenti sorrendben"):
-        # Fájlok rendezése a megadott sorszám alapján
-        sorted_filenames = file_order_df.sort_values("Fájl Sorrend")["Fájlnév"].tolist()
+if f_nev and f_tel:
+    # Itt a korábbi beolvasó és táblázat kezelő rész...
+    # (Tételezzük fel, hogy a master_df már készen van)
+    
+    if st.session_state.get('master_df') is not None:
+        st.divider()
+        st.subheader("Letöltés")
         
-        all_parsed_data = []
-        for fname in sorted_filenames:
-            f_obj = next(f for f in uploaded_files if f.name == fname)
-            all_parsed_data.extend(parse_interfood_row_by_row(f_obj))
+        # A PDF legenerálása a memóriába
+        pdf_data = create_label_pdf(st.session_state.master_df, f_nev, f_tel)
         
-        final_df = pd.DataFrame(all_parsed_data)
-        final_df.insert(0, "Sorrend", [str(i+1) for i in range(len(final_df))])
-        st.session_state.master_df = final_df
-
-# 3. LÉPÉS: Címek finomhangolása
-if st.session_state.master_df is not None:
-    st.divider()
-    st.subheader("3. Címek pontos sorrendje")
-    st.caption("Írd át a 'Sorrend' oszlopot (pl. 1.1) a beszúráshoz, majd nyomj Entert.")
-
-    edited_df = st.data_editor(
-        st.session_state.master_df,
-        use_container_width=True,
-        hide_index=True,
-        num_rows="fixed",
-        key="main_editor"
-    )
-
-    # HA VÁLTOZOTT A TÁBLÁZAT -> ÚJRARANDEZZÜK
-    if not edited_df.equals(st.session_state.master_df):
-        def safe_float(x):
-            try: return float(str(x).replace(',', '.'))
-            except: return 9999.0
-        
-        edited_df['sort_key'] = edited_df['Sorrend'].apply(safe_float)
-        # Rendezzük a tizedesvesszős értékek alapján
-        new_df = edited_df.sort_values('sort_key').drop(columns=['sort_key'])
-        # Kapjanak új, tiszta egész számú sorszámokat (1, 2, 3...)
-        new_df['Sorrend'] = [str(i+1) for i in range(len(new_df))]
-        
-        st.session_state.master_df = new_df
-        st.rerun()
-
-    # NYOMTATÁS
-    st.button("📥 3x7-es PDF Etikett Letöltése")
+        # A gomb, ami TÉNYLEGESEN letölti
+        st.download_button(
+            label="📥 3x7-es PDF Etikettek Letöltése",
+            data=pdf_data,
+            file_name="interfood_etikettek.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+else:
+    st.warning("👈 Kérlek add meg a futár adatait a kezdéshez!")

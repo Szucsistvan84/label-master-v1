@@ -111,4 +111,30 @@ def parse_interfood(pdf_file):
 
                 if total_qty == 0: continue
 
-                # Oszlopok (Ügyintéző és Cím hely
+                # Oszlopok (Ügyintéző és Cím helye)
+                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 330])
+                b4 = " ".join([w['text'] for w in line_words if 330 <= w['x0'] < 480])
+
+                u_nev, u_cim = process_name_and_address(b4, b3)
+                u_code_m = re.search(r'([HKSCPZ]-\d{5,7})', full_line_text)
+                u_code = u_code_m.group(0) if u_code_m else ""
+
+                all_data.append({
+                    "Sorszám": s_id,
+                    "Ügyfélkód": u_code,
+                    "Ügyintéző": u_nev,
+                    "Cím": u_cim,
+                    "Telefon": final_tel,
+                    "Rendelés": ", ".join(clean_orders),
+                    "Összesen": f"{total_qty} db"
+                })
+
+    return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
+
+st.title("🛡️ Interfood v159.0 - Safe Guard")
+f = st.file_uploader("PDF feltöltése", type="pdf")
+if f:
+    df = parse_interfood(f)
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+        st.download_button("💾 CSV Mentése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_final_safe.csv")

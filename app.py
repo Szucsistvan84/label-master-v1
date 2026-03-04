@@ -3,8 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-# Streamlit oldal konfigurációja
-st.set_page_config(page_title="Interfood v153.80 - The Neutralizer", layout="wide")
+st.set_page_config(page_title="Interfood v153.90 - The Counter", layout="wide")
 
 def clean_phone(p_str):
     if not p_str: return " - "
@@ -16,10 +15,7 @@ def process_name_and_address(raw_name, raw_addr):
     to_move = ['lph', 'lp', 'porta', 'u', 'utca', 'út', 'útja', 'tér', 'ép', 'épület', 'fszt', 'em', 'LGM', 'kft', 'bt', 'zrt']
     allowed_prefixes = ['Dr.', 'Prof.', 'Ifj.', 'Id.', 'Özv.']
     
-    # 1. SZUPER-KÖTŐJEL SZŰRŐ: Minden típusú kötőjelet (-, –, —) egységesítünk
     normalized_name = raw_name.replace('–', '-').replace('—', '-')
-    
-    # Kódok (pl. -K, -SP, -DKM) törlése a névből
     normalized_name = re.sub(r'\s*-[A-Z0-9]+\b', '', normalized_name)
     
     words = normalized_name.split()
@@ -27,42 +23,29 @@ def process_name_and_address(raw_name, raw_addr):
     moved_to_address = []
 
     for word in words:
-        # 2. Egybetűs szűrő (pl. "a" névelő ellen)
         if len(word) == 1:
-            if word == 'É':
-                clean_name_words.append(word)
-            else:
-                moved_to_address.append(word)
+            if word == 'É': clean_name_words.append(word)
+            else: moved_to_address.append(word)
             continue
 
         clean_word_comp = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ]', '', word).lower()
-
-        # 3. Kulcsszavak és cégnevek címbe mozgatása
         if clean_word_comp in [x.lower() for x in to_move] or (word.isupper() and 2 <= len(word) <= 4):
             moved_to_address.append(word)
             continue
 
-        # 4. Kisbetűs szavak szűrése
         if len(word) > 0 and word[0].islower():
             if (word.capitalize() + "." not in allowed_prefixes):
                 moved_to_address.append(word)
                 continue
-            
         clean_name_words.append(word)
 
-    # 5. Név végső formázása
     final_name = " ".join(clean_name_words)
     final_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-\.]', '', final_name)
-    
-    # Prefix pontok kezelése
     for pref in allowed_prefixes:
         final_name = final_name.replace(pref, pref.replace('.', '___'))
     final_name = final_name.replace('.', '').replace('___', '.')
-    
-    # 6. Biztonsági öv: "a " vagy "A " törlése a név elejéről
     final_name = re.sub(r'^[aA]\s+', '', final_name).strip()
 
-    # Cím összeállítása
     zip_match = re.search(r'(\d{4})', raw_addr)
     base_addr = raw_addr[zip_match.start():].strip() if zip_match else raw_addr.strip()
     extra_info = " ".join(moved_to_address).strip()
@@ -73,7 +56,7 @@ def process_name_and_address(raw_name, raw_addr):
 def parse_interfood(pdf_file):
     all_data = []
     customer_code_pat = r'([HKSCPZ]-\d{5,7})'
-    order_pat = r'([1-9]-\s?[A-Z][A-Z0-9]*)'
+    order_pat = r'([1-9]-\s?[A-Z][A-Z0-9]*|-[A-Z][A-Z0-9]*)' # Kibővítve a szám nélküli kódokra is
 
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -106,12 +89,22 @@ def parse_interfood(pdf_file):
                 full_line_text = " ".join([w['text'] for w in line_words])
                 u_code_match = re.search(customer_code_pat, full_line_text)
                 u_code = u_code_match.group(0) if u_code_match else ""
-                
                 u_nev, u_cim = process_name_and_address(" ".join(b4), " ".join(b3))
-                
                 t_m = re.search(r'\d{2}/\d{6,7}', full_line_text.replace(" ",""))
                 u_tel = clean_phone(t_m.group(0)) if t_m else " - "
-                u_rend = ", ".join(dict.fromkeys(re.findall(order_pat, full_line_text))) or "---"
+                
+                # --- DARABSZÁM SZÁMÍTÁS ---
+                raw_orders = list(dict.fromkeys(re.findall(order_pat, full_line_text)))
+                total_qty = 0
+                for order in raw_orders:
+                    qty_match = re.match(r'^(\d+)-', order)
+                    if qty_match:
+                        total_qty += int(qty_match.group(1))
+                    else:
+                        total_qty += 1 # Ha nincs szám (pl. -L2K), az 1 darab
+                
+                u_rend = ", ".join(raw_orders) or "---"
+                u_osszesen = f"{total_qty} db" if total_qty > 0 else "0 db"
 
                 all_data.append({
                     "Sorszám": int(s_id_str),
@@ -119,18 +112,16 @@ def parse_interfood(pdf_file):
                     "Ügyintéző": u_nev,
                     "Cím": u_cim,
                     "Telefon": u_tel,
-                    "Rendelés": u_rend
+                    "Rendelés": u_rend,
+                    "Összesen": u_osszesen
                 })
     return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
 
-# Felület kialakítása
-st.title("🛡️ Interfood v153.80 - The Neutralizer")
-st.markdown("Tisztított névmezők: nincs felesleges névelő és kötőjeles kód.")
-
+st.title("🛡️ Interfood v153.90 - The Counter")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
     df = parse_interfood(f)
     if not df.empty:
         st.dataframe(df, use_container_width=True)
         csv = df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("💾 Letöltés (CSV)", csv, "interfood_v153_80.csv", "text/csv")
+        st.download_button("💾 Letöltés (CSV)", csv, "interfood_v153_90.csv", "text/csv")

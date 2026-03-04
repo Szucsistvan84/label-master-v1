@@ -12,11 +12,11 @@ def clean_phone(p_str):
     return f"{nums[:2]}/{nums[2:]}"
 
 def process_name_and_address(raw_name, raw_addr):
+    # Kulcsszavak, amiknek a címben a helyük
     to_move = ['lph', 'lp', 'porta', 'u', 'utca', 'út', 'útja', 'tér', 'ép', 'épület', 'fszt', 'em', 'LGM', 'kft', 'bt', 'zrt']
     allowed_prefixes = ['Dr.', 'Prof.', 'Ifj.', 'Id.', 'Özv.']
     
-    # 1. RENDELÉSKÓD FIX: Ha a név végén ott fityeg a kód (pl. "Juliánna-DKM")
-    # Eltávolítjuk a kötőjellel kapcsolt nagybetűs kódokat a név legvégéről
+    # 1. RENDELÉSKÓD FIX: Levágjuk a név végéről a kötőjeles kódokat (pl. "-DKM")
     raw_name = re.sub(r'-[A-Z0-9]+$', '', raw_name.strip())
     
     words = raw_name.split()
@@ -24,35 +24,45 @@ def process_name_and_address(raw_name, raw_addr):
     moved_to_address = []
 
     for word in words:
-        # Tisztított verzió az elemzéshez
-        clean_word_comp = re.sub(r'[^a-zA-Z]', '', word).lower()
+        # Tisztított, betű-alapú verzió az ellenőrzéshez
+        clean_word_comp = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ]', '', word).lower()
         
-        # 2. Magányos betűk (pl. az "a" betű)
-        if len(word) == 1 and word.lower() != 'é':
-            moved_to_address.append(word)
+        # --- A SZIGORÍTOTT SZŰRŐ ---
+        # Ha a szó csak 1 betű hosszú
+        if len(word) == 1:
+            # Csak akkor maradjon a névben, ha az egy nagy 'É' (OCR hiba javítása miatt)
+            if word == 'É':
+                clean_name_words.append(word)
+            else:
+                moved_to_address.append(word)
             continue
+        # ---------------------------
 
-        # 3. Különálló rendeléskód töredék (pl. "-DKM")
+        # Ételkód töredék (-SP, -K, stb.)
         if re.match(r'^-[A-Z0-9]+$', word):
             continue
-
-        # 4. Vámház check
+            
+        # Vámház check (lp, u, porta, LGM)
         if clean_word_comp in [x.lower() for x in to_move]:
             moved_to_address.append(word)
             continue
 
-        # 5. Cégnév rövidítés
+        # Cégnév rövidítés (csupa nagybetű 2-4 karakter)
         if word.isupper() and 2 <= len(word) <= 4:
             moved_to_address.append(word)
             continue
 
-        # 6. Kisbetűs szemét
+        # Kisbetűs junk (ha nem engedélyezett prefix)
         if len(word) > 0 and word[0].islower():
             if (word.capitalize() + "." not in allowed_prefixes):
                 moved_to_address.append(word)
                 continue
             
         clean_name_words.append(word)
+
+    # Név véglegesítése (tisztítás a végén)
+    final_name = " ".join(clean_name_words)
+    final_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-\.]', '', final_name)
 
     # Név végső polírozása
     final_name = " ".join(clean_name_words)
@@ -133,3 +143,4 @@ if f:
     if not df.empty:
         st.dataframe(df, use_container_width=True)
         st.download_button("💾 Letöltés", df.to_csv(index=False).encode('utf-8-sig'), "interfood_final_v153.csv")
+

@@ -4,8 +4,9 @@ import pandas as pd
 import re
 from collections import Counter
 
-st.set_page_config(page_title="Interfood v176.0 - Gyors Rendező", layout="wide")
+st.set_page_config(page_title="Interfood v177.0 - Járat-Rendező", layout="wide")
 
+# --- ADATKINYERŐ FÜGGVÉNY (Változatlanul a stabil v173+ alapokon) ---
 def parse_interfood(pdf_file):
     page_data = []
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
@@ -39,6 +40,7 @@ def parse_interfood(pdf_file):
                 if not clean_orders: continue
 
                 page_data.append({
+                    "Járat": pdf_file.name,
                     "Ügyfélkód": u_code_m.group(0),
                     "Ügyintéző": re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip(),
                     "Cím": b3.strip(),
@@ -51,37 +53,12 @@ def parse_interfood(pdf_file):
 if 'working_df' not in st.session_state:
     st.session_state.working_df = None
 
-st.title("🚀 Interfood v176.0 - Tizedesvesszős Gyorsrendező")
+st.title("🚀 Interfood v177.0 - Járat és Cím Rendező")
 
-files = st.file_uploader("PDF-ek feltöltése", type="pdf", accept_multiple_files=True)
-if files and st.button("Adatok beolvasása"):
-    data = []
-    for f in files:
-        data.extend(parse_interfood(f))
-    df = pd.DataFrame(data)
-    # A sorszámot szövegként tároljuk, hogy engedje a vesszőt/pontot
-    df.insert(0, "Sorrend", [str(i+1) for i in range(len(df))])
-    st.session_state.working_df = df
+# 1. LÉPÉS: PDF-ek feltöltése
+uploaded_files = st.file_uploader("1. Húzd be a PDF-eket", type="pdf", accept_multiple_files=True)
 
-if st.session_state.working_df is not None:
-    st.subheader("📍 Sorrend módosítása")
-    st.info("Írd át a 'Sorrend' oszlopban a számot (pl. 1.5 vagy 2,2) és a lista azonnal átrendeződik!")
-
-    # Szerkeszthető táblázat - A Sorrend oszlop szöveges marad a bevitel alatt
-    edited_df = st.data_editor(
-        st.session_state.working_df,
-        num_rows="fixed",
-        use_container_width=True,
-        hide_index=True
-    )
-
-    # Rendezési logika: Vesszőt pontra cseréljük, számmá alakítjuk és rendezzük
-    def safe_float(x):
-        try: return float(str(x).replace(',', '.'))
-        except: return 999.0
-
-    # Ha változott a Sorrend oszlop, rendezzük újra
-    if not edited_df.equals(st.session_state.working_df):
-        edited_df['sort_key'] = edited_df['Sorrend'].apply(safe_float)
-        edited_df = edited_df.sort_values('sort_key').drop(columns=['sort_key'])
-        # Újrageneráljuk a szép sorszámokat, de szö
+if uploaded_files:
+    st.subheader("2. Állítsd be a járatok sorrendjét")
+    # Létrehozunk egy kis táblázatot a fájloknak
+    file_info = [{"Fájlnév": f.name, "Sorszám": i

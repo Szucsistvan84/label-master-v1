@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-st.set_page_config(page_title="Interfood v161.0 - Zero Tolerance", layout="wide")
+st.set_page_config(page_title="Interfood v162.0 - Eraser", layout="wide")
 
 def clean_phone(p_str):
     if not p_str or p_str == " - ": return "nincs tel. szám"
@@ -13,8 +13,9 @@ def clean_phone(p_str):
     return nums_only
 
 def process_name_and_address(raw_name, raw_addr):
-    # Radikális névtisztítás: minden nem-betűt és magányos kisbetűt leirtunk az elejéről
+    # Tisztítás az elejéről és a végéről (elcsúszott karakterek ellen)
     name_clean = re.sub(r'^[ \.\,a-z0-9]+', '', raw_name.strip())
+    name_clean = re.sub(r'[ \-][A-Z0-9]$', '', name_clean) # Levágja a végi "-M" típusú maradékokat
     
     to_move = ['lph', 'lp', 'porta', 'u', 'utca', 'út', 'útja', 'tér', 'ép', 'épület', 'fszt', 'em', 'LGM', 'kft', 'bt', 'zrt']
     
@@ -44,7 +45,7 @@ def process_name_and_address(raw_name, raw_addr):
 
 def parse_interfood(pdf_file):
     all_data = []
-    # ÚJ REGEX: A darabszám [1-9]-cel kell kezdődjön! (Nem lehet 0)
+    # A darabszám 1-9-ig kezdődhet csak!
     order_pat = r'([1-9]\d*-[A-Z][A-Z0-9*+]*)'
 
     with pdfplumber.open(pdf_file) as pdf:
@@ -69,19 +70,26 @@ def parse_interfood(pdf_file):
                 if not s_match: continue
                 s_id = int(s_match.group(1))
 
-                # Telefonszám mentése
+                # 1. Telefonszám kinyerése
                 tel_match = re.search(r'(\d{2}/\d{6,7}(?:,\d{2}/\d{2,7})?)', full_line_text.replace(" ", ""))
-                final_tel = clean_phone(tel_match.group(0) if tel_match else " - ")
+                raw_tel = tel_match.group(0) if tel_match else ""
+                final_tel = clean_phone(raw_tel)
 
-                # Rendelések keresése - Ragasszuk össze, de a 0-sokat hagyjuk ki
-                search_text = re.sub(r'(\d+)\s*-\s*([A-Z])', r'\1-\2', full_line_text)
-                
+                # 2. ELŐTISZTÍTÁS: Kitöröljük a telefonszámot a keresendő szövegből
+                # Így a ",30/01" eltűnik, és nem lesz belőle "011-M"
+                search_text = full_line_text
+                if raw_tel:
+                    # Kicsit lazább illesztés a törléshez, hogy a szóközök/vesszők is menjenek
+                    search_text = re.sub(r',?\s?\d{2}/\d{2,7}', '', search_text)
+
+                # 3. Rendelések keresése
+                search_text = re.sub(r'(\d+)\s*-\s*([A-Z])', r'\1-\2', search_text)
                 found_orders = re.findall(order_pat, search_text)
+                
                 clean_orders = []
                 total_qty = 0
                 for o in found_orders:
                     qty = int(re.match(r'^(\d+)', o).group(1))
-                    # Csak 1 és 20 közötti darabszámot fogadunk el
                     if 1 <= qty < 20:
                         if o not in clean_orders:
                             clean_orders.append(o)
@@ -108,10 +116,10 @@ def parse_interfood(pdf_file):
 
     return pd.DataFrame(all_data).drop_duplicates(subset=['Sorszám']).sort_values("Sorszám")
 
-st.title("🛡️ Interfood v161.0 - Zero Tolerance")
+st.title("🛡️ Interfood v162.0 - The Eraser")
 f = st.file_uploader("PDF feltöltése", type="pdf")
 if f:
     df = parse_interfood(f)
     if not df.empty:
         st.dataframe(df, use_container_width=True)
-        st.download_button("💾 CSV Mentése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_final.csv")
+        st.download_button("💾 CSV Mentése", df.to_csv(index=False).encode('utf-8-sig'), "interfood_clean_v162.csv")

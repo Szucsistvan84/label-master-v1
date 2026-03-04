@@ -224,4 +224,31 @@ if up_files:
         st.session_state.mdf = mdf
 
 if st.session_state.get('mdf') is not None:
-    st.info("💡 A 'Sorrend' oszlopban
+    st.info("💡 A 'Sorrend' oszlopban átírhatod a megállókat. A lista automatikusan sorba rendezi magát.")
+    edf = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True)
+    
+    if not edf.equals(st.session_state.mdf):
+        def sf(x):
+            try: return float(str(x).replace(',','.'))
+            except: return 999.0
+        edf['sk'] = edf['Sorrend'].apply(sf)
+        new = edf.sort_values('sk').drop(columns=['sk'])
+        new['Sorrend'] = [str(i+1) for i in range(len(new))]
+        st.session_state.mdf = new
+        st.rerun()
+
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📥 ETIKETTEK LETÖLTÉSE", use_container_width=True):
+            pdf_labels = create_label_pdf(st.session_state.mdf, st.session_state.n, st.session_state.t)
+            num_pages = math.ceil(len(st.session_state.mdf) / 21)
+            
+            st.success(f"✅ Elkészült!")
+            st.warning(f"🖨️ FIGYELEM: Helyezz be **{num_pages} db** etikettlapot a nyomtatóba, CÍMKÉVEL LEFELÉ!")
+            st.download_button("Fájl mentése", pdf_labels, "interfood_etikettek.pdf", use_container_width=True)
+
+    with col2:
+        if st.button("📋 MENETTERV LETÖLTÉSE", use_container_width=True):
+            pdf_route = create_itinerary_pdf(st.session_state.mdf, st.session_state.n)
+            st.download_button("Menetterv mentése (A4)", pdf_route, "kiszallitasi_sorrend.pdf", use_container_width=True)

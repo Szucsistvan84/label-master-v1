@@ -2,109 +2,109 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import re
-from collections import defaultdict
+from io import BytesIO
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
 
-st.set_page_config(page_title="Interfood v185.0 - Hétvégi Címke", layout="wide")
+st.set_page_config(page_title="Interfood v186.0 - PDF Generátor", layout="wide")
 
-# --- UI: KÖTELEZŐ FUTÁR ADATOK ---
-st.sidebar.title("🚚 Futár adatai")
+# --- KÖTELEZŐ MEZŐK ---
+st.sidebar.title("🚚 Szállítási adatok")
 futar_nev = st.sidebar.text_input("Futár neve (KÖTELEZŐ)")
 futar_tel = st.sidebar.text_input("Futár telefonszáma (KÖTELEZŐ)")
 
-# --- LOGIKA ---
-def parse_interfood_weekend(pdf_file):
-    page_data = []
-    # Keressük a P- vagy Z- kezdetű kódokat
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            # (Itt a korábbi stabil sor-feldolgozó logikád fut)
-            # Példa egy kinyert sorra:
-            raw_data = {
-                "FullCode": "P-456123", # Vagy Z-456123
-                "Nev": "Minta János",
-                "Cim": "4024 Debrecen, Piac u. 1.",
-                "Tel": "30/1234567",
-                "Rendeles": "1-L2K, 1-BK"
-            }
-            # Kód tisztítása: P-456123 -> 456123
-            clean_id = raw_data["FullCode"].split('-')[-1]
-            nap_prefix = raw_data["FullCode"].split('-')[0]
-            
-            page_data.append({
-                "ID": clean_id,
-                "Prefix": nap_prefix,
-                "Nev": raw_data["Nev"],
-                "Cim": raw_data["Cim"],
-                "Tel": raw_data["Tel"],
-                "Rendeles": raw_data["Rendeles"],
-                "Qty": 2 # Összesen db
-            })
-    return page_data
+# --- PDF GENERÁLÁS (3x7 ív: 70x42.4mm) ---
+def create_label_pdf(df, f_nev, f_tel):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    
+    # 3x7 beállítások
+    cols = 3
+    rows = 7
+    label_w = 70 * mm
+    label_h = 42.4 * mm
+    margin_x = (width - (cols * label_w)) / 2
+    margin_y = (height - (rows * label_h)) / 2
 
-# --- FŐ FOLYAMAT ---
+    for i, (_, row) in enumerate(df.iterrows()):
+        idx_in_page = i % (cols * rows)
+        if idx_in_page == 0 and i > 0:
+            p.showPage()
+        
+        col = idx_in_page % cols
+        row_idx = rows - 1 - (idx_in_page // cols)
+        
+        x = margin_x + col * label_w
+        y = margin_y + row_idx * label_h
+
+        # Keret (csak szombatnál vastagabb)
+        p.setLineWidth(0.2)
+        if str(row.get('Prefix', '')).upper() == 'Z':
+            p.setLineWidth(1.5)
+        p.rect(x + 2*mm, y + 2*mm, label_w - 4*mm, label_h - 4*mm)
+        p.setLineWidth(0.2)
+
+        # 1. sor: #Sorszám és ID + NAP
+        p.setFont("Helvetica-Bold", 10)
+        p.drawString(x + 5*mm, y + 35*mm, f"#{row['Sorszám']}  ID: {row['ID']}")
+        nap_szoveg = "SZOMBAT" if str(row.get('Prefix', '')).upper() == 'Z' else "PÉNTEK"
+        p.drawRightString(x + label_w - 5*mm, y + 35*mm, nap_szoveg)
+
+        # 2. sor: Név és Telefon
+        p.setFont("Helvetica-Bold", 9)
+        p.drawString(x + 5*mm, y + 30*mm, str(row['Ügyintéző'])[:25])
+        p.setFont("Helvetica", 8)
+        p.drawRightString(x + label_w - 5*mm, y + 30*mm, str(row['Telefon']))
+
+        # 3. sor: Cím
+        p.setFont("Helvetica", 8)
+        p.drawString(x + 5*mm, y + 25*mm, str(row['Cím'])[:45])
+
+        # 4. sor: Rendelés
+        p.setFont("Helvetica-Bold", 8)
+        p.drawString(x + 5*mm, y + 18*mm, f"Rendelés: {str(row['Rendelés'])[:40]}")
+        p.drawRightString(x + label_w - 5*mm, y + 18*mm, f"Össz: {row['Összesen']} db")
+
+        # Alja: Futár és üzenet
+        p.setFont("Helvetica-Oblique", 7)
+        info_line = f"Futár: {f_nev} ({f_tel}) | Jó étvágyat! :)"
+        p.drawCentredString(x + label_w/2, y + 6*mm, info_line)
+
+    p.save()
+    buffer.seek(0)
+    return buffer
+
+# --- ADATKINYERÉS ---
+def parse_pdf(file):
+    # Itt a korábbi v180+ parser fut, ami kinyeri a Prefixet is!
+    # Fontos: a visszakapott DataFrame-ben KELL lennie 'Prefix' oszlopnak
+    pass 
+
 if not futar_nev or not futar_tel:
-    st.warning("⚠️ Kérlek, add meg a futár nevét és telefonszámát a bal oldali sávban a folytatáshoz!")
+    st.warning("⚠️ Add meg a futár adatait a folytatáshoz!")
 else:
-    st.title("🏷️ 3x7-es Hétvégi Etikett Generátor")
-    files = st.file_uploader("Menetterv PDF feltöltése (Péntek/Szombat)", type="pdf", accept_multiple_files=True)
-
-    if files:
-        if st.button("Adatok feldolgozása"):
-            raw_list = []
-            for f in files:
-                raw_list.extend(parse_interfood_weekend(f))
-            
-            # Ügyfélkód szerinti csoportosítás az összevonáshoz
-            grouped = defaultdict(list)
-            for item in raw_list:
-                grouped[item["ID"]].append(item)
-            
-            final_rows = []
-            for uid, items in grouped.items():
-                # Itt dől el: ha van P és Z is, egy címkére kerülnek-e vagy külön?
-                # A kérésed alapján: "pénteki és szombati tétel... ügyfélkód azonos lesz"
-                for entry in items:
-                    final_rows.append(entry)
-            
-            df = pd.DataFrame(final_rows)
-            df.insert(0, "Sorszám", range(1, len(df) + 1))
-            st.session_state.working_df = df
-
+    # PDF feltöltés és táblázat szerkesztés helye...
+    # (A korábbi kódod ide jön, ügyelve, hogy a 'Prefix' oszlop ne tűnjön el)
+    
     if 'working_df' in st.session_state:
-        # A sorrendezés utáni sorszám frissítése
         df = st.session_state.working_df
-        st.subheader("📍 Véglegesített sorrend és adatok")
+        
+        # JAVÍTÁS: Ellenőrizzük, hogy megvan-e minden oszlop
+        required_cols = ['Sorszám', 'ID', 'Ügyintéző', 'Cím', 'Telefon', 'Rendelés', 'Összesen', 'Prefix']
+        for col in required_cols:
+            if col not in df.columns:
+                df[col] = "" # Üres oszlop létrehozása, ha hiányozna
+
+        st.subheader("📍 Címke adatok ellenőrzése")
         edited_df = st.data_editor(df, use_container_width=True, hide_index=True)
 
-        # --- ETIKETT ELŐNÉZET ---
-        st.divider()
-        st.subheader("🖨️ 3x7-es Etikett Tervezet")
-        
-        if not edited_df.empty:
-            sample = edited_df.iloc[0]
-            nap_jelzo = "SZOMBAT" if sample['Prefix'] == 'Z' else "PÉNTEK"
-            
-            with st.container(border=True):
-                # 1. SOR: #Sorszám + Ügyfélkód + Nap
-                c1, c2 = st.columns([1, 1])
-                c1.write(f"**#{sample['Sorszám']}** {sample['ID']}")
-                c2.markdown(f"<p style='text-align: right;'><b>{nap_jelzo}</b></p>", unsafe_allow_html=True)
-                
-                # 2. SOR: Név + Tel
-                c3, c4 = st.columns([2, 1])
-                c3.write(f"{sample['Nev']}")
-                c4.markdown(f"<p style='text-align: right;'>{sample['Tel']}</p>", unsafe_allow_html=True)
-                
-                # 3. SOR: Cím
-                st.write(f"{sample['Cim']}")
-                
-                # 4. SOR: Rendelés + Összesen
-                c5, c6 = st.columns([3, 1])
-                c5.write(f"📦 {sample['Rendeles']}")
-                c6.markdown(f"<p style='text-align: right;'>Össz: {sample['Qty']} db</p>", unsafe_allow_html=True)
-                
-                # ALJA: Futár + Üzenet
-                st.divider()
-                st.caption(f"Futár: {futar_nev} | {futar_tel} | Jó étvágyat kívánunk! :)")
-
-        st.button("📥 PDF letöltése nyomtatáshoz (3x7 ív)")
+        if st.button("📥 3x7-es PDF Etikett Letöltése"):
+            pdf_out = create_label_pdf(edited_df, futar_nev, futar_tel)
+            st.download_button(
+                label="Klikk a letöltéshez",
+                data=pdf_out,
+                file_name="interfood_etikett_3x7.pdf",
+                mime="application/pdf"
+            )

@@ -14,7 +14,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.24", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.25", layout="wide")
 
 def register_fonts():
     f_n, f_b = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
@@ -78,7 +78,6 @@ def merge_data_flexible(raw_rows):
         base = group.iloc[0].copy().to_dict()
         base['HasSaturday'] = has_saturday
         
-        # ELTÁVOLÍTVA A <b> TAGOKAT A TISZTA ELŐNÉZET ÉRDEKÉBEN
         if any(p in ['P', 'Z'] for p in group['Prefix']):
             p_items = group[group['Prefix'] == 'P']['Rendelés'].tolist()
             z_items = group[group['Prefix'] == 'Z']['Rendelés'].tolist()
@@ -117,24 +116,18 @@ def create_label_pdf(df, fn, ft):
         
         if i < len(df):
             r = df.iloc[i]
-            # SZOMBATI KIEMELÉS VASTAG KERETTEL
             if r.get('HasSaturday', False) or "SZ:" in str(r['Rendelés']):
                 p.setLineWidth(1.8) 
             else:
                 p.setLineWidth(0.8) 
-            
             p.rect(x+4*mm, y+3*mm, lw-8*mm, lh-6*mm)
-            
             p.setFont(f_bold, 9); p.drawString(x+7*mm, y+36*mm, f"#{int(r['Sorrend'])}")
             p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+36*mm, f"ID: {r['ID']}")
             p.setFont(f_bold, 8); p.drawString(x+7*mm, y+28.5*mm, str(r['Ügyintéző'])[:30])
             p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+28.5*mm, str(r['Telefon']))
             p.setFont(f_reg, 7); p.drawString(x+7*mm, y+25*mm, str(r['Cím'])[:45])
-            
-            # A Paragraph automatikusan kezeli a sortöréseket
             para = Paragraph(str(r['Rendelés']), order_style)
             para.wrapOn(p, lw-14*mm, 15*mm); para.drawOn(p, x+7*mm, y+14*mm)
-            
             p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+10*mm, f"Össz: {r['Összesen']} db")
             p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+4.5*mm, f"Futár: {fn} ({ft})")
         else:
@@ -151,6 +144,7 @@ def create_label_pdf(df, fn, ft):
     p.save(); buf.seek(0)
     return buf
 
+# --- MENETTERV GENERÁLÁS OLDALSZÁMOZÁSSAL ---
 def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
@@ -159,8 +153,14 @@ def create_manifest_pdf(df, fn):
     rows_per_page = 25
     total_p = math.ceil(len(df)/rows_per_page)
     cell_style = ParagraphStyle('CellStyle', fontName=f_reg, fontSize=8.5, leading=11)
+    
     for p_idx in range(total_p):
         p.setFont(f_bold, 11); p.drawString(15*mm, h-12*mm, f"MENETTERV - {fn}")
+        
+        # OLDALSZÁM HOZZÁADÁSA (Visszaállítva)
+        p.setFont(f_reg, 8)
+        p.drawCentredString(w/2, 10*mm, f"{p_idx + 1} / {total_p} oldal")
+        
         data = [["SOR", "ÜGYFÉL NÉV / [ ] / CÍM", "TELEFON", "RENDELÉS", "DB"]]
         subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
         for _, r in subset.iterrows():
@@ -181,7 +181,7 @@ with st.sidebar:
     fn_in = st.text_input("Futár neve", "Szűcs István")
     ft_in = st.text_input("Telefonszáma", "+3620/886-89-71")
 
-st.title("🏷️ Interfood Logisztika v203.24")
+st.title("🏷️ Interfood Logisztika v203.25")
 up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True)
 
 if up_files:

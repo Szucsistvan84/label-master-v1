@@ -14,7 +14,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.19", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.20", layout="wide")
 
 def register_fonts():
     f_n, f_b = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
@@ -176,7 +176,7 @@ with st.sidebar:
     fn_in = st.text_input("Futár neve", "Szűcs István")
     ft_in = st.text_input("Telefonszáma", "+3620/886-89-71")
 
-st.title("🏷️ Interfood Logisztika v203.19")
+st.title("🏷️ Interfood Logisztika v203.20")
 up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True)
 
 if up_files:
@@ -194,21 +194,24 @@ if up_files:
         st.session_state.mdf = mdf.astype({"Sorrend": float})
 
 if st.session_state.mdf is not None:
-    # A táblázat szerkesztése utáni automatikus mentés/sorrendezés
     edited_df = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True, key="main_editor")
     
     c_tools = st.columns([1, 1, 4])
     with c_tools[0]:
         if st.button("🔄 SORREND FRISSÍTÉSE"):
-            st.session_state.mdf = edited_df.sort_values("Sorrend")
+            # 1. Rendezzük a táblázatot az általad beírt értékek szerint
+            new_df = edited_df.sort_values("Sorrend").reset_index(drop=True)
+            # 2. Újraosztjuk a sorszámokat 1-től folyamatosan
+            new_df["Sorrend"] = range(1, len(new_df) + 1)
+            st.session_state.mdf = new_df.astype({"Sorrend": float})
             st.rerun()
             
     c_dl = st.columns(2)
     with c_dl[0]:
         if st.button("📥 ETIKETTEK LETÖLTÉSE"):
-            pdf = create_label_pdf(edited_df.sort_values("Sorrend"), fn_in, ft_in)
+            pdf = create_label_pdf(st.session_state.mdf, fn_in, ft_in)
             st.download_button("Mentés: etikettek.pdf", pdf, "etikettek.pdf")
     with c_dl[1]:
         if st.button("📋 MENETTERV LETÖLTÉSE"):
-            pdf = create_manifest_pdf(edited_df.sort_values("Sorrend"), fn_in)
+            pdf = create_manifest_pdf(st.session_state.mdf, fn_in)
             st.download_button("Mentés: menetterv.pdf", pdf, "menetterv.pdf")

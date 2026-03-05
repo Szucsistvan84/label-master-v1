@@ -237,4 +237,5 @@ if st.session_state.mdf is not None:
             st.download_button("Mentés: etikettek.pdf", pdf, "etikettek.pdf")
     with c2:
         if st.button("📋 MENETTERV LETÖLTÉSE"):
-            pdf = create_manifest_pdf(edited_df.sort_values
+            pdf = create_manifest_pdf(edited_df.sort_values("Sorrend"), fn)
+            st.download_button("Mentés: menetterv.pdf", pdf, "menetterv.pdf")

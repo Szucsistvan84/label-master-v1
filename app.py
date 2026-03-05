@@ -14,7 +14,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.15", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.16", layout="wide")
 
 def register_fonts():
     f_n, f_b = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
@@ -134,17 +134,17 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_bold, 9); p.drawString(x+7*mm, y+36*mm, f"#{int(r['Sorrend'])}")
             p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+36*mm, f"ID: {r['ID']}")
             
-            # 2. Ügyintéző és Cím (VISSZAKERÜLT A TETEJÉRE)
-            p.setFont(f_bold, 8); p.drawString(x+7*mm, y+32*mm, str(r['Ügyintéző'])[:30])
-            p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+32*mm, str(r['Telefon']))
-            p.setFont(f_reg, 7); p.drawString(x+7*mm, y+28.5*mm, str(r['Cím'])[:45])
+            # 2. Ügyintéző és Cím (Lejjebb tolva 1 sorral a közép felé)
+            p.setFont(f_bold, 8); p.drawString(x+7*mm, y+28.5*mm, str(r['Ügyintéző'])[:30])
+            p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+28.5*mm, str(r['Telefon']))
+            p.setFont(f_reg, 7); p.drawString(x+7*mm, y+25*mm, str(r['Cím'])[:45])
             
-            # 3. Rendelés (Lekerült az alsó negyedbe)
+            # 3. Rendelés (Feljebb tolva a futártól)
             para = Paragraph(str(r['Rendelés']), order_style)
             para.wrapOn(p, lw-14*mm, 15*mm)
-            para.drawOn(p, x+7*mm, y+11*mm)
+            para.drawOn(p, x+7*mm, y+14*mm)
             
-            p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+8*mm, f"Össz: {r['Összesen']} db")
+            p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+10*mm, f"Össz: {r['Összesen']} db")
 
             # 4. Futár adatok legalul
             p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+4.5*mm, f"Futár: {fn} ({ft})")
@@ -161,7 +161,6 @@ def create_manifest_pdf(df, fn):
     rows_per_page = 25
     total_p = math.ceil(len(df)/rows_per_page)
     
-    # Cellastílus kisebb paddinggel (margóval), hogy ne csússzon túl
     cell_style = ParagraphStyle('CellStyle', fontName=f_reg, fontSize=8.5, leading=11)
     
     for p_idx in range(total_p):
@@ -172,6 +171,7 @@ def create_manifest_pdf(df, fn):
         subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
         
         for _, r in subset.iterrows():
+            # Ügyintéző név félkövérrel kiemelve
             name_box = Paragraph(f"<b>{r['Ügyintéző']}</b> [  ]<br/><font size='7'>{r['Cím']}</font>", cell_style)
             orders = Paragraph(str(r['Rendelés']), cell_style)
             data.append([f"#{int(r['Sorrend'])}", name_box, r['Telefon'], orders, r['Összesen']])
@@ -181,7 +181,6 @@ def create_manifest_pdf(df, fn):
             ('FONTNAME', (0,0), (-1,0), f_bold),
             ('GRID', (0,0), (-1,-1), 0.5, colors.black),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            # CSÖKKENTETT MARGÓK
             ('TOPPADDING', (0,0), (-1,-1), 3),
             ('BOTTOMPADDING', (0,0), (-1,-1), 3),
             ('LEFTPADDING', (0,0), (-1,-1), 2),
@@ -205,7 +204,7 @@ with st.sidebar:
     fn = st.text_input("Futár neve", "Szűcs István")
     ft = st.text_input("Telefonszáma", "+36208868971")
 
-st.title("🏷️ Interfood Logisztika v203.15")
+st.title("🏷️ Interfood Logisztika v203.16")
 up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True)
 
 if up_files:

@@ -14,10 +14,9 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.23", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.24", layout="wide")
 
 def register_fonts():
-    # A betűtípusokat a munkakönyvtárban keresi
     f_n, f_b = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
     try:
         if os.path.exists(f_n): pdfmetrics.registerFont(TTFont('DejaVu', f_n))
@@ -79,20 +78,21 @@ def merge_data_flexible(raw_rows):
         base = group.iloc[0].copy().to_dict()
         base['HasSaturday'] = has_saturday
         
+        # ELTÁVOLÍTVA A <b> TAGOKAT A TISZTA ELŐNÉZET ÉRDEKÉBEN
         if any(p in ['P', 'Z'] for p in group['Prefix']):
             p_items = group[group['Prefix'] == 'P']['Rendelés'].tolist()
             z_items = group[group['Prefix'] == 'Z']['Rendelés'].tolist()
             order_str = ""
-            if p_items: order_str += f"<b>P:</b> {', '.join(p_items)}"
+            if p_items: order_str += f"P: {', '.join(p_items)}"
             if z_items:
                 if order_str: order_str += " | "
-                order_str += f"<b>SZ:</b> {', '.join(z_items)}"
+                order_str += f"SZ: {', '.join(z_items)}"
             base['Rendelés'] = order_str
             base['Összesen'] = group['Összesen'].sum()
             merged.append(base)
         else:
             row = group.iloc[0].copy().to_dict()
-            pfix = "<b>SZ:</b>" if row['Prefix'] == 'Z' else f"<b>{row['Prefix']}:</b>"
+            pfix = "SZ:" if row['Prefix'] == 'Z' else f"{row['Prefix']}:"
             row['Rendelés'] = f"{pfix} {row['Rendelés']}"
             merged.append(row)
     return merged
@@ -117,11 +117,11 @@ def create_label_pdf(df, fn, ft):
         
         if i < len(df):
             r = df.iloc[i]
-            # --- KERETEZÉS LOGIKA (VISSZAÁLLÍTVA A (10)-ES VERZIÓRA) ---
+            # SZOMBATI KIEMELÉS VASTAG KERETTEL
             if r.get('HasSaturday', False) or "SZ:" in str(r['Rendelés']):
-                p.setLineWidth(1.8) # Kiemelt, vastag keret szombatra
+                p.setLineWidth(1.8) 
             else:
-                p.setLineWidth(0.8) # Normál, hangsúlyos keret a többinek
+                p.setLineWidth(0.8) 
             
             p.rect(x+4*mm, y+3*mm, lw-8*mm, lh-6*mm)
             
@@ -130,12 +130,14 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_bold, 8); p.drawString(x+7*mm, y+28.5*mm, str(r['Ügyintéző'])[:30])
             p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+28.5*mm, str(r['Telefon']))
             p.setFont(f_reg, 7); p.drawString(x+7*mm, y+25*mm, str(r['Cím'])[:45])
+            
+            # A Paragraph automatikusan kezeli a sortöréseket
             para = Paragraph(str(r['Rendelés']), order_style)
             para.wrapOn(p, lw-14*mm, 15*mm); para.drawOn(p, x+7*mm, y+14*mm)
+            
             p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+10*mm, f"Össz: {r['Összesen']} db")
             p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+4.5*mm, f"Futár: {fn} ({ft})")
         else:
-            # MARKETING CÍMKE: KERET NÉLKÜL, KÖZÉPRE ZÁRVA
             promo_text = (
                 f"<br/><br/><font size='9' face='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
                 f"Új Ügyfeleink részére!<br/>"
@@ -179,7 +181,7 @@ with st.sidebar:
     fn_in = st.text_input("Futár neve", "Szűcs István")
     ft_in = st.text_input("Telefonszáma", "+3620/886-89-71")
 
-st.title("🏷️ Interfood Logisztika v203.23")
+st.title("🏷️ Interfood Logisztika v203.24")
 up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True)
 
 if up_files:

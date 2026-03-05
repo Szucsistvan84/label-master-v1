@@ -14,9 +14,10 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.22", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.23", layout="wide")
 
 def register_fonts():
+    # A betűtípusokat a munkakönyvtárban keresi
     f_n, f_b = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
     try:
         if os.path.exists(f_n): pdfmetrics.registerFont(TTFont('DejaVu', f_n))
@@ -24,7 +25,7 @@ def register_fonts():
         return "DejaVu", "DejaVu-Bold"
     except: return "Helvetica", "Helvetica-Bold"
 
-# --- ADATKINYERÉS ---
+# --- ADATKINYERÉS ÉS FELDOLGOZÁS ---
 def parse_interfood_pro(pdf_file):
     rows = []
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
@@ -74,8 +75,11 @@ def merge_data_flexible(raw_rows):
     df = pd.DataFrame(raw_rows)
     merged = []
     for uid, group in df.groupby("ID", sort=False):
+        has_saturday = any(p == 'Z' for p in group['Prefix'])
+        base = group.iloc[0].copy().to_dict()
+        base['HasSaturday'] = has_saturday
+        
         if any(p in ['P', 'Z'] for p in group['Prefix']):
-            base = group.iloc[0].copy().to_dict()
             p_items = group[group['Prefix'] == 'P']['Rendelés'].tolist()
             z_items = group[group['Prefix'] == 'Z']['Rendelés'].tolist()
             order_str = ""
@@ -93,7 +97,7 @@ def merge_data_flexible(raw_rows):
             merged.append(row)
     return merged
 
-# --- ETIKETT ÉS MENETTERV ---
+# --- ETIKETT GENERÁLÁS ---
 def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
@@ -112,11 +116,15 @@ def create_label_pdf(df, fn, ft):
         x, y = mx + col*lw, my + row_i*lh
         
         if i < len(df):
-            # ÜGYFÉL CÍMKE: VASTAGABB KERETTEL (0.8pt)
-            p.setLineWidth(0.8)
+            r = df.iloc[i]
+            # --- KERETEZÉS LOGIKA (VISSZAÁLLÍTVA A (10)-ES VERZIÓRA) ---
+            if r.get('HasSaturday', False) or "SZ:" in str(r['Rendelés']):
+                p.setLineWidth(1.8) # Kiemelt, vastag keret szombatra
+            else:
+                p.setLineWidth(0.8) # Normál, hangsúlyos keret a többinek
+            
             p.rect(x+4*mm, y+3*mm, lw-8*mm, lh-6*mm)
             
-            r = df.iloc[i]
             p.setFont(f_bold, 9); p.drawString(x+7*mm, y+36*mm, f"#{int(r['Sorrend'])}")
             p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+36*mm, f"ID: {r['ID']}")
             p.setFont(f_bold, 8); p.drawString(x+7*mm, y+28.5*mm, str(r['Ügyintéző'])[:30])
@@ -127,7 +135,7 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+10*mm, f"Össz: {r['Összesen']} db")
             p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+4.5*mm, f"Futár: {fn} ({ft})")
         else:
-            # MARKETING CÍMKE: KERET NÉLKÜL, FORMÁZOTT SZÖVEG
+            # MARKETING CÍMKE: KERET NÉLKÜL, KÖZÉPRE ZÁRVA
             promo_text = (
                 f"<br/><br/><font size='9' face='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
                 f"Új Ügyfeleink részére!<br/>"
@@ -141,7 +149,6 @@ def create_label_pdf(df, fn, ft):
     p.save(); buf.seek(0)
     return buf
 
-# --- UI ÉS SORRENDEZÉS (VÁLTOZATLAN) ---
 def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
@@ -165,13 +172,16 @@ def create_manifest_pdf(df, fn):
     p.save(); buf.seek(0)
     return buf
 
+# --- UI LOGIKA ---
 if 'mdf' not in st.session_state: st.session_state.mdf = None
 with st.sidebar:
     st.header("🚚 Szállítási adatok")
     fn_in = st.text_input("Futár neve", "Szűcs István")
     ft_in = st.text_input("Telefonszáma", "+3620/886-89-71")
-st.title("🏷️ Interfood Logisztika v203.22")
+
+st.title("🏷️ Interfood Logisztika v203.23")
 up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True)
+
 if up_files:
     f_order_data = [{"Sorrend": float(i+1), "Fájl": f.name} for i, f in enumerate(up_files)]
     f_order = st.data_editor(f_order_data, hide_index=True)
@@ -184,6 +194,7 @@ if up_files:
         mdf = pd.DataFrame(merge_data_flexible(raw))
         mdf.insert(0, "Sorrend", range(1, len(mdf)+1))
         st.session_state.mdf = mdf.astype({"Sorrend": float})
+
 if st.session_state.mdf is not None:
     edited_df = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True, key="main_editor")
     c_tools = st.columns([1, 1, 4])

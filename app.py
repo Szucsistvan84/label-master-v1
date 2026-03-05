@@ -14,7 +14,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.9", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.11", layout="wide")
 
 # --- Betűk regisztrálása ---
 def register_fonts():
@@ -25,12 +25,12 @@ def register_fonts():
         return "DejaVu", "DejaVu-Bold"
     except: return "Helvetica", "Helvetica-Bold"
 
-# --- PDF PARSER (Koordináta alapú, kiegészítve Ár kinyeréssel) ---
+# --- PDF PARSER v203.11 ---
 def parse_interfood_pro(pdf_file):
     rows = []
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
     phone_pat = r'(\d{2}/\d{6,7})'
-    price_pat = r'(\d[\d\s]*)\s*Ft'
+    price_pat = r'(\d[\d\s\.]*)\s*Ft'
     
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -49,7 +49,6 @@ def parse_interfood_pro(pdf_file):
             for y in sorted(lines.keys()):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
-                text_ns = "".join([w['text'] for w in line_words])
                 
                 u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
                 if not u_code_m: continue
@@ -57,18 +56,31 @@ def parse_interfood_pro(pdf_file):
                 prefix = u_code_m.group(0).split('-')[0]
                 uid = u_code_m.group(0).split('-')[-1]
                 
-                # Oszlopok koordinátái (igazítva az új menettervekhez)
-                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355]) # Cím
-                b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 480]) # Név
+                # Kapukód / Megjegyzés kinyerése
+                extra_info = ""
+                gate_m = re.search(r'(kcs\s*[:\-]\s*\d+)', text_ws, re.IGNORECASE)
+                if gate_m: extra_info = gate_m.group(0)
+                elif "porta" in text_ws.lower(): extra_info = "PORTA"
                 
-                tel_m = re.search(phone_pat, text_ns)
+                # Oszlopok koordinátái (koordináták a vizsgált PDF-ek alapján)
+                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355]) # Cím
+                b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490]) # Név/Ügyintéző
+                
+                tel_m = re.search(phone_pat, text_ws.replace(" ", ""))
                 final_tel = tel_m.group(0) if tel_m else ""
                 
+                # ÁR KERESÉSE (A teljes sorban, javított regex)
                 price_m = re.search(price_pat, text_ws)
-                final_price = price_m.group(0) if price_m else "0 Ft"
+                if price_m:
+                    p_val = re.sub(r'\D', '', price_m.group(1))
+                    final_price = f"{int(p_val):,} Ft".replace(",", " ") if p_val else "0 Ft"
+                else:
+                    final_price = "0 Ft"
                 
                 addr_m = re.search(r'(\d{4})', b3)
                 clean_addr = b3[addr_m.start():].strip() if addr_m else b3
+                if extra_info: clean_addr += f" ({extra_info})"
+                
                 clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                 
                 raw_orders = re.findall(order_pat, text_ws)
@@ -93,6 +105,7 @@ def merge_data_flexible(raw_rows):
     df = pd.DataFrame(raw_rows)
     merged = []
     for uid, group in df.groupby("ID", sort=False):
+        # Péntek-Szombat összevonás (P és Z prefixek)
         if any(p in ['P', 'Z'] for p in group['Prefix']):
             base = group.iloc[0].copy().to_dict()
             p_items = group[group['Prefix'] == 'P']['Rendelés'].tolist()
@@ -104,10 +117,10 @@ def merge_data_flexible(raw_rows):
                 order_str += f"SZ: {', '.join(z_items)}"
                 base['Prefix'] = 'Z'
             base['Rendelés'] = order_str
-            # Összegezzük az árakat is az összevont napokra
+            # Árak összeadása összevonáskor
             try:
-                total_price = sum([int(re.sub(r'\D', '', str(x))) for x in group['Ár']])
-                base['Ár'] = f"{total_price:,} Ft".replace(",", " ")
+                total_p = sum([int(re.sub(r'\D', '', str(x))) for x in group['Ár']])
+                base['Ár'] = f"{total_p:,} Ft".replace(",", " ")
             except: base['Ár'] = group.iloc[0]['Ár']
             base['Összesen'] = group['Összesen'].sum()
             merged.append(base)
@@ -115,17 +128,18 @@ def merge_data_flexible(raw_rows):
             for _, row in group.iterrows(): merged.append(row.to_dict())
     return merged
 
-# --- ETIKETT GENERÁLÁS (Sortöréssel és Kyocera javítással) ---
+# --- ETIKETT GENERÁLÁS ---
 def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     p = canvas.Canvas(buf, pagesize=A4)
     w, h = A4
     
-    # KYOCERA KORREKCIÓ: A teljes rácsot eltoljuk, hogy ne lógjon ki
+    # KYOCERA FIX: Margók eltolása a nyomtatható tartományba
     lw, lh = 70*mm, 42.4*mm
     mx, my = (w - 3*lw)/2 + 1*mm, (h - 7*lh)/2 
     
+    styles = getSampleStyleSheet()
     order_style = ParagraphStyle('OrderStyle', fontName=f_bold, fontSize=7.5, leading=8.5)
     
     total_labels = len(df)
@@ -139,37 +153,37 @@ def create_label_pdf(df, fn, ft):
         
         if i < total_labels:
             r = df.iloc[i]
-            # BELSŐ KERET - picit kisebb és beljebb van, hogy a Kyocera ne vágja le
+            # Keret: vastagabb ha fizetős (Z)
             p.setLineWidth(1.2 if str(r.get('Prefix','')) == 'Z' else 0.2)
-            p.rect(x+4*mm, y+3*mm, lw-8*mm, lh-6*mm)
+            p.rect(x+4*mm, y+3*mm, lw-8*mm, lh-6*mm) # 4mm biztonsági margó
             
             p.setFont(f_bold, 10); p.drawString(x+7*mm, y+36*mm, f"#{int(float(r['Sorrend']))}")
             p.setFont(f_reg, 8); p.drawRightString(x+lw-8*mm, y+36*mm, f"ID: {r['ID']}")
-            p.setFont(f_bold, 9); p.drawString(x+7*mm, y+31*mm, str(r['Ügyintéző'])[:24])
+            p.setFont(f_bold, 9); p.drawString(x+7*mm, y+31*mm, str(r['Ügyintéző'])[:25])
             p.setFont(f_reg, 7.5); p.drawRightString(x+lw-8*mm, y+31*mm, str(r['Telefon']))
             p.setFont(f_reg, 7); p.drawString(x+7*mm, y+27*mm, str(r['Cím'])[:45])
             
-            # RENDELÉS - AUTOMATIKUS SORTÖRÉSSEL
+            # RENDELÉS AUTOMATIKUS SORTÖRÉSSEL
             para = Paragraph(str(r['Rendelés']), order_style)
             para.wrapOn(p, lw-14*mm, 12*mm)
-            para.drawOn(p, x+7*mm, y+16*mm) # A magasság dinamikus
+            para.drawOn(p, x+7*mm, y+16*mm)
             
-            # PÉNZÜGYEK
-            p.setFont(f_bold, 8); p.drawRightString(x+lw-8*mm, y+10*mm, f"Fizetendő: {r.get('Ár', '0 Ft')}")
+            # PÉNZÜGY ÉS INFÓ
+            p.setFont(f_bold, 8.5); p.drawRightString(x+lw-8*mm, y+10.5*mm, f"Fizetendő: {r.get('Ár', '0 Ft')}")
             p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+7*mm, f"Össz: {r['Összesen']} db")
             p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+4.5*mm, f"Futár: {fn} ({ft})")
         else:
-            # MARKETING - KERET NÉLKÜL
+            # MARKETING (KERET NÉLKÜL)
             m_lines = ["15% kedvezmény* 3 hétig", "Új Ügyfeleink részére!", "Rendelés leadás:", f"{fn}, tel: {ft}", "* a kedvezmény telefonon leadott rendelésekre", "érvényesíthető területi képviselőnk által"]
             p.setFont(f_bold, 9.5); p.drawCentredString(x+lw/2, y+34*mm, m_lines[0])
             p.setFont(f_reg, 9); p.drawCentredString(x+lw/2, y+29*mm, m_lines[1])
             p.setFont(f_bold, 8); p.drawCentredString(x+lw/2, y+23*mm, m_lines[2])
             p.setFont(f_reg, 8.5); p.drawCentredString(x+lw/2, y+18*mm, m_lines[3])
-            p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+10*mm, m_lines[4]); p.drawCentredString(x+lw/2, y+7*mm, m_lines[5])
+            p.setFont(f_reg, 6.5); p.drawCentredString(x+lw/2, y+10*mm, m_lines[4]); p.drawCentredString(x+lw/2, y+7*mm, m_lines[5])
     p.save(); buf.seek(0)
     return buf
 
-# --- MENETTERV GENERÁLÓ ---
+# --- MENETTERV GENERÁLÁS ---
 def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
@@ -197,12 +211,14 @@ def create_manifest_pdf(df, fn):
     return buf
 
 # --- UI ---
+if 'mdf' not in st.session_state: st.session_state.mdf = None
+
 with st.sidebar:
     st.header("🚚 Beállítások")
     fn = st.text_input("Futár neve", "Szűcs István")
     ft = st.text_input("Telefonszáma", "+36208868971")
 
-st.title("🏷️ Interfood Logisztika v203.9")
+st.title("🏷️ Interfood Logisztika v203.11")
 up_files = st.file_uploader("PDF feltöltése", accept_multiple_files=True)
 
 if up_files:
@@ -218,7 +234,7 @@ if up_files:
         st.session_state.mdf = mdf.astype({"Sorrend": float})
         st.rerun()
 
-if st.session_state.get('mdf') is not None:
+if st.session_state.mdf is not None:
     st.subheader("📋 Ellenőrzés és Sorrendezés")
     edited_df = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True)
     

@@ -14,7 +14,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.17", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.18", layout="wide")
 
 def register_fonts():
     f_n, f_b = "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"
@@ -117,7 +117,7 @@ def create_label_pdf(df, fn, ft):
     mx, my = (w - 3*lw)/2 + 1*mm, (h - 7*lh)/2 
     
     order_style = ParagraphStyle('LabelOrder', fontName=f_reg, fontSize=7, leading=8)
-    promo_style = ParagraphStyle('Promo', fontName=f_bold, fontSize=9, alignment=1, leading=11)
+    promo_style = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, alignment=1, leading=10)
     
     total_labels = math.ceil(len(df)/21)*21
     
@@ -127,12 +127,10 @@ def create_label_pdf(df, fn, ft):
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = mx + col*lw, my + row_i*lh
         
-        # Keret minden matricának
         p.setLineWidth(0.2)
         p.rect(x+4*mm, y+3*mm, lw-8*mm, lh-6*mm)
         
         if i < len(df):
-            # ÜGYFÉL ETIKETT
             r = df.iloc[i]
             is_combined = "SZ:" in str(r['Rendelés']) and "P:" in str(r['Rendelés'])
             if is_combined: p.setLineWidth(1.5); p.rect(x+4.5*mm, y+3.5*mm, lw-9*mm, lh-7*mm)
@@ -151,13 +149,17 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_reg, 7); p.drawRightString(x+lw-8*mm, y+10*mm, f"Össz: {r['Összesen']} db")
             p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+4.5*mm, f"Futár: {fn} ({ft})")
         else:
-            # MARKETING CÍMKE (Üres helyekre)
-            p.setStrokeColor(colors.grey)
-            promo_text = "<br/><br/><font color='red'>15% KEDVEZMÉNY*</font><br/>3 hétig Új Ügyfeleinknek!<br/><font size='6'>Részletek: interfood.hu</font>"
+            # MARKETING CÍMKE - ÚJ SZÖVEG
+            promo_text = (
+                f"<font size='9' face='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
+                f"Új Ügyfeleink részére!<br/>"
+                f"Rendelés leadás:<br/>"
+                f"<b>{fn}, tel: {ft}</b><br/>"
+                f"<font size='5.5'>* a kedvezmény telefonon leadott rendelésekre érvényesíthető területi képviselőnk által</font>"
+            )
             para = Paragraph(promo_text, promo_style)
             para.wrapOn(p, lw-12*mm, lh-10*mm)
-            para.drawOn(p, x+6*mm, y+12*mm)
-            p.setStrokeColor(colors.black)
+            para.drawOn(p, x+6*mm, y+10*mm)
             
     p.save(); buf.seek(0)
     return buf
@@ -190,8 +192,6 @@ def create_manifest_pdf(df, fn):
             ('FONTNAME', (0,0), (-1,0), f_bold),
             ('GRID', (0,0), (-1,-1), 0.5, colors.black),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('TOPPADDING', (0,0), (-1,-1), 3),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 3),
         ]))
         
         tw, th = t.wrap(w - 20*mm, h - 35*mm)
@@ -206,10 +206,10 @@ if 'mdf' not in st.session_state: st.session_state.mdf = None
 
 with st.sidebar:
     st.header("🚚 Szállítási adatok")
-    fn = st.text_input("Futár neve", "Szűcs István")
-    ft = st.text_input("Telefonszáma", "+36208868971")
+    fn_input = st.text_input("Futár neve", "Szűcs István")
+    ft_input = st.text_input("Telefonszáma", "+3620/886-89-71")
 
-st.title("🏷️ Interfood Logisztika v203.17")
+st.title("🏷️ Interfood Logisztika v203.18")
 up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True)
 
 if up_files:
@@ -233,9 +233,9 @@ if st.session_state.mdf is not None:
     c1, c2 = st.columns(2)
     with c1:
         if st.button("📥 ETIKETTEK LETÖLTÉSE"):
-            pdf = create_label_pdf(edited_df.sort_values("Sorrend"), fn, ft)
+            pdf = create_label_pdf(edited_df.sort_values("Sorrend"), fn_input, ft_input)
             st.download_button("Mentés: etikettek.pdf", pdf, "etikettek.pdf")
     with c2:
         if st.button("📋 MENETTERV LETÖLTÉSE"):
-            pdf = create_manifest_pdf(edited_df.sort_values("Sorrend"), fn)
+            pdf = create_manifest_pdf(edited_df.sort_values("Sorrend"), fn_input)
             st.download_button("Mentés: menetterv.pdf", pdf, "menetterv.pdf")

@@ -15,7 +15,7 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
 # --- ALAPBEÁLLÍTÁSOK ---
-VERZIO = "v203.52"
+VERZIO = "v203.53"
 st.set_page_config(page_title=f"Interfood Logisztika {VERZIO}", layout="wide")
 st.title(f"Interfood Logisztika {VERZIO}")
 
@@ -30,9 +30,8 @@ def register_fonts():
     except: return "Helvetica", "Helvetica-Bold"
 
 def extract_gate_code(text):
-    """Szigorú szintaktikai szűrés: szám-jel-szám"""
     if not text: return None
-    # Megkeressük a mintát: számok + (# vagy k vagy kulcs) + számok
+    # Keresünk: számok + (# vagy k vagy kulcs) + számok
     pattern = r'(\d+)\s*(?:#|[Kk]|kulcs)\s*(\d+)'
     match = re.search(pattern, text)
     if match:
@@ -65,31 +64,16 @@ def parse_interfood_pro(pdf_file):
                 
                 if u_code_m:
                     prefix, uid = u_code_m.group(0).split('-')[0], u_code_m.group(0).split('-')[-1]
-                    # Ügyfél oszlop (b2) - itt vannak a kapukódos megjegyzések
-                    b2_list = [w['text'] for w in line_words if 40 <= w['x0'] < 155]
+                    # Ügyfél oszlop szövege a kapukódhoz
+                    b2_text = " ".join([w['text'] for w in line_words if 40 <= w['x0'] < 155])
                     b3 = " ".join([w['text'] for w in line_words if 155 <= w['x0'] < 355])
                     b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
                     
-                    # Ha több soros a megjegyzés, nézzük a következő sorokat is a kapukódért
-                    full_client_text = " ".join(b2_list)
-                    curr_idx = i + 1
-                    while curr_idx < len(sorted_y):
-                        next_line = sorted(lines_dict[sorted_y[curr_idx]], key=lambda x: x['x0'])
-                        if any(re.search(r'([HKSCPZ]-[0-9]{5,7})', " ".join([w['text'] for w in next_line])) for _ in [1]):
-                            break
-                        next_b2 = " ".join([w['text'] for w in next_line if 40 <= w['x0'] < 155])
-                        if not next_b2: break
-                        full_client_text += " " + next_b2
-                        curr_idx += 1
+                    gate_code = extract_gate_code(b2_text) or extract_gate_code(text_ws)
 
-                    gate_code = extract_gate_code(full_client_text)
                     clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                     tel_m = re.search(phone_pat, text_ws.replace(" ", ""))
                     money_m = re.search(money_pat, text_ws)
-                    
-                    if not money_m and i + 1 < len(sorted_y):
-                        next_text = " ".join([w['text'] for w in sorted(lines_dict[sorted_y[i+1]], key=lambda x: x['x0'])])
-                        money_m = re.search(money_pat, next_text)
 
                     raw_money = 0
                     if money_m:
@@ -134,61 +118,31 @@ def merge_data_flexible(raw_rows):
         merged.append(base)
     return merged
 
-def create_manifest_pdf(df, fn):
+# --- PDF GENERÁLÁS ---
+def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
-    buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
-    cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=8, leading=10)
-    rows_per_page = 25
-    total_pages = math.ceil(len(df)/rows_per_page)
+    buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4)
+    lw, lh = 64*mm, 39*mm
+    margin_x, margin_y = 7*mm, 6*mm
+    gap_x, gap_y = 3*mm, 1.5*mm
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.2, leading=8)
 
-    for p_idx in range(total_pages):
-        p.setFont(f_bold, 11); p.drawString(15*mm, h-12*mm, f"MENETTERV - {fn}")
-        p.setFont(f_reg, 9); p.drawRightString(w-15*mm, h-12*mm, f"{p_idx+1}. oldal / {total_pages}")
-        
-        data = [["[ ]", "SOR", "ÜGYFÉL (KAPUKÓD) / CÍM", "TELEFON", "RENDELÉS", "DB", "PÉNZ"]]
-        subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
-        for _, r in subset.iterrows():
-            k_kod = f" <font color='red'><b>[{r['Kapukód']}]</b></font>" if r['Kapukód'] else ""
-            name_p = Paragraph(f"<b>{r['Ügyintéző']}</b>{k_kod}<br/>{r['Cím']}", cell_s)
-            data.append(["[  ]", f"#{int(r['Sorrend'])}", name_p, r['Telefon'], Paragraph(r['Rendelés'], cell_s), r['Összesen'], r['Pénz']])
-        
-        t = Table(data, colWidths=[8*mm, 10*mm, 62*mm, 26*mm, 52*mm, 8*mm, 24*mm])
-        t.setStyle(TableStyle([
-            ('FONTNAME', (0,0), (-1,0), f_bold),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('ALIGN', (0,0), (0,-1), 'CENTER'),
-            ('ALIGN', (-1,0), (-1,-1), 'RIGHT')
-        ]))
-        th = t.wrap(w-15*mm, h-35*mm)[1]
-        t.drawOn(p, 7*mm, (h-18*mm)-th); p.showPage()
-    p.save(); buf.seek(0); return buf
+    for i in range(math.ceil(len(df)/21)*21):
+        idx = i % 21
+        if idx == 0 and i > 0: p.showPage()
+        col, row_i = idx % 3, 6 - (idx // 3)
+        x, y = margin_x + col * (lw + gap_x), margin_y + row_i * (lh + gap_y)
 
-# --- UI ---
-if 'mdf' not in st.session_state: st.session_state.mdf = None
-with st.sidebar:
-    fn_in = st.text_input("Futár neve", "Szűcs István")
-    ft_in = st.text_input("Telefonszáma", "+3620/886-89-71")
-    if st.button("💾 SORREND MENTÉSE") and st.session_state.mdf is not None:
-        st.session_state.mdf[['ID', 'Sorrend']].to_csv("user_prefs.csv", index=False); st.success("Mentve!")
-
-up_files = st.file_uploader("PDF feltöltése", accept_multiple_files=True)
-if up_files and st.button("📊 FELDOLGOZÁS"):
-    raw = []
-    for f in up_files: raw.extend(parse_interfood_pro(f))
-    if raw:
-        mdf = pd.DataFrame(merge_data_flexible(raw))
-        if os.path.exists("user_prefs.csv"):
-            prefs = pd.read_csv("user_prefs.csv").drop_duplicates(subset='ID')
-            mdf['ID'] = mdf['ID'].astype(str); prefs['ID'] = prefs['ID'].astype(str)
-            mdf = mdf.merge(prefs[['ID', 'Sorrend']], on='ID', how='left')
-            mdf['Sorrend'] = mdf['Sorrend'].fillna(9999.0)
-        else: mdf['Sorrend'] = range(1, len(mdf) + 1)
-        mdf = mdf.sort_values(by=['Sorrend', 'ID']).reset_index(drop=True)
-        mdf['Sorrend'] = [float(i+1) for i in range(len(mdf))]
-        st.session_state.mdf = mdf[['Sorrend', 'ID', 'Ügyintéző', 'Kapukód', 'Cím', 'Telefon', 'Rendelés', 'Összesen', 'Pénz']]
-        st.rerun()
-
-if st.session_state.mdf is not None:
-    st.data_editor(st.session_state.mdf, use_container_width=True, hide_index=True)
-    st.download_button("📋 MENETTERV LETÖLTÉSE", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf")
+        if i < len(df):
+            p.setStrokeColor(colors.black); p.setLineWidth(0.5); p.rect(x, y, lw, lh)
+            r = df.iloc[i]
+            p.setFont(f_bold, 9); p.drawString(x+3*mm, y+34*mm, f"#{int(r['Sorrend'])}")
+            p.setFont(f_reg, 7.5); p.drawRightString(x+lw-3*mm, y+34*mm, f"ID: {r['ID']}")
+            k_txt = f" [{r['Kapukód']}]" if r['Kapukód'] else ""
+            p.setFont(f_bold, 8.2); p.drawString(x+3*mm, y+29*mm, (str(r['Ügyintéző']) + k_txt)[:35])
+            p.setFont(f_reg, 7.5); p.drawRightString(x+lw-3*mm, y+29*mm, str(r['Telefon']))
+            p.setFont(f_reg, 7); p.drawString(x+3*mm, y+25*mm, str(r['Cím'])[:45])
+            
+            para = Paragraph(str(r['Rendelés']), order_s)
+            para.wrap(lw-6*mm, 12*mm)
+            para.drawOn(p, x+3*

@@ -114,3 +114,93 @@ def create_manifest_pdf(df, fn):
     cell_style = ParagraphStyle('CellStyle', fontName=f_reg, fontSize=8.5, leading=11)
     for p_idx in range(total_p):
         p.setFont(f_bold, 11); p.drawString(15*mm, h-12*mm, f"MENETTERV - {fn}")
+        p.setFont(f_reg, 8); p.drawCentredString(w/2, 10*mm, f"{p_idx + 1} / {total_p} oldal")
+        data = [["SOR", "ÜGYFÉL NÉV / [ ] / CÍM", "TELEFON", "RENDELÉS", "DB"]]
+        subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
+        for _, r in subset.iterrows():
+            name_box = Paragraph(f"<b>{r['Ügyintéző']}</b> [  ]<br/><font size='7'>{r['Cím']}</font>", cell_style)
+            orders = Paragraph(str(r['Rendelés']), cell_style)
+            data.append([f"#{int(r['Sorrend'])}", name_box, r['Telefon'], orders, r['Összesen']])
+        t = Table(data, colWidths=[12*mm, 70*mm, 28*mm, 65*mm, 10*mm])
+        t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,0), f_bold), ('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
+        tw, th = t.wrap(w - 20*mm, h - 35*mm); t.drawOn(p, 10*mm, (h-18*mm) - th)
+        p.showPage()
+    p.save(); buf.seek(0); return buf
+
+# --- UI ---
+st.title("🏷️ Interfood Logisztika v203.35")
+
+if 'mdf' not in st.session_state: st.session_state.mdf = None
+
+with st.sidebar:
+    st.header("⚙️ Beállítások")
+    fn_in = st.text_input("Futár neve", "Szűcs István")
+    ft_in = st.text_input("Telefonszáma", "+3620/886-89-71")
+    st.divider()
+    if st.button("💾 AKTUÁLIS SORREND MENTÉSE"):
+        if st.session_state.mdf is not None:
+            st.session_state.mdf[['ID', 'Sorrend']].to_csv("user_prefs.csv", index=False)
+            st.success("Sorrend rögzítve!")
+
+up_files = st.file_uploader("PDF feltöltés", accept_multiple_files=True)
+
+if up_files and st.button("📊 FELDOLGOZÁS"):
+    raw = []
+    for f in up_files: raw.extend(parse_interfood_pro(f))
+    
+    if raw:
+        mdf = pd.DataFrame(merge_data_flexible(raw))
+        
+        # SORREND BETÖLTÉSE
+        if os.path.exists("user_prefs.csv"):
+            prefs = pd.read_csv("user_prefs.csv").drop_duplicates(subset='ID')
+            prefs['ID'] = prefs['ID'].astype(str)
+            mdf['ID'] = mdf['ID'].astype(str)
+            mdf = mdf.merge(prefs[['ID', 'Sorrend']], on='ID', how='left')
+            mdf['Sorrend'] = mdf['Sorrend'].fillna(9999.0)
+        else:
+            mdf['Sorrend'] = range(1, len(mdf) + 1)
+        
+        mdf = mdf.sort_values(by=['Sorrend', 'ID']).reset_index(drop=True)
+        mdf['Sorrend'] = [float(i+1) for i in range(len(mdf))]
+        
+        # BIZTONSÁGOS OSZLOPRENDEZÉS: Csak akkor rendezünk, ha létezik a Sorrend oszlop
+        current_cols = mdf.columns.tolist()
+        if 'Sorrend' in current_cols:
+            new_cols = ['Sorrend'] + [c for c in current_cols if c != 'Sorrend']
+            mdf = mdf[new_cols]
+        
+        st.session_state.mdf = mdf
+        st.rerun()
+    else:
+        st.error("Nem sikerült adatokat kinyerni a PDF-ekből. Kérlek ellenőrizd a fájlokat!")
+
+if st.session_state.mdf is not None:
+    # TÁBLÁZAT MEGJELENÍTÉSE
+    edited_df = st.data_editor(
+        st.session_state.mdf,
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        key="main_editor",
+        column_config={
+            "Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f", step=0.1)
+        }
+    )
+
+    if st.button("🔄 SORREND ÉS ADATOK FRISSÍTÉSE"):
+        temp_df = edited_df.copy()
+        temp_df["Sorrend"] = pd.to_numeric(temp_df["Sorrend"], errors='coerce').fillna(999.0)
+        temp_df = temp_df.sort_values("Sorrend").reset_index(drop=True)
+        temp_df["Sorrend"] = [float(i+1) for i in range(len(temp_df))]
+        st.session_state.mdf = temp_df
+        st.rerun()
+
+    st.divider()
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("📥 ETIKETTEK"):
+            st.download_button("Mentés", create_label_pdf(st.session_state.mdf, fn_in, ft_in), "etikettek.pdf")
+    with c2:
+        if st.button("📋 MENETTERV"):
+            st.download_button("Mentés", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf")

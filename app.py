@@ -12,11 +12,11 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.styles import ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.32", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.33", layout="wide")
 
-# --- ALAPVETŐ BEÁLLÍTÁSOK ---
+# --- UTILS ---
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
 
 def register_fonts():
@@ -79,7 +79,7 @@ def merge_data_flexible(raw_rows):
         merged.append(base)
     return merged
 
-# --- PDF GENERATORS (ETIKETT & MENETTERV) ---
+# ... (PDF generáló függvények create_label_pdf, create_manifest_pdf maradnak) ...
 def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
@@ -100,10 +100,8 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_bold, 8); p.drawString(x+8*mm, y+28*mm, str(r['Ügyintéző'])[:30])
             p.setFont(f_reg, 7); p.drawRightString(x+lw-9*mm, y+28*mm, str(r['Telefon']))
             p.setFont(f_reg, 7); p.drawString(x+8*mm, y+24.5*mm, str(r['Cím'])[:45])
-            p_text = str(r['Rendelés']) if pd.notna(r['Rendelés']) else ""
-            para = Paragraph(p_text, style)
-            para.wrap(lw-16*mm, 15*mm)
-            para.drawOn(p, x+8*mm, y+13*mm)
+            para = Paragraph(str(r['Rendelés']) if pd.notna(r['Rendelés']) else "", style)
+            para.wrap(lw-16*mm, 15*mm); para.drawOn(p, x+8*mm, y+13*mm)
             p.setFont(f_reg, 7); p.drawRightString(x+lw-9*mm, y+9*mm, f"Össz: {r['Összesen']} db")
             p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+5.5*mm, f"Futár: {fn} ({ft})")
     p.save(); buf.seek(0); return buf
@@ -130,10 +128,9 @@ def create_manifest_pdf(df, fn):
     p.save(); buf.seek(0); return buf
 
 # --- UI ---
-st.title("🏷️ Interfood Logisztika v203.32")
+st.title("🏷️ Interfood Logisztika v203.33")
 
-if 'mdf' not in st.session_state:
-    st.session_state.mdf = None
+if 'mdf' not in st.session_state: st.session_state.mdf = None
 
 with st.sidebar:
     st.header("⚙️ Beállítások")
@@ -142,35 +139,39 @@ with st.sidebar:
     st.divider()
     if st.button("💾 AKTUÁLIS SORREND MENTÉSE"):
         if st.session_state.mdf is not None:
-            # Csak a legfrissebb állapotot mentjük
-            save_df = st.session_state.mdf.copy()
-            save_df[['ID', 'Sorrend']].to_csv("user_prefs.csv", index=False)
-            st.success("Sorrend elmentve!")
+            st.session_state.mdf[['ID', 'Sorrend']].to_csv("user_prefs.csv", index=False)
+            st.success("Sorrend rögzítve!")
 
 up_files = st.file_uploader("PDF feltöltés", accept_multiple_files=True)
 
 if up_files and st.button("📊 FELDOLGOZÁS"):
     raw = []
-    for f in up_files:
-        raw.extend(parse_interfood_pro(f))
-    
+    for f in up_files: raw.extend(parse_interfood_pro(f))
     mdf = pd.DataFrame(merge_data_flexible(raw))
     
-    # SORREND BETÖLTÉSE ÉS KÉNYSZERÍTÉSE
+    # 1. Betöltjük a mentett sorrendet
     if os.path.exists("user_prefs.csv"):
-        prefs = pd.read_csv("user_prefs.csv").set_index('ID')['Sorrend'].to_dict()
-        # Mindenkinek adunk egy súlyt: aki nincs a listában, az 9999 (hátulra kerül)
-        mdf['Súly'] = mdf['ID'].map(prefs).fillna(9999.0)
-        mdf = mdf.sort_values(by=['Súly', 'ID']).reset_index(drop=True)
-        mdf = mdf.drop(columns=['Súly'])
+        prefs = pd.read_csv("user_prefs.csv").drop_duplicates(subset='ID')
+        prefs['ID'] = prefs['ID'].astype(str)
+        mdf['ID'] = mdf['ID'].astype(str)
+        # Összeillesztjük az adatokat: aki benne van a mentésben, megkapja a sorszámát
+        mdf = mdf.merge(prefs[['ID', 'Sorrend']], on='ID', how='left')
+        # Aki nincs benne, az a végére kerül (9999)
+        mdf['Sorrend'] = mdf['Sorrend'].fillna(9999.0)
+    else:
+        mdf['Sorrend'] = range(1, len(mdf) + 1)
     
-    # Sorszámok kiosztása (legyen float a tizedesek miatt)
-    mdf.insert(0, "Sorrend", range(1, len(mdf) + 1))
-    st.session_state.mdf = mdf.astype({"Sorrend": float, "ID": str})
+    # 2. Fizikai rendezés a betöltött sorszám szerint
+    mdf = mdf.sort_values(by=['Sorrend', 'ID']).reset_index(drop=True)
+    
+    # 3. Újraosztjuk a sorszámokat 1-től, hogy ne legyenek lyukak (pl. 89-ből legyen a tényleges sorszám)
+    mdf['Sorrend'] = [float(i+1) for i in range(len(mdf))]
+    
+    st.session_state.mdf = mdf
     st.rerun()
 
 if st.session_state.mdf is not None:
-    # TÁBLÁZAT MEGJELENÍTÉSE
+    # MEGJELENÍTÉS (Float típussal a tizedesekért)
     edited_df = st.data_editor(
         st.session_state.mdf,
         num_rows="dynamic",
@@ -178,24 +179,14 @@ if st.session_state.mdf is not None:
         hide_index=True,
         key="main_editor",
         column_config={
-            "Sorrend": st.column_config.NumberColumn(
-                "Sorrend", 
-                format="%.1f", 
-                step=0.1,
-                required=True
-            )
+            "Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f", step=0.1)
         }
     )
 
     if st.button("🔄 SORREND ÉS ADATOK FRISSÍTÉSE"):
-        # 1. Beolvassuk a képernyőről a módosításokat
         temp_df = edited_df.copy()
-        # 2. Típus kényszerítése
         temp_df["Sorrend"] = pd.to_numeric(temp_df["Sorrend"], errors='coerce').fillna(999.0)
-        # 3. Fizikai sorbarendezés a számok alapján
+        # Sorbarendezés a manuális tizedesek alapján
         temp_df = temp_df.sort_values("Sorrend").reset_index(drop=True)
-        # 4. Új sorszámok kiosztása (1.0, 2.0...)
-        temp_df["Sorrend"] = [float(x) for x in range(1, len(temp_df) + 1)]
-        
-        st.session_state.mdf = temp_df
-        st
+        # Sorszámok "vasalása" egész számokra
+        temp_df["Sorrend"] = [float(i+1) for i in range(len(temp_df))]

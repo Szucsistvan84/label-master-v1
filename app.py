@@ -145,4 +145,96 @@ def create_label_pdf(df, fn, ft):
             
             para = Paragraph(str(r['Rendelés']), order_s)
             para.wrap(lw-6*mm, 12*mm)
-            para.drawOn(p, x+3*
+            para.drawOn(p, x+3*mm, y+11*mm)
+            
+            if r['Pénz']:
+                p.setFont(f_bold, 8.5); p.drawString(x+3*mm, y+6*mm, f"Fizetendő: {r['Pénz']}")
+            p.setFont(f_bold, 7.5); p.drawRightString(x+lw-3*mm, y+6*mm, f"Össz: {r['Összesen']} db")
+            p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+2.5*mm, f"Futár: {fn} ({ft})")
+    p.save(); buf.seek(0); return buf
+
+def create_manifest_pdf(df, fn):
+    f_reg, f_bold = register_fonts()
+    buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
+    
+    # Kért stílusok: Nagyobb név, kisebb telefon
+    name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=10, leading=12)
+    addr_s = ParagraphStyle('Addr', fontName=f_reg, fontSize=8, leading=9)
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=9, leading=11)
+    phone_s = ParagraphStyle('Phone', fontName=f_reg, fontSize=7.5, leading=9)
+
+    rows_per_page = 25
+    total_pages = math.ceil(len(df)/rows_per_page)
+
+    for p_idx in range(total_pages):
+        p.setFont(f_bold, 12); p.drawString(10*mm, h-12*mm, f"MENETTERV - {fn}")
+        p.setFont(f_reg, 9); p.drawRightString(w-10*mm, h-12*mm, f"{p_idx+1}. oldal / {total_pages}")
+        
+        # Oszlopsorrend: SOR | ÜGYFÉL | [ ] | TELEFON | RENDELÉS | DB | PÉNZ
+        data = [["SOR", "ÜGYFÉL / CÍM", "[ ]", "TELEFON", "RENDELÉS", "DB", "PÉNZ"]]
+        subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
+        
+        for _, r in subset.iterrows():
+            k_kod = f" <font color='red'><b>[{r['Kapukód']}]</b></font>" if r['Kapukód'] else ""
+            client_p = Paragraph(f"<b>{r['Ügyintéző']}</b>{k_kod}<br/><font size=8>{r['Cím']}</font>", name_s)
+            data.append([
+                f"#{int(r['Sorrend'])}", 
+                client_p, 
+                "[  ]", 
+                Paragraph(r['Telefon'], phone_s), 
+                Paragraph(r['Rendelés'], order_s), 
+                r['Összesen'], 
+                r['Pénz']
+            ])
+        
+        # Oszlopszélességek: Pénz szűk (16mm), Rendelés széles (62mm)
+        t = Table(data, colWidths=[10*mm, 60*mm, 10*mm, 24*mm, 62*mm, 8*mm, 16*mm], rowHeights=7.4*mm)
+        
+        t.setStyle(TableStyle([
+            ('FONTNAME', (0,0), (-1,0), f_bold),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('ALIGN', (0,0), (0,-1), 'CENTER'),
+            ('ALIGN', (2,0), (2,-1), 'CENTER'), # Checkbox középre
+            ('ALIGN', (-1,0), (-1,-1), 'RIGHT'),
+            ('LEFTPADDING', (1,0), (1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            ('TOPPADDING', (0,0), (-1,-1), 5),
+        ]))
+        
+        th = t.wrap(w-10*mm, h-30*mm)[1]
+        t.drawOn(p, 5*mm, (h-18*mm)-th)
+        p.showPage()
+        
+    p.save(); buf.seek(0); return buf
+
+# --- UI ---
+if 'mdf' not in st.session_state: st.session_state.mdf = None
+with st.sidebar:
+    fn_in = st.text_input("Futár neve", "Szűcs István")
+    ft_in = st.text_input("Telefonszáma", "+3620/886-89-71")
+    if st.button("💾 SORREND MENTÉSE") and st.session_state.mdf is not None:
+        st.session_state.mdf[['ID', 'Sorrend']].to_csv("user_prefs.csv", index=False); st.success("Mentve!")
+
+up_files = st.file_uploader("PDF feltöltése", accept_multiple_files=True)
+if up_files and st.button("📊 FELDOLGOZÁS"):
+    raw = []
+    for f in up_files: raw.extend(parse_interfood_pro(f))
+    if raw:
+        mdf = pd.DataFrame(merge_data_flexible(raw))
+        if os.path.exists("user_prefs.csv"):
+            prefs = pd.read_csv("user_prefs.csv").drop_duplicates(subset='ID')
+            mdf['ID'] = mdf['ID'].astype(str); prefs['ID'] = prefs['ID'].astype(str)
+            mdf = mdf.merge(prefs[['ID', 'Sorrend']], on='ID', how='left')
+            mdf['Sorrend'] = mdf['Sorrend'].fillna(9999.0)
+        else: mdf['Sorrend'] = range(1, len(mdf) + 1)
+        mdf = mdf.sort_values(by=['Sorrend', 'ID']).reset_index(drop=True)
+        mdf['Sorrend'] = [float(i+1) for i in range(len(mdf))]
+        st.session_state.mdf = mdf[['Sorrend', 'ID', 'Ügyintéző', 'Kapukód', 'Cím', 'Telefon', 'Rendelés', 'Összesen', 'Pénz']]
+        st.rerun()
+
+if st.session_state.mdf is not None:
+    st.data_editor(st.session_state.mdf, use_container_width=True, hide_index=True)
+    c1, c2 = st.columns(2)
+    with c1: st.download_button("📋 MENETTERV LETÖLTÉSE", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf")
+    with c2: st.download_button("📥 ETIKETTEK LETÖLTÉSE", create_label_pdf(st.session_state.mdf, fn_in, ft_in), "etikettek.pdf")

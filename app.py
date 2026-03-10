@@ -14,7 +14,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.33", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.34", layout="wide")
 
 # --- UTILS ---
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
@@ -79,7 +79,6 @@ def merge_data_flexible(raw_rows):
         merged.append(base)
     return merged
 
-# ... (PDF generáló függvények create_label_pdf, create_manifest_pdf maradnak) ...
 def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
@@ -128,7 +127,7 @@ def create_manifest_pdf(df, fn):
     p.save(); buf.seek(0); return buf
 
 # --- UI ---
-st.title("🏷️ Interfood Logisztika v203.33")
+st.title("🏷️ Interfood Logisztika v203.34")
 
 if 'mdf' not in st.session_state: st.session_state.mdf = None
 
@@ -146,47 +145,4 @@ up_files = st.file_uploader("PDF feltöltés", accept_multiple_files=True)
 
 if up_files and st.button("📊 FELDOLGOZÁS"):
     raw = []
-    for f in up_files: raw.extend(parse_interfood_pro(f))
-    mdf = pd.DataFrame(merge_data_flexible(raw))
-    
-    # 1. Betöltjük a mentett sorrendet
-    if os.path.exists("user_prefs.csv"):
-        prefs = pd.read_csv("user_prefs.csv").drop_duplicates(subset='ID')
-        prefs['ID'] = prefs['ID'].astype(str)
-        mdf['ID'] = mdf['ID'].astype(str)
-        # Összeillesztjük az adatokat: aki benne van a mentésben, megkapja a sorszámát
-        mdf = mdf.merge(prefs[['ID', 'Sorrend']], on='ID', how='left')
-        # Aki nincs benne, az a végére kerül (9999)
-        mdf['Sorrend'] = mdf['Sorrend'].fillna(9999.0)
-    else:
-        mdf['Sorrend'] = range(1, len(mdf) + 1)
-    
-    # 2. Fizikai rendezés a betöltött sorszám szerint
-    mdf = mdf.sort_values(by=['Sorrend', 'ID']).reset_index(drop=True)
-    
-    # 3. Újraosztjuk a sorszámokat 1-től, hogy ne legyenek lyukak (pl. 89-ből legyen a tényleges sorszám)
-    mdf['Sorrend'] = [float(i+1) for i in range(len(mdf))]
-    
-    st.session_state.mdf = mdf
-    st.rerun()
-
-if st.session_state.mdf is not None:
-    # MEGJELENÍTÉS (Float típussal a tizedesekért)
-    edited_df = st.data_editor(
-        st.session_state.mdf,
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        key="main_editor",
-        column_config={
-            "Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f", step=0.1)
-        }
-    )
-
-    if st.button("🔄 SORREND ÉS ADATOK FRISSÍTÉSE"):
-        temp_df = edited_df.copy()
-        temp_df["Sorrend"] = pd.to_numeric(temp_df["Sorrend"], errors='coerce').fillna(999.0)
-        # Sorbarendezés a manuális tizedesek alapján
-        temp_df = temp_df.sort_values("Sorrend").reset_index(drop=True)
-        # Sorszámok "vasalása" egész számokra
-        temp_df["Sorrend"] = [float(i+1) for i in range(len(temp_df))]
+    for f in up_files: raw

@@ -14,7 +14,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.29", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.30", layout="wide")
 
 # --- NAP RÖVIDÍTÉSEK ---
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
@@ -99,7 +99,13 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_bold, 8); p.drawString(x+8*mm, y+28*mm, str(r['Ügyintéző'])[:30])
             p.setFont(f_reg, 7); p.drawRightString(x+lw-9*mm, y+28*mm, str(r['Telefon']))
             p.setFont(f_reg, 7); p.drawString(x+8*mm, y+24.5*mm, str(r['Cím'])[:45])
-            Paragraph(str(r['Rendelés']), style).wrapOn(p, lw-16*mm, 15*mm).drawOn(p, x+8*mm, y+13*mm)
+            
+            # JAVÍTOTT PARAGRAPH RAJZOLÁS (Nem láncolt metódusokkal)
+            p_text = str(r['Rendelés']) if pd.notna(r['Rendelés']) else ""
+            para = Paragraph(p_text, style)
+            para.wrap(lw-16*mm, 15*mm)
+            para.drawOn(p, x+8*mm, y+13*mm)
+            
             p.setFont(f_reg, 7); p.drawRightString(x+lw-9*mm, y+9*mm, f"Össz: {r['Összesen']} db")
             p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+5.5*mm, f"Futár: {fn} ({ft})")
     p.save(); buf.seek(0); return buf
@@ -126,7 +132,7 @@ def create_manifest_pdf(df, fn):
     p.save(); buf.seek(0); return buf
 
 # --- UI ---
-st.title("🏷️ Interfood Logisztika v203.29")
+st.title("🏷️ Interfood Logisztika v203.30")
 if 'mdf' not in st.session_state: st.session_state.mdf = None
 
 with st.sidebar:
@@ -152,7 +158,6 @@ if up_files and st.button("📊 FELDOLGOZÁS"):
     st.session_state.mdf = mdf.astype({"Sorrend": float, "ID": str})
 
 if st.session_state.mdf is not None:
-    # TIZEDESVESZŐRE KÉNYSZERÍTETT OSZLOP
     edited_df = st.data_editor(
         st.session_state.mdf, 
         num_rows="dynamic", 
@@ -160,11 +165,7 @@ if st.session_state.mdf is not None:
         hide_index=True, 
         key="main_editor",
         column_config={
-            "Sorrend": st.column_config.NumberColumn(
-                "Sorrend",
-                format="%.1f",
-                step=0.1,
-            )
+            "Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f", step=0.1)
         }
     )
 
@@ -181,7 +182,10 @@ if st.session_state.mdf is not None:
     c1, c2 = st.columns(2)
     with c1:
         if st.button("📥 ETIKETTEK LETÖLTÉSE"):
-            st.download_button("Mentés (etikettek.pdf)", create_label_pdf(st.session_state.mdf, fn_in, ft_in), "etikettek.pdf")
+            # Itt már a javított függvény fut le
+            pdf_data = create_label_pdf(st.session_state.mdf, fn_in, ft_in)
+            st.download_button("Mentés (etikettek.pdf)", pdf_data, "etikettek.pdf")
     with c2:
         if st.button("📋 MENETTERV LETÖLTÉSE"):
-            st.download_button("Mentés (menetterv.pdf)", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf")
+            pdf_data = create_manifest_pdf(st.session_state.mdf, fn_in)
+            st.download_button("Mentés (menetterv.pdf)", pdf_data, "menetterv.pdf")

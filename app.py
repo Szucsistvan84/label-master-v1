@@ -14,7 +14,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.39", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.40", layout="wide")
 
 # --- UTILS ---
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
@@ -79,21 +79,21 @@ def merge_data_flexible(raw_rows):
         merged.append(base)
     return merged
 
-# --- PDF GENERÁLÁS (ETIKETT) ---
 def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     p = canvas.Canvas(buf, pagesize=A4)
     w, h = A4
     
-    # --- MÉRETEZÉS KORREKCIÓJA A MARGÓKHOZ ---
-    lw, lh = 66*mm, 39*mm  # Kicsit kisebb cellák, hogy legyen hely a margónak
-    margin_x = 6*mm        # 6mm bal margó
-    margin_y = 12*mm       # 12mm felső margó (felülről számítva a ReportLab-nál)
-    gap_x = 2*mm           # 2mm köz az oszlopok között
-    gap_y = 1.5*mm         # 1.5mm köz a sorok között
+    # --- FINOMHANGOLT MÉRETEK (v203.40) ---
+    lw, lh = 64*mm, 39*mm   # Szélesség csökkentve, hogy ne lógjon le jobbra
+    margin_x = 7*mm         # Több hely bal oldalon
+    margin_y = 6*mm         # Alsó margó csökkentve, hogy lejjebb jöjjön az egész
+    gap_x = 3*mm            # Nagyobb rés az oszlopok között
+    gap_y = 1.5*mm
     
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.5, leading=8.5, alignment=0)
+    # A marketing stílus alapból középre zárt
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8.5, leading=10, alignment=1)
 
     for i in range(math.ceil(len(df)/21)*21):
@@ -101,7 +101,6 @@ def create_label_pdf(df, fn, ft):
         if idx == 0 and i > 0: p.showPage()
         col, row_i = idx % 3, 6 - (idx // 3)
         
-        # X és Y számítása a réseket (gap) és margót figyelembe véve
         x = margin_x + col * (lw + gap_x)
         y = margin_y + row_i * (lh + gap_y)
         
@@ -110,8 +109,7 @@ def create_label_pdf(df, fn, ft):
         
         if i < len(df):
             r = df.iloc[i]
-            if r.get('HasSaturday', False) or "Szo:" in str(r['Rendelés']):
-                p.setLineWidth(1.6)
+            if r.get('HasSaturday', False): p.setLineWidth(1.6)
             
             p.rect(x, y, lw, lh)
             
@@ -128,7 +126,7 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_bold, 8); p.drawRightString(x+lw-3*mm, y+6*mm, f"Össz: {r['Összesen']} db")
             p.setFont(f_reg, 6.5); p.drawCentredString(x+lw/2, y+3*mm, f"Futár: {fn} ({ft})")
         else:
-            # MARKETING (Középre igazítva, kért formázásokkal)
+            # MARKETING (Félkövér kiemelésekkel és méretnöveléssel)
             p.rect(x, y, lw, lh)
             m_text = (
                 f"<font size='10.5'><b>15% kedvezmény* 3 hétig</b></font><br/>"
@@ -145,7 +143,7 @@ def create_label_pdf(df, fn, ft):
     buf.seek(0)
     return buf
 
-# --- PDF GENERÁLÁS (MENETTERV) ---
+# --- MENETTERV ÉS UI (Változatlan stabil kód) ---
 def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
@@ -167,18 +165,16 @@ def create_manifest_pdf(df, fn):
         p.showPage()
     p.save(); buf.seek(0); return buf
 
-# --- UI ---
 if 'mdf' not in st.session_state: st.session_state.mdf = None
 
 with st.sidebar:
     st.header("⚙️ Beállítások")
     fn_in = st.text_input("Futár neve", "Szűcs István")
     ft_in = st.text_input("Telefonszáma", "+3620/886-89-71")
-    st.divider()
-    if st.button("💾 AKTUÁLIS SORREND MENTÉSE"):
+    if st.button("💾 SORREND MENTÉSE"):
         if st.session_state.mdf is not None:
             st.session_state.mdf[['ID', 'Sorrend']].to_csv("user_prefs.csv", index=False)
-            st.success("Sorrend rögzítve!")
+            st.success("Mentve!")
 
 up_files = st.file_uploader("PDF feltöltés", accept_multiple_files=True)
 
@@ -195,20 +191,14 @@ if up_files and st.button("📊 FELDOLGOZÁS"):
         else: mdf['Sorrend'] = range(1, len(mdf) + 1)
         mdf = mdf.sort_values(by=['Sorrend', 'ID']).reset_index(drop=True)
         mdf['Sorrend'] = [float(i+1) for i in range(len(mdf))]
-        cols = ['Sorrend'] + [c for c in mdf.columns if c != 'Sorrend']
-        st.session_state.mdf = mdf[cols]; st.rerun()
+        st.session_state.mdf = mdf[['Sorrend'] + [c for c in mdf.columns if c != 'Sorrend']]; st.rerun()
 
 if st.session_state.mdf is not None:
-    edited_df = st.data_editor(st.session_state.mdf, use_container_width=True, hide_index=True,
-                               column_config={"Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f", step=0.1)})
-    
+    edited_df = st.data_editor(st.session_state.mdf, use_container_width=True, hide_index=True)
     if st.button("🔄 SORREND FRISSÍTÉSE"):
-        temp_df = edited_df.copy()
-        temp_df["Sorrend"] = pd.to_numeric(temp_df["Sorrend"], errors='coerce').fillna(999.0)
-        temp_df = temp_df.sort_values("Sorrend").reset_index(drop=True)
-        temp_df["Sorrend"] = [float(i+1) for i in range(len(temp_df))]
-        cols = ['Sorrend'] + [c for c in temp_df.columns if c != 'Sorrend']
-        st.session_state.mdf = temp_df[cols]; st.rerun()
+        temp = edited_df.sort_values("Sorrend").reset_index(drop=True)
+        temp["Sorrend"] = [float(i+1) for i in range(len(temp))]
+        st.session_state.mdf = temp; st.rerun()
 
     st.divider()
     c1, c2 = st.columns(2)

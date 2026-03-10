@@ -14,9 +14,8 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.35", layout="wide")
-
-# --- SEGÉDFÜGGVÉNYEK ---
+# --- ALAPBEÁLLÍTÁSOK ---
+st.set_page_config(page_title="Interfood Logisztika v203.38", layout="wide")
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
 
 def register_fonts():
@@ -27,6 +26,7 @@ def register_fonts():
         return "DejaVu", "DejaVu-Bold"
     except: return "Helvetica", "Helvetica-Bold"
 
+# --- ADATFELDOLGOZÁS ---
 def parse_interfood_pro(pdf_file):
     rows = []
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
@@ -79,33 +79,68 @@ def merge_data_flexible(raw_rows):
         merged.append(base)
     return merged
 
-# ... (create_label_pdf és create_manifest_pdf marad a régiben) ...
+# --- PDF GENERÁLÁS (ETIKETT) ---
 def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
-    buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
-    lw, lh = 70*mm, 42.4*mm
-    mx, my = (w - 3*lw)/2 + 2*mm, (h - 7*lh)/2 
-    style = ParagraphStyle('L', fontName=f_reg, fontSize=7, leading=8)
+    buf = BytesIO()
+    p = canvas.Canvas(buf, pagesize=A4)
+    w, h = A4
+    
+    lw, lh = 70*mm, 42.4*mm 
+    margin_x = 0.1*mm 
+    margin_y = 0.5*mm
+    
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.5, leading=8.5, alignment=0)
+    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8.5, leading=10, alignment=1)
+
     for i in range(math.ceil(len(df)/21)*21):
         idx = i % 21
         if idx == 0 and i > 0: p.showPage()
         col, row_i = idx % 3, 6 - (idx // 3)
-        x, y = mx + col*lw, my + row_i*lh
+        x, y = margin_x + col*lw, margin_y + row_i*lh
+        
+        p.setStrokeColor(colors.black)
+        p.setLineWidth(0.5)
+        
         if i < len(df):
             r = df.iloc[i]
-            p.setLineWidth(1.8 if r.get('HasSaturday', False) or "Szo:" in str(r['Rendelés']) else 0.8)
-            p.rect(x+5*mm, y+4*mm, lw-10*mm, lh-8*mm)
-            p.setFont(f_bold, 9); p.drawString(x+8*mm, y+35*mm, f"#{int(r['Sorrend'])}")
-            p.setFont(f_reg, 7); p.drawRightString(x+lw-9*mm, y+35*mm, f"ID: {r['ID']}")
-            p.setFont(f_bold, 8); p.drawString(x+8*mm, y+28*mm, str(r['Ügyintéző'])[:30])
-            p.setFont(f_reg, 7); p.drawRightString(x+lw-9*mm, y+28*mm, str(r['Telefon']))
-            p.setFont(f_reg, 7); p.drawString(x+8*mm, y+24.5*mm, str(r['Cím'])[:45])
-            para = Paragraph(str(r['Rendelés']) if pd.notna(r['Rendelés']) else "", style)
-            para.wrap(lw-16*mm, 15*mm); para.drawOn(p, x+8*mm, y+13*mm)
-            p.setFont(f_reg, 7); p.drawRightString(x+lw-9*mm, y+9*mm, f"Össz: {r['Összesen']} db")
-            p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+5.5*mm, f"Futár: {fn} ({ft})")
-    p.save(); buf.seek(0); return buf
+            if r.get('HasSaturday', False) or "Szo:" in str(r['Rendelés']):
+                p.setLineWidth(1.6)
+            
+            p.rect(x+1.5*mm, y+1*mm, lw-3*mm, lh-2*mm)
+            
+            # Ügyfél adatok (Balra igazítva)
+            p.setFont(f_bold, 9); p.drawString(x+4*mm, y+35*mm, f"#{int(r['Sorrend'])}")
+            p.setFont(f_reg, 7.5); p.drawRightString(x+lw-5*mm, y+35*mm, f"ID: {r['ID']}")
+            p.setFont(f_bold, 8.5); p.drawString(x+4*mm, y+29*mm, str(r['Ügyintéző'])[:32])
+            p.setFont(f_reg, 7.5); p.drawRightString(x+lw-5*mm, y+29*mm, str(r['Telefon']))
+            p.setFont(f_reg, 7.5); p.drawString(x+4*mm, y+25*mm, str(r['Cím'])[:48])
+            
+            para = Paragraph(str(r['Rendelés']), order_s)
+            para.wrap(lw-8*mm, 15*mm)
+            para.drawOn(p, x+4*mm, y+11*mm)
+            
+            p.setFont(f_bold, 8); p.drawRightString(x+lw-5*mm, y+7*mm, f"Össz: {r['Összesen']} db")
+            p.setFont(f_reg, 6.5); p.drawCentredString(x+lw/2, y+3.5*mm, f"Futár: {fn} ({ft})")
+        else:
+            # MARKETING (Középre igazítva)
+            p.rect(x+1.5*mm, y+1*mm, lw-3*mm, lh-2*mm)
+            m_text = (
+                f"<b>15% kedvezmény* 3 hétig</b><br/>"
+                f"Új Ügyfeleink részére!<br/><br/>"
+                f"<b>Rendelés leadás:</b><br/>"
+                f"{fn}, tel: {ft}<br/><br/>"
+                f"<font size='5.5'>* a kedvezmény telefonon leadott rendelésekre érvényesíthető<br/>területi képviselőnk által</font>"
+            )
+            para = Paragraph(m_text, promo_s)
+            pw, ph = para.wrap(lw-8*mm, lh-8*mm)
+            para.drawOn(p, x + (lw-pw)/2, y + (lh-ph)/2)
 
+    p.save()
+    buf.seek(0)
+    return buf
+
+# --- PDF GENERÁLÁS (MENETTERV) ---
 def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
@@ -127,9 +162,7 @@ def create_manifest_pdf(df, fn):
         p.showPage()
     p.save(); buf.seek(0); return buf
 
-# --- UI ---
-st.title("🏷️ Interfood Logisztika v203.35")
-
+# --- FELHASZNÁLÓI FELÜLET ---
 if 'mdf' not in st.session_state: st.session_state.mdf = None
 
 with st.sidebar:
@@ -147,60 +180,39 @@ up_files = st.file_uploader("PDF feltöltés", accept_multiple_files=True)
 if up_files and st.button("📊 FELDOLGOZÁS"):
     raw = []
     for f in up_files: raw.extend(parse_interfood_pro(f))
-    
     if raw:
         mdf = pd.DataFrame(merge_data_flexible(raw))
-        
-        # SORREND BETÖLTÉSE
         if os.path.exists("user_prefs.csv"):
             prefs = pd.read_csv("user_prefs.csv").drop_duplicates(subset='ID')
-            prefs['ID'] = prefs['ID'].astype(str)
-            mdf['ID'] = mdf['ID'].astype(str)
+            prefs['ID'] = prefs['ID'].astype(str); mdf['ID'] = mdf['ID'].astype(str)
             mdf = mdf.merge(prefs[['ID', 'Sorrend']], on='ID', how='left')
             mdf['Sorrend'] = mdf['Sorrend'].fillna(9999.0)
-        else:
-            mdf['Sorrend'] = range(1, len(mdf) + 1)
+        else: mdf['Sorrend'] = range(1, len(mdf) + 1)
         
         mdf = mdf.sort_values(by=['Sorrend', 'ID']).reset_index(drop=True)
         mdf['Sorrend'] = [float(i+1) for i in range(len(mdf))]
         
-        # BIZTONSÁGOS OSZLOPRENDEZÉS: Csak akkor rendezünk, ha létezik a Sorrend oszlop
-        current_cols = mdf.columns.tolist()
-        if 'Sorrend' in current_cols:
-            new_cols = ['Sorrend'] + [c for c in current_cols if c != 'Sorrend']
-            mdf = mdf[new_cols]
-        
-        st.session_state.mdf = mdf
-        st.rerun()
-    else:
-        st.error("Nem sikerült adatokat kinyerni a PDF-ekből. Kérlek ellenőrizd a fájlokat!")
+        # OSZLOP SORREND KÉNYSZERÍTÉSE
+        cols = ['Sorrend'] + [c for c in mdf.columns if c != 'Sorrend']
+        st.session_state.mdf = mdf[cols]; st.rerun()
 
 if st.session_state.mdf is not None:
-    # TÁBLÁZAT MEGJELENÍTÉSE
-    edited_df = st.data_editor(
-        st.session_state.mdf,
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        key="main_editor",
-        column_config={
-            "Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f", step=0.1)
-        }
-    )
-
-    if st.button("🔄 SORREND ÉS ADATOK FRISSÍTÉSE"):
+    edited_df = st.data_editor(st.session_state.mdf, use_container_width=True, hide_index=True,
+                               column_config={"Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f", step=0.1)})
+    
+    if st.button("🔄 SORREND FRISSÍTÉSE"):
         temp_df = edited_df.copy()
         temp_df["Sorrend"] = pd.to_numeric(temp_df["Sorrend"], errors='coerce').fillna(999.0)
         temp_df = temp_df.sort_values("Sorrend").reset_index(drop=True)
         temp_df["Sorrend"] = [float(i+1) for i in range(len(temp_df))]
-        st.session_state.mdf = temp_df
-        st.rerun()
+        cols = ['Sorrend'] + [c for c in temp_df.columns if c != 'Sorrend']
+        st.session_state.mdf = temp_df[cols]; st.rerun()
 
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
         if st.button("📥 ETIKETTEK"):
-            st.download_button("Mentés", create_label_pdf(st.session_state.mdf, fn_in, ft_in), "etikettek.pdf")
+            st.download_button("Letöltés", create_label_pdf(st.session_state.mdf, fn_in, ft_in), "etikettek.pdf")
     with c2:
         if st.button("📋 MENETTERV"):
-            st.download_button("Mentés", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf")
+            st.download_button("Letöltés", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf")

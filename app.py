@@ -15,7 +15,7 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
 # --- ALAPBEÁLLÍTÁSOK ---
-VERZIO = "v203.51"
+VERZIO = "v203.52"
 st.set_page_config(page_title=f"Interfood Logisztika {VERZIO}", layout="wide")
 st.title(f"Interfood Logisztika {VERZIO}")
 
@@ -30,10 +30,9 @@ def register_fonts():
     except: return "Helvetica", "Helvetica-Bold"
 
 def extract_gate_code(text):
-    """Szigorított kapukód felismerés (pl. 14#2770 -> 14K2770)"""
+    """Szigorú szintaktikai szűrés: szám-jel-szám"""
     if not text: return None
-    # Kifejezetten a szám-jel-szám mintát keressük
-    # Elfogadja: 14#2770, 6k3589, 30kulcs1956
+    # Megkeressük a mintát: számok + (# vagy k vagy kulcs) + számok
     pattern = r'(\d+)\s*(?:#|[Kk]|kulcs)\s*(\d+)'
     match = re.search(pattern, text)
     if match:
@@ -66,22 +65,31 @@ def parse_interfood_pro(pdf_file):
                 
                 if u_code_m:
                     prefix, uid = u_code_m.group(0).split('-')[0], u_code_m.group(0).split('-')[-1]
-                    # Az Ügyfél oszlop (b2) tartalmazza gyakran a megjegyzésbe írt kapukódot
-                    b2 = " ".join([w['text'] for w in line_words if 40 <= w['x0'] < 150])
-                    b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
+                    # Ügyfél oszlop (b2) - itt vannak a kapukódos megjegyzések
+                    b2_list = [w['text'] for w in line_words if 40 <= w['x0'] < 155]
+                    b3 = " ".join([w['text'] for w in line_words if 155 <= w['x0'] < 355])
                     b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
                     
-                    gate_code = extract_gate_code(text_ws) # Keressük a teljes sorban
-                    
+                    # Ha több soros a megjegyzés, nézzük a következő sorokat is a kapukódért
+                    full_client_text = " ".join(b2_list)
+                    curr_idx = i + 1
+                    while curr_idx < len(sorted_y):
+                        next_line = sorted(lines_dict[sorted_y[curr_idx]], key=lambda x: x['x0'])
+                        if any(re.search(r'([HKSCPZ]-[0-9]{5,7})', " ".join([w['text'] for w in next_line])) for _ in [1]):
+                            break
+                        next_b2 = " ".join([w['text'] for w in next_line if 40 <= w['x0'] < 155])
+                        if not next_b2: break
+                        full_client_text += " " + next_b2
+                        curr_idx += 1
+
+                    gate_code = extract_gate_code(full_client_text)
                     clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                     tel_m = re.search(phone_pat, text_ws.replace(" ", ""))
                     money_m = re.search(money_pat, text_ws)
                     
                     if not money_m and i + 1 < len(sorted_y):
                         next_text = " ".join([w['text'] for w in sorted(lines_dict[sorted_y[i+1]], key=lambda x: x['x0'])])
-                        if not re.search(r'([HKSCPZ]-[0-9]{5,7})', next_text):
-                            money_m = re.search(money_pat, next_text)
-                            if not gate_code: gate_code = extract_gate_code(next_text)
+                        money_m = re.search(money_pat, next_text)
 
                     raw_money = 0
                     if money_m:
@@ -126,7 +134,6 @@ def merge_data_flexible(raw_rows):
         merged.append(base)
     return merged
 
-# --- PDF GENERÁLÁS ---
 def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
@@ -138,28 +145,26 @@ def create_manifest_pdf(df, fn):
         p.setFont(f_bold, 11); p.drawString(15*mm, h-12*mm, f"MENETTERV - {fn}")
         p.setFont(f_reg, 9); p.drawRightString(w-15*mm, h-12*mm, f"{p_idx+1}. oldal / {total_pages}")
         
-        # Checkbox és adatok táblázata
-        data = [["[ ]", "SOR", "ÜGYFÉL (KAPUKÓD) / CÍM", "TELEFON", "RENDELÉS", "DB", "FIZETENDŐ"]]
+        data = [["[ ]", "SOR", "ÜGYFÉL (KAPUKÓD) / CÍM", "TELEFON", "RENDELÉS", "DB", "PÉNZ"]]
         subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
         for _, r in subset.iterrows():
-            k_kod = f" <font color='blue'><b>[{r['Kapukód']}]</b></font>" if r['Kapukód'] else ""
+            k_kod = f" <font color='red'><b>[{r['Kapukód']}]</b></font>" if r['Kapukód'] else ""
             name_p = Paragraph(f"<b>{r['Ügyintéző']}</b>{k_kod}<br/>{r['Cím']}", cell_s)
             data.append(["[  ]", f"#{int(r['Sorrend'])}", name_p, r['Telefon'], Paragraph(r['Rendelés'], cell_s), r['Összesen'], r['Pénz']])
         
-        t = Table(data, colWidths=[8*mm, 10*mm, 65*mm, 25*mm, 52*mm, 8*mm, 22*mm])
+        t = Table(data, colWidths=[8*mm, 10*mm, 62*mm, 26*mm, 52*mm, 8*mm, 24*mm])
         t.setStyle(TableStyle([
             ('FONTNAME', (0,0), (-1,0), f_bold),
             ('GRID', (0,0), (-1,-1), 0.5, colors.black),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('ALIGN', (0,0), (0,-1), 'CENTER'), # Checkbox középre
+            ('ALIGN', (0,0), (0,-1), 'CENTER'),
             ('ALIGN', (-1,0), (-1,-1), 'RIGHT')
         ]))
-        tw, th = t.wrap(w-15*mm, h-35*mm)
-        t.drawOn(p, 7*mm, (h-18*mm)-th)
-        p.showPage()
+        th = t.wrap(w-15*mm, h-35*mm)[1]
+        t.drawOn(p, 7*mm, (h-18*mm)-th); p.showPage()
     p.save(); buf.seek(0); return buf
 
-# --- UI (A többi rész változatlan a v203.50-hez képest) ---
+# --- UI ---
 if 'mdf' not in st.session_state: st.session_state.mdf = None
 with st.sidebar:
     fn_in = st.text_input("Futár neve", "Szűcs István")
@@ -186,4 +191,4 @@ if up_files and st.button("📊 FELDOLGOZÁS"):
 
 if st.session_state.mdf is not None:
     st.data_editor(st.session_state.mdf, use_container_width=True, hide_index=True)
-    st.download_button("📋 MENETTERV GENERÁLÁSA", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf")
+    st.download_button("📋 MENETTERV LETÖLTÉSE", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf")

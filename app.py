@@ -15,7 +15,7 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
 # --- ALAPBEÁLLÍTÁSOK ---
-VERZIO = "v203.54"
+VERZIO = "v203.55"
 st.set_page_config(page_title=f"Interfood Logisztika {VERZIO}", layout="wide")
 st.title(f"Interfood Logisztika {VERZIO}")
 
@@ -30,14 +30,15 @@ def register_fonts():
     except: return "Helvetica", "Helvetica-Bold"
 
 def extract_gate_code(text):
-    """Szigorított keresés: Csak ha van benne rács vagy konkrét 'kapukód' szó"""
+    """Javított regex: A (?i) flag az elejére került a hiba elkerülése érdekében."""
     if not text: return None
-    # Minták: 14#2770 vagy kapukód: 1234
-    pattern = r'(\d{1,4}\s*#\s*\d{1,4})|(?i)kapukód[:\s]*(\d+)'
+    # Szigorú minta: Csak rácsjeles kódokat vagy a 'kapukód' szót keresi
+    pattern = r'(?i)(?:\bkapukód[:\s]*(\d+)\b|(\d{1,4}\s*#\s*\d{1,4}))'
     match = re.search(pattern, text)
     if match:
-        res = match.group(0).replace(" ", "")
-        return res
+        # Visszaadjuk a találatot (vagy a számot, vagy a rácsos verziót)
+        res = match.group(1) if match.group(1) else match.group(2)
+        return res.replace(" ", "")
     return None
 
 # --- ADATFELDOLGOZÁS ---
@@ -66,7 +67,7 @@ def parse_interfood_pro(pdf_file):
                 
                 if u_code_m:
                     prefix, uid = u_code_m.group(0).split('-')[0], u_code_m.group(0).split('-')[-1]
-                    # Ügyfél oszlop tartománya (megjegyzések)
+                    # Megjegyzés oszlop (b2)
                     b2_text = " ".join([w['text'] for w in line_words if 40 <= w['x0'] < 155])
                     b3 = " ".join([w['text'] for w in line_words if 155 <= w['x0'] < 355])
                     b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
@@ -159,9 +160,9 @@ def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
     
-    name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=10.5, leading=12)
-    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=9, leading=11)
-    phone_s = ParagraphStyle('Phone', fontName=f_reg, fontSize=7.2, leading=9)
+    name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=11, leading=13)
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=9.5, leading=11.5)
+    phone_s = ParagraphStyle('Phone', fontName=f_reg, fontSize=7, leading=9)
 
     rows_per_page = 25
     total_pages = math.ceil(len(df)/rows_per_page)
@@ -170,12 +171,13 @@ def create_manifest_pdf(df, fn):
         p.setFont(f_bold, 12); p.drawString(10*mm, h-12*mm, f"MENETTERV - {fn}")
         p.setFont(f_reg, 9); p.drawRightString(w-10*mm, h-12*mm, f"{p_idx+1}. oldal / {total_pages}")
         
+        # Sorszám | Ügyfél | [ ] | Telefon | Rendelés | DB | Pénz
         data = [["SOR", "ÜGYFÉL / CÍM", "[ ]", "TELEFON", "RENDELÉS", "DB", "PÉNZ"]]
         subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
         
         for _, r in subset.iterrows():
             k_kod = f" <b>[{r['Kapukód']}]</b>" if r['Kapukód'] else ""
-            client_p = Paragraph(f"{r['Ügyintéző']}{k_kod}<br/><font size=8.5>{r['Cím']}</font>", name_s)
+            client_p = Paragraph(f"<b>{r['Ügyintéző']}</b>{k_kod}<br/><font size=9>{r['Cím']}</font>", name_s)
             data.append([
                 f"#{int(r['Sorrend'])}", 
                 client_p, 
@@ -186,8 +188,8 @@ def create_manifest_pdf(df, fn):
                 r['Pénz']
             ])
         
-        # Sormagasság fixálva 10.4mm-re, hogy a 25 sor kitöltse a lapot
-        t = Table(data, colWidths=[10*mm, 62*mm, 10*mm, 24*mm, 62*mm, 8*mm, 16*mm], rowHeights=[7*mm] + [10.4*mm]*len(subset))
+        # Sormagasság: 11mm, hogy a 25 sor teljesen kitöltse a lapot
+        t = Table(data, colWidths=[11*mm, 62*mm, 10*mm, 22*mm, 64*mm, 8*mm, 15*mm], rowHeights=[7*mm] + [11*mm]*len(subset))
         
         t.setStyle(TableStyle([
             ('FONTNAME', (0,0), (-1,0), f_bold),

@@ -14,9 +14,9 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.31", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.32", layout="wide")
 
-# --- NAP RÖVIDÍTÉSEK ---
+# --- ALAPVETŐ BEÁLLÍTÁSOK ---
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
 
 def register_fonts():
@@ -57,9 +57,8 @@ def parse_interfood_pro(pdf_file):
                 v_o, sq = [], 0
                 for o in raw_orders:
                     try:
-                        parts = o.split('-')
-                        q = int(re.sub(r'\D', '', parts[0])[-1])
-                        v_o.append(f"{q}-{parts[1]}"); sq += q
+                        q = int(re.sub(r'\D', '', o.split('-')[0])[-1])
+                        v_o.append(f"{q}-{o.split('-')[1]}"); sq += q
                     except: continue
                 if v_o: rows.append({"Prefix": prefix, "ID": uid, "Ügyintéző": clean_name, "Cím": clean_addr, "Telefon": tel_m.group(0) if tel_m else "", "Rendelés": ", ".join(v_o), "Összesen": sq})
     return rows
@@ -80,7 +79,7 @@ def merge_data_flexible(raw_rows):
         merged.append(base)
     return merged
 
-# PDF Generátorok (create_label_pdf, create_manifest_pdf) maradnak változatlanok...
+# --- PDF GENERATORS (ETIKETT & MENETTERV) ---
 def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
@@ -101,8 +100,10 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_bold, 8); p.drawString(x+8*mm, y+28*mm, str(r['Ügyintéző'])[:30])
             p.setFont(f_reg, 7); p.drawRightString(x+lw-9*mm, y+28*mm, str(r['Telefon']))
             p.setFont(f_reg, 7); p.drawString(x+8*mm, y+24.5*mm, str(r['Cím'])[:45])
-            para = Paragraph(str(r['Rendelés']) if pd.notna(r['Rendelés']) else "", style)
-            para.wrap(lw-16*mm, 15*mm); para.drawOn(p, x+8*mm, y+13*mm)
+            p_text = str(r['Rendelés']) if pd.notna(r['Rendelés']) else ""
+            para = Paragraph(p_text, style)
+            para.wrap(lw-16*mm, 15*mm)
+            para.drawOn(p, x+8*mm, y+13*mm)
             p.setFont(f_reg, 7); p.drawRightString(x+lw-9*mm, y+9*mm, f"Össz: {r['Összesen']} db")
             p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+5.5*mm, f"Futár: {fn} ({ft})")
     p.save(); buf.seek(0); return buf
@@ -129,8 +130,10 @@ def create_manifest_pdf(df, fn):
     p.save(); buf.seek(0); return buf
 
 # --- UI ---
-st.title("🏷️ Interfood Logisztika v203.31")
-if 'mdf' not in st.session_state: st.session_state.mdf = None
+st.title("🏷️ Interfood Logisztika v203.32")
+
+if 'mdf' not in st.session_state:
+    st.session_state.mdf = None
 
 with st.sidebar:
     st.header("⚙️ Beállítások")
@@ -139,46 +142,60 @@ with st.sidebar:
     st.divider()
     if st.button("💾 AKTUÁLIS SORREND MENTÉSE"):
         if st.session_state.mdf is not None:
-            st.session_state.mdf[['ID', 'Sorrend']].to_csv("user_prefs.csv", index=False)
-            st.success("Sorrend a memóriába mentve!")
+            # Csak a legfrissebb állapotot mentjük
+            save_df = st.session_state.mdf.copy()
+            save_df[['ID', 'Sorrend']].to_csv("user_prefs.csv", index=False)
+            st.success("Sorrend elmentve!")
 
 up_files = st.file_uploader("PDF feltöltés", accept_multiple_files=True)
+
 if up_files and st.button("📊 FELDOLGOZÁS"):
     raw = []
-    for f in up_files: raw.extend(parse_interfood_pro(f))
+    for f in up_files:
+        raw.extend(parse_interfood_pro(f))
+    
     mdf = pd.DataFrame(merge_data_flexible(raw))
     
+    # SORREND BETÖLTÉSE ÉS KÉNYSZERÍTÉSE
     if os.path.exists("user_prefs.csv"):
         prefs = pd.read_csv("user_prefs.csv").set_index('ID')['Sorrend'].to_dict()
-        mdf['Sorrend'] = mdf['ID'].map(prefs)
-        # KRITIKUS JAVÍTÁS: Kényszerített sorrend és ID alapú rendezés
-        mdf = mdf.sort_values(by=['Sorrend', 'ID'], na_position='last').reset_index(drop=True)
+        # Mindenkinek adunk egy súlyt: aki nincs a listában, az 9999 (hátulra kerül)
+        mdf['Súly'] = mdf['ID'].map(prefs).fillna(9999.0)
+        mdf = mdf.sort_values(by=['Súly', 'ID']).reset_index(drop=True)
+        mdf = mdf.drop(columns=['Súly'])
     
-    # Ha nincs mentett sorrend, vagy új ügyfelek vannak, osszunk nekik sorszámot
-    mdf['Sorrend'] = range(1, len(mdf)+1)
+    # Sorszámok kiosztása (legyen float a tizedesek miatt)
+    mdf.insert(0, "Sorrend", range(1, len(mdf) + 1))
     st.session_state.mdf = mdf.astype({"Sorrend": float, "ID": str})
+    st.rerun()
 
 if st.session_state.mdf is not None:
+    # TÁBLÁZAT MEGJELENÍTÉSE
     edited_df = st.data_editor(
-        st.session_state.mdf, 
-        num_rows="dynamic", use_container_width=True, hide_index=True, key="main_editor",
-        column_config={"Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f", step=0.1)}
+        st.session_state.mdf,
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        key="main_editor",
+        column_config={
+            "Sorrend": st.column_config.NumberColumn(
+                "Sorrend", 
+                format="%.1f", 
+                step=0.1,
+                required=True
+            )
+        }
     )
 
     if st.button("🔄 SORREND ÉS ADATOK FRISSÍTÉSE"):
+        # 1. Beolvassuk a képernyőről a módosításokat
         temp_df = edited_df.copy()
-        temp_df["Sorrend"] = pd.to_numeric(temp_df["Sorrend"], errors='coerce').fillna(999).astype(float)
-        # Újrarendezés a bevitt adatok alapján
+        # 2. Típus kényszerítése
+        temp_df["Sorrend"] = pd.to_numeric(temp_df["Sorrend"], errors='coerce').fillna(999.0)
+        # 3. Fizikai sorbarendezés a számok alapján
         temp_df = temp_df.sort_values("Sorrend").reset_index(drop=True)
-        temp_df["Sorrend"] = range(1, len(temp_df) + 1)
-        st.session_state.mdf = temp_df.astype({"Sorrend": float})
-        st.rerun()
-
-    st.divider()
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("📥 ETIKETTEK LETÖLTÉSE"):
-            st.download_button("Mentés (etikettek.pdf)", create_label_pdf(st.session_state.mdf, fn_in, ft_in), "etikettek.pdf")
-    with c2:
-        if st.button("📋 MENETTERV LETÖLTÉSE"):
-            st.download_button("Mentés (menetterv.pdf)", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf")
+        # 4. Új sorszámok kiosztása (1.0, 2.0...)
+        temp_df["Sorrend"] = [float(x) for x in range(1, len(temp_df) + 1)]
+        
+        st.session_state.mdf = temp_df
+        st

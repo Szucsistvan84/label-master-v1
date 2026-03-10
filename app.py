@@ -14,7 +14,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.27", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.29", layout="wide")
 
 # --- NAP RÖVIDÍTÉSEK ---
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
@@ -104,8 +104,29 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+5.5*mm, f"Futár: {fn} ({ft})")
     p.save(); buf.seek(0); return buf
 
+def create_manifest_pdf(df, fn):
+    f_reg, f_bold = register_fonts()
+    buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
+    rows_per_page = 25
+    total_p = math.ceil(len(df)/rows_per_page)
+    cell_style = ParagraphStyle('CellStyle', fontName=f_reg, fontSize=8.5, leading=11)
+    for p_idx in range(total_p):
+        p.setFont(f_bold, 11); p.drawString(15*mm, h-12*mm, f"MENETTERV - {fn}")
+        p.setFont(f_reg, 8); p.drawCentredString(w/2, 10*mm, f"{p_idx + 1} / {total_p} oldal")
+        data = [["SOR", "ÜGYFÉL NÉV / [ ] / CÍM", "TELEFON", "RENDELÉS", "DB"]]
+        subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
+        for _, r in subset.iterrows():
+            name_box = Paragraph(f"<b>{r['Ügyintéző']}</b> [  ]<br/><font size='7'>{r['Cím']}</font>", cell_style)
+            orders = Paragraph(str(r['Rendelés']), cell_style)
+            data.append([f"#{int(r['Sorrend'])}", name_box, r['Telefon'], orders, r['Összesen']])
+        t = Table(data, colWidths=[12*mm, 70*mm, 28*mm, 65*mm, 10*mm])
+        t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,0), f_bold), ('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
+        tw, th = t.wrap(w - 20*mm, h - 35*mm); t.drawOn(p, 10*mm, (h-18*mm) - th)
+        p.showPage()
+    p.save(); buf.seek(0); return buf
+
 # --- UI ---
-st.title("🏷️ Interfood Logisztika v203.27")
+st.title("🏷️ Interfood Logisztika v203.29")
 if 'mdf' not in st.session_state: st.session_state.mdf = None
 
 with st.sidebar:
@@ -131,10 +152,36 @@ if up_files and st.button("📊 FELDOLGOZÁS"):
     st.session_state.mdf = mdf.astype({"Sorrend": float, "ID": str})
 
 if st.session_state.mdf is not None:
-    edited_df = st.data_editor(st.session_state.mdf, num_rows="dynamic", use_container_width=True, hide_index=True, key="main_editor")
+    # TIZEDESVESZŐRE KÉNYSZERÍTETT OSZLOP
+    edited_df = st.data_editor(
+        st.session_state.mdf, 
+        num_rows="dynamic", 
+        use_container_width=True, 
+        hide_index=True, 
+        key="main_editor",
+        column_config={
+            "Sorrend": st.column_config.NumberColumn(
+                "Sorrend",
+                format="%.1f",
+                step=0.1,
+            )
+        }
+    )
+
     if st.button("🔄 SORREND ÉS ADATOK FRISSÍTÉSE"):
-        st.session_state.mdf = edited_df.sort_values("Sorrend").reset_index(drop=True)
-        st.session_state.mdf["Sorrend"] = range(1, len(st.session_state.mdf)+1)
+        temp_df = edited_df.copy()
+        temp_df["Sorrend"] = pd.to_numeric(temp_df["Sorrend"], errors='coerce').fillna(999).astype(float)
+        temp_df = temp_df.sort_values("Sorrend").reset_index(drop=True)
+        temp_df["Sorrend"] = range(1, len(temp_df) + 1)
+        temp_df["Sorrend"] = temp_df["Sorrend"].astype(float)
+        st.session_state.mdf = temp_df
         st.rerun()
-    if st.button("📥 ETIKETTEK LETÖLTÉSE"):
-        st.download_button("Mentés", create_label_pdf(st.session_state.mdf, fn_in, ft_in), "etikettek.pdf")
+
+    st.divider()
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("📥 ETIKETTEK LETÖLTÉSE"):
+            st.download_button("Mentés (etikettek.pdf)", create_label_pdf(st.session_state.mdf, fn_in, ft_in), "etikettek.pdf")
+    with c2:
+        if st.button("📋 MENETTERV LETÖLTÉSE"):
+            st.download_button("Mentés (menetterv.pdf)", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf")

@@ -112,55 +112,65 @@ def merge_data_flexible(raw_rows):
         merged.append(base)
     return merged
 
-# --- PDF GENERÁLÁS (MÓDOSÍTOTT) ---
+# --- PDF GENERÁLÁS (KOMPAKT MENETTERV) ---
 def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
     
-    # Új stílusok: Név nagyobb és bold
-    name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=11, leading=13)
-    cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=8, leading=10)
+    # Kompakt stílusok
+    name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=10, leading=11)
+    cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=8, leading=9)
+    header_font_size = 9
 
-    rows_per_page = 22 # Kevesebb sor a nagyobb betűk miatt
+    rows_per_page = 25 
     total_pages = math.ceil(len(df)/rows_per_page)
 
     for p_idx in range(total_pages):
+        # Fejléc
         p.setFont(f_bold, 11); p.drawString(15*mm, h-12*mm, f"MENETTERV - {fn}")
         
-        # Oldalszámozás a lap alján
-        p.setFont(f_reg, 8)
-        p.drawRightString(w-15*mm, 10*mm, f"{p_idx+1} / {total_pages} oldal")
+        # Oldalszámozás (vékonyabb, kisebb betűvel)
+        p.setFont(f_reg, 7)
+        p.drawRightString(w-15*mm, 8*mm, f"{p_idx+1} / {total_pages} oldal")
         
-        # Checkbox oszlop hozzáadva ("OK")
+        # Táblázat fejléce kisebb betűvel
         data = [["SOR", "ÜGYFÉL / CÍM", "OK", "TELEFON", "RENDELÉS", "DB", "FIZETENDŐ"]]
         subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
         
         for _, r in subset.iterrows():
-            # Név kiemelése a paragraph-ban
-            name_content = Paragraph(f"{r['Ügyintéző']}<br/><font size=8 color='#444444'>{r['Cím']}</font>", name_s)
+            # Kompakt név/cím: a cím sötétszürke és apró
+            name_content = Paragraph(f"{r['Ügyintéző']}<br/><font size=7 color='#333333'>{r['Cím']}</font>", name_s)
             pénz_megj = r['Pénz'] if r['Pénz'] != "" else ""
+            
             data.append([
                 f"#{int(r['Sorrend'])}", 
                 name_content, 
-                "[  ]", # Checkbox
+                "[ ]", 
                 r['Telefon'], 
                 Paragraph(r['Rendelés'], cell_s), 
                 r['Összesen'], 
                 pénz_megj
             ])
         
-        # Oszlopszélességek a checkboxhoz igazítva
-        t = Table(data, colWidths=[11*mm, 62*mm, 10*mm, 25*mm, 52*mm, 8*mm, 22*mm])
+        # Oszlopszélességek finomhangolva
+        t = Table(data, colWidths=[10*mm, 65*mm, 8*mm, 25*mm, 52*mm, 8*mm, 22*mm])
+        
         t.setStyle(TableStyle([
             ('FONTNAME', (0,0), (-1,0), f_bold),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+            ('FONTSIZE', (0,0), (-1,0), header_font_size),
+            ('GRID', (0,0), (-1,-1), 0.3, colors.black), # Vékonyabb rács
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('ALIGN', (2,0), (2,-1), 'CENTER'), # OK oszlop középre
-            ('ALIGN', (-1,0), (-1,-1), 'RIGHT')
+            ('ALIGN', (2,0), (2,-1), 'CENTER'),
+            ('ALIGN', (-1,0), (-1,-1), 'RIGHT'),
+            ('LEFTPADDING', (0,0), (-1,-1), 3),
+            ('RIGHTPADDING', (0,0), (-1,-1), 3),
+            ('TOPPADDING', (0,0), (-1,-1), 1),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 1),
         ]))
         
         tw, th = t.wrap(w-20*mm, h-35*mm)
-        t.drawOn(p, 10*mm, (h-18*mm)-th)
+        # Kicsit feljebb toljuk a táblázatot, hogy alul több hely maradjon
+        t.drawOn(p, 10*mm, (h-16*mm)-th)
         p.showPage()
     
     p.save(); buf.seek(0); return buf
@@ -232,3 +242,4 @@ if st.session_state.mdf is not None:
     c1, c2 = st.columns(2)
     with c1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, fn_in, ft_in), "etikettek.pdf")
     with c2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf")
+

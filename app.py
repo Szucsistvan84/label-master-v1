@@ -14,7 +14,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.30", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.31", layout="wide")
 
 # --- NAP RÖVIDÍTÉSEK ---
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
@@ -57,8 +57,9 @@ def parse_interfood_pro(pdf_file):
                 v_o, sq = [], 0
                 for o in raw_orders:
                     try:
-                        q = int(re.sub(r'\D', '', o.split('-')[0])[-1])
-                        v_o.append(f"{q}-{o.split('-')[1]}"); sq += q
+                        parts = o.split('-')
+                        q = int(re.sub(r'\D', '', parts[0])[-1])
+                        v_o.append(f"{q}-{parts[1]}"); sq += q
                     except: continue
                 if v_o: rows.append({"Prefix": prefix, "ID": uid, "Ügyintéző": clean_name, "Cím": clean_addr, "Telefon": tel_m.group(0) if tel_m else "", "Rendelés": ", ".join(v_o), "Összesen": sq})
     return rows
@@ -79,6 +80,7 @@ def merge_data_flexible(raw_rows):
         merged.append(base)
     return merged
 
+# PDF Generátorok (create_label_pdf, create_manifest_pdf) maradnak változatlanok...
 def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
@@ -99,13 +101,8 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_bold, 8); p.drawString(x+8*mm, y+28*mm, str(r['Ügyintéző'])[:30])
             p.setFont(f_reg, 7); p.drawRightString(x+lw-9*mm, y+28*mm, str(r['Telefon']))
             p.setFont(f_reg, 7); p.drawString(x+8*mm, y+24.5*mm, str(r['Cím'])[:45])
-            
-            # JAVÍTOTT PARAGRAPH RAJZOLÁS (Nem láncolt metódusokkal)
-            p_text = str(r['Rendelés']) if pd.notna(r['Rendelés']) else ""
-            para = Paragraph(p_text, style)
-            para.wrap(lw-16*mm, 15*mm)
-            para.drawOn(p, x+8*mm, y+13*mm)
-            
+            para = Paragraph(str(r['Rendelés']) if pd.notna(r['Rendelés']) else "", style)
+            para.wrap(lw-16*mm, 15*mm); para.drawOn(p, x+8*mm, y+13*mm)
             p.setFont(f_reg, 7); p.drawRightString(x+lw-9*mm, y+9*mm, f"Össz: {r['Összesen']} db")
             p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+5.5*mm, f"Futár: {fn} ({ft})")
     p.save(); buf.seek(0); return buf
@@ -132,7 +129,7 @@ def create_manifest_pdf(df, fn):
     p.save(); buf.seek(0); return buf
 
 # --- UI ---
-st.title("🏷️ Interfood Logisztika v203.30")
+st.title("🏷️ Interfood Logisztika v203.31")
 if 'mdf' not in st.session_state: st.session_state.mdf = None
 
 with st.sidebar:
@@ -150,42 +147,38 @@ if up_files and st.button("📊 FELDOLGOZÁS"):
     raw = []
     for f in up_files: raw.extend(parse_interfood_pro(f))
     mdf = pd.DataFrame(merge_data_flexible(raw))
+    
     if os.path.exists("user_prefs.csv"):
         prefs = pd.read_csv("user_prefs.csv").set_index('ID')['Sorrend'].to_dict()
-        mdf['S'] = mdf['ID'].map(prefs)
-        mdf = mdf.sort_values(by=['S', 'ID'], na_position='last').drop(columns=['S'])
-    mdf.insert(0, "Sorrend", range(1, len(mdf)+1))
+        mdf['Sorrend'] = mdf['ID'].map(prefs)
+        # KRITIKUS JAVÍTÁS: Kényszerített sorrend és ID alapú rendezés
+        mdf = mdf.sort_values(by=['Sorrend', 'ID'], na_position='last').reset_index(drop=True)
+    
+    # Ha nincs mentett sorrend, vagy új ügyfelek vannak, osszunk nekik sorszámot
+    mdf['Sorrend'] = range(1, len(mdf)+1)
     st.session_state.mdf = mdf.astype({"Sorrend": float, "ID": str})
 
 if st.session_state.mdf is not None:
     edited_df = st.data_editor(
         st.session_state.mdf, 
-        num_rows="dynamic", 
-        use_container_width=True, 
-        hide_index=True, 
-        key="main_editor",
-        column_config={
-            "Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f", step=0.1)
-        }
+        num_rows="dynamic", use_container_width=True, hide_index=True, key="main_editor",
+        column_config={"Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f", step=0.1)}
     )
 
     if st.button("🔄 SORREND ÉS ADATOK FRISSÍTÉSE"):
         temp_df = edited_df.copy()
         temp_df["Sorrend"] = pd.to_numeric(temp_df["Sorrend"], errors='coerce').fillna(999).astype(float)
+        # Újrarendezés a bevitt adatok alapján
         temp_df = temp_df.sort_values("Sorrend").reset_index(drop=True)
         temp_df["Sorrend"] = range(1, len(temp_df) + 1)
-        temp_df["Sorrend"] = temp_df["Sorrend"].astype(float)
-        st.session_state.mdf = temp_df
+        st.session_state.mdf = temp_df.astype({"Sorrend": float})
         st.rerun()
 
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
         if st.button("📥 ETIKETTEK LETÖLTÉSE"):
-            # Itt már a javított függvény fut le
-            pdf_data = create_label_pdf(st.session_state.mdf, fn_in, ft_in)
-            st.download_button("Mentés (etikettek.pdf)", pdf_data, "etikettek.pdf")
+            st.download_button("Mentés (etikettek.pdf)", create_label_pdf(st.session_state.mdf, fn_in, ft_in), "etikettek.pdf")
     with c2:
         if st.button("📋 MENETTERV LETÖLTÉSE"):
-            pdf_data = create_manifest_pdf(st.session_state.mdf, fn_in)
-            st.download_button("Mentés (menetterv.pdf)", pdf_data, "menetterv.pdf")
+            st.download_button("Mentés (menetterv.pdf)", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf")

@@ -14,8 +14,9 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
-# --- ALAPBEÁLLÍTÁSOK ---
-st.set_page_config(page_title="Interfood Logisztika v203.38", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.39", layout="wide")
+
+# --- UTILS ---
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
 
 def register_fonts():
@@ -26,7 +27,6 @@ def register_fonts():
         return "DejaVu", "DejaVu-Bold"
     except: return "Helvetica", "Helvetica-Bold"
 
-# --- ADATFELDOLGOZÁS ---
 def parse_interfood_pro(pdf_file):
     rows = []
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
@@ -86,9 +86,12 @@ def create_label_pdf(df, fn, ft):
     p = canvas.Canvas(buf, pagesize=A4)
     w, h = A4
     
-    lw, lh = 70*mm, 42.4*mm 
-    margin_x = 0.1*mm 
-    margin_y = 0.5*mm
+    # --- MÉRETEZÉS KORREKCIÓJA A MARGÓKHOZ ---
+    lw, lh = 66*mm, 39*mm  # Kicsit kisebb cellák, hogy legyen hely a margónak
+    margin_x = 6*mm        # 6mm bal margó
+    margin_y = 12*mm       # 12mm felső margó (felülről számítva a ReportLab-nál)
+    gap_x = 2*mm           # 2mm köz az oszlopok között
+    gap_y = 1.5*mm         # 1.5mm köz a sorok között
     
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.5, leading=8.5, alignment=0)
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8.5, leading=10, alignment=1)
@@ -97,7 +100,10 @@ def create_label_pdf(df, fn, ft):
         idx = i % 21
         if idx == 0 and i > 0: p.showPage()
         col, row_i = idx % 3, 6 - (idx // 3)
-        x, y = margin_x + col*lw, margin_y + row_i*lh
+        
+        # X és Y számítása a réseket (gap) és margót figyelembe véve
+        x = margin_x + col * (lw + gap_x)
+        y = margin_y + row_i * (lh + gap_y)
         
         p.setStrokeColor(colors.black)
         p.setLineWidth(0.5)
@@ -107,33 +113,32 @@ def create_label_pdf(df, fn, ft):
             if r.get('HasSaturday', False) or "Szo:" in str(r['Rendelés']):
                 p.setLineWidth(1.6)
             
-            p.rect(x+1.5*mm, y+1*mm, lw-3*mm, lh-2*mm)
+            p.rect(x, y, lw, lh)
             
-            # Ügyfél adatok (Balra igazítva)
-            p.setFont(f_bold, 9); p.drawString(x+4*mm, y+35*mm, f"#{int(r['Sorrend'])}")
-            p.setFont(f_reg, 7.5); p.drawRightString(x+lw-5*mm, y+35*mm, f"ID: {r['ID']}")
-            p.setFont(f_bold, 8.5); p.drawString(x+4*mm, y+29*mm, str(r['Ügyintéző'])[:32])
-            p.setFont(f_reg, 7.5); p.drawRightString(x+lw-5*mm, y+29*mm, str(r['Telefon']))
-            p.setFont(f_reg, 7.5); p.drawString(x+4*mm, y+25*mm, str(r['Cím'])[:48])
+            p.setFont(f_bold, 9); p.drawString(x+3*mm, y+34*mm, f"#{int(r['Sorrend'])}")
+            p.setFont(f_reg, 7.5); p.drawRightString(x+lw-3*mm, y+34*mm, f"ID: {r['ID']}")
+            p.setFont(f_bold, 8.5); p.drawString(x+3*mm, y+28*mm, str(r['Ügyintéző'])[:32])
+            p.setFont(f_reg, 7.5); p.drawRightString(x+lw-3*mm, y+28*mm, str(r['Telefon']))
+            p.setFont(f_reg, 7.5); p.drawString(x+3*mm, y+24*mm, str(r['Cím'])[:48])
             
             para = Paragraph(str(r['Rendelés']), order_s)
-            para.wrap(lw-8*mm, 15*mm)
-            para.drawOn(p, x+4*mm, y+11*mm)
+            para.wrap(lw-6*mm, 15*mm)
+            para.drawOn(p, x+3*mm, y+10*mm)
             
-            p.setFont(f_bold, 8); p.drawRightString(x+lw-5*mm, y+7*mm, f"Össz: {r['Összesen']} db")
-            p.setFont(f_reg, 6.5); p.drawCentredString(x+lw/2, y+3.5*mm, f"Futár: {fn} ({ft})")
+            p.setFont(f_bold, 8); p.drawRightString(x+lw-3*mm, y+6*mm, f"Össz: {r['Összesen']} db")
+            p.setFont(f_reg, 6.5); p.drawCentredString(x+lw/2, y+3*mm, f"Futár: {fn} ({ft})")
         else:
-            # MARKETING (Középre igazítva)
-            p.rect(x+1.5*mm, y+1*mm, lw-3*mm, lh-2*mm)
+            # MARKETING (Középre igazítva, kért formázásokkal)
+            p.rect(x, y, lw, lh)
             m_text = (
-                f"<b>15% kedvezmény* 3 hétig</b><br/>"
+                f"<font size='10.5'><b>15% kedvezmény* 3 hétig</b></font><br/>"
                 f"Új Ügyfeleink részére!<br/><br/>"
                 f"<b>Rendelés leadás:</b><br/>"
-                f"{fn}, tel: {ft}<br/><br/>"
-                f"<font size='5.5'>* a kedvezmény telefonon leadott rendelésekre érvényesíthető<br/>területi képviselőnk által</font>"
+                f"<b>{fn}</b>, tel: <b>{ft}</b><br/><br/>"
+                f"<font size='5.5'><b>* a kedvezmény telefonon leadott rendelésekre érvényesíthető<br/>területi képviselőnk által</b></font>"
             )
             para = Paragraph(m_text, promo_s)
-            pw, ph = para.wrap(lw-8*mm, lh-8*mm)
+            pw, ph = para.wrap(lw-6*mm, lh-6*mm)
             para.drawOn(p, x + (lw-pw)/2, y + (lh-ph)/2)
 
     p.save()
@@ -162,7 +167,7 @@ def create_manifest_pdf(df, fn):
         p.showPage()
     p.save(); buf.seek(0); return buf
 
-# --- FELHASZNÁLÓI FELÜLET ---
+# --- UI ---
 if 'mdf' not in st.session_state: st.session_state.mdf = None
 
 with st.sidebar:
@@ -188,11 +193,8 @@ if up_files and st.button("📊 FELDOLGOZÁS"):
             mdf = mdf.merge(prefs[['ID', 'Sorrend']], on='ID', how='left')
             mdf['Sorrend'] = mdf['Sorrend'].fillna(9999.0)
         else: mdf['Sorrend'] = range(1, len(mdf) + 1)
-        
         mdf = mdf.sort_values(by=['Sorrend', 'ID']).reset_index(drop=True)
         mdf['Sorrend'] = [float(i+1) for i in range(len(mdf))]
-        
-        # OSZLOP SORREND KÉNYSZERÍTÉSE
         cols = ['Sorrend'] + [c for c in mdf.columns if c != 'Sorrend']
         st.session_state.mdf = mdf[cols]; st.rerun()
 

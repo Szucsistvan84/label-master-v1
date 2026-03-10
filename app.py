@@ -15,7 +15,7 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
 # --- ALAPBEÁLLÍTÁSOK ---
-VERZIO = "v203.46"
+VERZIO = "v203.47"
 st.set_page_config(page_title=f"Interfood Logisztika {VERZIO}", layout="wide")
 st.title(f"Interfood Logisztika {VERZIO}")
 
@@ -29,7 +29,12 @@ def register_fonts():
         return "DejaVu", "DejaVu-Bold"
     except: return "Helvetica", "Helvetica-Bold"
 
-# --- ADATFELDOLGOZÁS (OKOS ÖSSZEFŰZÉS) ---
+def custom_round(amount):
+    """5 Ft-os kerekítési szabály alkalmazása"""
+    rounded = 5 * round(amount / 5)
+    return rounded
+
+# --- ADATFELDOLGOZÁS (BEVÁLT v203.46 LOGIKA + KEREKÍTÉS) ---
 def parse_interfood_pro(pdf_file):
     rows = []
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
@@ -48,38 +53,34 @@ def parse_interfood_pro(pdf_file):
                 else: lines_dict[y] = [w]
             
             sorted_y = sorted(lines_dict.keys())
-            
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines_dict[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
-                
-                # Keressük az ügyfélkódot
                 u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
                 
                 if u_code_m:
                     prefix, uid = u_code_m.group(0).split('-')[0], u_code_m.group(0).split('-')[-1]
-                    
-                    # Név és Cím kinyerése (visszaállítva a koordináta alapúra)
                     b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
                     b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
                     clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
-                    
-                    # Pénz és telefon keresése ebben a sorban
                     tel_m = re.search(phone_pat, text_ws.replace(" ", ""))
                     money_m = re.search(money_pat, text_ws)
                     
-                    # Ha ebben a sorban nincs pénz, nézzük meg a következőt (mert ott törik alá)
                     if not money_m and i + 1 < len(sorted_y):
                         next_text = " ".join([w['text'] for w in sorted(lines_dict[sorted_y[i+1]], key=lambda x: x['x0'])])
-                        # Csak akkor vesszük át, ha abban a sorban NINCS új ügyfélkód
                         if not re.search(r'([HKSCPZ]-[0-9]{5,7})', next_text):
                             money_m = re.search(money_pat, next_text)
 
-                    amount_str = money_m.group(0) if money_m else "0 Ft"
+                    # Kerekítés kezelése
+                    raw_money = 0
+                    if money_m:
+                        val_str = re.sub(r'[^-0-9]', '', money_m.group(0))
+                        if val_str: raw_money = int(val_str)
+                    
+                    rounded_money = custom_round(raw_money)
                     
                     addr_m = re.search(r'(\d{4})', b3)
                     clean_addr = b3[addr_m.start():].strip() if addr_m else b3
-                    
                     raw_orders = re.findall(order_pat, text_ws)
                     v_o, sq = [], 0
                     for o in raw_orders:
@@ -92,7 +93,7 @@ def parse_interfood_pro(pdf_file):
                         rows.append({
                             "Prefix": prefix, "ID": uid, "Ügyintéző": clean_name, 
                             "Cím": clean_addr, "Telefon": tel_m.group(0) if tel_m else "", 
-                            "Rendelés": ", ".join(v_o), "Összesen": sq, "Pénz": amount_str
+                            "Rendelés": ", ".join(v_o), "Összesen": sq, "Pénz_Int": rounded_money
                         })
     return rows
 
@@ -102,7 +103,6 @@ def merge_data_flexible(raw_rows):
     merged = []
     for uid, group in df.groupby("ID", sort=False):
         base = group.iloc[0].copy().to_dict()
-        base['HasSaturday'] = any(p == 'Z' for p in group['Prefix'])
         o_p = []
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
             day_group = group[group['Prefix'] == pfix]
@@ -113,17 +113,13 @@ def merge_data_flexible(raw_rows):
         base['Rendelés'] = " | ".join(o_p)
         base['Összesen'] = group['Összesen'].sum()
         
-        # Pénzösszegek szummázása
-        total_money = 0
-        for m_str in group['Pénz']:
-            m_val = re.sub(r'[^-0-9]', '', str(m_str))
-            if m_val: total_money += int(m_val)
-        base['Pénz'] = f"{total_money} Ft"
+        total_m = group['Pénz_Int'].sum()
+        # Ha 0, akkor üres string, különben formázott Ft
+        base['Pénz'] = f"{total_m} Ft" if total_m != 0 else ""
         merged.append(base)
     return merged
 
-# --- PDF GENERÁLÁS (ETIKETT ÉS MENETTERV) ---
-# [A generáló kódok megegyeznek a v203.45-tel, de a Sorrend oszlopot fixen kezelik]
+# --- PDF GENERÁLÁS MARKETING SZÖVEGGEL ---
 def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4)
@@ -131,14 +127,17 @@ def create_label_pdf(df, fn, ft):
     margin_x, margin_y = 7*mm, 6*mm
     gap_x, gap_y = 3*mm, 1.5*mm
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.2, leading=8)
+    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1)
+
     for i in range(math.ceil(len(df)/21)*21):
         idx = i % 21
         if idx == 0 and i > 0: p.showPage()
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = margin_x + col * (lw + gap_x), margin_y + row_i * (lh + gap_y)
-        p.setStrokeColor(colors.black); p.setLineWidth(0.5)
+        p.setStrokeColor(colors.black); p.setLineWidth(0.5); p.rect(x, y, lw, lh)
+
         if i < len(df):
-            r = df.iloc[i]; p.rect(x, y, lw, lh)
+            r = df.iloc[i]
             p.setFont(f_bold, 9); p.drawString(x+3*mm, y+34*mm, f"#{int(r['Sorrend'])}")
             p.setFont(f_reg, 7.5); p.drawRightString(x+lw-3*mm, y+34*mm, f"ID: {r['ID']}")
             p.setFont(f_bold, 8.2); p.drawString(x+3*mm, y+29*mm, str(r['Ügyintéző'])[:30])
@@ -146,9 +145,22 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_reg, 7); p.drawString(x+3*mm, y+25*mm, str(r['Cím'])[:45])
             para = Paragraph(str(r['Rendelés']), order_s)
             para.wrap(lw-6*mm, 12*mm); para.drawOn(p, x+3*mm, y+11*mm)
-            p.setFont(f_bold, 8.5); p.drawString(x+3*mm, y+6*mm, f"Fizetendő: {r['Pénz']}")
+            
+            if r['Pénz']:
+                p.setFont(f_bold, 8.5); p.drawString(x+3*mm, y+6*mm, f"Fizetendő: {r['Pénz']}")
+            
             p.setFont(f_bold, 7.5); p.drawRightString(x+lw-3*mm, y+6*mm, f"Össz: {r['Összesen']} db")
             p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+2.5*mm, f"Futár: {fn} ({ft})")
+        else:
+            # MARKETING SZÖVEG AZ ÜRES CÍMKÉKRE
+            p.setFont(f_bold, 9); p.drawCentredString(x+lw/2, y+32*mm, "15% KEDVEZMÉNY* 3 hétig")
+            p.setFont(f_reg, 8); p.drawCentredString(x+lw/2, y+28*mm, "Új Ügyfeleink részére!")
+            p.setFont(f_reg, 7); p.drawCentredString(x+lw/2, y+20*mm, "Rendelés leadás:")
+            p.setFont(f_bold, 8); p.drawCentredString(x+lw/2, y+15*mm, f"{fn}")
+            p.setFont(f_reg, 8); p.drawCentredString(x+lw/2, y+11*mm, f"tel: {ft}")
+            p.setFont(f_reg, 5.5); p.drawCentredString(x+lw/2, y+5*mm, "*a kedvezmény telefonon leadott rendelésekre")
+            p.drawCentredString(x+lw/2, y+3*mm, "érvényesíthető területi képviselőnk által")
+
     p.save(); buf.seek(0); return buf
 
 def create_manifest_pdf(df, fn):
@@ -161,7 +173,9 @@ def create_manifest_pdf(df, fn):
         subset = df.iloc[p_idx*22 : (p_idx+1)*22]
         for _, r in subset.iterrows():
             name = Paragraph(f"<b>{r['Ügyintéző']}</b><br/>{r['Cím']}", cell_s)
-            data.append([f"#{int(r['Sorrend'])}", name, r['Telefon'], Paragraph(r['Rendelés'], cell_s), r['Összesen'], r['Pénz']])
+            # Menetterven is üres, ha 0 Ft
+            pénz_megjelenítés = r['Pénz'] if r['Pénz'] != "" else ""
+            data.append([f"#{int(r['Sorrend'])}", name, r['Telefon'], Paragraph(r['Rendelés'], cell_s), r['Összesen'], pénz_megjelenítés])
         t = Table(data, colWidths=[12*mm, 65*mm, 25*mm, 55*mm, 10*mm, 25*mm])
         t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,0), f_bold), ('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('ALIGN', (-1,0), (-1,-1), 'RIGHT')]))
         tw, th = t.wrap(w-20*mm, h-35*mm); t.drawOn(p, 10*mm, (h-18*mm)-th); p.showPage()
@@ -191,9 +205,7 @@ if up_files and st.button("📊 FELDOLGOZÁS"):
         
         mdf = mdf.sort_values(by=['Sorrend', 'ID']).reset_index(drop=True)
         mdf['Sorrend'] = [float(i+1) for i in range(len(mdf))]
-        
-        # OSZLOP SORREND HELYREÁLLÍTÁSA: Sorrend az első helyen
-        cols = ['Sorrend', 'Prefix', 'ID', 'Ügyintéző', 'Cím', 'Telefon', 'Rendelés', 'Összesen', 'Pénz', 'HasSaturday']
+        cols = ['Sorrend', 'Prefix', 'ID', 'Ügyintéző', 'Cím', 'Telefon', 'Rendelés', 'Összesen', 'Pénz']
         st.session_state.mdf = mdf[cols]; st.rerun()
 
 if st.session_state.mdf is not None:

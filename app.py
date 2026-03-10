@@ -14,9 +14,9 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
-st.set_page_config(page_title="Interfood Logisztika v203.34", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika v203.35", layout="wide")
 
-# --- UTILS ---
+# --- SEGÉDFÜGGVÉNYEK ---
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
 
 def register_fonts():
@@ -79,6 +79,7 @@ def merge_data_flexible(raw_rows):
         merged.append(base)
     return merged
 
+# ... (create_label_pdf és create_manifest_pdf marad a régiben) ...
 def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
@@ -113,36 +114,3 @@ def create_manifest_pdf(df, fn):
     cell_style = ParagraphStyle('CellStyle', fontName=f_reg, fontSize=8.5, leading=11)
     for p_idx in range(total_p):
         p.setFont(f_bold, 11); p.drawString(15*mm, h-12*mm, f"MENETTERV - {fn}")
-        p.setFont(f_reg, 8); p.drawCentredString(w/2, 10*mm, f"{p_idx + 1} / {total_p} oldal")
-        data = [["SOR", "ÜGYFÉL NÉV / [ ] / CÍM", "TELEFON", "RENDELÉS", "DB"]]
-        subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
-        for _, r in subset.iterrows():
-            name_box = Paragraph(f"<b>{r['Ügyintéző']}</b> [  ]<br/><font size='7'>{r['Cím']}</font>", cell_style)
-            orders = Paragraph(str(r['Rendelés']), cell_style)
-            data.append([f"#{int(r['Sorrend'])}", name_box, r['Telefon'], orders, r['Összesen']])
-        t = Table(data, colWidths=[12*mm, 70*mm, 28*mm, 65*mm, 10*mm])
-        t.setStyle(TableStyle([('FONTNAME', (0,0), (-1,0), f_bold), ('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
-        tw, th = t.wrap(w - 20*mm, h - 35*mm); t.drawOn(p, 10*mm, (h-18*mm) - th)
-        p.showPage()
-    p.save(); buf.seek(0); return buf
-
-# --- UI ---
-st.title("🏷️ Interfood Logisztika v203.34")
-
-if 'mdf' not in st.session_state: st.session_state.mdf = None
-
-with st.sidebar:
-    st.header("⚙️ Beállítások")
-    fn_in = st.text_input("Futár neve", "Szűcs István")
-    ft_in = st.text_input("Telefonszáma", "+3620/886-89-71")
-    st.divider()
-    if st.button("💾 AKTUÁLIS SORREND MENTÉSE"):
-        if st.session_state.mdf is not None:
-            st.session_state.mdf[['ID', 'Sorrend']].to_csv("user_prefs.csv", index=False)
-            st.success("Sorrend rögzítve!")
-
-up_files = st.file_uploader("PDF feltöltés", accept_multiple_files=True)
-
-if up_files and st.button("📊 FELDOLGOZÁS"):
-    raw = []
-    for f in up_files: raw

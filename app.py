@@ -15,7 +15,7 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
 # --- ALAPBEÁLLÍTÁSOK ---
-VERZIO = "v203.53"
+VERZIO = "v203.54"
 st.set_page_config(page_title=f"Interfood Logisztika {VERZIO}", layout="wide")
 st.title(f"Interfood Logisztika {VERZIO}")
 
@@ -30,12 +30,14 @@ def register_fonts():
     except: return "Helvetica", "Helvetica-Bold"
 
 def extract_gate_code(text):
+    """Szigorított keresés: Csak ha van benne rács vagy konkrét 'kapukód' szó"""
     if not text: return None
-    # Keresünk: számok + (# vagy k vagy kulcs) + számok
-    pattern = r'(\d+)\s*(?:#|[Kk]|kulcs)\s*(\d+)'
+    # Minták: 14#2770 vagy kapukód: 1234
+    pattern = r'(\d{1,4}\s*#\s*\d{1,4})|(?i)kapukód[:\s]*(\d+)'
     match = re.search(pattern, text)
     if match:
-        return f"{match.group(1)}K{match.group(2)}"
+        res = match.group(0).replace(" ", "")
+        return res
     return None
 
 # --- ADATFELDOLGOZÁS ---
@@ -64,12 +66,12 @@ def parse_interfood_pro(pdf_file):
                 
                 if u_code_m:
                     prefix, uid = u_code_m.group(0).split('-')[0], u_code_m.group(0).split('-')[-1]
-                    # Ügyfél oszlop szövege a kapukódhoz
+                    # Ügyfél oszlop tartománya (megjegyzések)
                     b2_text = " ".join([w['text'] for w in line_words if 40 <= w['x0'] < 155])
                     b3 = " ".join([w['text'] for w in line_words if 155 <= w['x0'] < 355])
                     b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
                     
-                    gate_code = extract_gate_code(b2_text) or extract_gate_code(text_ws)
+                    gate_code = extract_gate_code(b2_text)
 
                     clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                     tel_m = re.search(phone_pat, text_ws.replace(" ", ""))
@@ -157,11 +159,9 @@ def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
     
-    # Kért stílusok: Nagyobb név, kisebb telefon
-    name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=10, leading=12)
-    addr_s = ParagraphStyle('Addr', fontName=f_reg, fontSize=8, leading=9)
+    name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=10.5, leading=12)
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=9, leading=11)
-    phone_s = ParagraphStyle('Phone', fontName=f_reg, fontSize=7.5, leading=9)
+    phone_s = ParagraphStyle('Phone', fontName=f_reg, fontSize=7.2, leading=9)
 
     rows_per_page = 25
     total_pages = math.ceil(len(df)/rows_per_page)
@@ -170,13 +170,12 @@ def create_manifest_pdf(df, fn):
         p.setFont(f_bold, 12); p.drawString(10*mm, h-12*mm, f"MENETTERV - {fn}")
         p.setFont(f_reg, 9); p.drawRightString(w-10*mm, h-12*mm, f"{p_idx+1}. oldal / {total_pages}")
         
-        # Oszlopsorrend: SOR | ÜGYFÉL | [ ] | TELEFON | RENDELÉS | DB | PÉNZ
         data = [["SOR", "ÜGYFÉL / CÍM", "[ ]", "TELEFON", "RENDELÉS", "DB", "PÉNZ"]]
         subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
         
         for _, r in subset.iterrows():
-            k_kod = f" <font color='red'><b>[{r['Kapukód']}]</b></font>" if r['Kapukód'] else ""
-            client_p = Paragraph(f"<b>{r['Ügyintéző']}</b>{k_kod}<br/><font size=8>{r['Cím']}</font>", name_s)
+            k_kod = f" <b>[{r['Kapukód']}]</b>" if r['Kapukód'] else ""
+            client_p = Paragraph(f"{r['Ügyintéző']}{k_kod}<br/><font size=8.5>{r['Cím']}</font>", name_s)
             data.append([
                 f"#{int(r['Sorrend'])}", 
                 client_p, 
@@ -187,22 +186,20 @@ def create_manifest_pdf(df, fn):
                 r['Pénz']
             ])
         
-        # Oszlopszélességek: Pénz szűk (16mm), Rendelés széles (62mm)
-        t = Table(data, colWidths=[10*mm, 60*mm, 10*mm, 24*mm, 62*mm, 8*mm, 16*mm], rowHeights=7.4*mm)
+        # Sormagasság fixálva 10.4mm-re, hogy a 25 sor kitöltse a lapot
+        t = Table(data, colWidths=[10*mm, 62*mm, 10*mm, 24*mm, 62*mm, 8*mm, 16*mm], rowHeights=[7*mm] + [10.4*mm]*len(subset))
         
         t.setStyle(TableStyle([
             ('FONTNAME', (0,0), (-1,0), f_bold),
             ('GRID', (0,0), (-1,-1), 0.5, colors.black),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('ALIGN', (0,0), (0,-1), 'CENTER'),
-            ('ALIGN', (2,0), (2,-1), 'CENTER'), # Checkbox középre
+            ('ALIGN', (2,0), (2,-1), 'CENTER'),
             ('ALIGN', (-1,0), (-1,-1), 'RIGHT'),
             ('LEFTPADDING', (1,0), (1,-1), 4),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
-            ('TOPPADDING', (0,0), (-1,-1), 5),
         ]))
         
-        th = t.wrap(w-10*mm, h-30*mm)[1]
+        tw, th = t.wrap(w-10*mm, h-30*mm)
         t.drawOn(p, 5*mm, (h-18*mm)-th)
         p.showPage()
         

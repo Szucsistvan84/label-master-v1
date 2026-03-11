@@ -11,54 +11,16 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 
-VERZIO = "v203.63-FULL-WEEK-ESZTETIK"
+VERZIO = "v203.65-UNIVERSAL-ZIP-FIX"
 WEIGHTS_FILE = "client_weights.csv"
 
-# --- KONFIGURÁCIÓ ÉS RÖVIDÍTÉSEK ---
-NAP_MAP = {
-    "H": "Hé",
-    "K": "Ke",
-    "S": "Sze",
-    "C": "Csü",
-    "P": "Pé",
-    "Z": "Szo"
-}
+NAP_MAP = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
 
 st.set_page_config(page_title=f"Interfood Logisztika {VERZIO}", layout="wide")
 
-# --- SEGÉDFÜGGVÉNYEK ---
-def register_fonts():
-    try:
-        pdfmetrics.registerFont(TTFont('DejaVu', "DejaVuSans.ttf"))
-        pdfmetrics.registerFont(TTFont('DejaVu-Bold', "DejaVuSans-Bold.ttf"))
-        return "DejaVu", "DejaVu-Bold"
-    except:
-        return "Helvetica", "Helvetica-Bold"
-
-def load_weights():
-    if os.path.exists(WEIGHTS_FILE):
-        try:
-            return pd.read_csv(WEIGHTS_FILE, dtype={'ID': str}).set_index('ID')['Weight'].to_dict()
-        except: return {}
-    return {}
-
-def save_weights(df):
-    weights_df = df[['ID', 'Sorrend']].rename(columns={'Sorrend': 'Weight'})
-    weights_df.to_csv(WEIGHTS_FILE, index=False)
-    st.success("Súlyozás (sorrend) elmentve a háttérbe!")
-
-def smart_round(x):
-    try:
-        cleaned = re.sub(r'[^\d\-]', '', str(x))
-        if not cleaned or cleaned == "-": return 0
-        val = float(cleaned)
-        return int(5 * round(val/5))
-    except: return 0
-
-# --- ADATFELDOLGOZÁS (MINDEN NAPRA) ---
+# --- ADATFELDOLGOZÁS ---
 def parse_interfood_pro(pdf_file):
     rows = []
-    # Prefixek: H, K, S, C, P, Z
     u_code_pat = r'(?:([HKSCPZ])[-]?|ID:\s*)([0-9]{5,7})'
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
     money_pat = r'(-?\d[\d\s]*)\s*Ft'
@@ -85,37 +47,34 @@ def parse_interfood_pro(pdf_file):
                     uid = u_code_m.group(2)
                     nap_szep = NAP_MAP.get(nap_prefix, nap_prefix)
                     
-                    # NÉV és CÍM kinyerése (sávok alapján az elcsúszás ellen)
-                    name_parts = [w['text'] for w in line_words if 340 <= w['x0'] < 520]
-                    clean_name = " ".join(name_parts).split('/')[0].strip()
-                    clean_name = re.sub(r'\s*-[A-Z0-9/ \-]+$', '', clean_name).strip()
+                    # NÉV TISZTÍTÁSA: Levágjuk a név végére ragadt telefonszámokat és egyéb kódokat
+                    name_parts = [w['text'] for w in line_words if 340 <= w['x0'] < 530]
+                    raw_name = " ".join(name_parts).split('/')[0].strip()
+                    # Szigorúbb vágás: levágja ha a név végén csak egy 20, 30 vagy 70 áll
+                    clean_name = re.sub(r'\s*(20|30|70)$', '', raw_name)
+                    clean_name = re.split(r'\d{2}/|\d{7}|#| -', clean_name)[0].strip()
                     
+                    # CÍM TISZTÍTÁSA: Csak ha 4 jegyű számmal (irányítószámmal) kezdődik
                     addr_parts = [w['text'] for w in line_words if 150 <= w['x0'] < 340]
                     clean_addr = " ".join(addr_parts).strip()
-                    
+                    # Bármilyen 4 jegyű számot elfogad az elején
+                    if not re.match(r'^\d{4}', clean_addr):
+                        clean_addr = "" 
+
                     phone_m = re.search(r'(\d{2}/\d{6,7})', text_ws.replace(" ", ""))
                     
-                    # PÉNZ: Keresés az aktuális és a következő 4 sorban
+                    # PÉNZ KERESÉSE
                     found_money = 0
                     m_match = re.search(money_pat, text_ws)
                     if m_match:
-                        found_money = smart_round(m_match.group(1))
-                    else:
-                        for next_idx in range(1, 5):
-                            if i + next_idx < len(sorted_y):
-                                next_text = " ".join([w['text'] for w in lines_dict[sorted_y[i+next_idx]]])
-                                if re.search(u_code_pat, next_text): break
-                                m_sub = re.search(money_pat, next_text)
-                                if m_sub:
-                                    found_money = smart_round(m_sub.group(1))
-                                    break
+                        try: found_money = int(re.sub(r'[^\d\-]', '', m_match.group(1)))
+                        except: pass
                     
                     current_orders = re.findall(order_pat, text_ws)
-                    labeled_orders = [f"{nap_szep}: {o}" for o in current_orders]
                     
                     rows.append({
                         "ID": str(uid), "Ügyintéző": clean_name, "Telefon": phone_m.group(0) if phone_m else "",
-                        "Cím": clean_addr, "Rendelés": labeled_orders, "Pénz": found_money, "Nap": nap_szep
+                        "Cím": clean_addr, "Rendelés": current_orders, "Pénz": found_money, "Nap": nap_szep
                     })
     return rows
 
@@ -208,3 +167,4 @@ if 'mdf' in st.session_state:
     if st.button("📥 ETIKETTEK LETÖLTÉSE"):
         pdf_out = create_label_pdf(st.session_state.mdf, f_nev, f_tel)
         st.download_button("PDF Mentése", pdf_out, "etikettek.pdf", "application/pdf")
+

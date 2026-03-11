@@ -14,8 +14,8 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
-# --- FONTOS VÁLTOZÓK ---
-VERZIO = "v203.48-MOD9"
+# --- KONFIGURÁCIÓ ---
+VERZIO = "v203.48-MOD10-STABIL"
 
 def register_fonts():
     try:
@@ -25,77 +25,64 @@ def register_fonts():
     except:
         return "Helvetica", "Helvetica-Bold"
 
-# --- ADATKINYERŐ (Megerősített telefon, pénz és futár felismerés) ---
-def process_interfood_pdf(pdf_file):
+def custom_round(amount):
+    return 5 * round(amount / 5)
+
+# --- ADATKINYERÉS (A tegnapi kifinomult motor) ---
+def parse_interfood_source(pdf_file):
     rows = []
-    driver_name = "Ismeretlen futár"
+    driver_name = "Ismeretlen"
     
     with pdfplumber.open(pdf_file) as pdf:
-        # Futár és járatszám kinyerése
-        first_page = pdf.pages[0].extract_text() or ""
-        driver_m = re.search(r"MENETTERV\s*-\s*([^\n(]+)", first_page)
-        if driver_m:
-            driver_name = driver_m.group(1).strip()
-        jarat_m = re.search(r"(\d{4})\.\s*járat", first_page)
-        if jarat_m:
-            driver_name = f"{jarat_m.group(1)} - {driver_name}"
-
+        # Futár neve az első oldal tetejéről
+        first_page_text = pdf.pages[0].extract_text() or ""
+        driver_match = re.search(r"MENETTERV\s*-\s*([^\n(]+)", first_page_text)
+        if driver_match: driver_name = driver_match.group(1).strip()
+        
         for page in pdf.pages:
-            text = page.extract_text()
-            if not text: continue
-            lines = text.split('\n')
+            tables = page.extract_table()
+            if not tables: continue
             
-            current_row = None
-            for line in lines:
-                # Ügyfélkód (pl. S-123456) - Ez a horgonypont
-                id_match = re.search(r'([HKSCPZ]-[0-9]{5,7})', line)
-                if id_match:
-                    if current_row: rows.append(current_row)
-                    full_id = id_match.group(0)
-                    current_row = {
-                        "ID": full_id.split('-')[1],
-                        "Prefix": full_id.split('-')[0],
-                        "Ügyintéző": line.replace(full_id, "").strip(),
-                        "Cím": "", "Telefon": "", "Rendelés": "", 
-                        "Pénz": 0, "Megjegyzés": "", "Összesen": 0, "Futár": driver_name
-                    }
-                    continue
-
-                if current_row:
-                    # Telefonszám
-                    tel_m = re.search(r'(\d{2}/\d{6,7})', line)
-                    if tel_m: current_row["Telefon"] = tel_m.group(0)
-
-                    # Pénzösszeg (Ft)
-                    money_m = re.search(r'(-?\d[\d\s]*)\s*Ft', line)
-                    if money_m:
-                        val = re.sub(r'[^-0-9]', '', money_m.group(1))
-                        if val: current_row["Pénz"] += int(val)
-
-                    # Rendelés (pl. 1-L2K)
-                    orders = re.findall(r'(\d+-[A-Z][A-Z0-9*+]*)', line)
-                    if orders:
-                        current_row["Rendelés"] += ", ".join(orders) + " "
-                        for o in orders:
-                            try: current_row["Összesen"] += int(o.split('-')[0])
-                            except: pass
+            for row in tables:
+                if not row or len(row) < 5 or row[0] == "Sor": continue
+                
+                # Ügyfélkód kinyerése (pl. S-123456)
+                u_match = re.search(r'([HKSCPZ]-[0-9]{5,7})', str(row[1]))
+                if u_match:
+                    u_code = u_match.group(0)
                     
-                    # Cím és Megjegyzés szétválasztása
-                    elif any(x in line for x in ["Debrecen", " u.", " út", " tér"]):
-                        current_row["Cím"] = line.strip()
-                    elif len(line.strip()) > 3 and "Ft" not in line:
-                        current_row["Megjegyzés"] += line.strip() + " "
+                    # Pénzösszeg kinyerése a Telefon/Rendelés oszlopból (row[4])
+                    money_val = 0
+                    money_match = re.search(r'(-?\d[\d\s]*)\s*Ft', str(row[4]))
+                    if money_match:
+                        money_val = int(re.sub(r'[^-0-9]', '', money_match.group(1)))
+                    
+                    # Megjegyzés kinyerése (gyakran az ügyfélkód utáni perjel után van)
+                    note = ""
+                    if "/" in str(row[1]):
+                        note = str(row[1]).split("/", 1)[1].replace("\n", " ").strip()
 
-            if current_row: rows.append(current_row)
+                    rows.append({
+                        "ID": u_code.split('-')[1],
+                        "Prefix": u_code.split('-')[0],
+                        "Ügyintéző": str(row[3]).split('\n')[0].strip(),
+                        "Cím": str(row[2]).replace('\n', ' ').strip(),
+                        "Telefon": re.search(r'(\d{2}/\d{6,7})', str(row[4])).group(0) if re.search(r'(\d{2}/\d{6,7})', str(row[4])) else "",
+                        "Rendelés": str(row[4]).split('\n')[-1].strip(),
+                        "Pénz": custom_round(money_val),
+                        "Megjegyzés": note,
+                        "Futár": driver_name,
+                        "Összesen": row[5] if len(row) > 5 else "1"
+                    })
     return rows
 
-# --- ETIKETT (60x32,43mm, Precíziós rács) ---
-def create_labels(df):
+# --- ETIKETT (A tegnapi precíziós stílus) ---
+def create_label_pdf(df):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     p = canvas.Canvas(buf, pagesize=A4)
     lw, lh = 60*mm, 32.43*mm
-    m = 4*mm # Margó
+    m = 4*mm
     
     for i, (_, r) in enumerate(df.iterrows()):
         idx = i % 21
@@ -103,31 +90,25 @@ def create_labels(df):
         col, row = idx % 3, 6 - (idx // 3)
         x, y = col * lw, row * lh
         
-        # Halvány keret a vágáshoz
         p.setStrokeColor(colors.lightgrey); p.setLineWidth(0.1*mm)
         p.rect(x, y, lw, lh)
         
         p.setFillColor(colors.black)
+        # Fejléc: Sorrend, Futár és ID
         p.setFont(f_bold, 8); p.drawString(x+m, y+lh-7*mm, f"#{i+1}")
+        p.setFont(f_reg, 5); p.drawCentredString(x+lw/2, y+lh-4*mm, str(r['Futár'])[:30])
         p.setFont(f_reg, 6); p.drawRightString(x+lw-m, y+lh-7*mm, f"ID: {r['ID']}")
         
-        # Futár neve pici betűvel legfelül
-        p.setFont(f_reg, 5); p.drawCentredString(x+lw/2, y+lh-3*mm, str(r['Futár']))
-
-        p.setFont(f_bold, 9); p.drawString(x+m, y+lh-11*mm, str(r['Ügyintéző'])[:25])
-        p.setFont(f_reg, 7); p.drawString(x+m, y+lh-15*mm, str(r['Cím'])[:40])
+        # Név és Cím
+        p.setFont(f_bold, 9); p.drawString(x+m, y+lh-12*mm, str(r['Ügyintéző'])[:28])
+        p.setFont(f_reg, 7); p.drawString(x+m, y+lh-16*mm, str(r['Cím'])[:45])
         
-        # Rendelés és Telefon középre
-        p.setFont(f_reg, 7)
-        order_text = f"{r['Rendelés']} | {r['Telefon']}"
-        p.drawString(x+m, y+10*mm, order_text[:45])
+        # Rendelés és Megjegyzés
+        order_style = ParagraphStyle('LabelOrder', fontName=f_reg, fontSize=7, leading=8)
+        note_text = f"<br/><font color='red' size=6>{r['Megjegyzés']}</font>" if r['Megjegyzés'] else ""
+        para = Paragraph(f"{r['Rendelés']}{note_text}", order_style)
+        para.wrap(lw-2*m, 10*mm); para.drawOn(p, x+m, y+8*mm)
         
-        # Megjegyzés (ha van)
-        if r['Megjegyzés']:
-            p.setFont(f_reg, 6); p.setFillColor(colors.red)
-            p.drawString(x+m, y+7*mm, str(r['Megjegyzés'])[:45])
-            p.setFillColor(colors.black)
-
         # Alsó sor: Pénz és darabszám
         if r['Pénz'] > 0:
             p.setFont(f_bold, 10); p.drawString(x+m, y+m, f"FIZET: {r['Pénz']} Ft")
@@ -135,27 +116,32 @@ def create_labels(df):
         
     p.save(); buf.seek(0); return buf
 
-# --- STREAMLIT FELÜLET ---
+# --- STREAMLIT UI ---
 def main():
-    st.title(f"🚚 Interfood Master {VERZIO}")
-    files = st.file_uploader("PDF menettervek feltöltése", accept_multiple_files=True)
+    st.set_page_config(page_title="Interfood Label Master", layout="wide")
+    st.title(f"🚚 Interfood Label Master {VERZIO}")
+    
+    files = st.file_uploader("Menetterv PDF-ek feltöltése", accept_multiple_files=True)
     
     if files:
         all_data = []
         for f in files:
-            all_data.extend(process_interfood_pdf(f))
-        
+            all_data.extend(parse_interfood_source(f))
+            
         if all_data:
             df = pd.DataFrame(all_data)
-            st.success(f"{len(df)} ügyfél feldolgozva.")
-            st.dataframe(df[['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Pénz', 'Megjegyzés']])
+            st.success(f"Sikeres beolvasás: {len(df)} tétel.")
+            st.dataframe(df)
             
-            col1, col2 = st.columns(2)
+            col1, _ = st.columns([1, 3])
             with col1:
-                st.download_button("Etikettek Letöltése", create_labels(df), "etikettek.pdf")
-            with col2:
-                # Itt a menetterv generátor is hívható (a korábbi MOD8-as kódból)
-                pass
+                pdf_output = create_label_pdf(df)
+                st.download_button(
+                    label="Etikettek Letöltése (PDF)",
+                    data=pdf_output,
+                    file_name=f"etikettek_{VERZIO}.pdf",
+                    mime="application/pdf"
+                )
 
 if __name__ == "__main__":
     main()

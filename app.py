@@ -106,7 +106,7 @@ def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4)
     lw, lh = 70*mm, 42.4*mm 
-    inner_m = 5*mm # Kötelező 5mm margó minden oldalon
+    inner_m = 5*mm # A kért 5mm-es védőtávolság
     
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1)
@@ -120,36 +120,49 @@ def create_label_pdf(df, fn, ft):
         
         if i < len(df):
             r = df.iloc[i]
-            # Sorszám és ID (Felső margó figyelembevételével)
-            p.setFont(f_bold, 10); p.drawString(x + inner_m, y + lh - inner_m - 3*mm, f"#{int(r.get('Sorrend', i+1))}")
-            p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, y + lh - inner_m - 3*mm, f"ID: {r['ID']}")
             
-            # Ügyintéző és Telefon
-            p.setFont(f_bold, 9); p.drawString(x + inner_m, y + lh - inner_m - 9*mm, str(r['Ügyintéző'])[:25])
-            p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, y + lh - inner_m - 9*mm, str(r['Telefon']))
+            # FELSŐ RÉSZ (Név, ID, Sorszám) - 5mm-rel lejjebb kezdve
+            top_y = y + lh - inner_m
+            p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{int(r.get('Sorrend', i+1))}")
+            p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 3*mm, f"ID: {r['ID']}")
             
-            # Cím
-            p.setFont(f_reg, 7.5); p.drawString(x + inner_m, y + lh - inner_m - 13*mm, str(r['Cím'])[:45])
+            p.setFont(f_bold, 9); p.drawString(x + inner_m, top_y - 8*mm, str(r['Ügyintéző'])[:25])
+            p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 8*mm, str(r['Telefon']))
             
-            # Rendelés (Középre pozicionálva, margók között)
+            p.setFont(f_reg, 7.5); p.drawString(x + inner_m, top_y - 12*mm, str(r['Cím'])[:45])
+            
+            # KÖZÉPSŐ RÉSZ (Rendelés)
             para = Paragraph(str(r['Rendelés_Full']), order_s)
-            para.wrap(lw - 2*inner_m, 12*mm)
-            para.drawOn(p, x + inner_m, y + inner_m + 10*mm)
+            pw, ph = para.wrap(lw - 2*inner_m, 10*mm)
+            # Úgy helyezzük el, hogy ne lógjon bele az alsó szekcióba
+            para.drawOn(p, x + inner_m, y + inner_m + 12*mm)
             
-            # Pénz és DB (Alsó margó felett)
+            # ALSÓ RÉSZ (Pénz, Darab, Futár) - Szigorúan az alsó 5mm felett
+            base_y = y + inner_m 
+            
+            # Pénz és darabszám (5mm margó felett)
             m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
             if m_val != "0" and m_val != "":
-                p.setFont(f_bold, 10); p.drawString(x + inner_m, y + inner_m + 5*mm, f"FIZET: {r['Pénz']}")
-            p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, y + inner_m + 5*mm, f"{r['Összesen']} db")
+                p.setFont(f_bold, 10); p.drawString(x + inner_m, base_y + 6*mm, f"FIZET: {r['Pénz']}")
+            p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, base_y + 6*mm, f"{r['Összesen']} db")
             
-            # Futár adatok és vonal (Alsó 5mm-en belül)
+            # Elválasztó vonal (pontosan a futár adatai felett, margón belül)
             p.setStrokeColor(colors.black); p.setLineWidth(0.2)
-            p.line(x + inner_m, y + inner_m + 3.8*mm, x + lw - inner_m, y + inner_m + 3.8*mm)
-            p.setFont(f_reg, 6.5); p.drawCentredString(x + lw/2, y + 1.5*mm + 0.5*mm, f"Futár: {fn} | {ft}")
+            p.line(x + inner_m, base_y + 4.5*mm, x + lw - inner_m, base_y + 4.5*mm)
+            
+            # Futár adatai (közvetlenül az alsó 5mm-es határvonalon)
+            p.setFont(f_reg, 6.5)
+            p.drawCentredString(x + lw/2, base_y + 1*mm, f"Futár: {fn} | {ft}")
+
         else:
+            # MARKETING (itt is 5mm margóval)
             m_text = f"<font size='10.5'><b>15% kedvezmény* 3 hétig</b></font><br/>Új Ügyfeleinknek!<br/><br/><b>Rendelés leadás:</b><br/><b>{fn}</b>, tel: <b>{ft}</b><br/><br/><font size='5.5'><b>* kedvezmény területi képviselőnknél érhető el</b></font>"
-            para = Paragraph(m_text, promo_s); pw, ph = para.wrap(lw-2*inner_m, lh-2*inner_m); para.drawOn(p, x + (lw-pw)/2, y + (lh-ph)/2)
+            para = Paragraph(m_text, promo_s)
+            pw, ph = para.wrap(lw - 2*inner_m, lh - 2*inner_m)
+            para.drawOn(p, x + (lw-pw)/2, y + (lh-ph)/2)
+            
             p.setStrokeColor(colors.lightgrey); p.rect(x, y, lw, lh, stroke=1, fill=0)
+
     p.save(); buf.seek(0); return buf
 
 def create_manifest_pdf(df, fn):
@@ -230,3 +243,4 @@ if st.session_state.mdf is not None:
         st.download_button("📥 ETIKETTEK (Fix Margók)", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
     with col2:
         st.download_button("📋 MENETTERV (Széles oszlop)", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)
+

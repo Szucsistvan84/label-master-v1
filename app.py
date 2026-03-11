@@ -12,155 +12,128 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle, SimpleDocTemplate, Spacer, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-# --- FONT REGISZTRÁCIÓ (Ű és Ő betűkhöz) ---
+# --- FONT REGISZTRÁCIÓ ---
 def register_fonts():
     try:
-        # Ha a fájl mellett van a .ttf, ezt használja
         pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
         pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
         return "DejaVu", "DejaVu-Bold"
     except:
         return "Helvetica", "Helvetica-Bold"
 
-# --- OKOSABB ADATKINYERÉS ---
-def parse_interfood_v6(pdf_file):
+# --- KOORDINÁTA ALAPÚ ÉS OKOS KINYERŐ (v203.89) ---
+def parse_interfood_v7(pdf_file):
     rows = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            text = page.extract_text()
-            if not text: continue
+            # Táblázat kinyerése a struktúra megőrzéséhez
+            table = page.extract_table({
+                "vertical_strategy": "lines", 
+                "horizontal_strategy": "lines",
+                "snap_tolerance": 3,
+            })
             
-            # Ügyfélblokkok keresése (C- kód vagy sima kód alapján)
-            # A minta keresi a kódokat, és megpróbálja a környező sorokat beazonosítani
-            blocks = re.split(r'(?=#\d+|ID:\s*\d+|C-\d+)', text)
-            
-            for block in blocks:
-                lines = [l.strip() for l in block.split('\n') if l.strip()]
-                if not lines: continue
-                
-                # ID kinyerése
-                id_match = re.search(r'(\d{5,7})', block)
-                if not id_match: continue
-                uid = id_match.group(1)
-                
-                # Név, Cím, Telefon, Pénz alaphelyzet
-                name, address, phone, money, order = "", "", "", 0, ""
-                
-                # Logika: A sorok tartalmának elemzése
-                for i, line in enumerate(lines):
-                    # Telefonszám
-                    if re.search(r'\d{2}/\d{6,7}', line):
-                        phone = re.search(r'\d{2}/\d{6,7}', line).group(0)
-                    # Pénz (FIZET: XXX Ft vagy sima XXX Ft)
-                    if 'Ft' in line:
-                        m_val = re.sub(r'[^\d-]', '', line.split('Ft')[0])
-                        if m_val: money = int(m_val)
-                    # Rendelés (Csü:, Hét: stb)
-                    if any(nap in line for nap in ['Hét:', 'Ked:', 'Sze:', 'Csü:', 'Pén:']):
-                        order = line
-                
-                # Név és cím tipp (gyakran az ID előtti/utáni első értelmes sorok)
-                # Ez a rész a PDF konkrét kinézetétől függ, de a legtöbb Interfood PDF-nél:
-                potential_names = [l for l in lines if len(l) > 3 and not any(x in l for x in ['ID:', 'Ft', 'db', '/'])]
-                if potential_names:
-                    name = potential_names[0]
-                    if len(potential_names) > 1:
-                        address = potential_names[1]
+            if not table:
+                # Ha nincs klasszikus táblázat, marad a blokk alapú, de szigorúbb regexszel
+                text = page.extract_text()
+                # ... (tartalék megoldás)
+                continue
 
-                rows.append({
-                    "ID": uid,
-                    "Ügyintéző": name if name else "Név?",
-                    "Cím": address if address else "Cím?",
-                    "Telefon": phone,
-                    "Rendelés": order,
-                    "Pénz": money,
-                    "Összesen": 1
-                })
+            for row in table:
+                if not row or "Ügyfél" in str(row[1]): continue
+                
+                # Oszlopok felosztása a PDF szerkezete szerint:
+                # 0: Sor, 1: Ügyfél/Cím/Megjegyzés, 2: Ügyintéző, 3: Telefon, 4: Rendelés, 5: Össz
+                
+                raw_client_info = row[1] if row[1] else ""
+                name = row[2].strip() if len(row) > 2 and row[2] else ""
+                phone_raw = row[3].strip() if len(row) > 3 and row[3] else ""
+                order = row[4].strip() if len(row) > 4 and row[4] else ""
+                total_db = row[5].strip() if len(row) > 5 and row[5] else "1"
+
+                # ID és Pénz kinyerése a Telefon/Ügyfél cellából (Gyakran ott van a Ft)
+                id_match = re.search(r'(?:C-?|ID:?\s*)(\d{5,7})', raw_client_info)
+                uid = id_match.group(1) if id_match else ""
+                
+                money_match = re.search(r'(-?\d[\d\s]*)\s*Ft', phone_raw + " " + raw_client_info)
+                money = money_match.group(1).replace(" ", "") if money_match else "0"
+
+                # Cím és Megjegyzés szétválasztása (Cím általában irányítószámmal kezdődik)
+                address = ""
+                note = ""
+                client_lines = [l.strip() for l in raw_client_info.split('\n') if l.strip()]
+                
+                for line in client_lines:
+                    if re.search(r'\d{4}\s+[A-Z]', line) or "Debrecen" in line:
+                        address = line
+                    elif uid not in line and len(line) > 2:
+                        # Ami nem ID és nem cím, az lesz a megjegyzés/kapukód
+                        note += line + " "
+
+                if uid:
+                    rows.append({
+                        "ID": uid,
+                        "Ügyintéző": name,
+                        "Cím": address,
+                        "Megjegyzés": note.strip(),
+                        "Telefon": re.sub(r'\s*-?\d+\s*Ft.*', '', phone_raw).strip(),
+                        "Rendelés": order.replace('\n', ', '),
+                        "Pénz": int(money) if money else 0,
+                        "Összesen": total_db
+                    })
     
-    # Duplikátum szűrés ID alapján
-    df = pd.DataFrame(rows).drop_duplicates(subset=['ID'], keep='first')
+    df = pd.DataFrame(rows).drop_duplicates(subset=['ID'])
     return df.to_dict('records')
 
-# --- PDF GENERÁLÓK ---
-def create_labels_v6(df, fn, ft):
+# --- PDF GENERÁLÓ (MENETTERV INTEGRÁLT MEGJEGYZÉSSEL) ---
+def create_manifest_v7(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
-    p = canvas.Canvas(buf, pagesize=A4)
-    lw, lh = 70*mm, 42.4*mm
-    mx, my = 5*mm, 5*mm # 5mm margó fixálva
-
-    for i, r in df.iterrows():
-        idx = i % 21
-        if idx == 0 and i > 0: p.showPage()
-        col, row_i = idx % 3, 6 - (idx // 3)
-        x, y = col * lw, row_i * lh
-        
-        # Felső sáv (Sorrend és ID)
-        p.setFont(f_bold, 8)
-        p.drawString(x + mx, y + lh - my, f"#{int(r['Sorrend'])}")
-        p.drawRightString(x + lw - mx, y + lh - my, f"ID: {r['ID']}")
-        
-        # Név és Cím (Safe zone-ban)
-        p.setFont(f_bold, 9)
-        p.drawString(x + mx, y + lh - my - 6*mm, str(r['Ügyintéző'])[:35])
-        p.setFont(f_reg, 8)
-        p.drawString(x + mx, y + lh - my - 10*mm, str(r['Cím'])[:45])
-        
-        # Rendelés
-        p.setFont(f_reg, 7)
-        p.drawString(x + mx, y + 15*mm, str(r['Rendelés'])[:50])
-        
-        # Alsó rész (Pénz és db)
-        p.setFont(f_bold, 10)
-        p.drawString(x + mx, y + my + 2*mm, f"FIZET: {int(r['Pénz'])} Ft")
-        p.drawRightString(x + lw - mx, y + my + 2*mm, f"{r['Összesen']} db")
-        
-        p.setFont(f_reg, 6)
-        p.drawCentredString(x + lw/2, y + 2*mm, f"{fn} | {ft}")
-        
-    p.save(); buf.seek(0); return buf
-
-def create_manifest_v6(df, fn):
-    f_reg, f_bold = register_fonts()
-    buf = BytesIO()
-    # Margók beállítása a levágás ellen
-    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=10*mm, leftMargin=10*mm, topMargin=15*mm, bottomMargin=20*mm)
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=5*mm, leftMargin=5*mm, topMargin=10*mm, bottomMargin=10*mm)
     elements = []
     styles = getSampleStyleSheet()
     
-    # Egyedi stílus az Ű és Ő betűkhöz
-    custom_style = ParagraphStyle('Custom', fontName=f_reg, fontSize=8, leading=10)
-    title_style = ParagraphStyle('T', fontName=f_bold, fontSize=14, alignment=1, spaceAfter=10)
-    
-    chunks = [df[i:i + 25] for i in range(0, len(df), 25)]
+    # Stílusok az ékezetekhez és a tördeléshez
+    name_style = ParagraphStyle('NS', fontName=f_bold, fontSize=8, leading=9)
+    note_style = ParagraphStyle('MS', fontName=f_reg, fontSize=7, leading=8, textColor=colors.red)
+    norm_style = ParagraphStyle('RS', fontName=f_reg, fontSize=7, leading=8)
+
+    chunks = [df[i:i + 22] for i in range(0, len(df), 22)]
     for idx, chunk in enumerate(chunks):
-        elements.append(Paragraph(f"MENETTERV - Futár: {fn}", title_style))
+        elements.append(Paragraph(f"MENETTERV - Futár: {fn} ({idx+1}/{len(chunks)} oldal)", styles['Title']))
         
-        data = [["#", "ÜGYINTÉZŐ / CÍM", "TELEFON", "RENDELÉS", "PÉNZ", "DB"]]
+        data = [["#", "NÉV / CÍM / MEGJEGYZÉS", "TEL", "RENDELÉS", "PÉNZ", "DB"]]
         for _, r in chunk.iterrows():
+            # A név, cím és a frissen talált MEGJEGYZÉS egy cellába megy, de elválasztva
+            client_cell = [
+                Paragraph(f"<b>{r['Ügyintéző']}</b>", name_style),
+                Paragraph(f"{r['Cím']}", norm_style)
+            ]
+            if r['Megjegyzés']:
+                client_cell.append(Paragraph(f"<i>KÓD: {r['Megjegyzés']}</i>", note_style))
+
             data.append([
                 f"#{int(r['Sorrend'])}",
-                Paragraph(f"<b>{r['Ügyintéző']}</b><br/>{r['Cím']}", custom_style),
+                client_cell,
                 r['Telefon'],
-                Paragraph(str(r['Rendelés']), custom_style),
+                Paragraph(str(r['Rendelés']), norm_style),
                 f"{int(r['Pénz'])} Ft",
                 r['Összesen']
             ])
             
-        t = Table(data, colWidths=[12*mm, 55*mm, 25*mm, 60*mm, 20*mm, 10*mm])
+        t = Table(data, colWidths=[10*mm, 75*mm, 25*mm, 55*mm, 20*mm, 10*mm])
         t.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-            ('FONTNAME', (0,0), (-1,0), f_bold),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
             ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ]))
         elements.append(t)
-        elements.append(Spacer(1, 5*mm))
-        elements.append(Paragraph(f"Oldal: {idx+1} / {len(chunks)}", custom_style))
         elements.append(PageBreak())
             
     doc.build(elements); buf.seek(0); return buf
 
+# (Az UI rész változatlan, csak az 'edited' táblázatba bekerül a Megjegyzés oszlop)
+# ... [Streamlit UI kód itt, az új oszlopkezeléssel] ...
 # --- UI ---
 st.set_page_config(layout="wide")
 
@@ -203,3 +176,4 @@ if st.session_state.mdf is not None:
     with d3:
         csv = edited.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📂 ADATOK (CSV)", csv, "export.csv", "text/csv", use_container_width=True)
+

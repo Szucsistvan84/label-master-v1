@@ -11,145 +11,154 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
+# --- FONT KEZELÉS ---
 def register_fonts():
     try:
+        # A mentett preferencia szerinti font használata
         pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
         pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
         return "DejaVu", "DejaVu-Bold"
     except:
         return "Helvetica", "Helvetica-Bold"
 
-# --- ETIKETT GENERÁLÁS (3x7 elrendezés, fix 5mm belső margóval) ---
-def create_label_pdf(df, courier_name, courier_phone):
+# --- ETIKETT (3x7, belső 5mm margó) ---
+def create_label_pdf(df, c_name, c_phone):
+    if df is None or df.empty:
+        return None
+    
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     p = canvas.Canvas(buf, pagesize=A4)
     
-    # A4 mérete: 210 x 297 mm
-    # 3 oszlop, 7 sor elrendezés
-    lw = 210 * mm / 3
-    lh = 297 * mm / 7
-    
-    # Fix belső margó az etiketten belül
+    # A4: 210x297mm -> 3x7 elrendezés
+    label_w = 70 * mm
+    label_h = 42.4 * mm # 297/7
     inner_m = 5 * mm 
 
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
 
     for i in range(len(df)):
-        idx = i % 21  # 3 oszlop * 7 sor = 21 etikett / lap
+        idx = i % 21
         if idx == 0 and i > 0:
             p.showPage()
         
         col = idx % 3
-        row_i = 6 - (idx // 3) # Fentről lefelé 0-6 indexelés
+        row = 6 - (idx // 3)
         
-        x = col * lw
-        y = row_i * lh
+        x = col * label_w
+        y = row * label_h
         
         r = df.iloc[i]
         
-        # --- TARTALOM POZICIONÁLÁSA A BELSŐ MARGÓN BELÜL ---
-        
-        # Sorszám és ID (Felső sor a belső margótól indítva)
+        # Sorszám + ID
         p.setFont(f_bold, 10)
-        p.drawString(x + inner_m, y + lh - inner_m - 4*mm, f"#{int(r['Sorrend'])}")
+        p.drawString(x + inner_m, y + label_h - inner_m - 3*mm, f"#{int(r.get('Sorrend', 0))}")
         p.setFont(f_reg, 8)
-        p.drawRightString(x + lw - inner_m, y + lh - inner_m - 4*mm, f"ID: {r['ID']}")
+        p.drawRightString(x + label_w - inner_m, y + label_h - inner_m - 3*mm, f"ID: {r.get('ID','')}")
         
-        # Ügyintéző és Cím
+        # Név + Cím
         p.setFont(f_bold, 9)
-        p.drawString(x + inner_m, y + lh - inner_m - 10*mm, str(r['Ügyintéző'])[:32])
-        p.setFont(f_reg, 8)
-        p.drawString(x + inner_m, y + lh - inner_m - 14*mm, str(r['Cím'])[:45])
+        p.drawString(x + inner_m, y + label_h - inner_m - 9*mm, str(r.get('Ügyintéző', ''))[:30])
+        p.setFont(f_reg, 7.5)
+        p.drawString(x + inner_m, y + label_h - inner_m - 13*mm, str(r.get('Cím', ''))[:45])
         
-        # Rendelés (Középre tördelve, belső margók között)
-        para = Paragraph(str(r['Rendelés']), order_s)
-        # Rendelkezésre álló szélesség: etikett szélesség - 2 * belső margó
-        para.wrap(lw - 2*inner_m, 15*mm)
-        para.drawOn(p, x + inner_m, y + inner_m + 7*mm)
+        # Rendelés
+        para = Paragraph(str(r.get('Rendelés', '')), order_s)
+        para.wrap(label_w - 2*inner_m, 12*mm)
+        para.drawOn(p, x + inner_m, y + inner_m + 8*mm)
         
-        # Pénz és darabszám
+        # Fizetendő + DB
         p.setFont(f_bold, 9)
-        p.drawString(x + inner_m, y + inner_m + 4*mm, f"FIZET: {r['Pénz']}")
-        p.drawRightString(x + lw - inner_m, y + inner_m + 4*mm, f"{r['Összesen']} db")
+        p.drawString(x + inner_m, y + inner_m + 4*mm, f"FIZET: {r.get('Pénz', '0 Ft')}")
+        p.drawRightString(x + label_w - inner_m, y + inner_m + 4*mm, f"{r.get('Összesen', 1)} db")
         
-        # Futár adatok (Legalul a margón belül)
-        p.setFont(f_reg, 7)
-        p.drawCentredString(x + lw/2, y + inner_m, f"{courier_name} | {courier_phone}")
+        # Futár (Legalsó sor)
+        p.setFont(f_reg, 6)
+        p.drawCentredString(x + label_w/2, y + 2*mm, f"{c_name} | {c_phone}")
 
     p.save()
     buf.seek(0)
     return buf
 
-# --- MENETTERV (25 sor/oldal + Oldalszámozás) ---
-def create_manifest_pdf(df, courier_name):
+# --- MENETTERV (25 sor, oldalszámozás) ---
+def create_manifest_pdf(df, c_name):
+    if df is None or df.empty:
+        return None
+
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     p = canvas.Canvas(buf, pagesize=A4)
     w, h = A4
     
     rows_per_page = 25
-    total_pages = math.ceil(len(df) / rows_per_page)
-    cell_style = ParagraphStyle('CellStyle', fontName=f_reg, fontSize=8.5, leading=10.5)
+    total_p = math.ceil(len(df) / rows_per_page)
+    cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=8, leading=10)
     
-    for p_idx in range(total_pages):
-        # Fejléc adatok
-        p.setFont(f_bold, 12)
-        p.drawString(10*mm, h - 15*mm, f"MENETTERV - {courier_name}")
-        p.setFont(f_reg, 9)
-        p.drawRightString(w - 10*mm, h - 15*mm, f"{p_idx + 1} / {total_pages}. oldal")
+    for p_idx in range(total_p):
+        p.setFont(f_bold, 11)
+        p.drawString(10*mm, h - 12*mm, f"MENETTERV - {c_name}")
+        p.setFont(f_reg, 8)
+        p.drawRightString(w - 10*mm, h - 12*mm, f"{p_idx+1} / {total_p} oldal")
         
-        data = [["SOR", "NÉV / CÍM", "TELEFON / PÉNZ", "RENDELÉS", "DB"]]
+        data = [["#", "NÉV / CÍM", "TELEFON / PÉNZ", "RENDELÉS", "DB"]]
         subset = df.iloc[p_idx * rows_per_page : (p_idx + 1) * rows_per_page]
         
         for _, r in subset.iterrows():
-            name_box = Paragraph(f"<b>{r['Ügyintéző']}</b><br/>{r['Cím']}", cell_style)
-            order_box = Paragraph(str(r['Rendelés']), cell_style)
+            n_box = Paragraph(f"<b>{r.get('Ügyintéző','')}</b><br/>{r.get('Cím','')}", cell_s)
+            o_box = Paragraph(str(r.get('Rendelés','')), cell_s)
             data.append([
-                f"#{int(r['Sorrend'])}",
-                name_box,
-                f"{r['Telefon']}\n<b>{r['Pénz']}</b>",
-                order_box,
-                r['Összesen']
+                f"#{int(r.get('Sorrend',0))}",
+                n_box,
+                f"{r.get('Telefon','')}\n<b>{r.get('Pénz','')}</b>",
+                o_box,
+                r.get('Összesen',1)
             ])
             
-        t = Table(data, colWidths=[12*mm, 60*mm, 35*mm, 78*mm, 10*mm])
+        t = Table(data, colWidths=[10*mm, 60*mm, 35*mm, 80*mm, 10*mm])
         t.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 0.2, colors.grey),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
             ('FONTNAME', (0,0), (-1,0), f_bold),
-            ('ALIGN', (0,0), (0,-1), 'CENTER'),
-            ('ALIGN', (-1,0), (-1,-1), 'CENTER'),
+            ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ]))
         
-        tw, th = t.wrap(w - 10*mm, h - 40*mm)
-        t.drawOn(p, 5*mm, (h - 20*mm) - th)
+        tw, th = t.wrap(w - 15*mm, h - 30*mm)
+        t.drawOn(p, 7*mm, (h - 18*mm) - th)
         p.showPage()
         
     p.save()
     buf.seek(0)
     return buf
 
-# --- UI ---
-if 'mdf' in st.session_state and st.session_state.mdf is not None:
-    st.subheader("Nyomtatandó dokumentumok")
-    
-    courier_n = st.text_input("Futár neve", "Szűcs István")
-    courier_p = st.text_input("Telefonszám", "+36 20 886 8971")
+# --- FŐ PROGRAM ---
+st.title("Interfood PDF Segéd")
 
+# Inicializálás, ha üres a session
+if 'mdf' not in st.session_state:
+    st.session_state.mdf = None
+
+# Itt töltheted be az adatokat (v203-as heggesztett kóddal) vagy használhatod a meglévőt
+# Ha az mdf üres, mutassunk egy üzenetet
+if st.session_state.mdf is None:
+    st.info("Kérlek, töltsd fel és dolgozd fel a PDF-et az adatok kinyeréséhez!")
+else:
+    # Ha van adat, megjelenítjük a szerkesztőt és a gombokat
+    st.session_state.mdf = st.data_editor(st.session_state.mdf, hide_index=True)
+    
+    st.divider()
+    c_n = st.text_input("Futár", "Szűcs István")
+    c_p = st.text_input("Mobil", "+36 20 886 8971")
+    
     col1, col2 = st.columns(2)
-    with col1:
-        st.download_button(
-            "📥 ETIKETTEK (3x7 elrendezés)", 
-            create_label_pdf(st.session_state.mdf, courier_n, courier_p), 
-            "etikettek_3x7.pdf",
-            use_container_width=True
-        )
-    with col2:
-        st.download_button(
-            "📋 MENETTERV (25 sor/oldal)", 
-            create_manifest_pdf(st.session_state.mdf, courier_n), 
-            "menetterv_25sor.pdf",
-            use_container_width=True
-        )
+    
+    # PDF generálás gombok hibafigyeléssel
+    try:
+        label_pdf = create_label_pdf(st.session_state.mdf, c_n, c_p)
+        if label_pdf:
+            col1.download_button("📥 ETIKETTEK (3x7)", label_pdf, "etikettek.pdf", use_container_width=True)
+            
+        manifest_pdf = create_manifest_pdf(st.session_state.mdf, c_n)
+        if manifest_pdf:
+            col2.download_button("📋 MENETTERV (25 sor)", manifest_pdf, "menetterv.pdf", use_container_width=True)
+    except Exception as e:
+        st.error(f"Hiba a PDF generálása közben: {e}")

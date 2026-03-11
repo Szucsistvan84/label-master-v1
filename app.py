@@ -14,9 +14,9 @@ from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 
-# --- ALAPBEÁLLÍTÁSOK ---
-VERZIO = "v203.48-MOD11-LASER"
-st.set_page_config(page_title=f"Interfood Master {VERZIO}", layout="wide")
+# --- KONFIGURÁCIÓ ---
+VERZIO = "v203.48-MOD13-SPACED"
+st.set_page_config(page_title=f"Interfood Logisztika {VERZIO}", layout="wide")
 
 def register_fonts():
     try:
@@ -26,16 +26,12 @@ def register_fonts():
     except:
         return "Helvetica", "Helvetica-Bold"
 
-def custom_round(amount):
-    return 5 * round(amount / 5)
-
-# --- ADATFELDOLGOZÁS (A STABIL MOD3 LOGIKA) ---
+# --- ADATFELDOLGOZÁS (STABIL LOGIKA) ---
 def parse_interfood_pro(pdf_file):
     rows = []
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
     phone_pat = r'(\d{2}/\d{6,7})'
     money_pat = r'(-?\s?\d[\d\s]*)\s*Ft'
-
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             words = page.extract_words()
@@ -46,33 +42,22 @@ def parse_interfood_pro(pdf_file):
                     if abs(y - ey) < 3:
                         lines_dict[ey].append(w); break
                 else: lines_dict[y] = [w]
-            
             sorted_y = sorted(lines_dict.keys())
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines_dict[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
                 u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
-                
                 if u_code_m:
                     prefix, uid = u_code_m.group(0).split('-')[0], u_code_m.group(0).split('-')[-1]
-                    # Koordináta alapú oszlop meghatározás (MOD3 szerint)
                     b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
                     b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
                     clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                     tel_m = re.search(phone_pat, text_ws.replace(" ", ""))
                     money_m = re.search(money_pat, text_ws)
-                    
-                    if not money_m and i + 1 < len(sorted_y):
-                        next_text = " ".join([w['text'] for w in sorted(lines_dict[sorted_y[i+1]], key=lambda x: x['x0'])])
-                        if not re.search(r'([HKSCPZ]-[0-9]{5,7})', next_text):
-                            money_m = re.search(money_pat, next_text)
-
                     raw_money = 0
                     if money_m:
                         val_str = re.sub(r'[^-0-9]', '', money_m.group(0))
                         if val_str: raw_money = int(val_str)
-                    
-                    rounded_money = custom_round(raw_money)
                     addr_m = re.search(r'(\d{4})', b3)
                     clean_addr = b3[addr_m.start():].strip() if addr_m else b3
                     raw_orders = re.findall(order_pat, text_ws)
@@ -80,135 +65,94 @@ def parse_interfood_pro(pdf_file):
                     for o in raw_orders:
                         try:
                             q = int(re.sub(r'\D', '', o.split('-')[0])[-1])
-                            v_o.append(f"{q}-{o.split('-')[1]} street"); sq += q
+                            v_o.append(f"{q}-{o.split('-')[1]}"); sq += q
                         except: continue
-                    
                     if v_o:
-                        rows.append({
-                            "Prefix": prefix, "ID": uid, "Ügyintéző": clean_name, 
-                            "Cím": clean_addr, "Telefon": tel_m.group(0) if tel_m else "", 
-                            "Rendelés": ", ".join(v_o), "Összesen": sq, "Pénz_Int": rounded_money
-                        })
+                        rows.append({"ID": uid, "Ügyintéző": clean_name, "Cím": clean_addr, "Telefon": tel_m.group(0) if tel_m else "", "Rendelés": ", ".join(v_o), "Összesen": sq, "Pénz": f"{raw_money} Ft" if raw_money else ""})
     return rows
 
-def merge_data_flexible(raw_rows):
-    if not raw_rows: return []
-    df = pd.DataFrame(raw_rows)
-    merged = []
-    day_map = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
-    for uid, group in df.groupby("ID", sort=False):
-        base = group.iloc[0].copy().to_dict()
-        o_p = []
-        for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
-            day_group = group[group['Prefix'] == pfix]
-            if not day_group.empty:
-                items = day_group['Rendelés'].tolist()
-                o_p.append(f"{day_map[pfix]}: {', '.join(items)}")
-        base['Rendelés'] = " | ".join(o_p)
-        base['Összesen'] = group['Összesen'].sum()
-        total_m = group['Pénz_Int'].sum()
-        base['Pénz'] = f"{total_m} Ft" if total_m != 0 else ""
-        merged.append(base)
-    return merged
-
-# --- ETIKETT GENERÁLÁS (60x32,43mm rács, 5mm belső margó) ---
-def create_label_pdf(df, driver_name, driver_phone):
+# --- PDF GENERÁLÁS: ETIKETTEK (SZEGÉLLYEL ÉS KÖZZEL) ---
+def create_label_pdf(df):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     p = canvas.Canvas(buf, pagesize=A4)
     
-    # Paraméterek a kérésed szerint
-    lw, lh = 60*mm, 32.43*mm
-    inner_m = 5*mm  # 5mm margó a cellán belül minden oldalon
-    
-    # 3 oszlop, 7 sor = 21 etikett / lap
-    for i in range(math.ceil(len(df)/21)*21):
-        idx = i % 21
-        if idx == 0 and i > 0: p.showPage()
+    # --- GEOMETRIA (AZ EXCELES RAJZ ALAPJÁN) ---
+    label_w = 60 * mm
+    label_h = 32 * mm
+    gap_x = 5 * mm   # Vízszintes köz a címkék között
+    gap_y = 4 * mm   # Függőleges köz a címkék között
+    margin_left = 10 * mm
+    margin_bottom = 15 * mm
+
+    for i in range(len(df)):
+        idx_on_page = i % 21
+        if idx_on_page == 0 and i > 0: p.showPage()
         
-        col = idx % 3
-        row_i = 6 - (idx // 3) # Alulról felfelé építkezik a koordináta rendszer
+        col = idx_on_page % 3
+        row = 6 - (idx_on_page // 3)
         
-        # X és Y pozíció (0 margó az oldalon, a cellák kitöltik)
-        x = col * lw
-        y = row_i * lh
+        # Pozíció kiszámítása a közökkel
+        x = margin_left + (col * (label_w + gap_x))
+        y = margin_bottom + (row * (label_h + gap_y))
         
-        # Cella keret (fekete, vékony - lézerbarát)
+        # Címke keret
         p.setStrokeColor(colors.black)
         p.setLineWidth(0.1*mm)
-        p.rect(x, y, lw, lh)
+        p.roundRect(x, y, label_w, label_h, 2*mm) # Lekerekített keret a jobb vágáshoz
+
+        # Tartalom (visszafogott margóval a kereten belül)
+        r = df.iloc[i]
+        p.setFont(f_bold, 10)
+        p.drawString(x + 3*mm, y + label_h - 6*mm, str(r['Ügyintéző'])[:25])
         
-        if i < len(df):
-            r = df.iloc[i]
-            
-            # --- Tartalom elhelyezése a belső 5mm-es margón belül ---
-            
-            # Felső sor: Sorszám és ID
-            p.setFont(f_bold, 9)
-            p.drawString(x + inner_m, y + lh - inner_m - 3*mm, f"#{i+1}")
-            
-            p.setFont(f_reg, 7)
-            p.drawRightString(x + lw - inner_m, y + lh - inner_m - 3*mm, f"ID: {r['ID']}")
-            
-            # Név (Kicsit lejjebb)
-            p.setFont(f_bold, 8.5)
-            p.drawString(x + inner_m, y + lh - inner_m - 8*mm, str(r['Ügyintéző'])[:28])
-            
-            # Cím (Kisebb betűvel, hogy beférjen)
-            p.setFont(f_reg, 7)
-            p.drawString(x + inner_m, y + lh - inner_m - 12*mm, str(r['Cím'])[:40])
-            
-            # Rendelés (Paragraph-hal a tördelés miatt)
-            order_s = ParagraphStyle('OrderLaser', fontName=f_reg, fontSize=6.5, leading=7, textColor=colors.black)
-            para = Paragraph(f"{r['Rendelés']} | {r['Telefon']}", order_s)
-            # A magasságot úgy lőjük be, hogy a Fizetendő felett álljon meg
-            para.wrap(lw - 2*inner_m, 10*mm)
-            para.drawOn(p, x + inner_m, y + inner_m + 6*mm)
-            
-            # Alsó sor: Fizetendő és Össz db
-            if r['Pénz']:
-                p.setFont(f_bold, 9)
-                p.drawString(x + inner_m, y + inner_m, f"FIZET: {r['Pénz']}")
-            
-            p.setFont(f_bold, 8)
-            p.drawRightString(x + lw - inner_m, y + inner_m, f"{r['Összesen']} db")
-            
+        p.setFont(f_reg, 8)
+        p.drawString(x + 3*mm, y + label_h - 10*mm, str(r['Cím'])[:40])
+        p.drawString(x + 3*mm, y + label_h - 14*mm, str(r['Telefon']))
+        
+        # Rendelés tördelve
+        p.setFont(f_reg, 7)
+        text_obj = p.beginText(x + 3*mm, y + 12*mm)
+        text_obj.textLines(str(r['Rendelés']))
+        p.drawText(text_obj)
+
+        # Alsó sáv
+        p.setFont(f_bold, 9)
+        if r['Pénz']: p.drawString(x + 3*mm, y + 4*mm, f"FIZET: {r['Pénz']}")
+        p.drawRightString(x + label_w - 3*mm, y + 4*mm, f"{r['Összesen']} db")
+        p.setFont(f_reg, 6)
+        p.drawRightString(x + label_w - 3*mm, y + label_h - 4*mm, f"#{int(r['Sorrend'])} | ID:{r['ID']}")
+
     p.save()
     buf.seek(0)
     return buf
 
-# --- UI ---
-def main():
-    st.title(f"🚚 Interfood Laser Master {VERZIO}")
+# --- STREAMLIT UI ---
+st.title(f"Interfood Logisztika {VERZIO}")
+
+if 'mdf' not in st.session_state: st.session_state.mdf = None
+
+with st.sidebar:
+    if st.button("💾 SORREND MENTÉSE") and st.session_state.mdf is not None:
+        st.session_state.mdf[['ID', 'Sorrend']].to_csv("user_prefs.csv", index=False)
+        st.success("Mentve!")
+
+up = st.file_uploader("PDF feltöltése", type="pdf", accept_multiple_files=True)
+if up and st.button("📊 FELDOLGOZÁS"):
+    all_rows = []
+    for f in up: all_rows.extend(parse_interfood_pro(f))
+    df = pd.DataFrame(all_rows)
+    # Sorrend betöltése
+    if os.path.exists("user_prefs.csv"):
+        prefs = pd.read_csv("user_prefs.csv")
+        df = df.merge(prefs, on="ID", how="left")
+    if 'Sorrend' not in df.columns: df['Sorrend'] = range(1, len(df)+1)
+    df['Sorrend'] = df['Sorrend'].fillna(999).astype(float)
+    st.session_state.mdf = df.sort_values("Sorrend")
+
+if st.session_state.mdf is not None:
+    # Szerkeszthető táblázat - minden gomb és oszlop megvan
+    edited = st.data_editor(st.session_state.mdf, use_container_width=True, hide_index=True)
+    st.session_state.mdf = edited
     
-    with st.sidebar:
-        fn_in = st.text_input("Futár neve", "Szűcs István")
-        ft_in = st.text_input("Telefonszáma", "+3620/886-89-71")
-        st.info("Fekete-fehér lézer optimalizált mód (60x32.43mm)")
-
-    up_files = st.file_uploader("Menetterv PDF feltöltése", accept_multiple_files=True)
-    
-    if up_files and st.button("📊 FELDOLGOZÁS"):
-        raw = []
-        for f in up_files: 
-            raw.extend(parse_interfood_pro(f))
-        
-        if raw:
-            mdf = pd.DataFrame(merge_data_flexible(raw))
-            # Sorrendezés (MOD3 logika szerint)
-            mdf['Sorrend'] = range(1, len(mdf) + 1)
-            
-            st.session_state.mdf = mdf
-            st.success(f"{len(mdf)} ügyfél betöltve.")
-            st.dataframe(mdf[['ID', 'Ügyintéző', 'Cím', 'Pénz']])
-
-            pdf_labels = create_label_pdf(mdf, fn_in, ft_in)
-            st.download_button(
-                "📥 ETIKETTEK LETÖLTÉSE (PDF)", 
-                pdf_labels, 
-                f"etikettek_{fn_in}.pdf", 
-                "application/pdf"
-            )
-
-if __name__ == "__main__":
-    main()
+    st.download_button("📥 ETIKETTEK (SZEGÉLLYEL)", create_label_pdf(st.session_state.mdf), "etikettek.pdf")

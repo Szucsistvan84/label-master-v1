@@ -12,7 +12,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, Spacer, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 
-VERZIO = "v203.56-STABLE"
+VERZIO = "v203.57-STABLE"
 st.set_page_config(page_title=f"Interfood Logisztika {VERZIO}", layout="wide")
 
 def register_fonts():
@@ -55,11 +55,13 @@ def parse_interfood_pro(pdf_file):
                 if u_code_m:
                     uid = u_code_m.group(1)
                     
-                    # NÉV TISZTÍTÁS: Eltávolítjuk a sallangokat
+                    # NÉV TISZTÍTÁS: Eltávolítjuk a sallangokat és a betűkódokat a végéről
                     name_parts = [w['text'] for w in line_words if 340 <= w['x0'] < 520]
                     raw_name = " ".join(name_parts)
+                    # Levágjuk a technikai kódokat
                     clean_name = re.split(r'\d{2}/|1-|2-|S-|ID:', raw_name)[0].strip()
-                    clean_name = re.sub(r' -.*$| -[A-Z]$', '', clean_name)
+                    # Levágjuk a név végén maradt kötőjeles kódokat (pl. "Kiss Imre -R-F" -> "Kiss Imre")
+                    clean_name = re.sub(r'\s*-[A-Z/ \-]+$', '', clean_name).strip()
                     clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-\.]', '', clean_name).strip()
                     
                     addr_parts = [w['text'] for w in line_words if 150 <= w['x0'] < 340]
@@ -99,40 +101,41 @@ def create_label_pdf(df, f_name, f_phone):
         p.drawString(x + 5*mm, y + label_h - top_margin, f"#{str(r['Sorrend'])}")
         p.drawRightString(x + label_w - 5*mm, y + label_h - top_margin, f"ID: {str(r['ID'])}")
         
-        # Név | Telefon
+        # Név | Telefon (Kisebb betűvel az összefolyás ellen)
         p.setFont(f_bold, 8.5)
         p.drawString(x + 5*mm, y + label_h - top_margin - 5*mm, str(r['Ügyintéző'])[:28])
         p.setFont(f_reg, 8)
         p.drawRightString(x + label_w - 5*mm, y + label_h - top_margin - 5*mm, str(r['Telefon']))
         
-        # Rendelés
+        # Rendelés: Sze: kód1, kód2...
         p.setFont(f_reg, 8)
         rend_list = r['Rendelés'] if isinstance(r['Rendelés'], list) else []
         rend_txt = f"Sze: {', '.join(rend_list)}"
         p.drawString(x + 5*mm, y + label_h/2 - 2*mm, rend_txt[:50])
         
-        # Össz db (Rendelés után)
+        # Össz db (Rendelés oszlop utáni adat)
         p.setFont(f_bold, 10)
         p.drawRightString(x + label_w - 5*mm, y + 10*mm, f"{str(r['Össz db'])} db")
         
-        # Pénz
+        # Pénz (Kerekítve, csak ha nem 0)
         p_val = int(r['Pénz']) if r['Pénz'] else 0
         if p_val > 0:
             p.drawString(x + 5*mm, y + 10*mm, f"FIZET: {p_val} Ft")
         
-        # --- FUTÁR ADATOK (HIBAJAVÍTÁS) ---
+        # Futár adatok KÖZÉPRE - JAVÍTOTT FÜGGVÉNYNÉVVEL (drawCentredString)
         p.setStrokeColor(colors.lightgrey)
         p.setLineWidth(0.1)
         p.line(x + 5*mm, y + 8*mm, x + label_w - 5*mm, y + 8*mm)
         
         p.setFont(f_reg, 7)
-        # Itt garantáljuk, hogy stringet kap a függvény
-        futar_display = f"Futár: {str(f_name if f_name else 'N/A')} | {str(f_phone if f_phone else '')}"
+        futar_display = f"Futár: {str(f_name)} | {str(f_phone)}"
         
-        cx = float(x + (label_w / 2.0))
-        cy = float(y + 4.0 * mm)
+        # Koordináták
+        cx = x + (label_w / 2.0)
+        cy = y + 4.0 * mm
         
-        p.drawCenteredString(cx, cy, futar_display)
+        # A ReportLab-ban ez 'Centred' (brit angol)
+        p.drawCentredString(cx, cy, futar_display)
         
     p.save()
     buf.seek(0)
@@ -194,7 +197,7 @@ if files and st.button("📊 FELDOLGOZÁS"):
     }).reset_index()
     
     df['Sorrend'] = range(1, len(df)+1)
-    # Kért oszloprend beállítása
+    # Kért oszloprend: Sorrend, ID, Ügyintéző, Cím, Rendelés, Össz db, Pénz, Telefon
     st.session_state.mdf = df[['Sorrend', 'ID', 'Ügyintéző', 'Cím', 'Rendelés', 'Össz db', 'Pénz', 'Telefon']]
 
 if 'mdf' in st.session_state:
@@ -203,7 +206,6 @@ if 'mdf' in st.session_state:
 
     col1, col2 = st.columns(2)
     with col1:
-        # Biztonsági hívás
         try:
             pdf_data = create_label_pdf(st.session_state.mdf, f_nev, f_tel)
             st.download_button("📥 Etikettek (PDF)", pdf_data, "etikettek.pdf", use_container_width=True)

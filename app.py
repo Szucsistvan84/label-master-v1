@@ -2,6 +2,7 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import re
+import os
 from io import BytesIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -9,12 +10,13 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
-from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, Spacer, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
 
-VERZIO = "v203.57-STABLE"
+VERZIO = "v203.59-RESTORED"
+WEIGHTS_FILE = "client_weights.csv"
+
 st.set_page_config(page_title=f"Interfood Logisztika {VERZIO}", layout="wide")
 
+# --- BETŰK ÉS SÚLYOZÁS ---
 def register_fonts():
     try:
         pdfmetrics.registerFont(TTFont('DejaVu', "DejaVuSans.ttf"))
@@ -23,14 +25,24 @@ def register_fonts():
     except:
         return "Helvetica", "Helvetica-Bold"
 
+def load_weights():
+    if os.path.exists(WEIGHTS_FILE):
+        return pd.read_csv(WEIGHTS_FILE, dtype={'ID': str}).set_index('ID')['Weight'].to_dict()
+    return {}
+
+def save_weights(df):
+    weights_df = df[['ID', 'Sorrend']].rename(columns={'Sorrend': 'Weight'})
+    weights_df.to_csv(WEIGHTS_FILE, index=False)
+    st.success("Súlyozás (sorrend) elmentve a háttérbe!")
+
 def smart_round(x):
     try:
-        val = float(str(x).replace(" ", "").replace("Ft", ""))
+        cleaned = str(x).replace(" ", "").replace("Ft", "").replace("-", "0")
+        val = float(cleaned)
         return int(5 * round(val/5))
-    except:
-        return 0
+    except: return 0
 
-# --- ADATFELDOLGOZÁS ---
+# --- A TEGNAPI MŰKÖDŐ LOGIKA VISSZAÁLLÍTÁSA ---
 def parse_interfood_pro(pdf_file):
     rows = []
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
@@ -47,7 +59,8 @@ def parse_interfood_pro(pdf_file):
                         lines_dict[ey].append(w); break
                 else: lines_dict[y] = [w]
             
-            for y in sorted(lines_dict.keys()):
+            sorted_y = sorted(lines_dict.keys())
+            for i, y in enumerate(sorted_y):
                 line_words = sorted(lines_dict[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
                 
@@ -55,166 +68,113 @@ def parse_interfood_pro(pdf_file):
                 if u_code_m:
                     uid = u_code_m.group(1)
                     
-                    # NÉV TISZTÍTÁS: Eltávolítjuk a sallangokat és a betűkódokat a végéről
-                    name_parts = [w['text'] for w in line_words if 340 <= w['x0'] < 520]
-                    raw_name = " ".join(name_parts)
-                    # Levágjuk a technikai kódokat
-                    clean_name = re.split(r'\d{2}/|1-|2-|S-|ID:', raw_name)[0].strip()
-                    # Levágjuk a név végén maradt kötőjeles kódokat (pl. "Kiss Imre -R-F" -> "Kiss Imre")
-                    clean_name = re.sub(r'\s*-[A-Z/ \-]+$', '', clean_name).strip()
-                    clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-\.]', '', clean_name).strip()
+                    # NÉV és CÍM tisztítás (sávok alapján)
+                    name_parts = [w['text'] for w in line_words if 340 <= w['x0'] < 510]
+                    clean_name = " ".join(name_parts).split('/')[0].strip()
+                    clean_name = re.sub(r'\s*-[A-Z/ \d\-]+$', '', clean_name).strip() # Sallangok le
                     
                     addr_parts = [w['text'] for w in line_words if 150 <= w['x0'] < 340]
                     clean_addr = " ".join(addr_parts).strip()
                     
-                    money_m = re.search(money_pat, text_ws)
-                    raw_money = smart_round(money_m.group(1)) if money_m else 0
-                    
-                    v_o = re.findall(order_pat, text_ws)
                     phone_m = re.search(r'(\d{2}/\d{6,7})', text_ws.replace(" ", ""))
                     
+                    # PÉNZ KERESÉSE (nézzük a következő 2 sort is, ahogy írtad!)
+                    found_money = 0
+                    money_in_line = re.search(money_pat, text_ws)
+                    if money_in_line:
+                        found_money = smart_round(money_in_line.group(1))
+                    else:
+                        # Ha nincs az adott sorban, nézzük a következő két sort
+                        for next_idx in range(1, 3):
+                            if i + next_idx < len(sorted_y):
+                                next_text = " ".join([w['text'] for w in lines_dict[sorted_y[i+next_idx]]])
+                                if "S-" in next_text: break # Megállunk, ha jön a köv. ügyfél
+                                m_match = re.search(money_pat, next_text)
+                                if m_match:
+                                    found_money = smart_round(m_match.group(1))
+                                    break
+                    
                     rows.append({
-                        "ID": str(uid), "Ügyintéző": str(clean_name), "Cím": str(clean_addr),
-                        "Telefon": str(phone_m.group(0)) if phone_m else "",
-                        "Rendelés": v_o, "Pénz": raw_money, "Össz db": len(v_o)
+                        "ID": str(uid), "Ügyintéző": clean_name, "Telefon": phone_m.group(0) if phone_m else "",
+                        "Cím": clean_addr, "Rendelés": re.findall(order_pat, text_ws), 
+                        "Pénz": found_money, "Össz db": len(re.findall(order_pat, text_ws))
                     })
     return rows
 
-# --- PDF: ETIKETT ---
+# --- ETIKETT KÉPE ---
 def create_label_pdf(df, f_name, f_phone):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     p = canvas.Canvas(buf, pagesize=A4)
     label_w, label_h = 70.0 * mm, 42.428 * mm
-    top_margin = 5.0 * mm 
 
     for i in range(len(df)):
         idx = i % 21
         if idx == 0 and i > 0: p.showPage()
         col, row_i = idx % 3, 6 - (idx // 3)
-        x = float(col * label_w)
-        y = float(row_i * label_h)
+        x, y = float(col * label_w), float(row_i * label_h)
         r = df.iloc[i]
         
-        # Sorszám | ID
         p.setFont(f_reg, 7)
-        p.drawString(x + 5*mm, y + label_h - top_margin, f"#{str(r['Sorrend'])}")
-        p.drawRightString(x + label_w - 5*mm, y + label_h - top_margin, f"ID: {str(r['ID'])}")
+        p.drawString(x + 5*mm, y + label_h - 5*mm, f"#{r['Sorrend']}")
+        p.drawRightString(x + label_w - 5*mm, y + label_h - 5*mm, f"ID: {r['ID']}")
         
-        # Név | Telefon (Kisebb betűvel az összefolyás ellen)
         p.setFont(f_bold, 8.5)
-        p.drawString(x + 5*mm, y + label_h - top_margin - 5*mm, str(r['Ügyintéző'])[:28])
+        p.drawString(x + 5*mm, y + label_h - 10*mm, str(r['Ügyintéző'])[:26])
         p.setFont(f_reg, 8)
-        p.drawRightString(x + label_w - 5*mm, y + label_h - top_margin - 5*mm, str(r['Telefon']))
+        p.drawRightString(x + label_w - 5*mm, y + label_h - 10*mm, str(r['Telefon']))
         
-        # Rendelés: Sze: kód1, kód2...
         p.setFont(f_reg, 8)
-        rend_list = r['Rendelés'] if isinstance(r['Rendelés'], list) else []
-        rend_txt = f"Sze: {', '.join(rend_list)}"
-        p.drawString(x + 5*mm, y + label_h/2 - 2*mm, rend_txt[:50])
+        p.drawString(x + 5*mm, y + 21*mm, f"Sze: {', '.join(r['Rendelés'])}"[:55])
         
-        # Össz db (Rendelés oszlop utáni adat)
         p.setFont(f_bold, 10)
-        p.drawRightString(x + label_w - 5*mm, y + 10*mm, f"{str(r['Össz db'])} db")
+        p.drawRightString(x + label_w - 5*mm, y + 10*mm, f"{r['Össz db']} db")
+        if int(r['Pénz']) > 0:
+            p.drawString(x + 5*mm, y + 10*mm, f"FIZET: {r['Pénz']} Ft")
         
-        # Pénz (Kerekítve, csak ha nem 0)
-        p_val = int(r['Pénz']) if r['Pénz'] else 0
-        if p_val > 0:
-            p.drawString(x + 5*mm, y + 10*mm, f"FIZET: {p_val} Ft")
-        
-        # Futár adatok KÖZÉPRE - JAVÍTOTT FÜGGVÉNYNÉVVEL (drawCentredString)
-        p.setStrokeColor(colors.lightgrey)
-        p.setLineWidth(0.1)
+        p.setStrokeColor(colors.lightgrey); p.setLineWidth(0.1)
         p.line(x + 5*mm, y + 8*mm, x + label_w - 5*mm, y + 8*mm)
-        
         p.setFont(f_reg, 7)
-        futar_display = f"Futár: {str(f_name)} | {str(f_phone)}"
+        p.drawCentredString(x + label_w/2, y + 4*mm, f"Futár: {f_name} | {f_phone}")
         
-        # Koordináták
-        cx = x + (label_w / 2.0)
-        cy = y + 4.0 * mm
-        
-        # A ReportLab-ban ez 'Centred' (brit angol)
-        p.drawCentredString(cx, cy, futar_display)
-        
-    p.save()
-    buf.seek(0)
-    return buf
-
-# --- PDF: MENETTERV ---
-def create_manifest_pdf(df, f_name, f_phone):
-    f_reg, f_bold = register_fonts()
-    buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=10*mm, bottomMargin=10*mm)
-    elements = []
-    styles = getSampleStyleSheet()
-    
-    elements.append(Paragraph(f"<b>MENETTERV - {str(f_name)} ({str(f_phone)})</b>", styles['Title']))
-    elements.append(Spacer(1, 5*mm))
-    
-    # OSZLOPREND: SOR | ÜGYFÉL | RENDELÉS | DB | PÉNZ
-    data = [["SOR", "ÜGYFÉL / ID", "RENDELÉS", "DB", "PÉNZ"]]
-    for _, r in df.iterrows():
-        p_val = f"{int(r['Pénz'])} Ft" if r['Pénz'] and int(r['Pénz']) > 0 else ""
-        data.append([
-            str(r['Sorrend']),
-            f"{str(r['Ügyintéző'])}\nID: {str(r['ID'])}",
-            f"Sze: {', '.join(r['Rendelés'])}",
-            str(r['Össz db']),
-            p_val
-        ])
-    
-    t = Table(data, colWidths=[12*mm, 55*mm, 80*mm, 15*mm, 25*mm])
-    t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-        ('FONTNAME', (0, 0), (-1, -1), f_reg),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-        ('ALIGN', (3, 1), (4, -1), 'RIGHT'),
-    ]))
-    elements.append(t)
-    doc.build(elements)
-    buf.seek(0); return buf
+    p.save(); buf.seek(0); return buf
 
 # --- UI ---
 st.title(f"Interfood Logisztika {VERZIO}")
 
-c1, c2 = st.columns(2)
-with c1: f_nev = st.text_input("Futár neve", "Szűcs István")
-with c2: f_tel = st.text_input("Telefonszám", "+36 20 123 4567")
+col_f1, col_f2 = st.columns(2)
+with col_f1: f_nev = st.text_input("Futár neve", "Szűcs István")
+with col_f2: f_tel = st.text_input("Telefonszám", "+36 20 886 8971")
 
-files = st.file_uploader("PDF feltöltése", accept_multiple_files=True)
+uploaded_files = st.file_uploader("PDF fájlok", accept_multiple_files=True)
 
-if files and st.button("📊 FELDOLGOZÁS"):
-    all_data = []
-    for f in files: all_data.extend(parse_interfood_pro(f))
+if uploaded_files and st.button("📊 FELDOLGOZÁS"):
+    all_rows = []
+    for f in uploaded_files: all_rows.extend(parse_interfood_pro(f))
     
-    df = pd.DataFrame(all_data).groupby('ID').agg({
-        'Ügyintéző': 'first', 'Cím': 'first', 'Telefon': 'first',
+    df = pd.DataFrame(all_rows).groupby('ID').agg({
+        'Ügyintéző': 'first', 'Telefon': 'first', 'Cím': 'first',
         'Rendelés': lambda x: [i for s in x for i in s],
         'Pénz': 'sum', 'Össz db': 'sum'
     }).reset_index()
     
+    weights = load_weights()
+    df['Weight'] = df['ID'].map(weights).fillna(999).astype(int)
+    df = df.sort_values(by=['Weight', 'ID']).reset_index(drop=True)
     df['Sorrend'] = range(1, len(df)+1)
-    # Kért oszloprend: Sorrend, ID, Ügyintéző, Cím, Rendelés, Össz db, Pénz, Telefon
-    st.session_state.mdf = df[['Sorrend', 'ID', 'Ügyintéző', 'Cím', 'Rendelés', 'Össz db', 'Pénz', 'Telefon']]
+    
+    # OSZLOPREND: Sorrend, ID, Ügyintéző, Telefon...
+    st.session_state.mdf = df[['Sorrend', 'ID', 'Ügyintéző', 'Telefon', 'Cím', 'Rendelés', 'Össz db', 'Pénz']]
 
 if 'mdf' in st.session_state:
-    edited_df = st.data_editor(st.session_state.mdf, use_container_width=True, hide_index=True)
-    st.session_state.mdf = edited_df
+    st.info("💡 Állítsd be a sorrendet, majd nyomj a '💾 SORREND MENTÉSE' gombra!")
+    edited = st.data_editor(st.session_state.mdf, use_container_width=True, hide_index=True)
+    st.session_state.mdf = edited
 
-    col1, col2 = st.columns(2)
-    with col1:
-        try:
-            pdf_data = create_label_pdf(st.session_state.mdf, f_nev, f_tel)
-            st.download_button("📥 Etikettek (PDF)", pdf_data, "etikettek.pdf", use_container_width=True)
-        except Exception as e:
-            st.error(f"Hiba az etikett generálása közben: {e}")
-            
-    with col2:
-        try:
-            manifest_data = create_manifest_pdf(st.session_state.mdf, f_nev, f_tel)
-            st.download_button("📋 Menetterv (PDF)", manifest_data, "menetterv.pdf", use_container_width=True)
-        except Exception as e:
-            st.error(f"Hiba a menetterv generálása közben: {e}")
+    if st.button("💾 SORREND MENTÉSE"):
+        save_weights(edited)
+        st.rerun()
+
+    if st.button("📥 ETIKETTEK LETÖLTÉSE"):
+        pdf = create_label_pdf(st.session_state.mdf, f_nev, f_tel)
+        st.download_button("Kattints ide a PDF mentéséhez", pdf, "etikettek.pdf", "application/pdf")

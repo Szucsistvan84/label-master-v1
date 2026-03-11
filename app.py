@@ -11,26 +11,28 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
-from reportlab.platypus import Paragraph, Table, TableStyle
+from reportlab.platypus import Paragraph
 from reportlab.lib.styles import ParagraphStyle
 
-# --- ALAPBEÁLLÍTÁSOK ---
-st.set_page_config(page_title="Interfood Logisztika v204.0", layout="wide")
+# --- ALAPOK ---
+st.set_page_config(page_title="Interfood Logisztika v205.0", layout="wide")
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
 
 def register_fonts():
     try:
+        # A mentett információk alapján a DejaVu-t használjuk
         pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
         pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
         return "DejaVu", "DejaVu-Bold"
     except:
         return "Helvetica", "Helvetica-Bold"
 
-# --- ADATKINYERŐ MOTOR (v203.40 alapokon) ---
+# --- ADATKINYERÉS (v203.40 alapokon, hegesztett pénz-kereséssel) ---
 def parse_interfood_pro(pdf_file):
     rows = []
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
     phone_pat = r'(\d{2}/\d{6,7})'
+    money_pat = r'(-?\d[\d\s]*\s*Ft)' # Kifejezetten a "szám + Ft" alakot keresi
     
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -43,17 +45,17 @@ def parse_interfood_pro(pdf_file):
                         lines[ey].append(w); break
                 else: lines[y] = [w]
             
-            for y in sorted(lines.keys()):
+            sorted_y = sorted(lines.keys())
+            for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
                 
-                # Felhasználói kód keresése (pl. C-123456)
                 u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
                 if not u_code_m: continue
                 
                 prefix, uid = u_code_m.group(0).split('-')[0], u_code_m.group(0).split('-')[-1]
                 
-                # Koordináta alapú kinyerés a v203.40 szerint
+                # Oszlopok koordinátái (v203.40)
                 b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
                 b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
                 
@@ -62,9 +64,13 @@ def parse_interfood_pro(pdf_file):
                 addr_m = re.search(r'(\d{4})', b3)
                 clean_addr = b3[addr_m.start():].strip() if addr_m else b3
                 
-                # Pénz kinyerése (szövegként marad a stabilitás miatt)
-                money_m = re.search(r'(-?\d[\d\s]*)\s*Ft', text_ws)
-                money_val = money_m.group(1).replace(" ", "") if money_m else "0"
+                # --- PÉNZ KERESÉSE (A telefonszám alatti sorban) ---
+                money_val = "0 Ft"
+                if i + 1 < len(sorted_y):
+                    next_line_text = " ".join([w['text'] for w in sorted(lines[sorted_y[i+1]], key=lambda x: x['x0'])])
+                    m_match = re.search(money_pat, next_line_text)
+                    if m_match:
+                        money_val = m_match.group(1).strip()
 
                 raw_orders = re.findall(order_pat, text_ws)
                 v_o, sq = [], 0
@@ -76,14 +82,9 @@ def parse_interfood_pro(pdf_file):
                 
                 if v_o:
                     rows.append({
-                        "Prefix": prefix, 
-                        "ID": uid, 
-                        "Ügyintéző": clean_name, 
-                        "Cím": clean_addr, 
-                        "Telefon": tel_m.group(0) if tel_m else "", 
-                        "Rendelés": ", ".join(v_o), 
-                        "Pénz": money_val,
-                        "Összesen": sq
+                        "Prefix": prefix, "ID": uid, "Ügyintéző": clean_name, 
+                        "Cím": clean_addr, "Telefon": tel_m.group(0) if tel_m else "", 
+                        "Rendelés": ", ".join(v_o), "Pénz": money_val, "Összesen": sq
                     })
     return rows
 
@@ -103,7 +104,7 @@ def merge_data_flexible(raw_rows):
         merged.append(base)
     return merged
 
-# --- ETIKETT GENERÁLÓ (Frissített sablon + v203.40 paraméterek) ---
+# --- ETIKETT (v25 design + 5mm belső margók) ---
 def create_label_pdf(df, fn, ft):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
@@ -113,8 +114,9 @@ def create_label_pdf(df, fn, ft):
     margin_x, margin_y = 7*mm, 6*mm
     gap_x, gap_y = 3*mm, 1.5*mm
     
-    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.5, leading=8.5)
-    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8.5, leading=10, alignment=1)
+    # Stílusok az etikett (25) alapján, de több helyet hagyva
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
+    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=9, leading=11, alignment=1)
 
     for i in range(math.ceil(len(df)/21)*21):
         idx = i % 21
@@ -127,88 +129,72 @@ def create_label_pdf(df, fn, ft):
         
         if i < len(df):
             r = df.iloc[i]
-            # Szombatos kiemelés
-            if r.get('HasSaturday', False): p.setLineWidth(1.8)
-            
+            if r.get('HasSaturday', False): p.setLineWidth(2.0) # Erősebb keret
             p.rect(x, y, lw, lh)
-            p.setLineWidth(0.5) # Visszaállítjuk a vastagságot a szöveghez
+            p.setLineWidth(0.5)
             
-            p.setFont(f_bold, 9); p.drawString(x+3*mm, y+34*mm, f"#{int(r['Sorrend'])}")
-            p.setFont(f_reg, 7.5); p.drawRightString(x+lw-3*mm, y+34*mm, f"ID: {r['ID']}")
-            p.setFont(f_bold, 8.5); p.drawString(x+3*mm, y+28*mm, str(r['Ügyintéző'])[:32])
-            p.setFont(f_reg, 7.5); p.drawRightString(x+lw-3*mm, y+28*mm, str(r['Telefon']))
-            p.setFont(f_reg, 7.5); p.drawString(x+3*mm, y+24*mm, str(r['Cím'])[:48])
+            # Belső margók: x+5mm és y+5mm a biztonságért
+            p.setFont(f_bold, 10); p.drawString(x+5*mm, y+33*mm, f"#{int(r['Sorrend'])}")
+            p.setFont(f_reg, 8); p.drawRightString(x+lw-5*mm, y+33*mm, f"ID: {r['ID']}")
+            
+            p.setFont(f_bold, 9); p.drawString(x+5*mm, y+28*mm, str(r['Ügyintéző'])[:30])
+            p.setFont(f_reg, 8); p.drawString(x+5*mm, y+24*mm, str(r['Cím'])[:45])
             
             para = Paragraph(str(r['Rendelés']), order_s)
-            para.wrap(lw-6*mm, 15*mm)
-            para.drawOn(p, x+3*mm, y+10*mm)
+            para.wrap(lw-10*mm, 12*mm) # 5mm margó kétoldalt
+            para.drawOn(p, x+5*mm, y+11*mm)
             
-            p.setFont(f_bold, 8)
-            p.drawString(x+3*mm, y+5*mm, f"FIZET: {r['Pénz']} Ft")
-            p.drawRightString(x+lw-3*mm, y+5*mm, f"Össz: {r['Összesen']} db")
-            p.setFont(f_reg, 6); p.drawCentredString(x+lw/2, y+2*mm, f"Futár: {fn} ({ft})")
+            p.setFont(f_bold, 8.5)
+            p.drawString(x+5*mm, y+6*mm, f"FIZET: {r['Pénz']}")
+            p.drawRightString(x+lw-5*mm, y+6*mm, f"{r['Összesen']} db")
+            
+            p.setFont(f_reg, 6.5); p.drawCentredString(x+lw/2, y+2.5*mm, f"Futár: {fn} | {ft}")
         else:
-            # MARKETING CÍMKE
+            # Marketing (v25 alapokon)
             p.rect(x, y, lw, lh)
             m_text = (
-                f"<font size='10.5'><b>15% kedvezmény* 3 hétig</b></font><br/>"
-                f"Új Ügyfeleink részére!<br/><br/>"
+                f"<font size='11'><b>15% kedvezmény*</b></font><br/>"
+                f"Új Ügyfeleinknek 3 hétig!<br/><br/>"
                 f"<b>Rendelés leadás:</b><br/>"
-                f"<b>{fn}</b><br/>tel: <b>{ft}</b><br/><br/>"
-                f"<font size='5'><b>* a kedvezmény telefonon leadott rendelésekre érvényesíthető</b></font>"
+                f"{fn}<br/><b>{ft}</b><br/><br/>"
+                f"<font size='5.5'>* részletek a területi képviselőnél</font>"
             )
             para = Paragraph(m_text, promo_s)
-            pw, ph = para.wrap(lw-6*mm, lh-6*mm)
+            pw, ph = para.wrap(lw-10*mm, lh-10*mm)
             para.drawOn(p, x + (lw-pw)/2, y + (lh-ph)/2)
 
     p.save()
     buf.seek(0)
     return buf
 
-# --- MENETTERV GENERÁLÓ ---
+# --- UI ÉS MENETTERV ---
+# (A menetterv változatlan marad, hogy ne rontsuk el a stabilitást)
 def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
+    from reportlab.platypus import Table, TableStyle
     rows_per_page = 22
     total_p = math.ceil(len(df)/rows_per_page)
     cell_style = ParagraphStyle('CellStyle', fontName=f_reg, fontSize=8.5, leading=11)
-    
     for p_idx in range(total_p):
         p.setFont(f_bold, 11); p.drawString(15*mm, h-12*mm, f"MENETTERV - {fn}")
-        p.setFont(f_reg, 8); p.drawCentredString(w/2, 10*mm, f"{p_idx + 1} / {total_p} oldal")
-        
-        data = [["SOR", "ÜGYFÉL NÉV / [ ] / CÍM", "TELEFON / PÉNZ", "RENDELÉS", "DB"]]
+        data = [["SOR", "NÉV / CÍM", "TELEFON / PÉNZ", "RENDELÉS", "DB"]]
         subset = df.iloc[p_idx*rows_per_page : (p_idx+1)*rows_per_page]
         for _, r in subset.iterrows():
-            name_box = Paragraph(f"<b>{r['Ügyintéző']}</b> [  ]<br/><font size='7'>{r['Cím']}</font>", cell_style)
-            orders = Paragraph(str(r['Rendelés']), cell_style)
-            data.append([
-                f"#{int(r['Sorrend'])}", 
-                name_box, 
-                f"{r['Telefon']}\n{r['Pénz']} Ft", 
-                orders, 
-                r['Összesen']
-            ])
-            
-        t = Table(data, colWidths=[12*mm, 70*mm, 32*mm, 62*mm, 10*mm])
-        t.setStyle(TableStyle([
-            ('FONTNAME', (0,0), (-1,0), f_bold),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('FONTSIZE', (0,0), (-1,0), 9)
-        ]))
-        tw, th = t.wrap(w - 20*mm, h - 35*mm)
-        t.drawOn(p, 10*mm, (h-18*mm) - th)
+            name_box = Paragraph(f"<b>{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font>", cell_style)
+            data.append([f"#{int(r['Sorrend'])}", name_box, f"{r['Telefon']}\n{r['Pénz']}", Paragraph(str(r['Rendelés']), cell_style), r['Összesen']])
+        t = Table(data, colWidths=[12*mm, 65*mm, 35*mm, 68*mm, 10*mm])
+        t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('FONTSIZE', (0,0), (-1,0), 9)]))
+        tw, th = t.wrap(w - 20*mm, h - 35*mm); t.drawOn(p, 10*mm, (h-18*mm) - th)
         p.showPage()
     p.save(); buf.seek(0); return buf
 
-# --- STREAMLIT UI ---
 if 'mdf' not in st.session_state: st.session_state.mdf = None
 
 with st.sidebar:
     st.header("⚙️ Beállítások")
     fn_in = st.text_input("Futár neve", "Szűcs István")
-    ft_in = st.text_input("Telefonszáma", "+3620/886-89-71")
+    ft_in = st.text_input("Telefonszáma", "+36 20 886 8971")
     if st.button("💾 SORREND MENTÉSE"):
         if st.session_state.mdf is not None:
             st.session_state.mdf[['ID', 'Sorrend']].to_csv("user_prefs.csv", index=False)
@@ -227,7 +213,6 @@ if up_files and st.button("📊 FELDOLGOZÁS"):
             mdf = mdf.merge(prefs[['ID', 'Sorrend']], on='ID', how='left')
             mdf['Sorrend'] = mdf['Sorrend'].fillna(9999.0)
         else: mdf['Sorrend'] = range(1, len(mdf) + 1)
-        
         mdf = mdf.sort_values(by=['Sorrend', 'ID']).reset_index(drop=True)
         mdf['Sorrend'] = [float(i+1) for i in range(len(mdf))]
         st.session_state.mdf = mdf[['Sorrend'] + [c for c in mdf.columns if c != 'Sorrend']]; st.rerun()
@@ -241,9 +226,6 @@ if st.session_state.mdf is not None:
 
     st.divider()
     c1, c2, c3 = st.columns(3)
-    with c1:
-        st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, fn_in, ft_in), "etikettek.pdf", use_container_width=True)
-    with c2:
-        st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf", use_container_width=True)
-    with c3:
-        st.download_button("📂 EXPORT CSV", st.session_state.mdf.to_csv(index=False).encode('utf-8-sig'), "menetterv.csv", use_container_width=True)
+    with c1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, fn_in, ft_in), "etikettek.pdf", use_container_width=True)
+    with c2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, fn_in), "menetterv.pdf", use_container_width=True)
+    with c3: st.download_button("📂 EXPORT CSV", st.session_state.mdf.to_csv(index=False).encode('utf-8-sig'), "export.csv", use_container_width=True)

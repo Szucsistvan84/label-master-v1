@@ -15,24 +15,15 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 # --- FONT REGISZTRÁCIÓ ---
 def register_fonts():
     try:
+        # Próbáld meg betölteni a betűtípust, ha elérhető a szerveren
         pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
         pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
         return "DejaVu", "DejaVu-Bold"
     except:
         return "Helvetica", "Helvetica-Bold"
 
-# --- BIZTONSÁGOS SZÁMMÁ ALAKÍTÁS ---
-def safe_int(text):
-    if not text: return 0
-    # Csak a számjegyeket és a mínusz jelet tartjuk meg
-    cleaned = re.sub(r'[^-0-9]', '', str(text))
-    try:
-        return int(cleaned)
-    except ValueError:
-        return 0
-
-# --- MEGERŐSÍTETT KINYERŐ (v9) ---
-def parse_interfood_v9(pdf_file):
+# --- KINYERŐ (v10 - String alapú pénzkezelés) ---
+def parse_interfood_v10(pdf_file):
     rows = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -45,7 +36,7 @@ def parse_interfood_v9(pdf_file):
             for row in table:
                 if not row or len(row) < 6 or "Sor" in str(row[0]): continue
                 
-                # Nyers adatok beolvasása
+                # Nyers adatok
                 raw_client = str(row[1]) if row[1] else ""
                 raw_address = str(row[2]) if row[2] else ""
                 raw_name = str(row[3]) if row[3] else ""
@@ -53,20 +44,20 @@ def parse_interfood_v9(pdf_file):
                 raw_order = str(row[5]) if row[5] else ""
                 raw_count = str(row[6]) if len(row) > 6 and row[6] else "1"
 
-                # ID és Megjegyzés szétválasztása
+                # ID és Megjegyzés
                 id_match = re.search(r'C-?(\d{5,7})', raw_client)
                 uid = id_match.group(1) if id_match else ""
                 note = raw_client.replace(f"C-{uid}", "").replace(f"C{uid}", "").strip()
                 note = note.replace("\n", " ")
 
-                # Pénz és Telefon szétválasztása (Hibatűrő módon)
+                # Pénz kinyerése szövegként (nem alakítjuk számmá!)
                 money_match = re.search(r'(-?\d[\d\s]*)\s*Ft', raw_phone_money)
-                money_str = money_match.group(1) if money_match else "0"
+                money_str = money_match.group(1).replace(" ", "") if money_match else "0"
                 
                 # Telefon tisztítása
                 phone = re.sub(r'-?\d[\d\s]*\s*Ft.*', '', raw_phone_money).strip().replace("\n", "")
 
-                if uid or raw_name: # Ha van név vagy ID, rögzítjük
+                if uid or raw_name:
                     rows.append({
                         "ID": uid,
                         "Ügyintéző": raw_name.strip().replace("\n", " "),
@@ -74,19 +65,22 @@ def parse_interfood_v9(pdf_file):
                         "Megjegyzés": note,
                         "Telefon": phone,
                         "Rendelés": raw_order.strip().replace("\n", " "),
-                        "Pénz": safe_int(money_str), # Itt a javítás!
+                        "Pénz": money_str, # Itt már szöveg (string) marad!
                         "Összesen": raw_count.strip()
                     })
     return rows
 
 # --- PDF GENERÁLÓK ---
-def create_manifest_v9(df, fn):
+def create_manifest_v10(df, futar_nev, futar_tel):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=5*mm, leftMargin=5*mm, topMargin=10*mm, bottomMargin=10*mm)
     elements = []
-    styles = getSampleStyleSheet()
     
+    styles = getSampleStyleSheet()
+    header_style = ParagraphStyle('HS', fontName=f_bold, fontSize=12, spaceAfter=10)
+    elements.append(Paragraph(f"Menetterv - Futár: {futar_nev} ({futar_tel})", header_style))
+
     name_style = ParagraphStyle('NS', fontName=f_bold, fontSize=8)
     note_style = ParagraphStyle('MS', fontName=f_reg, fontSize=7, textColor=colors.red)
     norm_style = ParagraphStyle('RS', fontName=f_reg, fontSize=7)
@@ -116,11 +110,12 @@ def create_manifest_v9(df, fn):
     buf.seek(0)
     return buf
 
-def create_labels_v9(df, fn):
+def create_labels_v10(df, futar_nev, futar_tel):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     p = canvas.Canvas(buf, pagesize=A4)
     lw, lh = 70*mm, 42.4*mm 
+    
     for i, r in df.iterrows():
         idx = i % 21
         if idx == 0 and i > 0: p.showPage()
@@ -144,19 +139,26 @@ def create_labels_v9(df, fn):
         p.drawString(x+5*mm, y+12*mm, str(r['Rendelés'])[:45])
         p.setFont(f_bold, 10)
         p.drawString(x+5*mm, y+5*mm, f"FIZET: {r['Pénz']} Ft")
-        p.drawRightString(x+lw-5*mm, y+5*mm, f"{r['Összesen']} db")
+        
+        p.setFont(f_reg, 6)
+        p.drawRightString(x+lw-5*mm, y+10*mm, f"{futar_nev}")
+        p.drawRightString(x+lw-5*mm, y+7*mm, f"{futar_tel}")
+        p.setFont(f_bold, 10)
+        p.drawRightString(x+lw-5*mm, y+2*mm, f"{r['Összesen']} db")
         
     p.save()
     buf.seek(0)
     return buf
 
 # --- STREAMLIT UI ---
-st.set_page_config(page_title="Interfood Fixer v9", layout="wide")
+st.set_page_config(page_title="Interfood v10", layout="wide")
 
-st.title("Interfood Menetterv Feldolgozó v9")
+st.title("Interfood Menetterv Feldolgozó v10")
 
 with st.sidebar:
-    futar = st.text_input("Futár neve", "Szűcs István")
+    st.header("Beállítások")
+    futar_nev = st.text_input("Futár neve", "Szűcs István")
+    futar_tel = st.text_input("Futár telefonszáma", "+36 20 886 8971")
     uploaded_files = st.file_uploader("Válaszd ki a PDF-eket", accept_multiple_files=True, type=['pdf'])
 
 if uploaded_files:
@@ -164,7 +166,7 @@ if uploaded_files:
         all_data = []
         for f in uploaded_files:
             try:
-                data = parse_interfood_v9(f)
+                data = parse_interfood_v10(f)
                 all_data.extend(data)
             except Exception as e:
                 st.error(f"Hiba a(z) {f.name} feldolgozása közben: {e}")
@@ -172,17 +174,15 @@ if uploaded_files:
         if all_data:
             df = pd.DataFrame(all_data)
             df['Sorrend'] = range(1, len(df) + 1)
-            st.session_state.v9_df = df
-        else:
-            st.warning("Nem sikerült adatot kinyerni a PDF-ekből.")
+            st.session_state.v10_df = df
 
-if 'v9_df' in st.session_state:
-    df = st.data_editor(st.session_state.v9_df, use_container_width=True, hide_index=True)
+if 'v10_df' in st.session_state:
+    df = st.data_editor(st.session_state.v10_df, use_container_width=True, hide_index=True)
     
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.download_button("📥 Etikettek (PDF)", create_labels_v9(df, futar), "etikettek.pdf", use_container_width=True)
+        st.download_button("📥 Etikettek (PDF)", create_labels_v10(df, futar_nev, futar_tel), "etikettek.pdf", use_container_width=True)
     with c2:
-        st.download_button("📋 Menetterv (PDF)", create_manifest_v9(df, futar), "menetterv.pdf", use_container_width=True)
+        st.download_button("📋 Menetterv (PDF)", create_manifest_v10(df, futar_nev, futar_tel), "menetterv.pdf", use_container_width=True)
     with c3:
         st.download_button("📂 CSV Export", df.to_csv(index=False).encode('utf-8-sig'), "export.csv", use_container_width=True)

@@ -101,11 +101,12 @@ def merge_data(raw_rows):
         merged.append(base)
     
     res = pd.DataFrame(merged)
-    # Súlyozás alkalmazása ID alapján
+    # KIFEJEZETTEN FLOAT (tizedes) típusra kényszerítjük a Sorrendet
     if 'weights' in st.session_state and st.session_state.weights:
-        res['Sorrend'] = res['ID'].astype(str).map(st.session_state.weights).fillna(999)
+        res['Sorrend'] = res['ID'].astype(str).map(st.session_state.weights).fillna(999.0).astype(float)
     else:
         res['Sorrend'] = range(1, len(res) + 1)
+        res['Sorrend'] = res['Sorrend'].astype(float)
     
     cols = ['Sorrend'] + [c for c in res.columns if c != 'Sorrend']
     return res[cols].sort_values('Sorrend')
@@ -130,7 +131,8 @@ def create_label_pdf(df, fn, ft):
         if i < len(df):
             r = df.iloc[i]
             top_y = y + lh - inner_m
-            p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{int(r['Sorrend'])}")
+            # A PDF-en egész számként jelenítjük meg a sorszámot a tisztaság kedvéért
+            p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{int(i+1)}") 
             p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 3*mm, f"ID: {r['ID']}")
             p.setFont(f_bold, 9); p.drawString(x + inner_m, top_y - 8*mm, str(r['Ügyintéző'])[:25])
             p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 8*mm, str(r['Telefon']))
@@ -165,10 +167,11 @@ def create_manifest_pdf(df, fn):
         p.setFont(f_reg, 8); p.drawRightString(w - 10*mm, h - 12*mm, f"{p_idx+1} / {total_p} oldal")
         data = [[Paragraph("<b>#</b>", head_s), Paragraph("<b>NÉV / CÍM</b>", head_s), Paragraph("<b>[  ]</b>", head_s), Paragraph("<b>TEL</b>", head_s), Paragraph("<b>PÉNZ</b>", head_s), Paragraph("<b>RENDELÉS</b>", head_s), Paragraph("<b>DB</b>", head_s)]]
         subset = df.iloc[p_idx * rows_per_page : (p_idx + 1) * rows_per_page]
-        for _, r in subset.iterrows():
+        for idx, (_, r) in enumerate(subset.iterrows()):
             m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
             m_disp = str(r['Pénz']) if m_val != "0" and m_val != "" else ""
-            data.append([f"#{int(r['Sorrend'])}", Paragraph(f"<b>{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font>", name_s), "[  ]", Paragraph(f"<font size='7'>{r['Telefon']}</font>", cell_s), Paragraph(f"<b>{m_disp}</b>", cell_s), Paragraph(str(r['Rendelés_Full']), cell_s), r['Összesen']])
+            # A sorszám itt is a végleges sorrendet mutatja (1, 2, 3...)
+            data.append([f"#{p_idx*rows_per_page + idx + 1}", Paragraph(f"<b>{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font>", name_s), "[  ]", Paragraph(f"<font size='7'>{r['Telefon']}</font>", cell_s), Paragraph(f"<b>{m_disp}</b>", cell_s), Paragraph(str(r['Rendelés_Full']), cell_s), r['Összesen']])
         t = Table(data, colWidths=[10*mm, 75*mm, 10*mm, 20*mm, 20*mm, 50*mm, 8*mm])
         t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.2, colors.grey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke), ('ALIGN', (0,0), (0,-1), 'CENTER'), ('ALIGN', (2,0), (2,-1), 'CENTER')]))
         tw, th = t.wrap(w - 15*mm, h - 35*mm); t.drawOn(p, 7*mm, (h - 20*mm) - th); p.showPage()
@@ -190,7 +193,8 @@ with st.sidebar:
     if old_csv:
         db_df = pd.read_csv(old_csv)
         if 'ID' in db_df.columns and 'Sorrend' in db_df.columns:
-            st.session_state.weights = dict(zip(db_df['ID'].astype(str), db_df['Sorrend']))
+            # Betöltésnél is float-ként kezeljük a sorszámokat
+            st.session_state.weights = dict(zip(db_df['ID'].astype(str), db_df['Sorrend'].astype(float)))
             st.success("Súlyozás betöltve!")
 
     st.header("📄 2. Napi PDF-ek")
@@ -204,16 +208,29 @@ with st.sidebar:
 
 if st.session_state.mdf is not None:
     st.header("🚛 Sorrend Szerkesztése")
-    # Adatszerkesztő: Sorrend az első oszlop
-    edited_df = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True)
+    # A Sorrend oszlopot kényszerítjük, hogy tizedeseket is elfogadjon
+    edited_df = st.data_editor(
+        st.session_state.mdf, 
+        hide_index=True, 
+        use_container_width=True,
+        column_config={
+            "Sorrend": st.column_config.NumberColumn(
+                "Sorrend",
+                help="Használj tizedesvesszőt a beszúráshoz (pl. 10.5)",
+                format="%.1f", # Egy tizedesjegy megjelenítése
+            )
+        }
+    )
     
     c1, c2 = st.columns(2)
     with c1:
         if st.button("✅ Sorrend Rögzítése"):
-            new_w = dict(zip(edited_df['ID'].astype(str), edited_df['Sorrend']))
+            # Súlyozás frissítése a tizedesekkel együtt
+            new_w = dict(zip(edited_df['ID'].astype(str), edited_df['Sorrend'].astype(float)))
             st.session_state.weights.update(new_w)
+            # Újrarendezzük a táblázatot
             st.session_state.mdf = edited_df.sort_values('Sorrend')
-            st.success("Sorrend mentve a memóriába!")
+            st.success("Sorrend mentve!")
             st.rerun()
     with c2:
         csv_data = edited_df[['ID', 'Sorrend']].to_csv(index=False).encode('utf-8-sig')

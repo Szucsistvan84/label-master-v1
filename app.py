@@ -121,7 +121,7 @@ def merge_data(raw_rows):
         base['Megjegyzés'] = st.session_state.notes.get(str(uid), "")
         merged.append(base)
     
-res = pd.DataFrame(merged)
+    res = pd.DataFrame(merged)
     if 'weights' in st.session_state and st.session_state.weights:
         res['Sorrend'] = res['ID'].astype(str).map(st.session_state.weights).fillna(999.0).astype(float)
     else:
@@ -269,4 +269,5 @@ if st.session_state.mdf is not None:
     cp1, cp2 = st.columns(2)
     with cp1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
     with cp2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)
+
 

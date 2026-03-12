@@ -88,27 +88,47 @@ def merge_data(raw_rows):
     for uid, group in df.groupby("ID", sort=False):
         base = group.iloc[0].copy().to_dict()
         o_p = []
+        has_weekend = False
+        m_list = []
+
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
-            items = group[group['Prefix'] == pfix]['Rendelés'].tolist()
-            if items: o_p.append(f"{DAY_MAP[pfix]}: {', '.join(items)}")
+            day_group = group[group['Prefix'] == pfix]
+            items = day_group['Rendelés'].tolist()
+            if items: 
+                o_p.append(f"{DAY_MAP[pfix]}: {', '.join(items)}")
+                if pfix == 'Z': has_weekend = True
+            
+            # Pénzösszegek gyűjtése
+            for m_str in day_group['Pénz']:
+                num = int(re.sub(r'[^\d-]', '', str(m_str)) or 0)
+                if num != 0: m_list.append(num)
+
         base['Rendelés_Full'] = " | ".join(o_p)
         base['Összesen'] = group['Összesen'].sum()
-        total_m = 0
-        for m_str in group['Pénz']:
-            num_part = re.sub(r'[^\d-]', '', str(m_str))
-            if num_part and num_part != "-": total_m += int(num_part)
+        base['Hétvégi'] = has_weekend # Új jelölő a szürke hátteréhez
+
+        # --- OKOS PÉNZÜGYI LOGIKA ---
+        if not m_list:
+            total_m = 0
+        elif len(set(m_list)) == 1: # Ha minden összeg ugyanaz (pl. 10040 és 10040)
+            total_m = m_list[0]
+        else:
+            total_m = sum(m_list) # Ha különbözőek, összeadjuk
+        
         base['Pénz'] = f"{total_m} Ft"
+        
+        # Megjegyzés betöltése a memóriából, ha van
+        base['Megjegyzés'] = st.session_state.notes.get(str(uid), "")
         merged.append(base)
     
     res = pd.DataFrame(merged)
-    # Inicializálás
     if 'weights' in st.session_state and st.session_state.weights:
         res['Sorrend'] = res['ID'].astype(str).map(st.session_state.weights).fillna(999.0).astype(float)
     else:
         res['Sorrend'] = range(1, len(res) + 1)
         res['Sorrend'] = res['Sorrend'].astype(float)
     
-    cols = ['Sorrend'] + [c for c in res.columns if c != 'Sorrend']
+    cols = ['Sorrend', 'ID', 'Ügyintéző', 'Cím', 'Megjegyzés', 'Pénz', 'Rendelés_Full', 'Összesen', 'Hétvégi']
     return res[cols].sort_values('Sorrend')
 
 # --- PDF GENERÁLÁS FÜGGVÉNYEK ---
@@ -119,7 +139,7 @@ def create_label_pdf(df, fn, ft):
     lw, lh = 70*mm, 42.4*mm 
     inner_m = 5.5*mm
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
-    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1)
+    note_s = ParagraphStyle('Note', fontName=f_bold, fontSize=7, leading=8, textColor=colors.red)
 
     total_labels = math.ceil(len(df) / 21) * 21
     for i in range(total_labels):
@@ -127,70 +147,87 @@ def create_label_pdf(df, fn, ft):
         if idx == 0 and i > 0: p.showPage()
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = col * lw, row_i * lh
+        
         if i < len(df):
             r = df.iloc[i]
             top_y = y + lh - inner_m
+            
+            # --- SZÜRKE KIEMELÉS HA VAN SZOMBATI RENDELÉS ---
+            if r.get('Hétvégi', False):
+                p.setFillColorRGB(0.9, 0.9, 0.9) # Világosszürke
+                p.rect(x + 1*mm, top_y - 4*mm, lw - 2*mm, 5*mm, fill=1, stroke=0)
+                p.setFillColor(colors.black)
+
             p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{i+1}") 
             p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 3*mm, f"ID: {r['ID']}")
             p.setFont(f_bold, 9); p.drawString(x + inner_m, top_y - 8*mm, str(r['Ügyintéző'])[:25])
             p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 8*mm, str(r['Telefon']))
             p.setFont(f_reg, 7.5); p.drawString(x + inner_m, top_y - 12*mm, str(r['Cím'])[:45])
+            
+            # Megjegyzés megjelenítése (ha van)
+            if str(r['Megjegyzés']).strip():
+                pn = Paragraph(f"<b>INFÓ: {r['Megjegyzés']}</b>", note_s)
+                pn.wrap(lw - 2*inner_m, 5*mm); pn.drawOn(p, x + inner_m, top_y - 16*mm)
+
             para = Paragraph(str(r['Rendelés_Full']), order_s)
-            para.wrap(lw - 2*inner_m, 12*mm); para.drawOn(p, x + inner_m, y + inner_m + 12*mm)
+            para.wrap(lw - 2*inner_m, 12*mm); para.drawOn(p, x + inner_m, y + inner_m + 8*mm)
+            
             base_y = y + inner_m 
             m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
             if m_val != "0" and m_val != "":
-                p.setFont(f_bold, 10); p.drawString(x + inner_m, base_y + 6*mm, f"FIZET: {r['Pénz']}")
-            p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, base_y + 6*mm, f"{r['Összesen']} db")
+                p.setFont(f_bold, 10); p.drawString(x + inner_m, base_y + 4*mm, f"FIZET: {r['Pénz']}")
+            p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, base_y + 4*mm, f"{r['Összesen']} db")
+            
             p.setStrokeColor(colors.black); p.setLineWidth(0.2)
-            p.line(x + inner_m, base_y + 4.5*mm, x + lw - inner_m, base_y + 4.5*mm)
-            p.setFont(f_reg, 6.5); p.drawCentredString(x + lw/2, base_y + 1*mm, f"Futár: {fn} | {ft}")
-        else:
-            m_text = f"<font size='10.5'><b>15% kedvezmény* 3 hétig</b></font><br/>Új Ügyfeleinknek!<br/><br/><b>Rendelés leadás:</b><br/><b>{fn}</b>, tel: <b>{ft}</b><br/><br/><font size='5.5'><b>* kedvezmény területi képviselőnknél érhető el</b></font>"
-            para = Paragraph(m_text, promo_s); pw, ph = para.wrap(lw-2*inner_m, lh-2*inner_m)
-            para.drawOn(p, x + (lw-pw)/2, y + (lh-ph)/2)
+            p.line(x + inner_m, base_y + 2.5*mm, x + lw - inner_m, base_y + 2.5*mm)
+            p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, base_y - 1*mm, f"Futár: {fn} | {ft}")
+        p.showPage() if (i+1) % 21 == 0 and i < len(df)-1 else None
     p.save(); buf.seek(0); return buf
 
+# (A create_manifest_pdf-et is hasonlóan kiegészítettem a Megjegyzéssel)
 def create_manifest_pdf(df, fn):
     df = df.sort_values('Sorrend')
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
-    rows_per_page = 26 
+    rows_per_page = 24 
     total_p = math.ceil(len(df) / rows_per_page)
     name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=9, leading=10)
     cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=8, leading=10)
     head_s = ParagraphStyle('Head', fontName=f_bold, fontSize=8, alignment=1)
     for p_idx in range(total_p):
         p.setFont(f_bold, 11); p.drawString(10*mm, h - 12*mm, f"MENETTERV - {fn}")
-        p.setFont(f_reg, 8); p.drawRightString(w - 10*mm, h - 12*mm, f"{p_idx+1} / {total_p} oldal")
-        data = [[Paragraph("<b>#</b>", head_s), Paragraph("<b>NÉV / CÍM</b>", head_s), Paragraph("<b>[  ]</b>", head_s), Paragraph("<b>TEL</b>", head_s), Paragraph("<b>PÉNZ</b>", head_s), Paragraph("<b>RENDELÉS</b>", head_s), Paragraph("<b>DB</b>", head_s)]]
+        data = [[Paragraph("<b>#</b>", head_s), Paragraph("<b>NÉV / CÍM / INFÓ</b>", head_s), Paragraph("<b>[ ]</b>", head_s), Paragraph("<b>TEL</b>", head_s), Paragraph("<b>PÉNZ</b>", head_s), Paragraph("<b>RENDELÉS</b>", head_s), Paragraph("<b>DB</b>", head_s)]]
         subset = df.iloc[p_idx * rows_per_page : (p_idx + 1) * rows_per_page]
         for idx, (_, r) in enumerate(subset.iterrows()):
             m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
             m_disp = str(r['Pénz']) if m_val != "0" and m_val != "" else ""
-            data.append([f"#{p_idx*rows_per_page + idx + 1}", Paragraph(f"<b>{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font>", name_s), "[  ]", Paragraph(f"<font size='7'>{r['Telefon']}</font>", cell_s), Paragraph(f"<b>{m_disp}</b>", cell_s), Paragraph(str(r['Rendelés_Full']), cell_s), r['Összesen']])
-        t = Table(data, colWidths=[10*mm, 75*mm, 10*mm, 20*mm, 20*mm, 50*mm, 8*mm])
-        t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.2, colors.grey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke), ('ALIGN', (0,0), (0,-1), 'CENTER'), ('ALIGN', (2,0), (2,-1), 'CENTER')]))
-        tw, th = t.wrap(w - 15*mm, h - 35*mm); t.drawOn(p, 7*mm, (h - 20*mm) - th); p.showPage()
+            note_txt = f"<br/><font color='red' size='7'><b>{r['Megjegyzés']}</b></font>" if str(r['Megjegyzés']).strip() else ""
+            data.append([f"#{p_idx*rows_per_page + idx + 1}", Paragraph(f"<b>{r['Ügyintéző']}</b><br/>{r['Cím']}{note_txt}", name_s), "[ ]", Paragraph(str(r['Telefon']), cell_s), Paragraph(f"<b>{m_disp}</b>", cell_s), Paragraph(str(r['Rendelés_Full']), cell_s), r['Összesen']])
+        t = Table(data, colWidths=[8*mm, 75*mm, 8*mm, 22*mm, 20*mm, 50*mm, 8*mm])
+        t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.2, colors.grey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
+        t.wrapOn(p, 7*mm, 20*mm); t.drawOn(p, 7*mm, (h-20*mm) - (len(subset)+1)*12*mm); p.showPage()
     p.save(); buf.seek(0); return buf
 
 # --- UI ---
 st.set_page_config(page_title="Interfood Logisztika", layout="wide")
 if 'mdf' not in st.session_state: st.session_state.mdf = None
 if 'weights' not in st.session_state: st.session_state.weights = {}
+if 'notes' not in st.session_state: st.session_state.notes = {}
 
 with st.sidebar:
     st.header("👤 Futár Adatok")
     c_n = st.text_input("Futár neve", "Szűcs István")
     c_p = st.text_input("Telefonszáma", "+36 20 886 8971")
     st.divider()
-    st.header("💾 1. Tegnapi Súlyozás")
-    old_csv = st.file_uploader("Betöltés (CSV)", type="csv")
+    st.header("💾 1. Súlyozás & Megjegyzések")
+    old_csv = st.file_uploader("CSV Betöltése", type="csv")
     if old_csv:
         db_df = pd.read_csv(old_csv)
-        if 'ID' in db_df.columns and 'Sorrend' in db_df.columns:
-            st.session_state.weights = dict(zip(db_df['ID'].astype(str), db_df['Sorrend'].astype(float)))
-            st.success("Súlyozás betöltve!")
+        st.session_state.weights = dict(zip(db_df['ID'].astype(str), db_df['Sorrend'].astype(float)))
+        if 'Megjegyzés' in db_df.columns:
+            st.session_state.notes = dict(zip(db_df['ID'].astype(str), db_df['Megjegyzés'].fillna("")))
+        st.success("Adatok betöltve!")
+
     st.header("📄 2. Napi PDF-ek")
     up_files = st.file_uploader("Feltöltés", accept_multiple_files=True)
     if up_files and st.button("📊 FELDOLGOZÁS"):
@@ -201,38 +238,30 @@ with st.sidebar:
             st.rerun()
 
 if st.session_state.mdf is not None:
-    st.header("🚛 Sorrend Szerkesztése")
-    # A szerkesztő ablak
+    st.header("🚛 Sorrend és Megjegyzések")
     edited_df = st.data_editor(
         st.session_state.mdf, 
         hide_index=True, 
         use_container_width=True,
-        column_config={"Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f")}
+        num_rows="dynamic", # LEHETŐSÉG ÚJ SOR HOZZÁADÁSÁRA
+        column_config={
+            "Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f"),
+            "Hétvégi": None # Elrejtjük ezt a technikai oszlopot
+        }
     )
     
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("✅ SORREND RÖGZÍTÉSE ÉS ÚJRARAKÁS"):
-            # 1. Rendezés a tizedesek alapján
-            temp_df = edited_df.sort_values('Sorrend').reset_index(drop=True)
-            # 2. Újrasorszámozás tiszta egészekre (1, 2, 3...)
-            temp_df['Sorrend'] = range(1, len(temp_df) + 1)
-            temp_df['Sorrend'] = temp_df['Sorrend'].astype(float)
-            # 3. Mentés a memóriába
-            st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
-            st.session_state.mdf = temp_df
-            st.success("A sorok helyreugrottak és újra lettek számozva!")
-            st.rerun()
+    if st.button("✅ RÖGZÍTÉS ÉS ÚJRARAKÁS"):
+        temp_df = edited_df.sort_values('Sorrend').reset_index(drop=True)
+        temp_df['Sorrend'] = range(1, len(temp_df) + 1)
+        st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
+        st.session_state.notes = dict(zip(temp_df['ID'].astype(str), temp_df['Megjegyzés'].fillna("")))
+        st.session_state.mdf = temp_df
+        st.rerun()
             
-    with c2:
-        # A gomb mindig elérhető, és a pillanatnyi (akár tizedes) állapotot menti
-        csv_data = edited_df[['ID', 'Sorrend']].to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 ÁLLAPOT MENTÉSE (CSV)", csv_data, "interfood_sulyozas.csv", "text/csv", use_container_width=True)
+    csv_data = edited_df[['ID', 'Sorrend', 'Megjegyzés']].to_csv(index=False).encode('utf-8-sig')
+    st.download_button("📥 ADATOK MENTÉSE (CSV)", csv_data, "interfood_adatok.csv", use_container_width=True)
 
     st.divider()
-    st.header("🖨️ Nyomtatás")
     cp1, cp2 = st.columns(2)
-    with cp1:
-        st.download_button("📥 ETIKETTEK (PDF)", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
-    with cp2:
-        st.download_button("📋 MENETTERV (PDF)", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)
+    with cp1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
+    with cp2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)

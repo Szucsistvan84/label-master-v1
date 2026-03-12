@@ -192,7 +192,7 @@ def create_label_pdf(df, fn, ft):
         # --- 2. ESET: ÜRES HELY (MARKETING) ---
         else:
             m_text = (f"<font size='11'><b>15% kedvezmény* 3 hétig</b></font><br/>"
-                      f"<font size='8'>Új Ügyfeleinknek!<br/><br/>"
+                      f"Új Ügyfeleinknek!<br/><br/>"
                       f"<b>Rendelés leadás:</b><br/>"
                       f"<b>{fn}</b>, tel: <b>{ft}</b><br/><br/>"
                       f"<font size='5.5'><b>* a kedvezmény területi képviselőnk által érvényesíthető telefonon leadott rendelésekre</b></font>")
@@ -283,6 +283,7 @@ if st.session_state.mdf is not None:
     cp1, cp2 = st.columns(2)
     with cp1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
     with cp2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)
+
 
 
 

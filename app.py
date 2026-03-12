@@ -203,25 +203,40 @@ def create_label_pdf(df, fn, ft):
     p.save(); buf.seek(0); return buf
     
 # (A create_manifest_pdf-et is hasonlóan kiegészítettem a Megjegyzéssel)
+import datetime
+
 def create_manifest_pdf(df, fn):
     df = df.sort_values('Sorrend')
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
     
-    rows_per_page = 22 
+    # --- DÁTUM KEZELÉS ---
+    tomorrow = datetime.date.today() + datetime.timedelta(days=1)
+    days_hu = ["hétfő", "kedd", "szerda", "csütörtök", "péntek", "szombat", "vasárnap"]
+    day_name = days_hu[tomorrow.weekday()]
+    if tomorrow.weekday() == 4: # Ha péntek
+        day_str = "péntek + szombat"
+    else:
+        day_str = day_name
+    
+    date_header = f"{tomorrow.strftime('%Y-%m-%d')} ({day_str})"
+    
+    rows_per_page = 25 
     total_p = math.ceil(len(df) / rows_per_page)
     
-    name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=8, leading=9)
+    # Stílusok: Név nagyobb (9) és félkövér
+    name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=9, leading=10)
     cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=7, leading=8)
     head_s = ParagraphStyle('Head', fontName=f_bold, fontSize=8, alignment=1)
     
     for p_idx in range(total_p):
-        # Fejléc bal oldalon
+        # Fejléc adatai
         p.setFont(f_bold, 11)
         p.drawString(10*mm, h - 12*mm, f"MENETTERV - {fn}")
-        
-        # OLDALSZÁMOZÁS JOBBRA ZÁRVA
         p.setFont(f_reg, 9)
+        p.drawString(10*mm, h - 17*mm, date_header)
+        
+        # Oldalszám jobbra
         p.drawRightString(w - 10*mm, h - 12*mm, f"{p_idx + 1}/{total_p}. oldal")
         
         header = [
@@ -243,13 +258,13 @@ def create_manifest_pdf(df, fn):
             
             note_txt = ""
             if str(r['Megjegyzés']).strip() and str(r['Megjegyzés']) != 'None':
-                note_txt = f"<br/><font color='red'><b>{r['Megjegyzés']}</b></font>"
+                note_txt = f"<br/><font color='red' size='7'><b>{r['Megjegyzés']}</b></font>"
             
             row_num = p_idx * rows_per_page + idx + 1
             
             data.append([
                 f"#{row_num}",
-                Paragraph(f"<b>{r['Ügyintéző']}</b><br/>{r['Cím']}{note_txt}", name_s),
+                Paragraph(f"{r['Ügyintéző']}<br/><font size='7' face='{f_reg}'>{r['Cím']}</font>{note_txt}", name_s),
                 "[ ]",
                 Paragraph(str(r['Telefon']), cell_s),
                 Paragraph(f"<b>{m_disp}</b>", cell_s),
@@ -257,8 +272,10 @@ def create_manifest_pdf(df, fn):
                 r['Összesen']
             ])
         
-        # Táblázat létrehozása
-        t = Table(data, colWidths=[10*mm, 65*mm, 10*mm, 25*mm, 22*mm, 53*mm, 10*mm])
+        # Oszlopszélességek
+        t = Table(data, colWidths=[9*mm, 66*mm, 9*mm, 25*mm, 22*mm, 54*mm, 10*mm])
+        
+        # Stílus és dinamikus sormagasság
         t.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 0.2, colors.grey),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
@@ -268,14 +285,17 @@ def create_manifest_pdf(df, fn):
             ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
             ('LEFTPADDING', (1,0), (1,-1), 3),
             ('RIGHTPADDING', (1,0), (1,-1), 3),
+            ('TOPPADDING', (0,0), (-1,-1), 2),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
         ]))
         
-        # FIX POZÍCIÓ: A táblázat teteje mindig 20mm-re legyen a lap tetejétől
+        # Kiszámoljuk a helyet: a fejléc alatti résztől a lap aljáig (kb 260mm magas terület)
+        available_height = h - 35*mm 
         t.wrapOn(p, 7*mm, 20*mm)
-        # Kiszámoljuk a táblázat tényleges magasságát
-        w_t, h_t = t.wrap(w - 14*mm, h - 30*mm)
-        # Kirajzolás fixen a fejléc alá (h - 15mm-től indulva lefelé a táblázat magasságával)
-        t.drawOn(p, 7*mm, h - 20*mm - h_t)
+        w_t, h_t = t.wrap(w - 14*mm, available_height)
+        
+        # Kirajzolás fix pontról (h-22mm), a táblázat pedig lefelé nyúlik
+        t.drawOn(p, 7*mm, h - 22*mm - h_t)
         
         p.showPage()
         
@@ -347,6 +367,7 @@ if st.session_state.mdf is not None:
     cp1, cp2 = st.columns(2)
     with cp1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
     with cp2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)
+
 
 
 

@@ -261,10 +261,17 @@ if st.session_state.mdf is not None:
         st.session_state.mdf, 
         hide_index=True, 
         use_container_width=True,
-        num_rows="dynamic", # LEHETŐSÉG ÚJ SOR HOZZÁADÁSÁRA
+        num_rows="dynamic",
         column_config={
-            "Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f"),
-            "Hétvégi": None # Elrejtjük ezt a technikai oszlopot
+            "Sorrend": st.column_config.NumberColumn(
+                "Sorrend",
+                help="Használj tizedespontot (pl. 1.5) a sorok közé szúráshoz!",
+                min_value=0,
+                step=0.1,  # Ez engedélyezi a tizedeseket!
+                format="%.1f"
+            ),
+            "ID": st.column_config.TextColumn("ID", disabled=True),
+            "Hétvégi": None  # Elrejtjük a technikai oszlopot
         }
     )
     
@@ -283,6 +290,7 @@ if st.session_state.mdf is not None:
     cp1, cp2 = st.columns(2)
     with cp1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
     with cp2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)
+
 
 
 

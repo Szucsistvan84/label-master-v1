@@ -98,43 +98,39 @@ def merge_data(raw_rows):
                 o_p.append(f"{DAY_MAP[pfix]}: {', '.join(items)}")
                 if pfix == 'Z': has_weekend = True
             
-            # Pénzösszegek gyűjtése
             for m_str in day_group['Pénz']:
                 num = int(re.sub(r'[^\d-]', '', str(m_str)) or 0)
                 if num != 0: m_list.append(num)
 
         base['Rendelés_Full'] = " | ".join(o_p)
         base['Összesen'] = group['Összesen'].sum()
-        base['Hétvégi'] = has_weekend # Új jelölő a szürke hátteréhez
+        base['Hétvégi'] = has_weekend 
 
-        # --- OKOS PÉNZÜGYI LOGIKA ---
         if not m_list:
             total_m = 0
-        elif len(set(m_list)) == 1: # Ha minden összeg ugyanaz (pl. 10040 és 10040)
+        elif len(set(m_list)) == 1:
             total_m = m_list[0]
         else:
-            total_m = sum(m_list) # Ha különbözőek, összeadjuk
+            total_m = sum(m_list)
         
         base['Pénz'] = f"{total_m} Ft"
-        
-        # Megjegyzés betöltése a memóriából, ha van
         base['Megjegyzés'] = st.session_state.notes.get(str(uid), "")
-        merged.append(base)
+        merged.append(base) # <--- Fontos, hogy ez a ciklus végén legyen, de a groupby-on belül!
     
     res = pd.DataFrame(merged)
+    # Csak azokat tartsuk meg, ahol van rendes ID, hogy ne legyenek "None" sorok
+    res = res.dropna(subset=['ID'])
+
     if 'weights' in st.session_state and st.session_state.weights:
         res['Sorrend'] = res['ID'].astype(str).map(st.session_state.weights).fillna(999.0).astype(float)
     else:
         res['Sorrend'] = range(1, len(res) + 1)
         res['Sorrend'] = res['Sorrend'].astype(float)
     
-    # Itt adjuk meg az összes oszlopot, amit látni akarunk:
     cols = ['Sorrend', 'ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés', 'Pénz', 'Rendelés_Full', 'Összesen', 'Hétvégi']
-    
-    # Biztonsági ellenőrzés: csak azt tartjuk meg, ami tényleg létezik
     existing_cols = [c for c in cols if c in res.columns]
     return res[existing_cols].sort_values('Sorrend')
-
+    
 # --- PDF GENERÁLÁS FÜGGVÉNYEK ---
 def create_label_pdf(df, fn, ft):
     df = df.sort_values('Sorrend')
@@ -145,49 +141,49 @@ def create_label_pdf(df, fn, ft):
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
     note_s = ParagraphStyle('Note', fontName=f_bold, fontSize=7, leading=8, textColor=colors.red)
 
-    total_labels = math.ceil(len(df) / 21) * 21
-    for i in range(total_labels):
+    # Csak annyi etikettet generálunk, amennyi tényleg van
+    for i in range(len(df)):
         idx = i % 21
-        if idx == 0 and i > 0: p.showPage()
+        # ÚJ OLDAL KEZDÉSE: Csak ha betelt a 21 hely ÉS nem az első elemnél vagyunk
+        if idx == 0 and i > 0: 
+            p.showPage()
+            
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = col * lw, row_i * lh
         
-        if i < len(df):
-            r = df.iloc[i]
-            top_y = y + lh - inner_m
-            
-            # --- SZÜRKE KIEMELÉS HA VAN SZOMBATI RENDELÉS ---
-            if r.get('Hétvégi', False):
-                p.setFillColorRGB(0.9, 0.9, 0.9) # Világosszürke
-                p.rect(x + 1*mm, top_y - 4*mm, lw - 2*mm, 5*mm, fill=1, stroke=0)
-                p.setFillColor(colors.black)
+        r = df.iloc[i]
+        top_y = y + lh - inner_m
+        
+        if r.get('Hétvégi', False):
+            p.setFillColorRGB(0.9, 0.9, 0.9)
+            p.rect(x + 1*mm, top_y - 4*mm, lw - 2*mm, 5*mm, fill=1, stroke=0)
+            p.setFillColor(colors.black)
 
-            p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{i+1}") 
-            p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 3*mm, f"ID: {r['ID']}")
-            p.setFont(f_bold, 9); p.drawString(x + inner_m, top_y - 8*mm, str(r['Ügyintéző'])[:25])
-            p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 8*mm, str(r['Telefon']))
-            p.setFont(f_reg, 7.5); p.drawString(x + inner_m, top_y - 12*mm, str(r['Cím'])[:45])
-            
-            # Megjegyzés megjelenítése (ha van)
-            if str(r['Megjegyzés']).strip():
-                pn = Paragraph(f"<b>INFÓ: {r['Megjegyzés']}</b>", note_s)
-                pn.wrap(lw - 2*inner_m, 5*mm); pn.drawOn(p, x + inner_m, top_y - 16*mm)
+        p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{i+1}") 
+        p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 3*mm, f"ID: {r['ID']}")
+        p.setFont(f_bold, 9); p.drawString(x + inner_m, top_y - 8*mm, str(r['Ügyintéző'])[:25])
+        p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 8*mm, str(r['Telefon']))
+        p.setFont(f_reg, 7.5); p.drawString(x + inner_m, top_y - 12*mm, str(r['Cím'])[:45])
+        
+        if str(r['Megjegyzés']).strip() and str(r['Megjegyzés']) != 'None':
+            pn = Paragraph(f"<b>INFÓ: {r['Megjegyzés']}</b>", note_s)
+            pn.wrap(lw - 2*inner_m, 5*mm); pn.drawOn(p, x + inner_m, top_y - 16*mm)
 
-            para = Paragraph(str(r['Rendelés_Full']), order_s)
-            para.wrap(lw - 2*inner_m, 12*mm); para.drawOn(p, x + inner_m, y + inner_m + 8*mm)
-            
-            base_y = y + inner_m 
-            m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
-            if m_val != "0" and m_val != "":
-                p.setFont(f_bold, 10); p.drawString(x + inner_m, base_y + 4*mm, f"FIZET: {r['Pénz']}")
-            p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, base_y + 4*mm, f"{r['Összesen']} db")
-            
-            p.setStrokeColor(colors.black); p.setLineWidth(0.2)
-            p.line(x + inner_m, base_y + 2.5*mm, x + lw - inner_m, base_y + 2.5*mm)
-            p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, base_y - 1*mm, f"Futár: {fn} | {ft}")
-        p.showPage() if (i+1) % 21 == 0 and i < len(df)-1 else None
+        para = Paragraph(str(r['Rendelés_Full']), order_s)
+        para.wrap(lw - 2*inner_m, 12*mm); para.drawOn(p, x + inner_m, y + inner_m + 8*mm)
+        
+        base_y = y + inner_m 
+        m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
+        if m_val != "0" and m_val != "":
+            p.setFont(f_bold, 10); p.drawString(x + inner_m, base_y + 4*mm, f"FIZET: {r['Pénz']}")
+        p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, base_y + 4*mm, f"{r['Összesen']} db")
+        
+        p.setStrokeColor(colors.black); p.setLineWidth(0.2)
+        p.line(x + inner_m, base_y + 2.5*mm, x + lw - inner_m, base_y + 2.5*mm)
+        p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, base_y - 1*mm, f"Futár: {fn} | {ft}")
+
     p.save(); buf.seek(0); return buf
-
+    
 # (A create_manifest_pdf-et is hasonlóan kiegészítettem a Megjegyzéssel)
 def create_manifest_pdf(df, fn):
     df = df.sort_values('Sorrend')
@@ -269,5 +265,6 @@ if st.session_state.mdf is not None:
     cp1, cp2 = st.columns(2)
     with cp1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
     with cp2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)
+
 
 

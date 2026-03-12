@@ -207,24 +207,79 @@ def create_manifest_pdf(df, fn):
     df = df.sort_values('Sorrend')
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
-    rows_per_page = 24 
+    
+    rows_per_page = 22 # Kicsit kevesebb sor, hogy kényelmesen elférjenek a megjegyzések
     total_p = math.ceil(len(df) / rows_per_page)
-    name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=9, leading=10)
-    cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=8, leading=10)
+    
+    # Stílusok a menettervhez
+    name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=8, leading=9)
+    cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=7, leading=8)
     head_s = ParagraphStyle('Head', fontName=f_bold, fontSize=8, alignment=1)
+    
     for p_idx in range(total_p):
-        p.setFont(f_bold, 11); p.drawString(10*mm, h - 12*mm, f"MENETTERV - {fn}")
-        data = [[Paragraph("<b>#</b>", head_s), Paragraph("<b>NÉV / CÍM / INFÓ</b>", head_s), Paragraph("<b>[ ]</b>", head_s), Paragraph("<b>TEL</b>", head_s), Paragraph("<b>PÉNZ</b>", head_s), Paragraph("<b>RENDELÉS</b>", head_s), Paragraph("<b>DB</b>", head_s)]]
+        p.setFont(f_bold, 11)
+        p.drawString(10*mm, h - 12*mm, f"MENETTERV - {fn} ({p_idx + 1}/{total_p}. oldal)")
+        
+        # Oszlopok: # | Név/Cím | [ ] | Tel | Pénz | Rendelés | Db
+        header = [
+            Paragraph("<b>#</b>", head_s),
+            Paragraph("<b>NÉV / CÍM / INFÓ</b>", head_s),
+            Paragraph("<b>[ ]</b>", head_s),
+            Paragraph("<b>TEL</b>", head_s),
+            Paragraph("<b>PÉNZ</b>", head_s),
+            Paragraph("<b>RENDELÉS</b>", head_s),
+            Paragraph("<b>DB</b>", head_s)
+        ]
+        
+        data = [header]
         subset = df.iloc[p_idx * rows_per_page : (p_idx + 1) * rows_per_page]
+        
         for idx, (_, r) in enumerate(subset.iterrows()):
             m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
             m_disp = str(r['Pénz']) if m_val != "0" and m_val != "" else ""
-            note_txt = f"<br/><font color='red' size='7'><b>{r['Megjegyzés']}</b></font>" if str(r['Megjegyzés']).strip() else ""
-            data.append([f"#{p_idx*rows_per_page + idx + 1}", Paragraph(f"<b>{r['Ügyintéző']}</b><br/>{r['Cím']}{note_txt}", name_s), "[ ]", Paragraph(str(r['Telefon']), cell_s), Paragraph(f"<b>{m_disp}</b>", cell_s), Paragraph(str(r['Rendelés_Full']), cell_s), r['Összesen']])
-        t = Table(data, colWidths=[8*mm, 75*mm, 8*mm, 22*mm, 20*mm, 50*mm, 8*mm])
-        t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.2, colors.grey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
-        t.wrapOn(p, 7*mm, 20*mm); t.drawOn(p, 7*mm, (h-20*mm) - (len(subset)+1)*12*mm); p.showPage()
-    p.save(); buf.seek(0); return buf
+            
+            # Megjegyzés pirossal, ha van
+            note_txt = ""
+            if str(r['Megjegyzés']).strip() and str(r['Megjegyzés']) != 'None':
+                note_txt = f"<br/><font color='red'><b>{r['Megjegyzés']}</b></font>"
+            
+            row_num = p_idx * rows_per_page + idx + 1
+            
+            data.append([
+                f"#{row_num}",
+                Paragraph(f"<b>{r['Ügyintéző']}</b><br/>{r['Cím']}{note_txt}", name_s),
+                "[ ]",
+                Paragraph(str(r['Telefon']), cell_s),
+                Paragraph(f"<b>{m_disp}</b>", cell_s),
+                Paragraph(str(r['Rendelés_Full']), cell_s),
+                r['Összesen']
+            ])
+        
+        # Oszlopszélességek finomhangolva (összesen ~195mm)
+        # Sorszám | Név+Cím | Pipa | Tel | Pénz | Rendelés | Db
+        t = Table(data, colWidths=[10*mm, 65*mm, 10*mm, 25*mm, 22*mm, 53*mm, 10*mm])
+        
+        t.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.2, colors.grey),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('ALIGN', (0,0), (0,-1), 'CENTER'),   # Sorszám középre
+            ('ALIGN', (2,0), (2,-1), 'CENTER'),   # Pipa középre
+            ('ALIGN', (6,0), (6,-1), 'CENTER'),   # Darab középre
+            ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke), # Fejléc háttér
+            ('LEFTPADDING', (1,0), (1,-1), 3),
+            ('RIGHTPADDING', (1,0), (1,-1), 3),
+        ]))
+        
+        # Táblázat kirajzolása (felülről lefelé számolva a helyet)
+        t.wrapOn(p, 7*mm, 20*mm)
+        table_height = (len(data)) * 11*mm # becsült magasság
+        t.drawOn(p, 7*mm, h - 20*mm - table_height if h - 20*mm - table_height > 10*mm else 15*mm)
+        
+        p.showPage()
+        
+    p.save()
+    buf.seek(0)
+    return buf
 
 # --- UI ---
 st.set_page_config(page_title="Interfood Logisztika", layout="wide")
@@ -290,6 +345,7 @@ if st.session_state.mdf is not None:
     cp1, cp2 = st.columns(2)
     with cp1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
     with cp2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)
+
 
 
 

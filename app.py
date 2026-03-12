@@ -138,49 +138,67 @@ def create_label_pdf(df, fn, ft):
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4)
     lw, lh = 70*mm, 42.4*mm 
     inner_m = 5.5*mm
+    
+    # Stílusok
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
     note_s = ParagraphStyle('Note', fontName=f_bold, fontSize=7, leading=8, textColor=colors.red)
+    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1) # Középre zárt a reklámnak
 
-    # Csak annyi etikettet generálunk, amennyi tényleg van
-    for i in range(len(df)):
+    # Kiszámoljuk, összesen hány matricahely van (hogy az ív végéig menjen a reklám)
+    total_slots = math.ceil(len(df) / 21) * 21
+    
+    for i in range(total_slots):
         idx = i % 21
-        # ÚJ OLDAL KEZDÉSE: Csak ha betelt a 21 hely ÉS nem az első elemnél vagyunk
         if idx == 0 and i > 0: 
             p.showPage()
             
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = col * lw, row_i * lh
         
-        r = df.iloc[i]
-        top_y = y + lh - inner_m
-        
-        if r.get('Hétvégi', False):
-            p.setFillColorRGB(0.9, 0.9, 0.9)
-            p.rect(x + 1*mm, top_y - 4*mm, lw - 2*mm, 5*mm, fill=1, stroke=0)
-            p.setFillColor(colors.black)
+        # --- 1. ESET: VAN ÜGYFÉL ADAT ---
+        if i < len(df):
+            r = df.iloc[i]
+            top_y = y + lh - inner_m
+            
+            # Szürke fejléc szombatiaknak
+            if r.get('Hétvégi', False):
+                p.setFillColorRGB(0.9, 0.9, 0.9)
+                p.rect(x + 1*mm, top_y - 4*mm, lw - 2*mm, 5*mm, fill=1, stroke=0)
+                p.setFillColor(colors.black)
 
-        p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{i+1}") 
-        p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 3*mm, f"ID: {r['ID']}")
-        p.setFont(f_bold, 9); p.drawString(x + inner_m, top_y - 8*mm, str(r['Ügyintéző'])[:25])
-        p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 8*mm, str(r['Telefon']))
-        p.setFont(f_reg, 7.5); p.drawString(x + inner_m, top_y - 12*mm, str(r['Cím'])[:45])
-        
-        if str(r['Megjegyzés']).strip() and str(r['Megjegyzés']) != 'None':
-            pn = Paragraph(f"<b>INFÓ: {r['Megjegyzés']}</b>", note_s)
-            pn.wrap(lw - 2*inner_m, 5*mm); pn.drawOn(p, x + inner_m, top_y - 16*mm)
+            p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{i+1}") 
+            p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 3*mm, f"ID: {r['ID']}")
+            p.setFont(f_bold, 9); p.drawString(x + inner_m, top_y - 8*mm, str(r['Ügyintéző'])[:25])
+            p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 8*mm, str(r['Telefon']))
+            p.setFont(f_reg, 7.5); p.drawString(x + inner_m, top_y - 12*mm, str(r['Cím'])[:45])
+            
+            if str(r['Megjegyzés']).strip() and str(r['Megjegyzés']) != 'None':
+                pn = Paragraph(f"<b>INFÓ: {r['Megjegyzés']}</b>", note_s)
+                pn.wrap(lw - 2*inner_m, 5*mm); pn.drawOn(p, x + inner_m, top_y - 16*mm)
 
-        para = Paragraph(str(r['Rendelés_Full']), order_s)
-        para.wrap(lw - 2*inner_m, 12*mm); para.drawOn(p, x + inner_m, y + inner_m + 8*mm)
-        
-        base_y = y + inner_m 
-        m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
-        if m_val != "0" and m_val != "":
-            p.setFont(f_bold, 10); p.drawString(x + inner_m, base_y + 4*mm, f"FIZET: {r['Pénz']}")
-        p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, base_y + 4*mm, f"{r['Összesen']} db")
-        
-        p.setStrokeColor(colors.black); p.setLineWidth(0.2)
-        p.line(x + inner_m, base_y + 2.5*mm, x + lw - inner_m, base_y + 2.5*mm)
-        p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, base_y - 1*mm, f"Futár: {fn} | {ft}")
+            para = Paragraph(str(r['Rendelés_Full']), order_s)
+            para.wrap(lw - 2*inner_m, 12*mm); para.drawOn(p, x + inner_m, y + inner_m + 8*mm)
+            
+            base_y = y + inner_m 
+            m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
+            if m_val != "0" and m_val != "":
+                p.setFont(f_bold, 10); p.drawString(x + inner_m, base_y + 4*mm, f"FIZET: {r['Pénz']}")
+            p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, base_y + 4*mm, f"{r['Összesen']} db")
+            
+            p.setStrokeColor(colors.black); p.setLineWidth(0.2)
+            p.line(x + inner_m, base_y + 2.5*mm, x + lw - inner_m, base_y + 2.5*mm)
+            p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, base_y - 1*mm, f"Futár: {fn} | {ft}")
+
+        # --- 2. ESET: ÜRES HELY (MARKETING) ---
+        else:
+            m_text = (f"<font size='11'><b>15% kedvezmény* 3 hétig</b></font><br/>"
+                      f"Új Ügyfeleinknek!<br/><br/>"
+                      f"<b>Rendelés leadás:</b><br/>"
+                      f"<b>{fn}</b>, tel: <b>{ft}</b><br/><br/>"
+                      f"<font size='5.5'><b>* a kedvezmény területi képviselőnk által érvényesíthető telefonon leadott rendelésekre</b></font>")
+            para = Paragraph(m_text, promo_s)
+            pw, ph = para.wrap(lw - 2*inner_m, lh - 2*inner_m)
+            para.drawOn(p, x + (lw - pw) / 2, y + (lh - ph) / 2)
 
     p.save(); buf.seek(0); return buf
     
@@ -265,6 +283,7 @@ if st.session_state.mdf is not None:
     cp1, cp2 = st.columns(2)
     with cp1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
     with cp2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)
+
 
 
 

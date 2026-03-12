@@ -208,19 +208,22 @@ def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
     
-    rows_per_page = 22 # Kicsit kevesebb sor, hogy kényelmesen elférjenek a megjegyzések
+    rows_per_page = 22 
     total_p = math.ceil(len(df) / rows_per_page)
     
-    # Stílusok a menettervhez
     name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=8, leading=9)
     cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=7, leading=8)
     head_s = ParagraphStyle('Head', fontName=f_bold, fontSize=8, alignment=1)
     
     for p_idx in range(total_p):
+        # Fejléc bal oldalon
         p.setFont(f_bold, 11)
-        p.drawString(10*mm, h - 12*mm, f"MENETTERV - {fn} ({p_idx + 1}/{total_p}. oldal)")
+        p.drawString(10*mm, h - 12*mm, f"MENETTERV - {fn}")
         
-        # Oszlopok: # | Név/Cím | [ ] | Tel | Pénz | Rendelés | Db
+        # OLDALSZÁMOZÁS JOBBRA ZÁRVA
+        p.setFont(f_reg, 9)
+        p.drawRightString(w - 10*mm, h - 12*mm, f"{p_idx + 1}/{total_p}. oldal")
+        
         header = [
             Paragraph("<b>#</b>", head_s),
             Paragraph("<b>NÉV / CÍM / INFÓ</b>", head_s),
@@ -238,7 +241,6 @@ def create_manifest_pdf(df, fn):
             m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
             m_disp = str(r['Pénz']) if m_val != "0" and m_val != "" else ""
             
-            # Megjegyzés pirossal, ha van
             note_txt = ""
             if str(r['Megjegyzés']).strip() and str(r['Megjegyzés']) != 'None':
                 note_txt = f"<br/><font color='red'><b>{r['Megjegyzés']}</b></font>"
@@ -255,25 +257,25 @@ def create_manifest_pdf(df, fn):
                 r['Összesen']
             ])
         
-        # Oszlopszélességek finomhangolva (összesen ~195mm)
-        # Sorszám | Név+Cím | Pipa | Tel | Pénz | Rendelés | Db
+        # Táblázat létrehozása
         t = Table(data, colWidths=[10*mm, 65*mm, 10*mm, 25*mm, 22*mm, 53*mm, 10*mm])
-        
         t.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 0.2, colors.grey),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('ALIGN', (0,0), (0,-1), 'CENTER'),   # Sorszám középre
-            ('ALIGN', (2,0), (2,-1), 'CENTER'),   # Pipa középre
-            ('ALIGN', (6,0), (6,-1), 'CENTER'),   # Darab középre
-            ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke), # Fejléc háttér
+            ('ALIGN', (0,0), (0,-1), 'CENTER'),
+            ('ALIGN', (2,0), (2,-1), 'CENTER'),
+            ('ALIGN', (6,0), (6,-1), 'CENTER'),
+            ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
             ('LEFTPADDING', (1,0), (1,-1), 3),
             ('RIGHTPADDING', (1,0), (1,-1), 3),
         ]))
         
-        # Táblázat kirajzolása (felülről lefelé számolva a helyet)
+        # FIX POZÍCIÓ: A táblázat teteje mindig 20mm-re legyen a lap tetejétől
         t.wrapOn(p, 7*mm, 20*mm)
-        table_height = (len(data)) * 11*mm # becsült magasság
-        t.drawOn(p, 7*mm, h - 20*mm - table_height if h - 20*mm - table_height > 10*mm else 15*mm)
+        # Kiszámoljuk a táblázat tényleges magasságát
+        w_t, h_t = t.wrap(w - 14*mm, h - 30*mm)
+        # Kirajzolás fixen a fejléc alá (h - 15mm-től indulva lefelé a táblázat magasságával)
+        t.drawOn(p, 7*mm, h - 20*mm - h_t)
         
         p.showPage()
         
@@ -345,6 +347,7 @@ if st.session_state.mdf is not None:
     cp1, cp2 = st.columns(2)
     with cp1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
     with cp2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)
+
 
 
 

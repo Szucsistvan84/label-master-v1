@@ -17,34 +17,36 @@ import requests
 from bs4 import BeautifulSoup
 
 # --- 1. ÉTLAP LEKÉRÉSE (SCRAPER) ---
-# --- 1. FRISSÍTETT STRAPABÍRÓ SCRAPER ---
-def get_live_menu():
-    url = "https://rendel.interfood.hu/etlap"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept-Language': 'hu-HU,hu;q=0.9'
-    }
+# --- 1. ÉTLAP LEKÉRŐ DIAGNOSZTIKÁVAL ---
+def get_live_menu(manual_text=None):
     menu_map = {}
-    try:
-        response = requests.get(url, headers=headers, timeout=15)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            # Minden olyan elemet nézünk, amiben kód és ár lehet
-            items = soup.find_all(['tr', 'div', 'li'], class_=re.compile(r'item|row|food|product'))
-            for item in items:
-                text = item.get_text(" ", strip=True)
-                code_m = re.search(r'\b([A-Z]{1,2}\d+[A-Z]?)\b', text)
-                price_m = re.search(r'(\d[\d\s]*)\s*Ft', text)
-                if code_m:
-                    code = code_m.group(1)
-                    price = int(re.sub(r'\s', '', price_m.group(1))) if price_m else 0
-                    # Név kinyerése: ami nem a kód és nem az ár
-                    name = text.replace(code, "").replace("Ft", "").strip()
-                    name = re.sub(r'\d+', '', name).strip()[:50]
-                    if len(name) > 3:
-                        menu_map[code] = {'nev': name, 'ar': price}
-    except Exception as e:
-        print(f"Hiba a letöltéskor: {e}")
+    
+    if manual_text:
+        source_text = manual_text
+        st.info("Adatok feldolgozása a beillesztett szövegből...")
+    else:
+        url = "https://rendel.interfood.hu/etlap"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            if response.status_code != 200:
+                # KIÍRJUK A HIBÁT A KÉPERNYŐRE
+                st.error(f"Szerver hiba az Interfoodnál: {response.status_code}")
+                return {}
+            source_text = response.text
+        except Exception as e:
+            # KIÍRJUK A HIBÁT A KÉPERNYŐRE
+            st.error(f"Hálózati hiba (Timeout): Az Interfood blokkolja a felhőt. Hiba: {str(e)}")
+            return {}
+
+    # Regex: Keresünk minden Kódot, nevet és Árat
+    # Működik HTML-lel és sima másolt szöveggel is
+    found = re.findall(r'([A-Z]{1,2}\d+[A-Z]?)\s+(.*?)\s+(\d[\d\s]*)\s*Ft', source_text, re.DOTALL)
+    
+    for code, name, price in found:
+        clean_p = int(re.sub(r'\s', '', price))
+        menu_map[code] = {'nev': name.strip()[:60], 'ar': clean_p}
+        
     return menu_map
 
 LIVE_MENU = get_live_menu()
@@ -297,24 +299,28 @@ if 'notes' not in st.session_state: st.session_state.notes = {}
 
 # --- 5. FRISSÍTETT OLDALSÁV (SIDEBAR) ---
 with st.sidebar:
-    st.header("👤 Futár Adatok")
-    c_n = st.text_input("Futár neve", "Szűcs István")
-    c_p = st.text_input("Telefonszáma", "+36 20 886 8971")
+    st.header("🍴 Étlap Kezelés")
     
-    st.divider()
+    # 1. PRÓBA: Automata letöltés indításkor
+    if 'manual_menu' not in st.session_state:
+        st.session_state.manual_menu = get_live_menu()
     
-    # MOST MÁR MINDIG LÁTHATÓ ELLENŐRZŐ GOMB
-    st.header("🔍 Étlap státusz")
-    if LIVE_MENU:
-        st.success(f"✅ {len(LIVE_MENU)} étel betöltve")
-        if st.button("Étlap tartalmának mutatása"):
-            st.write(list(LIVE_MENU.items())[:20]) # Kiírja az első 20-at
-    else:
-        st.error("❌ Étlap üres")
-        if st.button("Újrapróbálás most"):
-            st.rerun()
+    LIVE_MENU = st.session_state.manual_menu
 
-    st.divider()
+    if not LIVE_MENU:
+        st.warning("⚠️ Automata étlap üres!")
+        # 2. PRÓBA: Manuális beillesztés vészhelyzetre
+        with st.expander("👉 MEGOLDÁS: Étlap frissítése manuálisan"):
+            st.write("1. Nyisd meg: [interfood.hu/etlap](https://rendel.interfood.hu/etlap)")
+            st.write("2. Ctrl+A (mindent kijelöl)")
+            st.write("3. Ctrl+C (másolás)")
+            st.write("4. Kattints ide és Ctrl+V (beillesztés):")
+            pasted = st.text_area("Beillesztés helye", height=100, key="manual_paste")
+            if st.button("Frissítés most"):
+                st.session_state.manual_menu = get_live_menu(manual_text=pasted)
+                st.rerun()
+    else:
+        st.success(f"✅ {len(LIVE_MENU)} étel betöltve!")
     
     # ... innen jön a CSV betöltés és a PDF feltöltés részed ...
     st.header("💾 Adatok Betöltése")

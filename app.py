@@ -19,28 +19,50 @@ from bs4 import BeautifulSoup
 # --- 1. ÉTLAP LEKÉRÉSE (SCRAPER) ---
 def get_live_menu():
     url = "https://rendel.interfood.hu/etlap"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+    # Véletlenszerűbb böngésző adatok
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7',
+    }
     menu_map = {}
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        # Növeljük a timeout-ot 15 másodpercre
+        response = requests.get(url, headers=headers, timeout=15)
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
-            # Próbálunk több lehetséges osztályra is keresni az Interfood szerkezetében
-            items = soup.find_all(class_=re.compile(r'menu-item|food-row|item-list'))
-            for item in items:
-                try:
-                    c_tag = item.find(class_=re.compile(r'code|id|food-code'))
-                    n_tag = item.find(class_=re.compile(r'name|title|food-name'))
-                    p_tag = item.find(class_=re.compile(r'price'))
-                    if c_tag and n_tag:
-                        code = c_tag.get_text(strip=True)
-                        if re.match(r'^[A-Z]{1,2}\d+', code):
-                            price = 0
-                            if p_tag:
-                                price = int(re.sub(r'[^\d]', '', p_tag.get_text()))
-                            menu_map[code] = {'nev': n_tag.get_text(strip=True), 'ar': price}
-                except: continue
-    except: pass
+            
+            # 1. PRÓBA: A legvalószínűbb táblázatos szerkezet
+            rows = soup.find_all(['tr', 'div'], class_=re.compile(r'item|row|food'))
+            
+            for item in rows:
+                text = item.get_text(" ", strip=True)
+                # Keressük a kódot (pl. L1K vagy R4)
+                code_match = re.search(r'\b([A-Z]{1,2}\d+[A-Z]?)\b', text)
+                # Keressük az árat (pl. 2150 Ft)
+                price_match = re.search(r'(\d[\d\s]*)\s*Ft', text)
+                
+                if code_match:
+                    code = code_match.group(1)
+                    price = int(re.sub(r'\s', '', price_match.group(1))) if price_match else 0
+                    
+                    # A nevet próbáljuk kiszedni a szövegből a kód és az ár közül
+                    name = text.replace(code, "").replace("Ft", "").strip()
+                    # Tisztítsuk meg a maradék számoktól
+                    name = re.sub(r'\d+', '', name).strip()
+                    
+                    if len(name) > 5: # Csak ha értelmes név maradt
+                        menu_map[code] = {'nev': name, 'ar': price}
+            
+            # Ha még mindig üres, próbáljunk meg minden SPAN-t átnézni
+            if not menu_map:
+                for span in soup.find_all('span'):
+                    txt = span.get_text().strip()
+                    if re.match(r'^[A-Z]{1,2}\d+$', txt):
+                        parent = span.find_parent()
+                        menu_map[txt] = {'nev': parent.get_text().strip()[:50], 'ar': 0}
+
+    except Exception as e:
+        st.error(f"Hálózati hiba: {e}")
     return menu_map
 
 LIVE_MENU = get_live_menu()

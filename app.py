@@ -213,94 +213,74 @@ def create_manifest_pdf(df, fn):
     # --- DÁTUM KEZELÉS ---
     tomorrow = datetime.date.today() + datetime.timedelta(days=1)
     days_hu = ["hétfő", "kedd", "szerda", "csütörtök", "péntek", "szombat", "vasárnap"]
-    day_name = days_hu[tomorrow.weekday()]
-    if tomorrow.weekday() == 4: # Ha péntek
-        day_str = "péntek + szombat"
-    else:
-        day_str = day_name
-    
+    day_str = "péntek + szombat" if tomorrow.weekday() == 4 else days_hu[tomorrow.weekday()]
     date_header = f"{tomorrow.strftime('%Y-%m-%d')} ({day_str})"
-    
+
     rows_per_page = 25 
     total_p = math.ceil(len(df) / rows_per_page)
     
-    # Stílusok: Név nagyobb (9) és félkövér
     name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=9, leading=10)
     cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=7, leading=8)
     head_s = ParagraphStyle('Head', fontName=f_bold, fontSize=8, alignment=1)
     
     for p_idx in range(total_p):
-        # Fejléc adatai
         p.setFont(f_bold, 11)
         p.drawString(10*mm, h - 12*mm, f"MENETTERV - {fn}")
-        p.setFont(f_reg, 9)
-        p.drawString(10*mm, h - 17*mm, date_header)
-        
-        # Oldalszám jobbra
+        p.setFont(f_reg, 9); p.drawString(10*mm, h - 17*mm, date_header)
         p.drawRightString(w - 10*mm, h - 12*mm, f"{p_idx + 1}/{total_p}. oldal")
         
-        header = [
-            Paragraph("<b>#</b>", head_s),
-            Paragraph("<b>NÉV / CÍM / INFÓ</b>", head_s),
-            Paragraph("<b>[ ]</b>", head_s),
-            Paragraph("<b>TEL</b>", head_s),
-            Paragraph("<b>PÉNZ</b>", head_s),
-            Paragraph("<b>RENDELÉS</b>", head_s),
-            Paragraph("<b>DB</b>", head_s)
-        ]
+        data = [[Paragraph("<b>#</b>", head_s), Paragraph("<b>NÉV / CÍM / INFÓ</b>", head_s), 
+                  Paragraph("<b>[ ]</b>", head_s), Paragraph("<b>TEL</b>", head_s), 
+                  Paragraph("<b>PÉNZ</b>", head_s), Paragraph("<b>RENDELÉS</b>", head_s), 
+                  Paragraph("<b>DB</b>", head_s)]]
         
-        data = [header]
         subset = df.iloc[p_idx * rows_per_page : (p_idx + 1) * rows_per_page]
         
-        for idx, (_, r) in enumerate(subset.iterrows()):
-            m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
-            m_disp = str(r['Pénz']) if m_val != "0" and m_val != "" else ""
-            
-            note_txt = ""
-            if str(r['Megjegyzés']).strip() and str(r['Megjegyzés']) != 'None':
-                note_txt = f"<br/><font color='red' size='7'><b>{r['Megjegyzés']}</b></font>"
-            
-            row_num = p_idx * rows_per_page + idx + 1
-            
-            data.append([
-                f"#{row_num}",
-                Paragraph(f"{r['Ügyintéző']}<br/><font size='7' face='{f_reg}'>{r['Cím']}</font>{note_txt}", name_s),
-                "[ ]",
-                Paragraph(str(r['Telefon']), cell_s),
-                Paragraph(f"<b>{m_disp}</b>", cell_s),
-                Paragraph(str(r['Rendelés_Full']), cell_s),
-                r['Összesen']
-            ])
+        # --- CÍM FIGYELŐ LOGIKA ---
+        addresses = subset['Cím'].tolist()
         
-        # Oszlopszélességek
+        for idx, (_, r) in enumerate(subset.iterrows()):
+            curr_addr = str(r['Cím']).strip()
+            # Megnézzük, hányszor szerepel ez a cím a környezetében
+            is_group = addresses.count(curr_addr) > 1
+            
+            m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
+            m_disp = f"<b>{r['Pénz']}</b>" if m_val != "0" and m_val != "" else ""
+            note = f"<br/><font color='red' size='7'><b>{r['Megjegyzés']}</b></font>" if str(r['Megjegyzés']).strip() and str(r['Megjegyzés']) != 'None' else ""
+            
+            # Ha csoportos cím, teszünk elé egy figyelmeztetést
+            warning = "⚠️ <b>TÖBB ÜGYFÉL!</b><br/>" if is_group else ""
+            
+            data.append([f"#{p_idx*rows_per_page+idx+1}", 
+                         Paragraph(f"{warning}{r['Ügyintéző']}<br/><font size='7' face='{f_reg}'>{r['Cím']}</font>{note}", name_s),
+                         "[ ]", Paragraph(str(r['Telefon']), cell_s), Paragraph(m_disp, cell_s),
+                         Paragraph(str(r['Rendelés_Full']), cell_s), r['Összesen']])
+        
         t = Table(data, colWidths=[9*mm, 66*mm, 9*mm, 25*mm, 22*mm, 54*mm, 10*mm])
         
-        # Stílus és dinamikus sormagasság
-        t.setStyle(TableStyle([
-            ('GRID', (0,0), (-1,-1), 0.2, colors.grey),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('ALIGN', (0,0), (0,-1), 'CENTER'),
-            ('ALIGN', (2,0), (2,-1), 'CENTER'),
-            ('ALIGN', (6,0), (6,-1), 'CENTER'),
-            ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
-            ('LEFTPADDING', (1,0), (1,-1), 3),
-            ('RIGHTPADDING', (1,0), (1,-1), 3),
-            ('TOPPADDING', (0,0), (-1,-1), 2),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-        ]))
+        t_style = [('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                   ('ALIGN', (0,0), (0,-1), 'CENTER'), ('ALIGN', (2,0), (2,-1), 'CENTER'),
+                   ('ALIGN', (6,0), (6,-1), 'CENTER'), ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke)]
         
-        # Kiszámoljuk a helyet: a fejléc alatti résztől a lap aljáig (kb 260mm magas terület)
-        available_height = h - 35*mm 
-        t.wrapOn(p, 7*mm, 20*mm)
-        w_t, h_t = t.wrap(w - 14*mm, available_height)
+        # --- SZÍNEZÉS ---
+        for i, (_, row) in enumerate(subset.iterrows()):
+            # Szombati kiemelés (szürke)
+            if row.get('Hétvégi', False):
+                t_style.append(('BACKGROUND', (0, i+1), (-1, i+1), colors.lightgrey))
+            
+            # Gócpont kiemelés (sárga) - Ha a cím többször szerepel a listában
+            curr_addr = str(row['Cím']).strip()
+            if addresses.count(curr_addr) > 1:
+                t_style.append(('BACKGROUND', (1, i+1), (1, i+1), colors.yellow)) # Csak a név/cím oszlop lesz sárga
         
-        # Kirajzolás fix pontról (h-22mm), a táblázat pedig lefelé nyúlik
+        t.setStyle(TableStyle(t_style))
+        t.wrapOn(p, 7*mm, 20*mm); w_t, h_t = t.wrap(w - 14*mm, h - 35*mm)
         t.drawOn(p, 7*mm, h - 22*mm - h_t)
-        
         p.showPage()
-        
-    p.save()
-    buf.seek(0)
+
+    # (A Rakodási lista rész marad a tegnapi...)
+    # ...
+    p.save(); buf.seek(0)
     return buf
 
 # --- UI ---

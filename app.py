@@ -355,4 +355,43 @@ if st.session_state.get('mdf') is not None:
         hide_index=True, 
         use_container_width=True,
         column_config={
-            "Sorrend
+            "Sorrend": st.column_config.NumberColumn("Sorrend", step=1, format="%d"),
+            "ID": st.column_config.TextColumn("Azonosító", disabled=True),
+            "Pénz": st.column_config.TextColumn("Fizetendő"),
+            "Megjegyzés": st.column_config.TextColumn("Megjegyzés (Infó az etikettre)")
+        }
+    )
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("✅ SORREND RÖGZÍTÉSE ÉS ÚJRARAKÁS", use_container_width=True):
+            temp_df = edited_df.sort_values('Sorrend').reset_index(drop=True)
+            temp_df['Sorrend'] = range(1, len(temp_df) + 1)
+            st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
+            st.session_state.notes = dict(zip(temp_df['ID'].astype(str), temp_df['Megjegyzés'].fillna("")))
+            st.session_state.mdf = temp_df
+            st.rerun()
+            
+    with c2:
+        csv_data = edited_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 ADATOK MENTÉSE (CSV)", csv_data, "interfood_napi_adatok.csv", use_container_width=True)
+
+    st.divider()
+    
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.download_button(
+            label="📄 ETIKETTEK NYOMTATÁSA (PDF)",
+            data=create_label_pdf(edited_df, c_n, c_p),
+            file_name=f"etikettek_{datetime.date.today()}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+    with col_b:
+        st.download_button(
+            label="📋 MENETTERV + RAKODÁSI LISTA (PDF)",
+            data=create_manifest_pdf(edited_df, c_n),
+            file_name=f"menetterv_{datetime.date.today()}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )

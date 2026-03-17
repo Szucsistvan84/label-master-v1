@@ -284,7 +284,31 @@ def create_manifest_pdf(df, fn):
     counts = {}
     for c, code in all_codes: counts[code] = counts.get(code, 0) + int(c)
     
-    menu = st.session_state.get('live_menu', {})
+   # A meglévő counts gyűjtése után (ahol számolod a db-okat)
+menu = st.session_state.get('live_menu', {})
+
+# 1. Csak azokat az ételeket vesszük, amik benne vannak a menu_map-ben (tehát az adott napon léteznek)
+# 2. Sorba rendezzük őket az 'excel_order' alapján
+ordered_codes = sorted(
+    [c for c in counts.keys() if c in menu],
+    key=lambda x: menu[x]['excel_order']
+)
+
+last_cat = None
+for code in ordered_codes:
+    info = menu[code]
+    count = counts[code]
+    
+    # Ha új kategóriához érünk, beszúrhatunk egy alcímet a PDF-be
+    if info['kategoria'] != last_cat:
+        # Itt egy szürke elválasztó sort vagy vastagabb betűtípust használhatunk
+        sum_rows.append([Paragraph(f"<b>--- {info['kategoria']} ---</b>", cell_s), ""])
+        last_cat = info['kategoria']
+        
+    sum_rows.append([
+        Paragraph(f"<b>{code}</b> - {info['nev']}", cell_s), 
+        Paragraph(f"{count} db", head_s)
+    ])
     sum_rows = []
     total_val, total_items = 0, 0
     for code in sorted(counts.keys()):

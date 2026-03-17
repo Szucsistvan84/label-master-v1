@@ -22,49 +22,53 @@ def get_live_menu(year, week, day_name):
     headers = {'User-Agent': 'Mozilla/5.0'}
     menu_map = {}
     
-    # Napok leképezése az oszlopokra (B-től G-ig)
-    # B=1 (Hétfő), C=2 (Kedd), D=3 (Szerda), E=4 (Csütörtök), F=5 (Péntek), G=6 (Szombat)
+    # Oszlopok: B=Hétfő(1), C=Kedd(2), D=Szerda(3), E=Csütörtök(4), F=Péntek(5), G=Szombat(6)
     day_to_col = {
         'Hétfő': 1, 'Kedd': 2, 'Szerda': 3, 'Csütörtök': 4, 'Péntek': 5, 'Szombat': 6
     }
-    target_col = day_to_col.get(day_name, 3)
+    target_col = day_to_col.get(day_name, 3) 
 
     try:
         response = requests.get(excel_url, headers=headers, timeout=15)
         if response.status_code == 200:
             df = pd.read_excel(BytesIO(response.content), engine='openpyxl')
             
-            last_code = None
-            last_name = None
-
+            current_category = "Egyéb"
+            
+            # Az Excel végigolvasása sorrendben
             for i in range(len(df)):
                 row = df.iloc[i]
                 col_a = str(row.iloc[0]).strip()
                 
-                # 1. HA TALÁLUNK KÓDOT AZ "A" OSZLOPBAN (pl. SP1 - Kategória)
+                # 1. KATEGÓRIA ÉS KÓD KINYERÉSE (A oszlop: "SP1 - Sport és egészség")
                 if col_a and col_a != 'nan' and " - " in col_a:
-                    last_code = col_a.split(" - ")[0].strip() # Csak az SP1 kell
-                    last_name = str(row.iloc[1]).strip()      # A mellette lévő név (B11)
-                
-                # 2. HA NINCS KÓD, DE VAN ELMENTETT ELŐZŐ KÓDUNK (Ez a második sor, pl. B12)
-                elif last_code and (not col_a or col_a == 'nan'):
-                    try:
-                        # Az ár a B12, C12, D12 stb. cellákban van
-                        raw_price = row.iloc[target_col]
-                        p_str = re.sub(r'[^\d]', '', str(raw_price))
-                        
-                        if p_str:
-                            menu_map[last_code] = {
-                                'nev': last_name[:50],
-                                'ar': int(p_str)
-                            }
-                            # Miután megvan az ár, alaphelyzetbe állítjuk, hogy várja a következő kódot
-                            last_code = None 
-                            last_name = None
-                    except:
-                        continue
+                    parts = col_a.split(" - ")
+                    code = parts[0].strip()
+                    current_category = parts[1].strip()
+                    
+                    # 2. ADATOK KERESÉSE A MEGFELELŐ NAPON (Szerda = D oszlop)
+                    # Megnézzük a jelenlegi sort (név) és a következőt (ár)
+                    name_on_day = str(row.iloc[target_col]).strip()
+                    
+                    if name_on_day and name_on_day != 'nan' and len(name_on_day) > 2:
+                        try:
+                            # Az ár a következő sorban van ugyanabban az oszlopban (i+1)
+                            next_row = df.iloc[i+1]
+                            price_on_day = str(next_row.iloc[target_col]).strip()
+                            p_str = re.sub(r'[^\d]', '', price_on_day)
+                            
+                            if p_str:
+                                # Elmentjük az adatokat, a sorrendet az i (sorszám) garantálja
+                                menu_map[code] = {
+                                    'nev': name_on_day[:60],
+                                    'ar': int(p_str),
+                                    'kategoria': current_category,
+                                    'excel_order': i  # Eltároljuk a pozíciót a rendezéshez
+                                }
+                        except:
+                            continue
             
-            st.sidebar.success(f"✅ Étlap feldolgozva: {len(menu_map)} tétel")
+            st.sidebar.success(f"✅ Étlap betöltve ({day_name})")
     except Exception as e:
         st.sidebar.error(f"Excel hiba: {e}")
         

@@ -210,12 +210,16 @@ def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
     
-    # --- DÁTUM ÉS TELJES CÍMLISTA (Oldalakon átívelő figyelemhez) ---
     tomorrow = datetime.date.today() + datetime.timedelta(days=1)
     date_header = f"{tomorrow.strftime('%Y-%m-%d')}" 
     
-    # Tisztítjuk és listázzuk az összes címet a teljes dokumentumban
-    all_addresses = [str(a).strip().lower() for a in df['Cím'].tolist()]
+    # --- INTELLIGENS CÍMTISZTÍTÓ ÉS ELLENŐRZŐ ---
+    def clean_addr(addr):
+        # Kisbetűsít, leszedi a pontot a végéről és a felesleges szóközöket
+        return str(addr).strip().lower().replace('.', '').replace('  ', ' ')
+
+    # A teljes listán lefuttatjuk a tisztított címek keresését
+    cleaned_addresses = [clean_addr(a) for a in df['Cím'].tolist()]
     
     rows_per_page = 25 
     total_p = math.ceil(len(df) / rows_per_page)
@@ -235,21 +239,19 @@ def create_manifest_pdf(df, fn):
                   Paragraph("<b>DB</b>", head_s)]]
         
         subset = df.iloc[p_idx * rows_per_page : (p_idx + 1) * rows_per_page]
-        
         t_style = [('GRID', (0,0), (-1,-1), 0.5, colors.black), 
                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                   ('BACKGROUND', (0,0), (-1,0), colors.lightgrey)] # Fejléc szürke
+                   ('BACKGROUND', (0,0), (-1,0), colors.lightgrey)]
 
         for i, (_, r) in enumerate(subset.iterrows()):
-            curr_addr = str(r['Cím']).strip().lower()
-            # Megnézzük a TELJES listában, hányan vannak ezen a címen
-            group_count = all_addresses.count(curr_addr)
+            curr_cleaned = clean_addr(r['Cím'])
+            group_count = cleaned_addresses.count(curr_cleaned)
             is_group = group_count > 1
             
             m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
             m_disp = f"<b>{r['Pénz']}</b>" if m_val != "0" and m_val != "" else ""
             
-            # Jelezzük, ha több ügyfél van, és azt is, hányadik az adott címen
+            # Jelezzük a csoportot
             warning = f"▲ <b>CSOPORT ({group_count} ÜGYFÉL)</b><br/>" if is_group else ""
             
             data.append([f"#{p_idx*rows_per_page+i+1}", 
@@ -257,12 +259,10 @@ def create_manifest_pdf(df, fn):
                          "[ ]", Paragraph(str(r['Telefon']), cell_s), Paragraph(m_disp, cell_s),
                          Paragraph(str(r['Rendelés_Full']), cell_s), r['Összesen']])
             
-            # --- VIZUÁLIS KIEMELÉS LÉZERNYOMTATÓHOZ ---
             if is_group:
-                # 1. Világosszürke háttér a csoportos címeknek
-                t_style.append(('BACKGROUND', (1, i+1), (1, i+1), colors.Color(0.9, 0.9, 0.9)))
-                # 2. Vastag keret (2 pont) a név-cím cella körül
-                t_style.append(('BOX', (1, i+1), (1, i+1), 2.0, colors.black))
+                # Enyhe szürke háttér és közepesen vastag keret (1.2)
+                t_style.append(('BACKGROUND', (1, i+1), (1, i+1), colors.Color(0.92, 0.92, 0.92)))
+                t_style.append(('BOX', (1, i+1), (1, i+1), 1.2, colors.black))
         
         t = Table(data, colWidths=[9*mm, 66*mm, 9*mm, 25*mm, 22*mm, 54*mm, 10*mm])
         t.setStyle(TableStyle(t_style))

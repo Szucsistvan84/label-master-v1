@@ -17,48 +17,42 @@ import requests
 from bs4 import BeautifulSoup
 
 # --- 1. ÉTLAP KEZELÉSE (AUTOMATA + MANUÁLIS) ---
-def get_live_menu(manual_text=None):
+def get_live_menu():
+    # A link, amit küldtél
+    excel_url = "https://ia.interfood.hu/api/v3/excel-export?year=2026&week=12"
+    headers = {'User-Agent': 'Mozilla/5.0'}
     menu_map = {}
-    if not manual_text:
-        return {}
-
-    lines = manual_text.split('\n')
-    for line in lines:
-        # 1. Keressük a kódot a sor elején
-        code_match = re.search(r'^([A-Z]{1,2}\d+[A-Z]?)', line.strip())
-        if code_match:
-            code = code_match.group(1)
+    
+    try:
+        response = requests.get(excel_url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            # Beolvassuk az Excelt a memóriába
+            df_excel = pd.read_excel(BytesIO(response.content))
             
-            # 2. Keressük az összes árat a sorban
-            prices = re.findall(r'(\d[\d\s]*)\s*Ft', line)
-            
-            # 3. Kinyerjük a neveket (az Interfoodnál a nevek gyakran az árak előtt vannak)
-            # Megpróbáljuk szétvágni a sort a "Ft" szavak mentén
-            parts = line.split('Ft')
-            
-            # SZERDAI LOGIKA:
-            # Ha a sorban benne van a hét minden napja, akkor a 3. ár és a 3. név kell nekünk.
-            if len(prices) >= 3:
-                # A szerda a 3. oszlop (H, K, Sze...)
-                target_price = int(re.sub(r'\s', '', prices[2])) 
-                
-                # A nevet trükkösebben kell kinyerni a részekből
+            # Az Interfood Excel szerkezete alapján keressük meg az adatokat.
+            # Feltételezzük: 0. oszlop = Kód, 1. oszlop = Név, 4. oszlop = Szerdai ár
+            # (Az oszlopindexeket finomíthatjuk, ha látjuk az Excelt)
+            for _, row in df_excel.iterrows():
                 try:
-                    # A 3. ár előtti szövegrész vége lesz a szerdai név
-                    raw_name = parts[2].strip()
-                    # Levágjuk a kódokat/maradékokat az elejéről
-                    clean_name = re.sub(r'^[A-Z0-9\s]+', '', raw_name).strip()
-                    # Csak az utolsó néhány szót tartjuk meg, ami az étel neve
-                    name = " ".join(clean_name.split()[-4:]) 
+                    code = str(row.iloc[0]).strip() # Kód
+                    name = str(row.iloc[1]).strip() # Név
+                    # A szerdai ár az 5. oszlop környékén szokott lenni (B-C-D-E-F)
+                    # Ha tudjuk a pontos oszlopot, ide írjuk (pl. iloc[4])
+                    price = row.iloc[4] 
+                    
+                    if code and code != 'nan' and len(code) < 6:
+                        menu_map[code] = {
+                            'nev': name[:50],
+                            'ar': int(price) if pd.notnull(price) and str(price).isdigit() else 0
+                        }
                 except:
-                    name = "Szerdai étel"
-            else:
-                # Ha csak egy ár van, azt vesszük
-                target_price = int(re.sub(r'\s', '', prices[0])) if prices else 0
-                name = line.replace(code, "").split(str(prices[0]) if prices else "---")[0].strip()
-
-            menu_map[code] = {'nev': name[:50], 'ar': target_price}
-            
+                    continue
+            st.sidebar.success(f"✅ Excel étlap betöltve ({len(menu_map)} tétel)")
+        else:
+            st.sidebar.error(f"Excel letöltés sikertelen: {response.status_code}")
+    except Exception as e:
+        st.sidebar.error(f"Excel hiba: {str(e)}")
+        
     return menu_map
 
 # --- FONT ÉS ALAPOK ---

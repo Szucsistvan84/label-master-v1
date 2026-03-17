@@ -210,12 +210,13 @@ def create_manifest_pdf(df, fn):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
     
-    # --- DÁTUM KEZELÉS ---
+    # --- DÁTUM ÉS TELJES CÍMLISTA (Oldalakon átívelő figyelemhez) ---
     tomorrow = datetime.date.today() + datetime.timedelta(days=1)
-    days_hu = ["hétfő", "kedd", "szerda", "csütörtök", "péntek", "szombat", "vasárnap"]
-    day_str = "péntek + szombat" if tomorrow.weekday() == 4 else days_hu[tomorrow.weekday()]
-    date_header = f"{tomorrow.strftime('%Y-%m-%d')} ({day_str})"
-
+    date_header = f"{tomorrow.strftime('%Y-%m-%d')}" 
+    
+    # Tisztítjuk és listázzuk az összes címet a teljes dokumentumban
+    all_addresses = [str(a).strip().lower() for a in df['Cím'].tolist()]
+    
     rows_per_page = 25 
     total_p = math.ceil(len(df) / rows_per_page)
     
@@ -226,7 +227,6 @@ def create_manifest_pdf(df, fn):
     for p_idx in range(total_p):
         p.setFont(f_bold, 11)
         p.drawString(10*mm, h - 12*mm, f"MENETTERV - {fn}")
-        p.setFont(f_reg, 9); p.drawString(10*mm, h - 17*mm, date_header)
         p.drawRightString(w - 10*mm, h - 12*mm, f"{p_idx + 1}/{total_p}. oldal")
         
         data = [[Paragraph("<b>#</b>", head_s), Paragraph("<b>NÉV / CÍM / INFÓ</b>", head_s), 
@@ -236,50 +236,40 @@ def create_manifest_pdf(df, fn):
         
         subset = df.iloc[p_idx * rows_per_page : (p_idx + 1) * rows_per_page]
         
-        # --- CÍM FIGYELŐ LOGIKA ---
-        addresses = subset['Cím'].tolist()
-        
-        for idx, (_, r) in enumerate(subset.iterrows()):
-            curr_addr = str(r['Cím']).strip()
-            # Megnézzük, hányszor szerepel ez a cím a környezetében
-            is_group = addresses.count(curr_addr) > 1
+        t_style = [('GRID', (0,0), (-1,-1), 0.5, colors.black), 
+                   ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                   ('BACKGROUND', (0,0), (-1,0), colors.lightgrey)] # Fejléc szürke
+
+        for i, (_, r) in enumerate(subset.iterrows()):
+            curr_addr = str(r['Cím']).strip().lower()
+            # Megnézzük a TELJES listában, hányan vannak ezen a címen
+            group_count = all_addresses.count(curr_addr)
+            is_group = group_count > 1
             
             m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
             m_disp = f"<b>{r['Pénz']}</b>" if m_val != "0" and m_val != "" else ""
-            note = f"<br/><font color='red' size='7'><b>{r['Megjegyzés']}</b></font>" if str(r['Megjegyzés']).strip() and str(r['Megjegyzés']) != 'None' else ""
             
-            # Ha csoportos cím, teszünk elé egy figyelmeztetést
-            warning = "⚠️ <b>TÖBB ÜGYFÉL!</b><br/>" if is_group else ""
+            # Jelezzük, ha több ügyfél van, és azt is, hányadik az adott címen
+            warning = f"▲ <b>CSOPORT ({group_count} ÜGYFÉL)</b><br/>" if is_group else ""
             
-            data.append([f"#{p_idx*rows_per_page+idx+1}", 
-                         Paragraph(f"{warning}{r['Ügyintéző']}<br/><font size='7' face='{f_reg}'>{r['Cím']}</font>{note}", name_s),
+            data.append([f"#{p_idx*rows_per_page+i+1}", 
+                         Paragraph(f"{warning}{r['Ügyintéző']}<br/><font size='7'>{r['Cím']}</font>", name_s),
                          "[ ]", Paragraph(str(r['Telefon']), cell_s), Paragraph(m_disp, cell_s),
                          Paragraph(str(r['Rendelés_Full']), cell_s), r['Összesen']])
+            
+            # --- VIZUÁLIS KIEMELÉS LÉZERNYOMTATÓHOZ ---
+            if is_group:
+                # 1. Világosszürke háttér a csoportos címeknek
+                t_style.append(('BACKGROUND', (1, i+1), (1, i+1), colors.Color(0.9, 0.9, 0.9)))
+                # 2. Vastag keret (2 pont) a név-cím cella körül
+                t_style.append(('BOX', (1, i+1), (1, i+1), 2.0, colors.black))
         
         t = Table(data, colWidths=[9*mm, 66*mm, 9*mm, 25*mm, 22*mm, 54*mm, 10*mm])
-        
-        t_style = [('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                   ('ALIGN', (0,0), (0,-1), 'CENTER'), ('ALIGN', (2,0), (2,-1), 'CENTER'),
-                   ('ALIGN', (6,0), (6,-1), 'CENTER'), ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke)]
-        
-        # --- SZÍNEZÉS ---
-        for i, (_, row) in enumerate(subset.iterrows()):
-            # Szombati kiemelés (szürke)
-            if row.get('Hétvégi', False):
-                t_style.append(('BACKGROUND', (0, i+1), (-1, i+1), colors.lightgrey))
-            
-            # Gócpont kiemelés (sárga) - Ha a cím többször szerepel a listában
-            curr_addr = str(row['Cím']).strip()
-            if addresses.count(curr_addr) > 1:
-                t_style.append(('BACKGROUND', (1, i+1), (1, i+1), colors.yellow)) # Csak a név/cím oszlop lesz sárga
-        
         t.setStyle(TableStyle(t_style))
         t.wrapOn(p, 7*mm, 20*mm); w_t, h_t = t.wrap(w - 14*mm, h - 35*mm)
         t.drawOn(p, 7*mm, h - 22*mm - h_t)
         p.showPage()
 
-    # (A Rakodási lista rész marad a tegnapi...)
-    # ...
     p.save(); buf.seek(0)
     return buf
 

@@ -19,27 +19,46 @@ from bs4 import BeautifulSoup
 # --- 1. ÉTLAP KEZELÉSE (AUTOMATA + MANUÁLIS) ---
 def get_live_menu(manual_text=None):
     menu_map = {}
-    if manual_text:
-        source_content = manual_text
-    else:
-        # Megpróbáljuk a rendes URL-t, amit írtál
-        url = "https://rendel.interfood.hu/"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        try:
-            response = requests.get(url, headers=headers, timeout=8)
-            source_content = response.text
-        except Exception as e:
-            st.sidebar.error(f"Automata hiba: {str(e)}")
-            return {}
+    if not manual_text:
+        return {}
 
-    # Kinyerjük az adatokat (Kód + Név + Ár)
-    # Ez a regex felismeri az Interfood formátumát (pl: L1K Falusi kacsaleves 2150 Ft)
-    found = re.findall(r'([A-Z]{1,2}\d+[A-Z]?)\s+(.*?)\s+(\d[\d\s]*)\s*Ft', source_content, re.DOTALL)
-    
-    for code, name, price in found:
-        clean_p = int(re.sub(r'\s', '', price))
-        menu_map[code] = {'nev': name.strip()[:50], 'ar': clean_p}
-    
+    lines = manual_text.split('\n')
+    for line in lines:
+        # 1. Keressük a kódot a sor elején
+        code_match = re.search(r'^([A-Z]{1,2}\d+[A-Z]?)', line.strip())
+        if code_match:
+            code = code_match.group(1)
+            
+            # 2. Keressük az összes árat a sorban
+            prices = re.findall(r'(\d[\d\s]*)\s*Ft', line)
+            
+            # 3. Kinyerjük a neveket (az Interfoodnál a nevek gyakran az árak előtt vannak)
+            # Megpróbáljuk szétvágni a sort a "Ft" szavak mentén
+            parts = line.split('Ft')
+            
+            # SZERDAI LOGIKA:
+            # Ha a sorban benne van a hét minden napja, akkor a 3. ár és a 3. név kell nekünk.
+            if len(prices) >= 3:
+                # A szerda a 3. oszlop (H, K, Sze...)
+                target_price = int(re.sub(r'\s', '', prices[2])) 
+                
+                # A nevet trükkösebben kell kinyerni a részekből
+                try:
+                    # A 3. ár előtti szövegrész vége lesz a szerdai név
+                    raw_name = parts[2].strip()
+                    # Levágjuk a kódokat/maradékokat az elejéről
+                    clean_name = re.sub(r'^[A-Z0-9\s]+', '', raw_name).strip()
+                    # Csak az utolsó néhány szót tartjuk meg, ami az étel neve
+                    name = " ".join(clean_name.split()[-4:]) 
+                except:
+                    name = "Szerdai étel"
+            else:
+                # Ha csak egy ár van, azt vesszük
+                target_price = int(re.sub(r'\s', '', prices[0])) if prices else 0
+                name = line.replace(code, "").split(str(prices[0]) if prices else "---")[0].strip()
+
+            menu_map[code] = {'nev': name[:50], 'ar': target_price}
+            
     return menu_map
 
 # --- FONT ÉS ALAPOK ---
@@ -189,6 +208,8 @@ def create_manifest_pdf(df, fn):
     head_s = ParagraphStyle('Head', fontName=f_bold, fontSize=8, alignment=1)
     name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=9, leading=10)
     cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=7, leading=8)
+    
+    # 1. MENETTERV OLDALAK
     for p_idx in range(total_p):
         p.setFont(f_bold, 11); p.drawString(10*mm, h - 12*mm, f"MENETTERV - {fn}")
         p.drawRightString(w - 10*mm, h - 12*mm, f"{p_idx + 1}/{total_p}. oldal")
@@ -209,26 +230,68 @@ def create_manifest_pdf(df, fn):
         t.wrapOn(p, 7*mm, 20*mm); h_t = t.wrap(w - 14*mm, h - 35*mm)[1]
         t.drawOn(p, 7*mm, h - 22*mm - h_t)
         p.showPage()
-    # RAKODÁSI LISTA
-    p.setFont(f_bold, 12); p.drawString(10*mm, h - 15*mm, "RAKODÁSI LISTA ÉS ÖSSZESÍTŐ")
+
+    # 2. RAKODÁSI LISTA (TÖBB OLDALRA TÖRDELVE)
     all_codes = []
-    for r in df['Rendelés_Full']: all_codes.extend(re.findall(r'(\d+)-([A-Z0-9*+]+)', str(r)))
+    for r in df['Rendelés_Full']: 
+        all_codes.extend(re.findall(r'(\d+)-([A-Z0-9*+]+)', str(r)))
+    
     counts = {}
-    for c, code in all_codes: counts[code] = counts.get(code, 0) + int(c)
-    sum_data = [[Paragraph("<b>KÓD ÉS ÉTEL MEGNEVEZÉSE</b>", head_s), Paragraph("<b>DB</b>", head_s)]]
-    total_val, total_items = 0, 0
+    for c, code in all_codes: 
+        counts[code] = counts.get(code, 0) + int(c)
+    
     menu = st.session_state.get('live_menu', {})
+    sum_rows = []
+    total_val, total_items = 0, 0
+    
+    # Adatok előkészítése
     for code in sorted(counts.keys()):
-        count = counts[code]; info = menu.get(code, {'nev': 'Ismeretlen étel', 'ar': 0})
-        total_val += (count * info['ar']); total_items += count
-        sum_data.append([Paragraph(f"<b>{code}</b> - {info['nev']}", cell_s), Paragraph(f"{count} db", head_s)])
-    sum_data.append([Paragraph(f"<b>ÖSSZESEN: {total_items} db étel</b>", cell_s), Paragraph(f"<b>{total_val} Ft</b>", head_s)])
-    sum_data.append([Paragraph(f"<b>VÁRHATÓ JUTALÉK (13%):</b>", cell_s), Paragraph(f"<b>{round(total_val*0.13)} Ft</b>", head_s)])
-    st_t = Table(sum_data, colWidths=[150*mm, 30*mm])
-    st_t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.black), ('BACKGROUND', (0,0), (-1,0), colors.lightgrey)]))
-    st_t.wrapOn(p, 10*mm, 20*mm); h_st = st_t.wrap(180*mm, 250*mm)[1]
-    st_t.drawOn(p, 10*mm, h - 30*mm - h_st)
-    p.save(); buf.seek(0); return buf
+        count = counts[code]
+        info = menu.get(code, {'nev': 'Ismeretlen étel', 'ar': 0})
+        total_val += (count * info['ar'])
+        total_items += count
+        sum_rows.append([Paragraph(f"<b>{code}</b> - {info['nev']}", cell_s), Paragraph(f"{count} db", head_s)])
+
+    # Összesítő sorok
+    footer_rows = [
+        [Paragraph(f"<b>ÖSSZESEN: {total_items} db étel</b>", cell_s), Paragraph(f"<b>{total_val} Ft</b>", head_s)],
+        [Paragraph(f"<b>VÁRHATÓ JUTALÉK (13%):</b>", cell_s), Paragraph(f"<b>{round(total_val*0.13)} Ft</b>", head_s)]
+    ]
+
+    # Táblázat feldarabolása oldalakra (max 35 sor per oldal a rakodásin)
+    items_per_page = 35
+    total_sum_pages = math.ceil(len(sum_rows) / items_per_page)
+    if total_sum_pages == 0: total_sum_pages = 1
+
+    for sp_idx in range(total_sum_pages):
+        p.setFont(f_bold, 12)
+        p.drawString(10*mm, h - 15*mm, f"RAKODÁSI LISTA ÉS ÖSSZESÍTŐ ({sp_idx + 1}/{total_sum_pages})")
+        
+        # Aktuális szelet az adatokból
+        page_data = [[Paragraph("<b>KÓD ÉS ÉTEL MEGNEVEZÉSE</b>", head_s), Paragraph("<b>DB</b>", head_s)]]
+        page_data.extend(sum_rows[sp_idx * items_per_page : (sp_idx + 1) * items_per_page])
+        
+        # Ha ez az utolsó oldal, hozzácsapjuk a végösszeget
+        if sp_idx == total_sum_pages - 1:
+            page_data.extend(footer_rows)
+            
+        st_t = Table(page_data, colWidths=[150*mm, 30*mm])
+        st_t.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE')
+        ]))
+        
+        st_t.wrapOn(p, 10*mm, 20*mm)
+        h_st = st_t.wrap(180*mm, 260*mm)[1]
+        st_t.drawOn(p, 10*mm, h - 25*mm - h_st)
+        
+        if sp_idx < total_sum_pages - 1:
+            p.showPage()
+
+    p.save()
+    buf.seek(0)
+    return buf
 
 # --- UI ---
 st.set_page_config(page_title="Interfood Logisztika", layout="wide")
@@ -266,20 +329,60 @@ with st.sidebar:
         for f in up_files: raw.extend(parse_interfood_pdf(f))
         if raw: st.session_state.mdf = merge_data(raw); st.rerun()
 
+# --- EZT A RÉSZT CSERÉLD LE A KÓD VÉGÉN ---
+
 if st.session_state.get('mdf') is not None:
-    edited_df = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True,
-        column_config={"Sorrend": st.column_config.NumberColumn(step=0.1, format="%.1f"), "ID": st.column_config.TextColumn(disabled=True), "Hétvégi": None})
+    # Oszlopok sorrendjének kényszerítése
+    cols = ['Sorrend', 'ID', 'Ügyintéző', 'Cím', 'Telefon', 'Rendelés_Full', 'Összesen', 'Pénz', 'Megjegyzés']
+    # Csak azokat az oszlopokat tartjuk meg, amik léteznek a táblázatban
+    available_cols = [c for c in cols if c in st.session_state.mdf.columns]
+    display_df = st.session_state.mdf[available_cols]
+
+    st.subheader("📍 Menetlevél szerkesztése")
+    edited_df = st.data_editor(
+        display_df, 
+        hide_index=True, 
+        use_container_width=True,
+        column_config={
+            "Sorrend": st.column_config.NumberColumn("Sorrend", step=1, format="%d"),
+            "ID": st.column_config.TextColumn("Azonosító", disabled=True),
+            "Pénz": st.column_config.TextColumn("Fizetendő"),
+            "Megjegyzés": st.column_config.TextColumn("Megjegyzés (Infó az etikettre)")
+        }
+    )
     
-    if st.button("✅ RÖGZÍTÉS ÉS ÚJRARAKÁS"):
-        temp_df = edited_df.sort_values('Sorrend').reset_index(drop=True)
-        temp_df['Sorrend'] = range(1, len(temp_df) + 1)
-        st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
-        st.session_state.notes = dict(zip(temp_df['ID'].astype(str), temp_df['Megjegyzés'].fillna("")))
-        st.session_state.mdf = temp_df; st.rerun()
-            
-    csv_data = edited_df[['ID', 'Sorrend', 'Megjegyzés']].to_csv(index=False).encode('utf-8-sig')
-    st.download_button("📥 CSV MENTÉS", csv_data, "interfood_adatok.csv", use_container_width=True)
-    st.divider()
     c1, c2 = st.columns(2)
-    with c1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
-    with c2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)
+    with c1:
+        if st.button("✅ SORREND RÖGZÍTÉSE ÉS ÚJRARAKÁS", use_container_width=True):
+            temp_df = edited_df.sort_values('Sorrend').reset_index(drop=True)
+            # Újraszámozzuk 1-től, hogy szép legyen
+            temp_df['Sorrend'] = range(1, len(temp_df) + 1)
+            st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
+            st.session_state.notes = dict(zip(temp_df['ID'].astype(str), temp_df['Megjegyzés'].fillna("")))
+            st.session_state.mdf = temp_df
+            st.rerun()
+            
+    with c2:
+        csv_data = edited_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 ADATOK MENTÉSE (CSV)", csv_data, "interfood_napi_adatok.csv", use_container_width=True)
+
+    st.divider()
+    
+    # PDF Generáló gombok
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.download_button(
+            label="📄 ETIKETTEK NYOMTATÁSA (PDF)",
+            data=create_label_pdf(edited_df, c_n, c_p),
+            file_name=f"etikettek_{datetime.date.today()}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+    with col_b:
+        st.download_button(
+            label="📋 MENETTERV + RAKODÁSI LISTA (PDF)",
+            data=create_manifest_pdf(edited_df, c_n),
+            file_name=f"menetterv_{datetime.date.today()}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )

@@ -213,12 +213,9 @@ def create_manifest_pdf(df, fn):
     tomorrow = datetime.date.today() + datetime.timedelta(days=1)
     date_header = f"{tomorrow.strftime('%Y-%m-%d')}" 
     
-    # --- INTELLIGENS CÍMTISZTÍTÓ ÉS ELLENŐRZŐ ---
     def clean_addr(addr):
-        # Kisbetűsít, leszedi a pontot a végéről és a felesleges szóközöket
         return str(addr).strip().lower().replace('.', '').replace('  ', ' ')
 
-    # A teljes listán lefuttatjuk a tisztított címek keresését
     cleaned_addresses = [clean_addr(a) for a in df['Cím'].tolist()]
     
     rows_per_page = 25 
@@ -251,8 +248,7 @@ def create_manifest_pdf(df, fn):
             m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
             m_disp = f"<b>{r['Pénz']}</b>" if m_val != "0" and m_val != "" else ""
             
-            # Jelezzük a csoportot
-            warning = f"▲ <b>CSOPORT ({group_count} ÜGYFÉL)</b><br/>" if is_group else ""
+            warning = f"▲ <b>CSOPORT ({group_count})</b><br/>" if is_group else ""
             
             data.append([f"#{p_idx*rows_per_page+i+1}", 
                          Paragraph(f"{warning}{r['Ügyintéző']}<br/><font size='7'>{r['Cím']}</font>", name_s),
@@ -260,11 +256,11 @@ def create_manifest_pdf(df, fn):
                          Paragraph(str(r['Rendelés_Full']), cell_s), r['Összesen']])
             
             if is_group:
-                # Enyhe szürke háttér és közepesen vastag keret (1.2)
                 t_style.append(('BACKGROUND', (1, i+1), (1, i+1), colors.Color(0.92, 0.92, 0.92)))
                 t_style.append(('BOX', (1, i+1), (1, i+1), 1.2, colors.black))
         
-        t = Table(data, colWidths=[9*mm, 66*mm, 9*mm, 25*mm, 22*mm, 54*mm, 10*mm])
+        # MÓDOSÍTOTT SZÉLESSÉGEK: Az első oszlop 11mm, a második 64mm lett
+        t = Table(data, colWidths=[11*mm, 64*mm, 9*mm, 25*mm, 22*mm, 54*mm, 10*mm])
         t.setStyle(TableStyle(t_style))
         t.wrapOn(p, 7*mm, 20*mm); w_t, h_t = t.wrap(w - 14*mm, h - 35*mm)
         t.drawOn(p, 7*mm, h - 22*mm - h_t)

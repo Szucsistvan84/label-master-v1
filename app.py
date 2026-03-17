@@ -18,42 +18,55 @@ import requests
 # --- 1. ÉTLAP KEZELÉSE (PDF FEJLÉC ALAPJÁN AUTOMATIZÁLVA) ---
 
 def get_live_menu(year, week, day_name):
-    # Dinamikus URL a PDF-ből kinyert adatok alapján
     excel_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     headers = {'User-Agent': 'Mozilla/5.0'}
     menu_map = {}
     
-    # Nap-Index térkép (D oszlop = Szerda = 3. index)
-    # A=0 (Kód), B=1 (Név), C=2 (H), D=3 (K), E=4 (Sze) - Ha nálad D a Szerda, akkor:
+    # Napok leképezése az oszlopokra (B-től G-ig)
+    # B=1 (Hétfő), C=2 (Kedd), D=3 (Szerda), E=4 (Csütörtök), F=5 (Péntek), G=6 (Szombat)
     day_to_col = {
         'Hétfő': 1, 'Kedd': 2, 'Szerda': 3, 'Csütörtök': 4, 'Péntek': 5, 'Szombat': 6
     }
-    target_col = day_to_col.get(day_name, 3) # Ha nem találja, marad a 3-as (Szerda)
+    target_col = day_to_col.get(day_name, 3)
 
     try:
         response = requests.get(excel_url, headers=headers, timeout=15)
         if response.status_code == 200:
-            # openpyxl motor használata az xlsx-hez
-            df_excel = pd.read_excel(BytesIO(response.content), engine='openpyxl')
+            df = pd.read_excel(BytesIO(response.content), engine='openpyxl')
             
-            for _, row in df_excel.iterrows():
-                try:
-                    code = str(row.iloc[0]).strip()
-                    name = str(row.iloc[1]).strip()
-                    price_val = row.iloc[target_col]
-                    
-                    if code and code != 'nan' and len(code) < 7 and code.upper() != 'KÓD':
-                        # Ár megtisztítása
-                        p_str = re.sub(r'[^\d]', '', str(price_val))
-                        clean_price = int(p_str) if p_str else 0
+            last_code = None
+            last_name = None
+
+            for i in range(len(df)):
+                row = df.iloc[i]
+                col_a = str(row.iloc[0]).strip()
+                
+                # 1. HA TALÁLUNK KÓDOT AZ "A" OSZLOPBAN (pl. SP1 - Kategória)
+                if col_a and col_a != 'nan' and " - " in col_a:
+                    last_code = col_a.split(" - ")[0].strip() # Csak az SP1 kell
+                    last_name = str(row.iloc[1]).strip()      # A mellette lévő név (B11)
+                
+                # 2. HA NINCS KÓD, DE VAN ELMENTETT ELŐZŐ KÓDUNK (Ez a második sor, pl. B12)
+                elif last_code and (not col_a or col_a == 'nan'):
+                    try:
+                        # Az ár a B12, C12, D12 stb. cellákban van
+                        raw_price = row.iloc[target_col]
+                        p_str = re.sub(r'[^\d]', '', str(raw_price))
                         
-                        menu_map[code] = {'nev': name[:50], 'ar': clean_price}
-                except: continue
-            st.sidebar.success(f"✅ Excel étlap: {year}/{week}. hét - {day_name}")
-        else:
-            st.sidebar.error(f"Excel letöltési hiba: {response.status_code}")
+                        if p_str:
+                            menu_map[last_code] = {
+                                'nev': last_name[:50],
+                                'ar': int(p_str)
+                            }
+                            # Miután megvan az ár, alaphelyzetbe állítjuk, hogy várja a következő kódot
+                            last_code = None 
+                            last_name = None
+                    except:
+                        continue
+            
+            st.sidebar.success(f"✅ Étlap feldolgozva: {len(menu_map)} tétel")
     except Exception as e:
-        st.sidebar.error(f"Excel hiba: {str(e)}")
+        st.sidebar.error(f"Excel hiba: {e}")
         
     return menu_map
 

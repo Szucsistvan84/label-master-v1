@@ -17,52 +17,34 @@ import requests
 from bs4 import BeautifulSoup
 
 # --- 1. ÉTLAP LEKÉRÉSE (SCRAPER) ---
+# --- 1. FRISSÍTETT STRAPABÍRÓ SCRAPER ---
 def get_live_menu():
     url = "https://rendel.interfood.hu/etlap"
-    # Véletlenszerűbb böngésző adatok
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept-Language': 'hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Language': 'hu-HU,hu;q=0.9'
     }
     menu_map = {}
     try:
-        # Növeljük a timeout-ot 15 másodpercre
         response = requests.get(url, headers=headers, timeout=15)
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # 1. PRÓBA: A legvalószínűbb táblázatos szerkezet
-            rows = soup.find_all(['tr', 'div'], class_=re.compile(r'item|row|food'))
-            
-            for item in rows:
+            # Minden olyan elemet nézünk, amiben kód és ár lehet
+            items = soup.find_all(['tr', 'div', 'li'], class_=re.compile(r'item|row|food|product'))
+            for item in items:
                 text = item.get_text(" ", strip=True)
-                # Keressük a kódot (pl. L1K vagy R4)
-                code_match = re.search(r'\b([A-Z]{1,2}\d+[A-Z]?)\b', text)
-                # Keressük az árat (pl. 2150 Ft)
-                price_match = re.search(r'(\d[\d\s]*)\s*Ft', text)
-                
-                if code_match:
-                    code = code_match.group(1)
-                    price = int(re.sub(r'\s', '', price_match.group(1))) if price_match else 0
-                    
-                    # A nevet próbáljuk kiszedni a szövegből a kód és az ár közül
+                code_m = re.search(r'\b([A-Z]{1,2}\d+[A-Z]?)\b', text)
+                price_m = re.search(r'(\d[\d\s]*)\s*Ft', text)
+                if code_m:
+                    code = code_m.group(1)
+                    price = int(re.sub(r'\s', '', price_m.group(1))) if price_m else 0
+                    # Név kinyerése: ami nem a kód és nem az ár
                     name = text.replace(code, "").replace("Ft", "").strip()
-                    # Tisztítsuk meg a maradék számoktól
-                    name = re.sub(r'\d+', '', name).strip()
-                    
-                    if len(name) > 5: # Csak ha értelmes név maradt
+                    name = re.sub(r'\d+', '', name).strip()[:50]
+                    if len(name) > 3:
                         menu_map[code] = {'nev': name, 'ar': price}
-            
-            # Ha még mindig üres, próbáljunk meg minden SPAN-t átnézni
-            if not menu_map:
-                for span in soup.find_all('span'):
-                    txt = span.get_text().strip()
-                    if re.match(r'^[A-Z]{1,2}\d+$', txt):
-                        parent = span.find_parent()
-                        menu_map[txt] = {'nev': parent.get_text().strip()[:50], 'ar': 0}
-
     except Exception as e:
-        st.error(f"Hálózati hiba: {e}")
+        print(f"Hiba a letöltéskor: {e}")
     return menu_map
 
 LIVE_MENU = get_live_menu()
@@ -313,13 +295,28 @@ if 'mdf' not in st.session_state: st.session_state.mdf = None
 if 'weights' not in st.session_state: st.session_state.weights = {}
 if 'notes' not in st.session_state: st.session_state.notes = {}
 
+# --- 5. FRISSÍTETT OLDALSÁV (SIDEBAR) ---
 with st.sidebar:
     st.header("👤 Futár Adatok")
     c_n = st.text_input("Futár neve", "Szűcs István")
     c_p = st.text_input("Telefonszáma", "+36 20 886 8971")
-    if LIVE_MENU: st.success(f"Étlap betöltve: {len(LIVE_MENU)} étel")
-    else: st.warning("Étlap lekérése sikertelen.")
+    
     st.divider()
+    
+    # MOST MÁR MINDIG LÁTHATÓ ELLENŐRZŐ GOMB
+    st.header("🔍 Étlap státusz")
+    if LIVE_MENU:
+        st.success(f"✅ {len(LIVE_MENU)} étel betöltve")
+        if st.button("Étlap tartalmának mutatása"):
+            st.write(list(LIVE_MENU.items())[:20]) # Kiírja az első 20-at
+    else:
+        st.error("❌ Étlap üres")
+        if st.button("Újrapróbálás most"):
+            st.rerun()
+
+    st.divider()
+    
+    # ... innen jön a CSV betöltés és a PDF feltöltés részed ...
     st.header("💾 Adatok Betöltése")
     old_csv = st.file_uploader("CSV Betöltése", type="csv")
     if old_csv:

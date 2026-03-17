@@ -12,6 +12,44 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
+import requests
+from bs4 import BeautifulSoup
+
+def get_live_menu():
+    """Lekapja az aktuális étlapot az Interfoodról"""
+    url = "https://rendel.interfood.hu/etlap"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    menu_map = {}
+    
+    print("Étlap frissítése a honlapról...")
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Az Interfood oldalán megkeressük az összes étel sort
+        # Ez a rész a weboldal aktuális kódjától függ
+        for item in soup.select('.menu-item, .food-row'):
+            try:
+                # Kód (pl. L1K)
+                code = item.select_one('.food-code').text.strip()
+                # Név (pl. Falusi kacsaleves...)
+                name = item.select_one('.food-name').text.strip()
+                # Ár
+                price_text = item.select_one('.price').text
+                price = int(re.sub(r'[^\d]', '', price_text))
+                
+                menu_map[code] = {'name': name, 'price': price}
+            except:
+                continue
+        
+        print(f"Sikeresen betöltve: {len(menu_map)} étel.")
+        return menu_map
+    except Exception as e:
+        print(f"Nem sikerült az online frissítés: {e}")
+        return {}
+
+# A program indításakor egyszer lefut:
+LIVE_MENU = get_live_menu()
 
 # --- FONT ÉS ALAPOK ---
 def register_fonts():

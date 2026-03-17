@@ -372,7 +372,14 @@ if st.session_state.mdf is not None:
     with cp1: st.download_button("📥 ETIKETTEK", create_label_pdf(st.session_state.mdf, c_n, c_p), "etikettek.pdf", use_container_width=True)
     with cp2: st.download_button("📋 MENETTERV", create_manifest_pdf(st.session_state.mdf, c_n), "menetterv.pdf", use_container_width=True)
 
-
+# TESZT: Megnézzük, látjuk-e az étlapot
+if not LIVE_MENU:
+    print("❌ Hiba: Az étlap üres! Ellenőrizd az internetkapcsolatot vagy a szelektorokat.")
+else:
+    print(f"✅ SIKER! {len(LIVE_MENU)} ételt találtam.")
+    # Kiírunk 5 példát, hogy lássuk a formátumot
+    for i, (kod, adat) in enumerate(list(LIVE_MENU.items())[:5]):
+        print(f"   {kod}: {adat['nev']} - {adat['ar']} Ft")
 
 
 

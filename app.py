@@ -14,11 +14,10 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 import requests
 
-# --- 1. ALAPFUNKCIÓK ÉS BETŰTÍPUSOK ---
+# --- 1. ERŐFORRÁSOK ÉS BETŰTÍPUSOK ---
 
 def register_fonts():
     try:
-        # Fontos: a fájloknak elérhetőnek kell lenniük a futtató környezetben!
         pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
         pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
         return "DejaVu", "DejaVu-Bold"
@@ -29,17 +28,16 @@ def clean_addr(addr):
     if not addr: return ""
     return str(addr).strip().lower().replace('.', '').replace('  ', ' ')
 
-# --- 2. ÉTLAP ÉS PDF PARSER ---
+# --- 2. ADATKINYERÉS ÉS ÉTLAP ---
 
 def get_live_menu(year, week, day_name):
     excel_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
-    headers = {'User-Agent': 'Mozilla/5.0'}
     menu_map = {}
     day_to_col = {'Hétfő': 1, 'Kedd': 2, 'Szerda': 3, 'Csütörtök': 4, 'Péntek': 5, 'Szombat': 6}
     target_col = day_to_col.get(day_name, 3) 
 
     try:
-        response = requests.get(excel_url, headers=headers, timeout=15)
+        response = requests.get(excel_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
         if response.status_code == 200:
             df = pd.read_excel(BytesIO(response.content), engine='openpyxl')
             current_category = "Egyéb"
@@ -47,16 +45,11 @@ def get_live_menu(year, week, day_name):
                 row = df.iloc[i]
                 col_a = str(row.iloc[0]).strip()
                 if col_a and col_a != 'nan' and " - " in col_a:
-                    parts = col_a.split(" - ")
-                    code = parts[0].strip()
-                    current_category = parts[1].strip()
+                    code, current_category = col_a.split(" - ", 1)
                     name_on_day = str(row.iloc[target_col]).strip()
                     if name_on_day and name_on_day != 'nan' and len(name_on_day) > 2:
-                        try:
-                            p_str = re.sub(r'[^\d]', '', str(df.iloc[i+1].iloc[target_col]))
-                            if p_str:
-                                menu_map[code] = {'nev': name_on_day[:65], 'ar': int(p_str), 'kategoria': current_category, 'excel_order': i}
-                        except: continue
+                        p_str = re.sub(r'[^\d]', '', str(df.iloc[i+1].iloc[target_col]))
+                        menu_map[code.strip()] = {'nev': name_on_day[:65], 'ar': int(p_str or 0), 'kategoria': current_category.strip(), 'excel_order': i}
     except: pass
     return menu_map
 
@@ -99,7 +92,7 @@ def parse_interfood_pdf(pdf_file):
                     })
     return rows, metadata
 
-# --- 3. ADAT ÖSSZEFÉSÜLÉS ---
+# --- 3. ÖSSZEFÉSÜLÉS ---
 
 def merge_data(raw_rows):
     if not raw_rows: return None
@@ -115,24 +108,34 @@ def merge_data(raw_rows):
         merged.append(base)
     
     res = pd.DataFrame(merged)
+    # Sorrend érvényesítése
     res['Sorrend'] = res['ID'].astype(str).map(st.session_state.get('weights', {})).fillna(999.0).astype(float)
     return res.sort_values('Sorrend')
 
-# --- 4. PDF GENERÁLÁS (JAVÍTOTT RAKLISTA ÉS MENETTERV) ---
+# --- 4. PDF GENERÁTOROK ---
 
-def create_manifest_pdf(df, fn):
+def create_manifest_pdf(df, fn, meta):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
     df = df.sort_values('Sorrend')
     c_addrs = [clean_addr(a) for a in df['Cím'].tolist()]
+    datestr = f"{meta.get('year','')} Hét:{meta.get('week','')} Nap:{meta.get('day','')}"
     
-    r_per_p = 22
-    for p_idx in range(math.ceil(len(df)/r_per_p)):
-        p.setFont(f_bold, 12); p.drawString(10*mm, h-15*mm, f"MENETTERV - {fn} ({p_idx+1})")
+    r_per_p = 20
+    total_p = math.ceil(len(df)/r_per_p)
+    for p_idx in range(total_p):
+        p.setFont(f_bold, 12); p.drawString(10*mm, h-15*mm, f"MENETTERV - {fn}")
+        p.setFont(f_reg, 9); p.drawString(10*mm, h-20*mm, datestr)
+        p.drawRightString(w-10*mm, h-15*mm, f"{p_idx+1} / {total_p} oldal")
+        
         data = [[Paragraph(f"<b>{x}</b>", ParagraphStyle('H', fontName=f_bold, fontSize=8, alignment=1)) for x in ["#", "NÉV / CÍM / INFÓ", "TEL", "PÉNZ", "RENDELÉS", "DB"]]]
+        t_styles = [('GRID',(0,0),(-1,-1),0.5,colors.black),('VALIGN',(0,0),(-1,-1),'TOP'), ('FONTNAME',(0,0),(-1,-1),f_reg)]
+        
         for i, (_, r) in enumerate(df.iloc[p_idx*r_per_p:(p_idx+1)*r_per_p].iterrows()):
             is_g = c_addrs.count(clean_addr(r['Cím'])) > 1
             warn = "▲ <b>CSOPORT</b><br/>" if is_g else ""
+            if is_g: t_styles.append(('BACKGROUND', (1, i+1), (1, i+1), colors.lightgrey))
+            
             data.append([
                 int(float(r['Sorrend'])),
                 Paragraph(f"{warn}{r['Ügyintéző']}<br/><font size='7'>{r['Cím']}</font>", ParagraphStyle('N', fontName=f_bold, fontSize=9)),
@@ -141,9 +144,10 @@ def create_manifest_pdf(df, fn):
                 Paragraph(r['Rendelés_Full'], ParagraphStyle('C', fontName=f_reg, fontSize=7)),
                 r['Összesen']
             ])
+        
         t = Table(data, colWidths=[10*mm, 65*mm, 25*mm, 22*mm, 58*mm, 10*mm])
-        t.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.5,colors.black),('VALIGN',(0,0),(-1,-1),'TOP'),('FONTNAME',(0,0),(-1,-1),f_reg)]))
-        t.wrapOn(p, 10*mm, 20*mm); t.drawOn(p, 10*mm, h-25*mm-t._height); p.showPage()
+        t.setStyle(TableStyle(t_styles))
+        t.wrapOn(p, 10*mm, 20*mm); t.drawOn(p, 10*mm, h-35*mm-t._height); p.showPage()
     p.save(); buf.seek(0); return buf
 
 def create_raklista_pdf(df, fn):
@@ -168,8 +172,7 @@ def create_raklista_pdf(df, fn):
             last_cat = info['kategoria']
         sum_rows.append([Paragraph(f"<b>{code}</b> - {info['nev']}", ParagraphStyle('It', fontName=f_reg, fontSize=9)), f"{count} db"])
 
-    # Oldalankénti tördelés a raklistához is
-    it_per_p = 28
+    it_per_p = 26
     pages = math.ceil(len(sum_rows)/it_per_p) if sum_rows else 1
     for i in range(pages):
         p.setFont(f_bold, 14); p.drawString(10*mm, h-15*mm, f"RAKODÁSI LISTA - {fn}")
@@ -177,7 +180,7 @@ def create_raklista_pdf(df, fn):
         p_data = [[Paragraph("<b>Étel megnevezése</b>", ParagraphStyle('H', fontName=f_bold, fontSize=10)), "DB"]]
         p_data.extend(sum_rows[i*it_per_p : (i+1)*it_per_p])
         
-        if i == pages - 1: # Az utolsó oldal végére rakjuk az összesítőt
+        if i == pages - 1:
             p_data.append([Paragraph(f"<br/><b>ÖSSZESEN: {total_items} db</b>", ParagraphStyle('F', fontName=f_bold, fontSize=11)), f"\n{total_val} Ft"])
             p_data.append([Paragraph(f"<b>JUTALÉK (13%):</b>", ParagraphStyle('F', fontName=f_bold, fontSize=11)), f"{round(total_val*0.13)} Ft"])
 
@@ -185,36 +188,57 @@ def create_raklista_pdf(df, fn):
         t.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.5,colors.black),('FONTNAME',(0,0),(-1,-1),f_reg),('VALIGN',(0,0),(-1,-1),'MIDDLE')]))
         t.wrapOn(p, 10*mm, 20*mm); t.drawOn(p, 10*mm, h-25*mm-t._height)
         if i < pages - 1: p.showPage()
-    
     p.save(); buf.seek(0); return buf
 
 # --- 5. UI ---
 
-st.set_page_config(page_title="Interfood", layout="wide")
+st.set_page_config(page_title="Interfood Logisztika", layout="wide")
 if 'notes' not in st.session_state: st.session_state.notes = {}
+if 'weights' not in st.session_state: st.session_state.weights = {}
 if 'mdf' not in st.session_state: st.session_state.mdf = None
+if 'meta' not in st.session_state: st.session_state.meta = {}
 
 with st.sidebar:
-    fn = st.text_input("Futár", "Szűcs István")
-    up = st.file_uploader("PDF-ek", accept_multiple_files=True)
-    if up and st.button("FELDOLGOZÁS"):
-        raw = []
-        for f in up:
-            r, meta = parse_interfood_pdf(f)
-            raw.extend(r)
-            if meta['year']: st.session_state.live_menu = get_live_menu(meta['year'], meta['week'], meta['day'])
-        st.session_state.mdf = merge_data(raw)
+    st.header("👤 Beállítások")
+    f_n = st.text_input("Futár neve", "Szűcs István")
+    f_p = st.text_input("Futár tel.", "+36 20 886 8971")
+    st.divider()
+    
+    prev_csv = st.file_uploader("Előző napi CSV betöltése (Sorrend/Infó)", type="csv")
+    if prev_csv:
+        pdf = pd.read_csv(prev_csv)
+        st.session_state.weights = dict(zip(pdf['ID'].astype(str), pdf['Sorrend'].astype(float)))
+        if 'Megjegyzés' in pdf.columns:
+            st.session_state.notes = dict(zip(pdf['ID'].astype(str), pdf['Megjegyzés'].fillna("")))
+        st.success("Sorrend és Megjegyzések betöltve!")
+
+    up_files = st.file_uploader("Napi PDF-ek", accept_multiple_files=True)
+    if up_files and st.button("🚀 FELDOLGOZÁS"):
+        all_raw = []
+        for f in up_files:
+            r, m = parse_interfood_pdf(f)
+            all_raw.extend(r)
+            if m['year']: 
+                st.session_state.meta = m
+                st.session_state.live_menu = get_live_menu(m['year'], m['week'], m['day'])
+        st.session_state.mdf = merge_data(all_raw)
         st.rerun()
 
 if st.session_state.mdf is not None:
+    st.subheader("📍 Menetlevél szerkesztése")
     edited = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True)
-    c1, c2, c3 = st.columns(3)
+    
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         if st.button("💾 SORREND MENTÉSE", use_container_width=True):
             st.session_state.weights = dict(zip(edited['ID'].astype(str), edited['Sorrend']))
             st.session_state.notes = dict(zip(edited['ID'].astype(str), edited['Megjegyzés']))
+            st.session_state.mdf = edited.sort_values('Sorrend')
             st.rerun()
     with c2:
-        st.download_button("📋 MENETTERV", create_manifest_pdf(edited, fn), "menetterv.pdf", use_container_width=True)
+        csv_data = edited.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 CSV EXPORT", csv_data, "menetlevel_mentes.csv", use_container_width=True)
     with c3:
-        st.download_button("🚚 RAKLISTA", create_raklista_pdf(edited, fn), "raklista.pdf", use_container_width=True)
+        st.download_button("📄 MENETTERV PDF", create_manifest_pdf(edited, f_n, st.session_state.meta), "menetterv.pdf", use_container_width=True)
+    with c4:
+        st.download_button("🚚 RAKLISTA PDF", create_raklista_pdf(edited, f_n), "raklista.pdf", use_container_width=True)

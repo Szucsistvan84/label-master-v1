@@ -117,23 +117,34 @@ def parse_interfood_pdf(pdf_file):
                         v_o.append(f"{q}-{o.split('-')[1]}"); sq += q
                     except: continue
                 
+# ... (itt van a v_o és sq kiszámítása)
+                
                 if v_o:
-                    rows.append({"ID": uid, "Járat": meta['jarat'], "Ügyintéző": clean_name, "Cím": address, "Telefon": tel_m.group(0) if tel_m else "", "Rendelés": ", ".join(v_o), "Pénz": money_val, "Összesen": sq})
-    return rows, meta
+                    # Rövidítjük a napot (Péntek -> Pé, Csütörtök -> Csü)
+                    nap_rovid = meta['day'][:3] if meta['day'] else ""
+                    rendeles_szoveg = f"{nap_rovid}: {', '.join(v_o)}"
+                    
+                    rows.append({
+                        "ID": uid, 
+                        "Járat": meta['jarat'], 
+                        "Ügyintéző": clean_name, 
+                        "Cím": address, 
+                        "Telefon": tel_m.group(0) if tel_m else "", 
+                        "Rendelés": rendeles_szoveg,
+                        "Pénz": money_val, 
+                        "Összesen": sq
+                    })
+    return rows, meta  # Ez a sor már a függvény legszélén van!
 
 # ==========================================
 # 3. PDF GENERÁLÁS (RAJZOLÁS)
 # ==========================================
 def create_label_pdf(df, futar_nev, futar_tel):
-    """Legyártja az etikett PDF-et."""
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4)
-    # ETIKETT MÉRETEK (Itt tudsz állítani, ha más etikettet veszel)
     lw, lh = 70*mm, 42.4*mm 
     inner_m = 5.5*mm
-    
-    # Szöveg stílusa az etiketten (Betűméret itt!)
-    order_style = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
     
     for i in range(math.ceil(len(df) / 21) * 21):
         idx = i % 21
@@ -144,26 +155,43 @@ def create_label_pdf(df, futar_nev, futar_tel):
         if i < len(df):
             r = df.iloc[i]
             top_y = y + lh - inner_m
-            # Sorszám és ID
-            p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{r['Sorrend']}") 
-            p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 3*mm, f"ID: {r['ID']}")
-            # Név és Cím
-            p.setFont(f_bold, 9); p.drawString(x + inner_m, top_y - 8*mm, str(r['Ügyintéző'])[:25])
-            p.setFont(f_reg, 7.5); p.drawString(x + inner_m, top_y - 12*mm, str(r['Cím'])[:45])
             
-            # Ételek (bekezdésként, hogy törje a sort ha hosszú)
-            para = Paragraph(str(r['Rendelés_Full']), order_style)
-            para.wrap(lw - 2*inner_m, 12*mm); para.drawOn(p, x + inner_m, y + inner_m + 7*mm)
+            # SORSZÁM (Kisebb: 8-as méret)
+            p.setFont(f_bold, 8) 
+            p.drawString(x + inner_m, top_y - 3*mm, f"#{r['Sorrend']}") 
             
-            # Alsó futár infó sáv (Benne a járatszámmal!)
-            p.setFont(f_bold, 6.5)
+            # ID (Jobb felső sarok)
+            p.setFont(f_reg, 7)
+            p.drawRightString(x + lw - inner_m, top_y - 3*mm, f"ID: {r['ID']}")
+            
+            # NÉV ÉS TELEFONSZÁM (Egy sorban)
+            p.setFont(f_bold, 9)
+            p.drawString(x + inner_m, top_y - 8*mm, str(r['Ügyintéző'])[:22])
+            
+            p.setFont(f_reg, 8)
+            p.drawRightString(x + lw - inner_m, top_y - 8*mm, str(r['Telefon']))
+            
+            # CÍM (7.5-es méret)
+            p.setFont(f_reg, 7.5)
+            p.drawString(x + inner_m, top_y - 12*mm, str(r['Cím'])[:45])
+            
+            # RENDELÉS (Bekezdés típusú szöveg)
+            para = Paragraph(str(r['Rendelés_Full']), order_s)
+            para.wrap(lw - 2*inner_m, 12*mm)
+            para.drawOn(p, x + inner_m, y + inner_m + 7*mm)
+            
+            # ALSÓ INFÓ SÁV (Járatszám + Futár adatok)
+            p.setFont(f_bold, 6)
             p.drawCentredString(x + lw/2, y + inner_m - 1.5*mm, f"[{r['Járat']}] Futár: {futar_nev} | {futar_tel}")
             
-            # Pénz és darabszám
+            # FIZETENDŐ ÉS DB
             m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
             if m_val != "0":
-                p.setFont(f_bold, 10); p.drawString(x + inner_m, y + inner_m + 3*mm, f"FIZET: {r['Pénz']}")
-            p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, y + inner_m + 3*mm, f"{r['Összesen']} db")
+                p.setFont(f_bold, 10)
+                p.drawString(x + inner_m, y + inner_m + 3*mm, f"FIZET: {r['Pénz']}")
+            
+            p.setFont(f_bold, 9)
+            p.drawRightString(x + lw - inner_m, y + inner_m + 3*mm, f"{r['Összesen']} db")
     p.save(); buf.seek(0); return buf
 
 def create_manifest_pdf(df, futar_nev):

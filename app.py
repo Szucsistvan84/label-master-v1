@@ -156,9 +156,14 @@ def create_label_pdf(df, futar_nev, futar_tel):
             r = df.iloc[i]
             top_y = y + lh - inner_m
             
-            # SORSZÁM (Kisebb: 8-as méret)
+            # --- SORSZÁM (Egész számmá alakítás kényszerítése: int()) ---
+            # Az int(float(...)) biztosítja, hogy ha 10.0 volt, akkor is 10 legyen
+            sorszam_egesz = int(float(r['Sorrend']))
+            
             p.setFont(f_bold, 8) 
-            p.drawString(x + inner_m, top_y - 3*mm, f"#{r['Sorrend']}") 
+            p.drawString(x + inner_m, top_y - 3*mm, f"#{sorszam_egesz}") 
+            
+            # ... a többi sor változatlan
             
             # ID (Jobb felső sarok)
             p.setFont(f_reg, 7)

@@ -54,14 +54,17 @@ def get_live_menu(year, week, day_name):
 
 def parse_interfood_pdf(pdf_file):
     rows = []
-    meta = {'year': None, 'week': None, 'day': None}
+    meta = {'year': '', 'week': '', 'day': ''}
     with pdfplumber.open(pdf_file) as pdf:
         text = pdf.pages[0].extract_text()
         if text:
+            # Precízebb dátum kinyerés az eredeti fejlécből
             y_m = re.search(r'Év:\s*(\d{4})', text)
             w_m = re.search(r'Hét:\s*(\d{1,2})', text)
             d_m = re.search(r'Nap:\s*([a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ]+)', text)
-            meta.update({'year': y_m.group(1) if y_m else "", 'week': w_m.group(1) if w_m else "", 'day': d_m.group(1) if d_m else ""})
+            if y_m: meta['year'] = y_m.group(1)
+            if w_m: meta['week'] = w_m.group(1)
+            if d_m: meta['day'] = d_m.group(1)
         
         nap_prefix = meta['day'][:3] if meta['day'] else ""
         for page in pdf.pages:
@@ -82,7 +85,8 @@ def parse_interfood_pdf(pdf_file):
                     addr_m = re.search(r'(\d{4})', b3)
                     orders = re.findall(r'(\d+-[A-Z][A-Z0-9*+]*)', t)
                     rows.append({
-                        "ID": uid, "Ügyintéző": re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip(),
+                        "ID": uid, 
+                        "Ügyintéző": re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip(),
                         "Cím": b3[addr_m.start():].strip() if addr_m else b3,
                         "Telefon": (re.search(r'(\d{2}/\d{6,7})', t.replace(" ","")) or re.match("","")).group(0),
                         "Rendelés": ", ".join([f"{nap_prefix}: {o}" for o in orders]), 
@@ -99,17 +103,17 @@ def create_manifest_pdf(df, fn, meta):
     df = df.sort_values('Sorrend')
     c_addrs = [clean_addr(a) for a in df['Cím'].tolist()]
     
-    # Dátum string összeállítása
-    date_label = f"{meta.get('year','')} | Hét: {meta.get('week','')} | Nap: {meta.get('day','')}"
+    # Kért dátum formátum
+    date_label = f"Év: {meta.get('year','')} Hét: {meta.get('week','')} Nap: {meta.get('day','')}"
     
-    r_per_p = 23 # Több sor egy oldalon a túlfolyás ellen
+    r_per_p = 28  # Emelt sor szám az üres helyek kihasználására
     total_p = math.ceil(len(df)/r_per_p)
     
     for p_idx in range(total_p):
-        # Fejléc - feljebb tolva és sűrítve
-        p.setFont(f_bold, 12); p.drawString(10*mm, h-12*mm, f"MENETTERV - {fn}")
-        p.setFont(f_reg, 9); p.drawString(10*mm, h-17*mm, date_label)
-        p.drawRightString(w-10*mm, h-12*mm, f"{p_idx+1} / {total_p}. oldal")
+        # Fejléc - Sűrített elrendezés
+        p.setFont(f_bold, 12); p.drawString(10*mm, h-10*mm, f"MENETTERV - {fn}")
+        p.setFont(f_reg, 10); p.drawString(10*mm, h-15*mm, date_label)
+        p.drawRightString(w-10*mm, h-10*mm, f"{p_idx+1} / {total_p}. oldal")
         
         header = [Paragraph(f"<b>{x}</b>", ParagraphStyle('H', fontName=f_bold, fontSize=8, alignment=1)) 
                   for x in ["#", "NÉV / CÍM / INFÓ", "[]", "TEL", "PÉNZ", "RENDELÉS", "DB"]]
@@ -128,40 +132,38 @@ def create_manifest_pdf(df, fn, meta):
             addr_clean = clean_addr(r['Cím'])
             is_g = c_addrs.count(addr_clean) > 1
             
-            # Csoport keretezés logika
             if is_g:
-                # Szürke háttér minden csoportosnak
-                t_styles.append(('BACKGROUND', (0, i+1), (-1, i+1), colors.Color(0.96, 0.96, 0.96)))
-                # Vastag oldalsó keret minden csoportos sornak
+                t_styles.append(('BACKGROUND', (0, i+1), (-1, i+1), colors.Color(0.97, 0.97, 0.97)))
                 t_styles.append(('LINEBEFORE', (0, i+1), (0, i+1), 1.5, colors.black))
                 t_styles.append(('LINEAFTER', (-1, i+1), (-1, i+1), 1.5, colors.black))
-                
-                # Ha ez a csoport kezdete (vagy az oldal teteje és csoportos)
                 is_start = (i == 0) or (clean_addr(page_df.iloc[i-1]['Cím']) != addr_clean)
-                if is_start:
-                    t_styles.append(('LINEABOVE', (0, i+1), (-1, i+1), 1.5, colors.black))
-                
-                # Ha ez a csoport vége (vagy az oldal alja és csoportos)
-                is_end = (i == len(page_df)-1) or (clean_addr(page_df.iloc[i+1]['Cím']) != addr_clean)
-                if is_end:
-                    t_styles.append(('LINEBELOW', (0, i+1), (-1, i+1), 1.5, colors.black))
+                if is_start: t_styles.append(('LINEABOVE', (0, i+1), (-1, i+1), 1.5, colors.black))
+                is_end = (i == len(page_df)-1) or (i < len(page_df)-1 and clean_addr(page_df.iloc[i+1]['Cím']) != addr_clean)
+                if is_end: t_styles.append(('LINEBELOW', (0, i+1), (-1, i+1), 1.5, colors.black))
+
+            # Ügyfél neve bold, többi marad reg.
+            info_cell = Paragraph(
+                f"{'▲ ' if is_g else ''}<b>{r['Ügyintéző']}</b><br/>"
+                f"<font size='7'>{r['Cím']}</font><br/>"
+                f"<font color='red' size='7'>{r.get('Megjegyzés','')}</font>", 
+                ParagraphStyle('N', fontName=f_reg, fontSize=9, leading=10)
+            )
 
             data.append([
                 f"#{int(float(r['Sorrend']))}",
-                Paragraph(f"{'▲ ' if is_g else ''}<b>{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font><br/><font color='red' size='7'>{r.get('Megjegyzés','')}</font>", ParagraphStyle('N', fontName=f_reg, fontSize=9, leading=10)),
+                info_cell,
                 "[]",
-                Paragraph(str(r['Telefon']), ParagraphStyle('C', fontName=f_reg, fontSize=7)), # Kisebb telefon
-                Paragraph(f"<b>{r['Pénz']}</b>" if "0 Ft" not in r['Pénz'] else "", ParagraphStyle('C', fontName=f_bold, fontSize=7)), # Kisebb pénz
+                Paragraph(str(r['Telefon']), ParagraphStyle('C', fontName=f_reg, fontSize=7)),
+                Paragraph(f"<b>{r['Pénz']}</b>" if "0 Ft" not in r['Pénz'] else "", ParagraphStyle('C', fontName=f_bold, fontSize=7)),
                 Paragraph(r['Rendelés_Full'], ParagraphStyle('C', fontName=f_reg, fontSize=7, leading=8)),
                 r['Összesen']
             ])
         
-        # Oszlopszélességek finomhangolása
-        # # (12) | NÉV (75) | [] (8) | TEL (18) | PÉNZ (17) | REND (43) | DB (8)
-        t = Table(data, colWidths=[13*mm, 77*mm, 8*mm, 20*mm, 18*mm, 44*mm, 10*mm])
+        # Sorszám oszlop szélesítve (15mm), Név oszlop (75mm)
+        t = Table(data, colWidths=[15*mm, 75*mm, 8*mm, 20*mm, 18*mm, 42*mm, 10*mm])
         t.setStyle(TableStyle(t_styles))
         t.wrapOn(p, 10*mm, 20*mm)
-        t.drawOn(p, 10*mm, h - 22*mm - t._height) # Fix távolság a fejléctől
+        t.drawOn(p, 10*mm, h - 18*mm - t._height) # Közelebb a fejléchez
         p.showPage()
         
     p.save(); buf.seek(0); return buf

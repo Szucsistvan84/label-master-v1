@@ -203,7 +203,7 @@ def create_label_pdf(df, fn, ft):
             # --- MARKETING ETIKETT (Üres helyekre) ---
             p.saveState()
             # p.setDash(1, 2) # Szaggatott vonal a szélére, hogy látszódjon a vágás
-            p.setLineWidth(0.1)
+            # p.setLineWidth(0.1)
             p.rect(x + 1*mm, y + 1*mm, lw - 2*mm, lh - 2*mm, stroke=1, fill=0)
             p.restoreState()
             

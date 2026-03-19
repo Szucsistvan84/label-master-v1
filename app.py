@@ -120,40 +120,57 @@ def create_label_pdf(df, fn, ft):
     lw, lh = 70*mm, 42.42*mm 
     inner_m = 5.5*mm
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
+    # Piros, feltűnő stílus a megjegyzésnek
     note_s = ParagraphStyle('Note', fontName=f_bold, fontSize=7, leading=8, textColor=colors.red)
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1)
+    
     total_labels = math.ceil(len(df) / 21) * 21
     for i in range(total_labels):
         idx = i % 21
         if idx == 0 and i > 0: p.showPage()
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = col * lw, row_i * lh
+        
         if i < len(df):
             r = df.iloc[i]
             top_y = y + lh - inner_m
-            if r.get('Hétvégi'):
+            
+            # Hétvégi jelzés (szürke háttér a név alatt)
+            if r.get('Hétvégi') == True:
                 p.saveState()
                 p.setFillColor(colors.lightgrey)
                 p.rect(x + 1*mm, top_y - 8.5*mm, lw - 2*mm, 4.5*mm, fill=1, stroke=0)
                 p.restoreState()
+            
             p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{int(r['Sorrend'])}") 
             p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 3*mm, f"ID: {r['ID']}")
             p.setFont(f_bold, 9); p.drawString(x + inner_m, top_y - 8*mm, str(r['Ügyintéző'])[:25])
             p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 8*mm, str(r['Telefon']))
             p.setFont(f_reg, 7.5); p.drawString(x + inner_m, top_y - 12*mm, str(r['Cím'])[:45])
-            if r.get('Megjegyzés'):
-                pn = Paragraph(f"<b>INFÓ: {r['Megjegyzés']}</b>", note_s)
-                pn.wrap(lw - 2*inner_m, 5*mm); pn.drawOn(p, x + inner_m, top_y - 17*mm)
+            
+            # --- JAVÍTOTT MEGJEGYZÉS RÉSZ ---
+            msg = str(r.get('Megjegyzés', ''))
+            # Csak akkor írjuk ki, ha nem üres, nem 'nan' és nem csak szóköz
+            if msg.lower() != 'nan' and msg.strip() != '':
+                pn = Paragraph(f"<b>INFÓ: {msg}</b>", note_s)
+                pn.wrap(lw - 2*inner_m, 5*mm)
+                pn.drawOn(p, x + inner_m, top_y - 17*mm)
+            # -------------------------------
+
             para = Paragraph(str(r['Rendelés_Full']), order_s)
-            para.wrap(lw - 2*inner_m, 12*mm); para.drawOn(p, x + inner_m, y + inner_m + 7*mm)
+            para.wrap(lw - 2*inner_m, 12*mm)
+            para.drawOn(p, x + inner_m, y + inner_m + 7*mm)
+            
             p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, y + inner_m + 3*mm, f"{r['Összesen']} db")
             p.setLineWidth(0.2); p.line(x + inner_m, y + inner_m + 2*mm, x + lw - inner_m, y + inner_m + 2*mm)
             p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, y + inner_m - 1.5*mm, f"Futár: {fn} | {ft}")
         else:
+            # Üres etikettek (reklámhely)
             m_text = f"<font size='10.5'><b>15% kedvezmény* 3 hétig</b></font><br/><b>Rendelés: {fn}</b>, <b>{ft}</b>"
             para = Paragraph(m_text, promo_s)
             pw, ph = para.wrap(lw - 6*mm, lh - 6*mm)
             para.drawOn(p, x + (lw - pw)/2, y + (lh - ph)/2)
+            
     p.save(); buf.seek(0); return buf
 
 def create_manifest_pdf(df, fn, meta_list):

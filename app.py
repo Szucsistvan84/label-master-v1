@@ -17,11 +17,13 @@ import requests
 
 # --- 1. ÉTLAP KEZELÉSE ---
 def get_live_menu(year, week, day_name):
+    # Tisztítjuk a nap nevét (pl. "Péntek," -> "Péntek")
+    clean_day = day_name.replace(',', '').strip()
     excel_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     headers = {'User-Agent': 'Mozilla/5.0'}
     menu_map = {}
     day_to_col = {'Hétfő': 1, 'Kedd': 2, 'Szerda': 3, 'Csütörtök': 4, 'Péntek': 5, 'Szombat': 6}
-    target_col = day_to_col.get(day_name, 3) 
+    target_col = day_to_col.get(clean_day, 3) 
 
     try:
         response = requests.get(excel_url, headers=headers, timeout=15)
@@ -44,13 +46,14 @@ def get_live_menu(year, week, day_name):
                             if p_str:
                                 menu_map[code] = {'nev': name_on_day[:60], 'ar': int(p_str), 'kategoria': current_category, 'excel_order': i}
                         except: continue
-            st.sidebar.success(f"✅ Étlap: {len(menu_map)} tétel")
+            st.sidebar.success(f"✅ Étlap betöltve: {clean_day}")
     except Exception as e: st.sidebar.error(f"Excel hiba: {e}")
     return menu_map
 
 # --- ALAPFUNKCIÓK ---
 def register_fonts():
     try:
+        # A korábban mentett információ alapján DejaVu betűtípust használunk
         pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
         pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
         return "DejaVu", "DejaVu-Bold"
@@ -59,34 +62,43 @@ def register_fonts():
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
 
 def clean_customer_name(name):
-    """Eltávolítja a technikai kódokat a névből."""
+    """Eltávolítja a technikai kódokat (pl. P-493505) a névből."""
     if not name: return ""
-    name = re.sub(r'^[PZ]-', '', name) # Prefixek törlése
-    name = re.sub(r'\s*[-#].*$', '', name) # Kötőjel utáni kódok törlése
+    # Eltávolítja a magányos betű-szám kódokat az elejéről vagy végéről
+    name = re.sub(r'^[HKSCPZ]-\d+\s*', '', name)
+    name = re.sub(r'\s*[HKSCPZ]-\d+$', '', name)
     return name.strip()
-
-def clean_addr(addr):
-    if not addr: return ""
-    return str(addr).strip().lower().replace('.', '').replace('  ', ' ')
 
 # --- PDF PARSER ---
 def parse_interfood_pdf(pdf_file):
     rows = []
-    # Alapértelmezett metaadatok, hogy a hívó oldal ne kapjon hibát
-    meta = {"date": "", "route": ""} 
+    meta = {"year": None, "week": None, "day": "", "route": ""}
     
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
     phone_pat = r'(\d{2}/\d{6,7})'
     money_pat = r'(-?\s?\d[\d\s]*\s*Ft)' 
     
     with pdfplumber.open(pdf_file) as pdf:
-        # Próbáljuk meg kinyerni a járatot a fájlnévből vagy az első oldalról
-        meta["route"] = re.search(r'\d{4}', str(pdf_file)).group() if re.search(r'\d{4}', str(pdf_file)) else ""
+        # 1. FEJLÉC ADATOK KINYERÉSE
+        first_page_text = pdf.pages[0].extract_text() or ""
+        first_line = first_page_text.split('\n')[0]
+        
+        route_m = re.search(r'(\d{4})\.\s*járat', first_line)
+        if route_m: meta["route"] = route_m.group(1)
+        
+        year_m = re.search(r'Év:\s*(\d{4})', first_line)
+        if year_m: meta["year"] = int(year_m.group(1))
+        
+        week_m = re.search(r'Hét:\s*(\d{1,2})', first_line)
+        if week_m: meta["week"] = int(week_m.group(1))
+        
+        day_m = re.search(r'Nap:\s*([^ ]+)', first_line)
+        if day_m: meta["day"] = day_m.group(1).replace(',', '').strip()
 
+        # 2. TARTALOM FELDOLGOZÁSA
         for page in pdf.pages:
             words = page.extract_words()
             lines = {}
-            
             for w in words:
                 y = round(w['top'], 1)
                 for ey in lines:
@@ -105,14 +117,11 @@ def parse_interfood_pdf(pdf_file):
                 prefix = u_code_m.group(0).split('-')[0]
                 uid = u_code_m.group(0).split('-')[-1]
                 
-                # Koordináta alapú oszlop szétválasztás
+                # Oszlopok koordináta alapján
                 b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355]) # Cím
                 b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490]) # Ügyintéző
                 
-                # Tisztítás a régi jól bevált módszerrel
                 clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
-                
-                # Biztonsági mentés: ha az ügyintéző üres, nézzük az ügyfél oszlopot tisztítva
                 if not clean_name:
                     b2 = " ".join([w['text'] for w in line_words if 40 <= w['x0'] < 150])
                     clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b2).replace(prefix, "").strip()
@@ -141,40 +150,41 @@ def parse_interfood_pdf(pdf_file):
                         "Prefix": prefix, "ID": uid, "Ügyintéző": clean_name, 
                         "Cím": clean_addr, "Telefon": tel_m.group(0) if tel_m else "", 
                         "Rendelés": ", ".join(v_o), "Pénz": money_val, "Összesen": sq,
-                        "Járat": meta["route"] # Hozzáadva a járat azonosító
+                        "Járat": meta["route"]
                     })
-                    
-    return rows, meta # Itt adjuk vissza mindkét értéket!
+    return rows, meta
 
 def merge_data(raw_rows):
     if not raw_rows: return None
-    df = pd.DataFrame(raw_rows); merged = []
+    df = pd.DataFrame(raw_rows)
+    merged = []
     for uid, group in df.groupby("ID", sort=False):
-        base = group.iloc[0].copy().to_dict(); o_p, m_list = [], []; has_weekend = False
+        base = group.iloc[0].copy().to_dict()
+        o_p, m_list = [], []
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
-            day_group = group[group['Prefix'] == pfix]; items = day_group['Rendelés'].tolist()
-            if items: 
-                o_p.append(f"{DAY_MAP.get(pfix, 'Nap')}: {', '.join(items)}")
-                if pfix == 'Z': has_weekend = True
+            day_group = group[group['Prefix'] == pfix]
+            items = day_group['Rendelés'].tolist()
+            if items: o_p.append(f"{DAY_MAP.get(pfix, 'Nap')}: {', '.join(items)}")
             for m_str in day_group['Pénz']:
                 num = int(re.sub(r'[^\d-]', '', str(m_str)) or 0)
                 if num != 0: m_list.append(num)
-        base['Rendelés_Full'] = " | ".join(o_p); base['Összesen'] = group['Összesen'].sum(); base['Hétvégi'] = has_weekend 
-        base['Pénz'] = f"{sum(m_list) if m_list else 0} Ft"; base['Megjegyzés'] = st.session_state.notes.get(str(uid), "")
+        base['Rendelés_Full'] = " | ".join(o_p)
+        base['Összesen'] = group['Összesen'].sum()
+        base['Pénz'] = f"{sum(m_list) if m_list else 0} Ft"
+        base['Megjegyzés'] = st.session_state.notes.get(str(uid), "")
         merged.append(base)
-    res = pd.DataFrame(merged).dropna(subset=['ID'])
+    
+    res = pd.DataFrame(merged)
     if 'weights' in st.session_state and st.session_state.weights:
         res['Sorrend'] = res['ID'].astype(str).map(st.session_state.weights).fillna(999.0).astype(float)
     else: res['Sorrend'] = range(1, len(res) + 1)
     return res.sort_values('Sorrend')
 
-# --- PDF GENERÁLÁS (JAVÍTOTT ETIKETT) ---
-
+# --- PDF GENERÁLÁS ---
 def create_label_pdf(df, fn, ft):
-    df = df.sort_values('Sorrend')
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4)
-    lw, lh = 70*mm, 42.42*mm # 3x7-es osztás pontos mérete
+    lw, lh = 70*mm, 42.42*mm 
     inner_m = 4*mm
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
     
@@ -185,76 +195,60 @@ def create_label_pdf(df, fn, ft):
         x, y = col * lw, row_i * lh
         r = df.iloc[i]
         
-        # Szombati rendelés ellenőrzése
-        has_weekend = "Szo:" in str(r['Rendelés_Full'])
-        
-        # 1. SOR: Sorszám és ID (Fent)
         p.setFillColor(colors.black)
         p.setFont(f_reg, 9)
         p.drawString(x + inner_m, y + lh - 6*mm, f"#{i+1}")
         p.drawRightString(x + lw - inner_m, y + lh - 6*mm, f"ID: {r['ID']}")
         
-        # 2. SOR: Ügyfél neve és telefon (KIEMELT SÁV)
-        if has_weekend:
-            p.setFillColorRGB(0.85, 0.85, 0.85) # Szürke háttér
-            p.rect(x + 1*mm, y + lh - 13*mm, lw - 2*mm, 6*mm, fill=1, stroke=0)
-            p.setFillColor(colors.black)
-            
         p.setFont(f_bold, 10)
         p.drawString(x + inner_m, y + lh - 11.5*mm, clean_customer_name(str(r['Ügyintéző']))[:28])
         p.setFont(f_reg, 9)
         p.drawRightString(x + lw - inner_m, y + lh - 11.5*mm, str(r['Telefon']))
         
-        # 3. SOR: Cím
         p.setFont(f_reg, 8)
         p.drawString(x + inner_m, y + lh - 17*mm, str(r['Cím'])[:45])
         
-        # RENDELÉSEK (középen)
         para = Paragraph(str(r['Rendelés_Full']), order_s)
         para.wrap(lw - 2*inner_m, 15*mm)
         para.drawOn(p, x + inner_m, y + 10*mm)
         
-        # FIZETENDŐ ÉS DARABSZÁM
         m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
         if m_val != "0" and m_val != "":
             p.setFont(f_bold, 10); p.drawString(x + inner_m, y + 5*mm, f"FIZET: {r['Pénz']}")
         p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, y + 5*mm, f"{r['Összesen']} db")
         
-        # ALSÓ ELVÁLASZTÓ ÉS FUTÁR (Az általad kért vékony vonallal)
         p.setLineWidth(0.1*mm); p.setStrokeColor(colors.grey)
         p.line(x + inner_m, y + 3.5*mm, x + lw - inner_m, y + 3.5*mm)
-        
-        p.setFillColor(colors.black)
-        p.setFont(f_reg, 6)
-        p.drawCentredString(x + lw/2, y + 1*mm, f"Futár: {fn} | {ft}")
+        p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, y + 1*mm, f"Futár: {fn} | Járat: {r.get('Járat', 'N/A')}")
     
     p.save(); buf.seek(0); return buf
 
-def create_manifest_pdf(df, fn):
-    df = df.sort_values('Sorrend')
+def create_manifest_pdf(df, fn, meta):
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
-    cleaned_addrs = [clean_addr(a) for a in df['Cím'].tolist()]
+    
+    # Fejléc szöveg összeállítása a PDF-ből kinyert adatokkal
+    header_info = f"{meta.get('year', '')}. {meta.get('week', '')}. hét - {meta.get('day', '')}"
+    
     rows_per_page = 22 
     total_p = math.ceil(len(df) / rows_per_page)
     head_s = ParagraphStyle('Head', fontName=f_bold, fontSize=8, alignment=1)
     name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=9, leading=10)
     cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=7, leading=8)
+
     for p_idx in range(total_p):
-        p.setFont(f_bold, 11); p.drawString(10*mm, h - 12*mm, f"MENETTERV - {fn}")
+        p.setFont(f_bold, 11); p.drawString(10*mm, h - 12*mm, f"MENETTERV - {fn} ({header_info})")
         p.drawRightString(w - 10*mm, h - 12*mm, f"{p_idx + 1}/{total_p}. oldal")
-        data = [[Paragraph("<b>#</b>", head_s), Paragraph("<b>NÉV / CÍM / INFÓ</b>", head_s), Paragraph("<b>[ ]</b>", head_s), Paragraph("<b>TEL</b>", head_s), Paragraph("<b>PÉNZ</b>", head_s), Paragraph("<b>RENDELÉS</b>", head_s), Paragraph("<b>DB</b>", head_s)]]
+        data = [[Paragraph("<b>#</b>", head_s), Paragraph("<b>NÉV / CÍM</b>", head_s), Paragraph("<b>[ ]</b>", head_s), Paragraph("<b>TEL</b>", head_s), Paragraph("<b>PÉNZ</b>", head_s), Paragraph("<b>RENDELÉS</b>", head_s), Paragraph("<b>DB</b>", head_s)]]
         subset = df.iloc[p_idx * rows_per_page : (p_idx + 1) * rows_per_page]
-        t_style = [('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('BACKGROUND', (0,0), (-1,0), colors.lightgrey)]
         for i, (_, r) in enumerate(subset.iterrows()):
-            c_cleaned = clean_addr(r['Cím']); g_count = cleaned_addrs.count(c_cleaned)
-            is_group = g_count > 1; m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
-            m_disp = f"<b>{r['Pénz']}</b>" if m_val != "0" and m_val != "" else ""; warn = f"▲ <b>CSOPORT ({g_count})</b><br/>" if is_group else ""
-            data.append([f"#{p_idx*rows_per_page+i+1}", Paragraph(f"{warn}{r['Ügyintéző']}<br/><font size='7'>{r['Cím']}</font>", name_s), "[ ]", Paragraph(str(r['Telefon']), cell_s), Paragraph(m_disp, cell_s), Paragraph(str(r['Rendelés_Full']), cell_s), r['Összesen']])
-            if is_group: t_style.append(('BACKGROUND', (1, i+1), (1, i+1), colors.Color(0.95, 0.95, 0.95)))
-        t = Table(data, colWidths=[10*mm, 60*mm, 8*mm, 25*mm, 22*mm, 55*mm, 10*mm]); t.setStyle(TableStyle(t_style)); t.wrapOn(p, 7*mm, 20*mm); h_t = t.wrap(w - 14*mm, h - 35*mm)[1]; t.drawOn(p, 7*mm, h - 22*mm - h_t); p.showPage()
+            m_val = re.sub(r'[^\d-]', '', str(r['Pénz']))
+            m_disp = f"<b>{r['Pénz']}</b>" if m_val != "0" and m_val != "" else ""
+            data.append([f"#{p_idx*rows_per_page+i+1}", Paragraph(f"{r['Ügyintéző']}<br/><font size='7'>{r['Cím']}</font>", name_s), "[ ]", Paragraph(str(r['Telefon']), cell_s), Paragraph(m_disp, cell_s), Paragraph(str(r['Rendelés_Full']), cell_s), r['Összesen']])
+        t = Table(data, colWidths=[10*mm, 60*mm, 8*mm, 25*mm, 22*mm, 55*mm, 10*mm]); t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.black), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('BACKGROUND', (0,0), (-1,0), colors.lightgrey)]))
+        t.wrapOn(p, 7*mm, 20*mm); h_t = t.wrap(w - 14*mm, h - 35*mm)[1]; t.drawOn(p, 7*mm, h - 22*mm - h_t); p.showPage()
     
-    # RAKODÁSI LISTA RÉSZ
+    # RAKODÁSI LISTA (ugyanúgy, mint korábban)
     all_codes = []
     for r in df['Rendelés_Full']: 
         found = re.findall(r'(\d+)-([A-Z0-9*+]+)', str(r))
@@ -271,13 +265,9 @@ def create_manifest_pdf(df, fn):
             sum_rows.append([Paragraph(f"<br/><b>--- {info['kategoria']} ---</b>", cell_s), ""])
             last_cat = info['kategoria']
         sum_rows.append([Paragraph(f"<b>{code}</b> - {info['nev']}", cell_s), Paragraph(f"{count} db", head_s)])
-    unk = [c for c in counts.keys() if c not in menu]
-    if unk:
-        sum_rows.append([Paragraph("<br/><b>--- ISMERETLEN / MÁSIK NAP ---</b>", cell_s), ""])
-        for c in sorted(unk): sum_rows.append([Paragraph(f"<b>{c}</b> - ?", cell_s), f"{counts[c]} db"])
-    footer = [[Paragraph(f"<b>ÖSSZESEN: {total_items} db</b>", cell_s), Paragraph(f"<b>{total_val} Ft</b>", head_s)], [Paragraph(f"<b>JUTALÉK (13%):</b>", cell_s), Paragraph(f"<b>{round(total_val*0.13)} Ft</b>", head_s)]]
-    p.setFont(f_bold, 12); p.drawString(10*mm, h - 15*mm, "RAKODÁSI LISTA")
-    st_t = Table([[Paragraph("ÉTEL", head_s), "DB"]] + sum_rows + footer, colWidths=[150*mm, 30*mm]); st_t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.black)]))
+    
+    p.setFont(f_bold, 12); p.drawString(10*mm, h - 15*mm, f"RAKODÁSI LISTA ({header_info})")
+    st_t = Table([[Paragraph("ÉTEL", head_s), "DB"]] + sum_rows, colWidths=[150*mm, 30*mm]); st_t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.black)]))
     st_t.wrapOn(p, 10*mm, 20*mm); h_st = st_t.wrap(180*mm, 260*mm)[1]; st_t.drawOn(p, 10*mm, h - 25*mm - h_st)
     p.save(); buf.seek(0); return buf
 
@@ -286,37 +276,31 @@ st.set_page_config(page_title="Interfood Logisztika", layout="wide")
 if 'notes' not in st.session_state: st.session_state.notes = {}
 if 'live_menu' not in st.session_state: st.session_state.live_menu = {}
 if 'mdf' not in st.session_state: st.session_state.mdf = None
+if 'meta' not in st.session_state: st.session_state.meta = {}
 if 'weights' not in st.session_state: st.session_state.weights = {}
 
 with st.sidebar:
     st.header("👤 Beállítások")
     c_n = st.text_input("Név", "Szűcs István"); c_p = st.text_input("Tel", "+36 20 886 8971"); st.divider()
-    old_csv = st.file_uploader("Súlyozás (CSV) visszatöltése", type="csv")
-    if old_csv:
-        db_df = pd.read_csv(old_csv); st.session_state.weights = dict(zip(db_df['ID'].astype(str).str.strip(), db_df['Sorrend'].astype(float)))
-        if 'Megjegyzés' in db_df.columns: st.session_state.notes = dict(zip(db_df['ID'].astype(str).str.strip(), db_df['Megjegyzés'].fillna("")))
-    up_files = st.file_uploader("Napi PDF-ek", accept_multiple_files=True)
+    up_files = st.file_uploader("Interfood Napi PDF-ek", accept_multiple_files=True)
     if up_files and st.button("📊 FELDOLGOZÁS"):
-        raw = []; last_meta = None
+        raw = []
         for f in up_files: 
             rows, meta = parse_interfood_pdf(f); raw.extend(rows)
-            if meta['year']: last_meta = meta
+            if meta['year']: st.session_state.meta = meta # Az utolsó fájl metaadatait mentjük
+        
         if raw:
-            if last_meta: st.session_state.live_menu = get_live_menu(last_meta['year'], last_meta['week'], last_meta['day'])
+            m = st.session_state.meta
+            st.session_state.live_menu = get_live_menu(m['year'], m['week'], m['day'])
             st.session_state.mdf = merge_data(raw); st.rerun()
 
 if st.session_state.mdf is not None:
-    cols = ['Sorrend', 'ID', 'Ügyintéző', 'Cím', 'Telefon', 'Rendelés_Full', 'Összesen', 'Pénz', 'Megjegyzés']
-    df_to_edit = st.session_state.mdf[[c for c in cols if c in st.session_state.mdf.columns]]
-    edited_df = st.data_editor(df_to_edit, hide_index=True, use_container_width=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("✅ SORREND ÉS INFÓ MENTÉSE", use_container_width=True):
-            st.session_state.weights = dict(zip(edited_df['ID'].astype(str), edited_df['Sorrend']))
-            st.session_state.notes = dict(zip(edited_df['ID'].astype(str), edited_df['Megjegyzés']))
-            st.session_state.mdf = merge_data(st.session_state.mdf.to_dict('records')); st.rerun()
-    with c2: st.download_button("📥 MENTÉS CSV-BE (Súlyozáshoz)", edited_df.to_csv(index=False).encode('utf-8-sig'), "menetterv_mentes.csv", use_container_width=True)
-    st.divider()
+    edited_df = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True)
+    if st.button("✅ MÓDOSÍTÁSOK MENTÉSE"):
+        st.session_state.weights = dict(zip(edited_df['ID'].astype(str), edited_df['Sorrend']))
+        st.session_state.notes = dict(zip(edited_df['ID'].astype(str), edited_df['Megjegyzés']))
+        st.session_state.mdf = merge_data(st.session_state.mdf.to_dict('records')); st.rerun()
+    
     ca, cb = st.columns(2)
-    with ca: st.download_button("🏷️ ETIKETTEK (3x7)", create_label_pdf(edited_df, c_n, c_p), "etikettek.pdf", use_container_width=True)
-    with cb: st.download_button("📋 MENETTERV + RAKLISTA", create_manifest_pdf(edited_df, c_n), "menetterv.pdf", use_container_width=True)
+    with ca: st.download_button("🏷️ ETIKETTEK", create_label_pdf(edited_df, c_n, c_p), "etikettek.pdf", use_container_width=True)
+    with cb: st.download_button("📋 MENETTERV", create_manifest_pdf(edited_df, c_n, st.session_state.meta), "menetterv.pdf", use_container_width=True)

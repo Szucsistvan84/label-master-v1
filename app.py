@@ -10,9 +10,8 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
-from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Spacer
+from reportlab.platypus import SimpleDocTemplate, Spacer, Paragraph, Table, TableStyle
 
 # --- 1. ALAPFUNKCIÓK & BETŰTÍPUSOK ---
 
@@ -185,12 +184,12 @@ def create_manifest_pdf(df, fn, meta_list):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     
-    # SimpleDocTemplate-et használunk a dinamikus tördeléshez
+    # topMargin csökkentve 15mm-re, hogy közelebb legyen a fejléchez a táblázat
     doc = SimpleDocTemplate(buf, pagesize=A4, 
                             rightMargin=10*mm, leftMargin=10*mm, 
-                            topMargin=25*mm, bottomMargin=15*mm)
+                            topMargin=15*mm, bottomMargin=15*mm)
     
-    # Adatok a fejléchez
+    # Fejléc adatok összeállítása
     jaratok = ", ".join(sorted(list(set([str(m['jarat']) for m in meta_list if m['jarat']]))))
     ev = meta_list[0].get('year', '') if meta_list else ""
     het = meta_list[0].get('week', '') if meta_list else ""
@@ -201,12 +200,12 @@ def create_manifest_pdf(df, fn, meta_list):
     
     # Stílusok
     head_s = ParagraphStyle('Head', fontName=f_bold, fontSize=8, alignment=1)
-    name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=8, leading=10)
+    name_s = ParagraphStyle('Name', fontName=f_reg, fontSize=8, leading=10)
     cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=7, leading=9)
 
-    elements = [] # Ebbe pakolunk mindent (táblázat, fejléc)
+    elements = []
 
-    # Táblázat fejléce
+    # Táblázat adatainak előkészítése
     data = [[
         Paragraph("<b>#</b>", head_s), 
         Paragraph("<b>NÉV / CÍM / INFÓ</b>", head_s), 
@@ -230,16 +229,19 @@ def create_manifest_pdf(df, fn, meta_list):
         g_count = cleaned_addrs.count(curr_addr)
         is_group = g_count > 1
         
+        # Üres adatok kezelése
         raw_note = str(r.get('Megjegyzés', ''))
         note_text = f"<br/><font color='red'><b>{raw_note}</b></font>" if raw_note.lower() != 'nan' and raw_note.strip() != '' else ""
         penz = "" if str(r['Pénz']).strip().lower() in ["0 ft", "0", "0ft", "nan"] else str(r['Pénz'])
         tel = str(r.get('Telefon', '')) if str(r.get('Telefon', '')).lower() != 'nan' else ""
         
+        # NÉV FÉLKÖVÉRRE ÁLLÍTÁSA
         warn = "▲ CSOPORT " if is_group else ""
+        ugyfel_sor = f"<b>{warn}{r['Ügyintéző']}</b>"
         
         data.append([
             f"{int(r['Sorrend'])}", 
-            Paragraph(f"<b>{warn}{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font>{note_text}", name_s), 
+            Paragraph(f"{ugyfel_sor}<br/><font size='7'>{r['Cím']}</font>{note_text}", name_s), 
             "[ ]", 
             Paragraph(f"<b>{penz}</b>", head_s),
             Paragraph(tel, cell_s), 
@@ -247,28 +249,30 @@ def create_manifest_pdf(df, fn, meta_list):
             f"{int(r['Összesen'])}"
         ])
         
-        # Csoportos kiemelés (i+1 mert van fejléc)
         if is_group:
             idx = i + 1
             t_style.append(('BACKGROUND', (0, idx), (-1, idx), colors.lightgrey))
             t_style.append(('LINEABOVE', (0, idx), (-1, idx), 1.2, colors.black))
             t_style.append(('LINEBELOW', (0, idx), (-1, idx), 1.2, colors.black))
 
-    # Táblázat létrehozása (splitByRow=True a tördeléshez)
+    # Táblázat létrehozása tördeléssel
     t = Table(data, colWidths=[10*mm, 60*mm, 10*mm, 20*mm, 25*mm, 55*mm, 10*mm], repeatRows=1)
     t.setStyle(TableStyle(t_style))
     elements.append(t)
 
-    # Fejléc és lábléc funkció a PDF-nek
+    # Fejléc és oldalszám rajzolása minden lapra
     def on_page(canvas, doc):
         canvas.saveState()
+        # Fejléc - feljebb tolva a margóhoz képest
         canvas.setFont(f_bold, 11)
-        canvas.drawString(10*mm, A4[1] - 12*mm, fejlec_szoveg)
+        canvas.drawString(10*mm, A4[1] - 10*mm, fejlec_szoveg)
         canvas.setFont(f_reg, 9)
-        canvas.drawRightString(A4[0] - 10*mm, A4[1] - 12*mm, f"Futár: {fn}")
-        # Oldalszám
+        canvas.drawRightString(A4[0] - 10*mm, A4[1] - 10*mm, f"Futár: {fn}")
+        
+        # Oldalszám - fix pozíció alul
         canvas.setFont(f_reg, 8)
-        canvas.drawCentredString(A4[0]/2, 10*mm, f"{doc.page} / ?")
+        page_num = canvas.getPageNumber()
+        canvas.drawCentredString(A4[0]/2, 8*mm, f"{page_num}. oldal")
         canvas.restoreState()
 
     doc.build(elements, onFirstPage=on_page, onLaterPages=on_page)

@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 import math
-from io import BytesIO
+from io import BytesIO, StringIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -144,13 +144,10 @@ def merge_data(raw_rows):
         merged.append(base)
     
     res = pd.DataFrame(merged).dropna(subset=['ID'])
-    if 'weights' in st.session_state:
-        res['Sorrend'] = res['ID'].astype(str).map(st.session_state.weights).fillna(999.0).astype(float)
-    else:
-        res['Sorrend'] = range(1, len(res) + 1)
-    return res.sort_values('Sorrend')
+    res['Sorrend'] = range(1, len(res) + 1)
+    return res
 
-# --- 4. PDF GENERÁLÁS (ETIKETTEK + MARKETING KERET NÉLKÜL) ---
+# --- 4. PDF GENERÁLÁS (ETIKETTEK) ---
 
 def create_label_pdf(df, fn, ft):
     df = df.sort_values('Sorrend')
@@ -172,10 +169,8 @@ def create_label_pdf(df, fn, ft):
         x, y = col * lw, row_i * lh
         
         if i < len(df):
-            # --- ÜGYFÉL ETIKETT ---
             r = df.iloc[i]
             top_y = y + lh - inner_m
-            
             if r.get('Hétvégi') == True:
                 p.saveState()
                 p.setFillColor(colors.lightgrey)
@@ -194,27 +189,19 @@ def create_label_pdf(df, fn, ft):
             
             para = Paragraph(str(r['Rendelés_Full']), order_s)
             para.wrap(lw - 2*inner_m, 12*mm); para.drawOn(p, x + inner_m, y + inner_m + 7*mm)
-            
             p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, y + inner_m + 3*mm, f"{r['Összesen']} db")
             p.setLineWidth(0.2); p.line(x + inner_m, y + inner_m + 2*mm, x + lw - inner_m, y + inner_m + 2*mm)
             p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, y + inner_m - 1.5*mm, f"Futár: {fn} | {ft}")
-        
         else:
-            # --- MARKETING ETIKETT (KERET NÉLKÜL) ---
-            m_text = (
-                f"<font size='10.5'><b>15% kedvezmény* 3 hétig</b></font><br/>"
-                f"Új Ügyfeleink részére!<br/><br/>"
-                f"<b>Rendelés leadás:</b><br/>"
-                f"<b>{fn}</b>, tel: <b>{ft}</b><br/><br/>"
-                f"<font size='5.5'><b>* a kedvezmény telefonon leadott rendelésekre érvényesíthető<br/>területi képviselőnk által</b></font>"
-            )
+            m_text = (f"<font size='10.5'><b>15% kedvezmény* 3 hétig</b></font><br/>Új Ügyfeleink részére!<br/><br/>"
+                      f"<b>Rendelés leadás:</b><br/><b>{fn}</b>, tel: <b>{ft}</b><br/><br/>"
+                      f"<font size='5.5'><b>* a kedvezmény telefonon leadott rendelésekre érvényesíthető<br/>területi képviselőnk által</b></font>")
             para = Paragraph(m_text, promo_s)
             pw, ph = para.wrap(lw - 6*mm, lh - 6*mm)
             para.drawOn(p, x + (lw - pw)/2, y + (lh - ph)/2)
-
     p.save(); buf.seek(0); return buf
 
-# --- 5. PDF GENERÁLÁS (MENETTERV + RAKLISTA) ---
+# --- 5. PDF GENERÁLÁS (MENETTERV) ---
 
 def create_manifest_pdf(df, fn):
     df = df.sort_values('Sorrend')
@@ -267,7 +254,6 @@ def create_manifest_pdf(df, fn):
     st_t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.black), ('BACKGROUND', (0,0), (-1,0), colors.lightgrey)]))
     st_t.wrapOn(p, 10*mm, 20*mm); h_st = st_t.wrap(180*mm, 260*mm)[1]
     st_t.drawOn(p, 10*mm, h - 25*mm - h_st)
-
     p.save(); buf.seek(0); return buf
 
 # --- 6. UI ---
@@ -294,11 +280,26 @@ with st.sidebar:
             st.rerun()
 
 if st.session_state.mdf is not None:
+    # A táblázat szerkesztése
     edited_df = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True)
-    if st.button("💾 MENTÉS"):
-        st.session_state.mdf = edited_df
+    
+    if st.button("💾 MENTÉS ÉS ÚJRASORSZÁMOZÁS"):
+        # Mentéskor a Sorrend oszlop alapján átrendezzük, majd újraírjuk a sorrendet 1-től
+        new_df = edited_df.sort_values('Sorrend').reset_index(drop=True)
+        new_df['Sorrend'] = range(1, len(new_df) + 1)
+        st.session_state.mdf = new_df
+        st.success("Sorrend véglegesítve és újrasorszámozva!")
         st.rerun()
     
-    col1, col2 = st.columns(2)
-    col1.download_button("📄 ETIKETTEK", create_label_pdf(edited_df, c_n, c_p), "etikettek.pdf")
-    col2.download_button("📋 MENETTERV + RAKLISTA", create_manifest_pdf(edited_df, c_n), "menetterv.pdf")
+    st.divider()
+    
+    # Export gombok
+    c1, c2, c3 = st.columns(3)
+    
+    # PDF-ek
+    c1.download_button("📄 ETIKETTEK (PDF)", create_label_pdf(edited_df, c_n, c_p), "etikettek.pdf")
+    c2.download_button("📋 MENETTERV (PDF)", create_manifest_pdf(edited_df, c_n), "menetterv.pdf")
+    
+    # CSV Export (itt az új funkció)
+    csv = edited_df.to_csv(index=False).encode('utf-8-sig')
+    c3.download_button("📊 CSV EXPORT (EXCELHEZ)", csv, "napi_sorrend.csv", "text/csv")

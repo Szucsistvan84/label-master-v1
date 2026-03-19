@@ -72,51 +72,96 @@ def clean_addr(addr):
 # --- PDF PARSER ---
 def parse_interfood_pdf(pdf_file):
     rows = []
-    metadata = {'year': None, 'week': None, 'day': None}
+    # Minták a régi kódból
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
     phone_pat = r'(\d{2}/\d{6,7})'
     money_pat = r'(-?\s?\d[\d\s]*\s*Ft)' 
+    
     with pdfplumber.open(pdf_file) as pdf:
-        first_page_text = pdf.pages[0].extract_text()
-        if first_page_text:
-            y_m = re.search(r'Év:\s*(\d{4})', first_page_text); w_m = re.search(r'Hét:\s*(\d{1,2})', first_page_text); d_m = re.search(r'Nap:\s*([a-zA-Záéíóöőúüű]+)', first_page_text)
-            if y_m: metadata['year'] = y_m.group(1)
-            if w_m: metadata['week'] = w_m.group(1)
-            if d_m: metadata['day'] = d_m.group(1)
         for page in pdf.pages:
-            words = page.extract_words(); lines = {}
+            words = page.extract_words()
+            lines = {}
+            
+            # 1. Szavak sorokba rendezése (3 pixeles toleranciával)
             for w in words:
                 y = round(w['top'], 1)
                 for ey in lines:
-                    if abs(y - ey) < 3: lines[ey].append(w); break
-                else: lines[y] = [w]
+                    if abs(y - ey) < 3:
+                        lines[ey].append(w)
+                        break
+                else:
+                    lines[y] = [w]
+            
             sorted_y = sorted(lines.keys())
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
-                u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})|C-(\d+)', text_ws)
-                if not u_code_m: continue
-                full_match = u_code_m.group(0)
-                prefix = full_match.split('-')[0] if "-" in full_match else "C"
-                uid = full_match.split('-')[1] if "-" in full_match else full_match[2:]
+                
+                # Ügyfélkód keresése (P-123456 formátum)
+                u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
+                if not u_code_m:
+                    continue
+                
+                # ID kinyerése
+                prefix = u_code_m.group(0).split('-')[0]
+                uid = u_code_m.group(0).split('-')[-1]
+                
+                # --- A LÉNYEG: OSZLOP ALAPÚ SZÉTVÁLASZTÁS ---
+                # b3: Cím (Irányítószámmal kezdve a 150-355 tartományban)
                 b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
-                b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 550])
+                
+                # b4: Ügyintéző (A tiszta név tartománya: 355-490)
+                b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
+                
+                # Tisztítás: Csak betűk maradjanak a névben (eltünteti a / jeleket, számokat)
                 clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
-                tel_m = re.search(phone_pat, text_ws.replace(" ", "")); addr_m = re.search(r'(\d{4})', b3)
-                address = b3[addr_m.start():].strip() if addr_m else b3
+                
+                # Ha b4 üres lenne (ritka eset), próbáljuk meg az Ügyfél oszlopból, 
+                # de ott is csak a betűket megtartva:
+                if not clean_name:
+                    b2 = " ".join([w['text'] for w in line_words if 40 <= w['x0'] < 150])
+                    clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b2).replace(prefix, "").strip()
+
+                # Telefon és Cím kinyerése
+                tel_m = re.search(phone_pat, text_ws.replace(" ", ""))
+                addr_m = re.search(r'(\d{4})', b3)
+                clean_addr = b3[addr_m.start():].strip() if addr_m else b3
+                
+                # Pénz kezelése (következő sorban keresés, mint a régiben)
                 money_val = "0 Ft"
                 if i + 1 < len(sorted_y):
-                    next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i+1]], key=lambda x: x['x0'])])
-                    m_match = re.search(money_pat, next_t)
-                    if m_match: money_val = m_match.group(1).strip()
-                raw_orders = re.findall(order_pat, text_ws); v_o, sq = [], 0
+                    next_line_words = sorted(lines[sorted_y[i+1]], key=lambda x: x['x0'])
+                    next_line_text = " ".join([w['text'] for w in next_line_words])
+                    m_match = re.search(money_pat, next_line_text)
+                    if m_match:
+                        money_val = m_match.group(1).strip()
+
+                # Rendelések kigyűjtése
+                raw_orders = re.findall(order_pat, text_ws)
+                v_o, sq = [], 0
                 for o in raw_orders:
                     try:
-                        q = int(re.sub(r'\D', '', o.split('-')[0]))
-                        v_o.append(f"{q}-{o.split('-')[1]} street"); sq += q
-                    except: continue
-                if v_o: rows.append({"Prefix": prefix, "ID": uid, "Ügyintéző": clean_name, "Cím": address, "Telefon": tel_m.group(0) if tel_m else "", "Rendelés": ", ".join(v_o), "Pénz": money_val, "Összesen": sq})
-    return rows, metadata
+                        # Mennyiség kinyerése a kötőjel előtti számból
+                        q_match = re.search(r'(\d+)', o.split('-')[0])
+                        q = int(q_match.group(1)) if q_match else 1
+                        v_o.append(f"{q}-{o.split('-')[-1]}")
+                        sq += q
+                    except:
+                        continue
+                
+                if v_o:
+                    rows.append({
+                        "Prefix": prefix,
+                        "ID": uid,
+                        "Ügyintéző": clean_name, 
+                        "Cím": clean_addr,
+                        "Telefon": tel_m.group(0) if tel_m else "", 
+                        "Rendelés": ", ".join(v_o),
+                        "Pénz": money_val,
+                        "Összesen": sq
+                    })
+                    
+    return rows
 
 def merge_data(raw_rows):
     if not raw_rows: return None

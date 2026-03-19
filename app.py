@@ -150,7 +150,7 @@ def merge_data(raw_rows):
         res['Sorrend'] = range(1, len(res) + 1)
     return res.sort_values('Sorrend')
 
-# --- 4. PDF GENERÁLÁS (ETIKETTEK + MARKETING) ---
+# --- 4. PDF GENERÁLÁS (ETIKETTEK + MARKETING KERET NÉLKÜL) ---
 
 def create_label_pdf(df, fn, ft):
     df = df.sort_values('Sorrend')
@@ -161,7 +161,7 @@ def create_label_pdf(df, fn, ft):
     
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
     note_s = ParagraphStyle('Note', fontName=f_bold, fontSize=7, leading=8, textColor=colors.red)
-    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1) # Középre igazított
+    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1)
     
     total_labels = math.ceil(len(df) / 21) * 21
     
@@ -200,13 +200,7 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, y + inner_m - 1.5*mm, f"Futár: {fn} | {ft}")
         
         else:
-            # --- MARKETING ETIKETT (Üres helyekre) ---
-            p.saveState()
-            # p.setDash(1, 2) # Szaggatott vonal a szélére, hogy látszódjon a vágás
-            # p.setLineWidth(0.1)
-            p.rect(x + 1*mm, y + 1*mm, lw - 2*mm, lh - 2*mm, stroke=1, fill=0)
-            p.restoreState()
-            
+            # --- MARKETING ETIKETT (KERET NÉLKÜL) ---
             m_text = (
                 f"<font size='10.5'><b>15% kedvezmény* 3 hétig</b></font><br/>"
                 f"Új Ügyfeleink részére!<br/><br/>"

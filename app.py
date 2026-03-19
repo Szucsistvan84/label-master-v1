@@ -14,6 +14,28 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Spacer, Paragraph, Table, TableStyle
 
+def register_fonts():
+    """Regisztrálja a betűtípusokat a PDF generáláshoz. 
+    Ha a fájl nem található, alapértelmezett Helvetica-t használ."""
+    try:
+        # Ha van saját betűtípusod, itt add meg az elérési utat
+        # pdfmetrics.registerFont(TTFont('DejaVuSans', 'DejaVuSans.ttf'))
+        # pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', 'DejaVuSans-Bold.ttf'))
+        # return 'DejaVuSans', 'DejaVuSans-Bold'
+        
+        # Alapértelmezett beépített betűk (ezek nem minden ékezetet szeretnek, de nem dobnak hibát)
+        return 'Helvetica', 'Helvetica-Bold'
+    except:
+        return 'Helvetica', 'Helvetica-Bold'
+
+def clean_addr(addr):
+    """Segédfüggvény a címek tisztításához a csoportosításhoz"""
+    if not addr: return ""
+    return str(addr).split(',')[0].strip()
+
+# Ez a szótár is kellhet a napok nevéhez
+DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
+
 # --- FONTOS: REGEX MINTÁK ---
 # Ezeket a függvényen kívül is beteheted, hogy mindenki lássa
 PHONE_PAT = r'(\+?\d{1,2}[/\s-]?)?(\d{2}[/\s-]?)?\d{3}[/\s-]?\d{4}'

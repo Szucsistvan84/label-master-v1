@@ -279,18 +279,79 @@ def create_manifest_pdf(df, fn, meta_list):
     buf.seek(0)
     return buf
 
-def create_raklista_pdf(df, jarat_info):
+def create_raklista_pdf(df, jarat_info, meta_list=None):
     f_reg, f_bold = register_fonts()
-    buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
+    buf = BytesIO()
+    
+    # A raklista általában rövidebb, de használjunk itt is Template-et a biztonság kedvéért
+    doc = SimpleDocTemplate(buf, pagesize=A4, 
+                            rightMargin=20*mm, leftMargin=20*mm, 
+                            topMargin=20*mm, bottomMargin=15*mm)
+    
+    # Adatok a fejléchez
+    ev = meta_list[0].get('year', '') if meta_list else ""
+    het = meta_list[0].get('week', '') if meta_list else ""
+    nap = meta_list[0].get('day', '') if meta_list else ""
+    
+    title_text = f"RAKODÁSI LISTA - Járat: {jarat_info}"
+    sub_title = f"{ev}. év, {het}. hét | {nap}"
+
+    # Összesítés készítése
     all_codes = []
-    for r in df['Rendelés_Full']: all_codes.extend(re.findall(r'(\d+)-([A-Z0-9*+]+)', str(r)))
+    # Végigmegyünk a Rendelés_Full oszlopon és kinyerjük a "szám-kód" párosokat
+    for r in df['Rendelés_Full']:
+        # Keresünk minden "1-R2K" vagy "2-L3" típusú mintát
+        found = re.findall(r'(\d+)-([A-Z0-9*+]+)', str(r))
+        all_codes.extend(found)
+    
     counts = {}
-    for c, code in all_codes: counts[code] = counts.get(code, 0) + int(c)
-    sum_rows = [[Paragraph(code, ParagraphStyle('C', fontName=f_reg, fontSize=9)), Paragraph(f"<b>{counts[code]} db</b>", ParagraphStyle('H', fontName=f_bold, fontSize=10, alignment=1))] for code in sorted(counts.keys())]
-    p.setFont(f_bold, 14); p.drawString(10*mm, h - 15*mm, f"RAKODÁSI LISTA - Járat: {jarat_info}")
-    st_t = Table([[Paragraph("ÉTEL KÓD", ParagraphStyle('H', fontName=f_bold, fontSize=10, alignment=1)), Paragraph("MENNYISÉG", ParagraphStyle('H', fontName=f_bold, fontSize=10, alignment=1))]] + sum_rows, colWidths=[100*mm, 40*mm])
-    st_t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.black), ('BACKGROUND', (0,0), (-1,0), colors.lightgrey)]))
-    st_t.wrapOn(p, 10*mm, 20*mm); h_st = st_t.wrap(180*mm, 260*mm)[1]; st_t.drawOn(p, 10*mm, h - 30*mm - h_st); p.save(); buf.seek(0); return buf
+    for count, code in all_codes:
+        counts[code] = counts.get(code, 0) + int(count)
+    
+    # Táblázat adatok összeállítása (ABC sorrendben a kódok szerint)
+    data = [[Paragraph("<b>ÉTEL KÓD</b>", ParagraphStyle('H', fontName=f_bold, fontSize=12, alignment=1)), 
+             Paragraph("<b>ÖSSZESEN</b>", ParagraphStyle('H', fontName=f_bold, fontSize=12, alignment=1))]]
+    
+    total_items = 0
+    for code in sorted(counts.keys()):
+        qty = counts[code]
+        total_items += qty
+        data.append([
+            Paragraph(code, ParagraphStyle('C', fontName=f_bold, fontSize=11, alignment=1)), 
+            Paragraph(f"<b>{qty} db</b>", ParagraphStyle('Q', fontName=f_bold, fontSize=12, alignment=1))
+        ])
+    
+    # Összesítő sor a végére
+    data.append([
+        Paragraph("<b>MINDÖSSZESEN:</b>", ParagraphStyle('T', fontName=f_bold, fontSize=12, alignment=2)),
+        Paragraph(f"<b>{total_items} db</b>", ParagraphStyle('T', fontName=f_bold, fontSize=12, alignment=1))
+    ])
+
+    t = Table(data, colWidths=[60*mm, 40*mm])
+    t.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 1, colors.black),
+        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+        ('BACKGROUND', (0,-1), (-1,-1), colors.lightgrey), # Utolsó sor is szürke
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 5*mm),
+        ('RIGHTPADDING', (0,0), (-1,-1), 5*mm),
+        ('TOPPADDING', (0,0), (-1,-1), 3*mm),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3*mm),
+    ]))
+
+    elements = [t]
+
+    def on_page(canvas, doc):
+        canvas.saveState()
+        canvas.setFont(f_bold, 14)
+        canvas.drawString(20*mm, A4[1] - 15*mm, title_text)
+        canvas.setFont(f_reg, 10)
+        canvas.drawString(20*mm, A4[1] - 20*mm, sub_title)
+        canvas.restoreState()
+
+    doc.build(elements, onFirstPage=on_page, onLaterPages=on_page)
+    buf.seek(0)
+    return buf
 
 # --- 4. UI ---
 

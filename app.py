@@ -150,7 +150,7 @@ def merge_data(raw_rows):
         res['Sorrend'] = range(1, len(res) + 1)
     return res.sort_values('Sorrend')
 
-# --- 4. PDF GENERÁLÁS (ETIKETTEK - JAVÍTOTT TÉGLALAP) ---
+# --- 4. PDF GENERÁLÁS (ETIKETTEK + MARKETING) ---
 
 def create_label_pdf(df, fn, ft):
     df = df.sort_values('Sorrend')
@@ -158,24 +158,27 @@ def create_label_pdf(df, fn, ft):
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4)
     lw, lh = 70*mm, 42.42*mm 
     inner_m = 5.5*mm
+    
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
     note_s = ParagraphStyle('Note', fontName=f_bold, fontSize=7, leading=8, textColor=colors.red)
+    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1) # Középre igazított
     
-    for i in range(math.ceil(len(df) / 21) * 21):
+    total_labels = math.ceil(len(df) / 21) * 21
+    
+    for i in range(total_labels):
         idx = i % 21
         if idx == 0 and i > 0: p.showPage()
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = col * lw, row_i * lh
         
         if i < len(df):
+            # --- ÜGYFÉL ETIKETT ---
             r = df.iloc[i]
             top_y = y + lh - inner_m
             
-            # --- SZÜRKE KIEMELÉS (PONTOSÍTOTT MÉRET) ---
             if r.get('Hétvégi') == True:
                 p.saveState()
                 p.setFillColor(colors.lightgrey)
-                # Magasság 4.5mm-re csökkentve, pozíció finomítva a név sorához
                 p.rect(x + 1*mm, top_y - 8.5*mm, lw - 2*mm, 4.5*mm, fill=1, stroke=0)
                 p.restoreState()
             
@@ -195,6 +198,25 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, y + inner_m + 3*mm, f"{r['Összesen']} db")
             p.setLineWidth(0.2); p.line(x + inner_m, y + inner_m + 2*mm, x + lw - inner_m, y + inner_m + 2*mm)
             p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, y + inner_m - 1.5*mm, f"Futár: {fn} | {ft}")
+        
+        else:
+            # --- MARKETING ETIKETT (Üres helyekre) ---
+            p.saveState()
+            p.setDash(1, 2) # Szaggatott vonal a szélére, hogy látszódjon a vágás
+            p.setLineWidth(0.1)
+            p.rect(x + 1*mm, y + 1*mm, lw - 2*mm, lh - 2*mm, stroke=1, fill=0)
+            p.restoreState()
+            
+            m_text = (
+                f"<font size='10.5'><b>15% kedvezmény* 3 hétig</b></font><br/>"
+                f"Új Ügyfeleink részére!<br/><br/>"
+                f"<b>Rendelés leadás:</b><br/>"
+                f"<b>{fn}</b>, tel: <b>{ft}</b><br/><br/>"
+                f"<font size='5.5'><b>* a kedvezmény telefonon leadott rendelésekre érvényesíthető<br/>területi képviselőnk által</b></font>"
+            )
+            para = Paragraph(m_text, promo_s)
+            pw, ph = para.wrap(lw - 6*mm, lh - 6*mm)
+            para.drawOn(p, x + (lw - pw)/2, y + (lh - ph)/2)
 
     p.save(); buf.seek(0); return buf
 

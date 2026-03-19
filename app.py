@@ -228,8 +228,8 @@ def create_label_pdf(df, fn, ft):
 
         # 2. HA NINCS TÖBB ÜGYFÉL (Marketing etikett az üres helyekre)
         else:
-            p.setDash(1, 2) # Szaggatott vonal a marketing matrica szélének (opcionális)
-            p.rect(x + 2*mm, y + 2*mm, lw - 4*mm, lh - 4*mm, stroke=1, fill=0)
+            # p.setDash(1, 2) # Szaggatott vonal a marketing matrica szélének (opcionális)
+            # p.rect(x + 2*mm, y + 2*mm, lw - 4*mm, lh - 4*mm, stroke=1, fill=0)
             p.setDash(1, 0) # Vissza sima vonalra
             
             m_text = (

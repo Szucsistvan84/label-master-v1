@@ -171,6 +171,52 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Hiba a CSV betöltésekor: {e}")
 
+def create_label_pdf(df, fn, ft):
+    """Etikett generálás - Helvetica fonttal"""
+    df = df.sort_values('Sorrend')
+    f_reg, f_bold = register_fonts()
+    buf = BytesIO()
+    p = canvas.Canvas(buf, pagesize=A4)
+    lw, lh = 70*mm, 42.42*mm 
+    inner_m = 5.5*mm
+    
+    # Stílus az ékezetek kezeléséhez a Paragraph-on belül
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
+    
+    total_labels = math.ceil(len(df) / 21) * 21
+    for i in range(total_labels):
+        idx = i % 21
+        if idx == 0 and i > 0: p.showPage()
+        col, row_i = idx % 3, 6 - (idx // 3)
+        x, y = col * lw, row_i * lh
+        
+        if i < len(df):
+            r = df.iloc[i]
+            top_y = y + lh - inner_m
+            
+            # Hétvégi jelölés (szürke csík)
+            if r.get('Hétvégi'):
+                p.saveState()
+                p.setFillColor(colors.lightgrey)
+                p.rect(x + 1*mm, top_y - 8.5*mm, lw - 2*mm, 4.5*mm, fill=1, stroke=0)
+                p.restoreState()
+            
+            p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{int(r['Sorrend'])}") 
+            p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 3*mm, f"ID: {r['ID']}")
+            p.setFont(f_bold, 9); p.drawString(x + inner_m, top_y - 8*mm, str(r['Ügyintéző'])[:28])
+            p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 8*mm, str(r['Telefon']))
+            p.setFont(f_reg, 7.5); p.drawString(x + inner_m, top_y - 12*mm, str(r['Cím'])[:45])
+            
+            # Rendelések szövege
+            para = Paragraph(str(r['Rendelés_Full']), order_s)
+            para.wrap(lw - 2*inner_m, 12*mm)
+            para.drawOn(p, x + inner_m, y + inner_m + 5*mm)
+            
+            p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, y + inner_m + 1*mm, f"{int(r['Összesen'])} db")
+            p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, y + 2*mm, f"Futár: {fn} | {ft}")
+            
+    p.save(); buf.seek(0); return buf
+
 # --- 3. RÉSZ: PDF GENERÁLÓK ÉS ADATSZERKESZTŐ ---
 
 def create_manifest_pdf(df, fn, meta_list):

@@ -104,8 +104,13 @@ def parse_interfood_pdf(pdf_file):
 
 def merge_data(raw_rows):
     if not raw_rows: return None
+    
+    # Helyi szótár definiálása a függvényen belül, hogy elkerüljük a NameError-t
+    LOCAL_DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
+    
     df = pd.DataFrame(raw_rows)
     merged = []
+    
     # Az ID alapján csoportosítunk, hogy az egy ügyfélhez tartozó napok egy sorba kerüljenek
     for uid, group in df.groupby("ID", sort=False):
         base = group.iloc[0].copy().to_dict()
@@ -116,7 +121,9 @@ def merge_data(raw_rows):
             day_group = group[group['Prefix'] == pfix]
             items = day_group['Rendelés'].tolist()
             if items: 
-                o_p.append(f"{DAY_MAP[pfix]}: {', '.join(items)}")
+                # Itt használjuk a helyi szótárat
+                day_name = LOCAL_DAY_MAP.get(pfix, pfix)
+                o_p.append(f"{day_name}: {', '.join(items)}")
                 if pfix == 'Z': has_weekend = True
         
         base['Rendelés_Full'] = " | ".join(o_p)
@@ -126,8 +133,9 @@ def merge_data(raw_rows):
         merged.append(base)
     
     res = pd.DataFrame(merged)
-    res['Sorrend'] = range(1, len(res) + 1)
-    res['Sorrend'] = res['Sorrend'].astype(float)
+    if not res.empty:
+        res['Sorrend'] = range(1, len(res) + 1)
+        res['Sorrend'] = res['Sorrend'].astype(float)
     return res
 
 # --- 4. PDF GENERÁLÓK ---

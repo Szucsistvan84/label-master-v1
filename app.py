@@ -34,20 +34,26 @@ DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo
 def parse_interfood_pdf(pdf_file):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None, 'jarat': None}
-    order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
-    phone_pat = r'(\d{2}/\d{6,7})'
     
     with pdfplumber.open(pdf_file) as pdf:
-        first_page_text = pdf.pages[0].extract_text()
-        if first_page_text:
-            j_m = re.search(r'(\d{4})\.\s*járat', first_page_text)
-            y_m = re.search(r'Év:\s*(\d{4})', first_page_text)
-            w_m = re.search(r'Hét:\s*(\d{1,2})', first_page_text)
-            d_m = re.search(r'Nap:\s*([a-zA-Záéíóöőúüű, ]+)', first_page_text)
+        # FEJLÉC KERESÉSE - Csak az első oldal tetejét nézzük
+        first_page = pdf.pages[0]
+        header_text = first_page.extract_text()
+        
+        if header_text:
+            # Minták: "4002. járat", "Év: 2026", "Hét: 12", "Nap: Péntek, Szombat"
+            j_m = re.search(r'(\d{4})\.\s*járat', header_text)
+            y_m = re.search(r'Év:\s*(\d{4})', header_text)
+            w_m = re.search(r'Hét:\s*(\d{1,2})', header_text)
+            # A napot az "InterFood" szóig olvassuk ki, hogy ne vigyen be szemetet
+            d_m = re.search(r'Nap:\s*([^I\n]+)', header_text)
+            
             if j_m: metadata['jarat'] = j_m.group(1)
             if y_m: metadata['year'] = y_m.group(1)
             if w_m: metadata['week'] = w_m.group(1)
-            if d_m: metadata['day'] = d_m.group(1).split('InterFood')[0].strip()
+            if d_m: metadata['day'] = d_m.group(1).strip()
+
+        # Innentől jön a többi kódod (words, lines, stb.), ami változatlan marad...
 
         for page in pdf.pages:
             words = page.extract_words()

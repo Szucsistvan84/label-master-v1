@@ -70,7 +70,6 @@ def parse_interfood_pdf(pdf_file):
     metadata = {'year': None, 'week': None, 'day': None}
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
     phone_pat = r'(\d{2}/\d{6,7})'
-    money_pat = r'(-?\s?\d[\d\s]*\s*Ft)' 
     
     with pdfplumber.open(pdf_file) as pdf:
         first_page_text = pdf.pages[0].extract_text()
@@ -151,7 +150,7 @@ def merge_data(raw_rows):
         res['Sorrend'] = range(1, len(res) + 1)
     return res.sort_values('Sorrend')
 
-# --- 4. PDF GENERÁLÁS (ETIKETTEK) ---
+# --- 4. PDF GENERÁLÁS (ETIKETTEK - JAVÍTOTT TÉGLALAP) ---
 
 def create_label_pdf(df, fn, ft):
     df = df.sort_values('Sorrend')
@@ -172,11 +171,12 @@ def create_label_pdf(df, fn, ft):
             r = df.iloc[i]
             top_y = y + lh - inner_m
             
-            # --- SZÜRKE KIEMELÉS ---
+            # --- SZÜRKE KIEMELÉS (PONTOSÍTOTT MÉRET) ---
             if r.get('Hétvégi') == True:
                 p.saveState()
                 p.setFillColor(colors.lightgrey)
-                p.rect(x + 1*mm, top_y - 9.5*mm, lw - 2*mm, 7*mm, fill=1, stroke=0)
+                # Magasság 4.5mm-re csökkentve, pozíció finomítva a név sorához
+                p.rect(x + 1*mm, top_y - 8.5*mm, lw - 2*mm, 4.5*mm, fill=1, stroke=0)
                 p.restoreState()
             
             p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{i+1}") 

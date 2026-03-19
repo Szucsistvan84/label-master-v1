@@ -181,7 +181,7 @@ with st.sidebar:
             st.error(f"Hiba a CSV betöltésekor: {e}")
 
 def create_label_pdf(df, fn, ft):
-    """Etikett generálás - Helvetica fonttal"""
+    """Etikett generálás DejaVu fontokkal és marketing szöveggel az üres helyeken"""
     df = df.sort_values('Sorrend')
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
@@ -189,21 +189,24 @@ def create_label_pdf(df, fn, ft):
     lw, lh = 70*mm, 42.42*mm 
     inner_m = 5.5*mm
     
-    # Stílus az ékezetek kezeléséhez a Paragraph-on belül
-    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9)
+    # Stílusok az ékezetekhez és a marketing szöveghez
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9, encoding='utf-8')
+    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1, encoding='utf-8')
     
-    total_labels = math.ceil(len(df) / 21) * 21
-    for i in range(total_labels):
+    # Kiszámoljuk, hány matricahely van összesen (21 matrica / oldal)
+    total_slots = math.ceil(len(df) / 21) * 21
+    
+    for i in range(total_slots):
         idx = i % 21
         if idx == 0 and i > 0: p.showPage()
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = col * lw, row_i * lh
         
+        # 1. HA VAN ÜGYFÉL ADAT (Normál etikett)
         if i < len(df):
             r = df.iloc[i]
             top_y = y + lh - inner_m
             
-            # Hétvégi jelölés (szürke csík)
             if r.get('Hétvégi'):
                 p.saveState()
                 p.setFillColor(colors.lightgrey)
@@ -216,13 +219,30 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 8*mm, str(r['Telefon']))
             p.setFont(f_reg, 7.5); p.drawString(x + inner_m, top_y - 12*mm, str(r['Cím'])[:45])
             
-            # Rendelések szövege
             para = Paragraph(str(r['Rendelés_Full']), order_s)
             para.wrap(lw - 2*inner_m, 12*mm)
             para.drawOn(p, x + inner_m, y + inner_m + 5*mm)
             
             p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, y + inner_m + 1*mm, f"{int(r['Összesen'])} db")
             p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, y + 2*mm, f"Futár: {fn} | {ft}")
+
+        # 2. HA NINCS TÖBB ÜGYFÉL (Marketing etikett az üres helyekre)
+        else:
+            p.setDash(1, 2) # Szaggatott vonal a marketing matrica szélének (opcionális)
+            p.rect(x + 2*mm, y + 2*mm, lw - 4*mm, lh - 4*mm, stroke=1, fill=0)
+            p.setDash(1, 0) # Vissza sima vonalra
+            
+            m_text = (
+                f"<font size='10.5' name='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
+                f"Új Ügyfeleink részére!<br/><br/>"
+                f"<b>Rendelés leadás:</b><br/>"
+                f"<b>{fn}</b>, tel: <b>{ft}</b><br/><br/>"
+                f"<font size='5.5'><b>* a kedvezmény telefonon leadott rendelésekre érvényesíthető<br/>területi képviselőnk által</b></font>"
+            )
+            para = Paragraph(m_text, promo_s)
+            pw, ph = para.wrap(lw - 6*mm, lh - 6*mm)
+            # Középre igazítva rajzoljuk ki
+            para.drawOn(p, x + (lw - pw) / 2, y + (lh - ph) / 2)
             
     p.save(); buf.seek(0); return buf
 

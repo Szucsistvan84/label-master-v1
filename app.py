@@ -201,14 +201,23 @@ def create_label_pdf(df, fn, ft):
         if i < len(df):
             r = df.iloc[i]
             top_y = y + lh - inner_m
-            if r.get('Hétvégi', False):
-                p.setFillColorRGB(0.92, 0.92, 0.92); p.rect(x + 1*mm, top_y - 4*mm, lw - 2*mm, 5*mm, fill=1, stroke=0)
-                p.setFillColor(colors.black)
             
+            # --- KIEMELÉS (SZÜRKE HÁTTÉR A NÉV ÉS TEL SORÁRA) ---
+            if r.get('Hétvégi', False):
+                p.saveState()
+                p.setFillColorRGB(0.9, 0.9, 0.9) # Világosszürke
+                # A név és a telefon sorának magassága kb. 5-6 mm
+                p.rect(x + 1*mm, top_y - 9.5*mm, lw - 2*mm, 6.5*mm, fill=1, stroke=0)
+                p.restoreState()
+            
+            # Adatok kiírása
             p.setFont(f_bold, 10); p.drawString(x + inner_m, top_y - 3*mm, f"#{i+1}") 
             p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 3*mm, f"ID: {r['ID']}")
+            
+            # A név és telefon sorai, amik alá a szürke sáv került
             p.setFont(f_bold, 9); p.drawString(x + inner_m, top_y - 8*mm, str(r['Ügyintéző'])[:25])
             p.setFont(f_reg, 8); p.drawRightString(x + lw - inner_m, top_y - 8*mm, str(r['Telefon']))
+            
             p.setFont(f_reg, 7.5); p.drawString(x + inner_m, top_y - 12*mm, str(r['Cím'])[:45])
             
             if str(r['Megjegyzés']).strip() and str(r['Megjegyzés']) != 'None':
@@ -233,6 +242,7 @@ def create_label_pdf(df, fn, ft):
     
     p.save(); buf.seek(0); return buf
 
+# --- create_manifest_pdf és a többi rész változatlanul marad ---
 def create_manifest_pdf(df, fn):
     df = df.sort_values('Sorrend')
     f_reg, f_bold = register_fonts()
@@ -244,7 +254,6 @@ def create_manifest_pdf(df, fn):
     name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=9, leading=10)
     cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=7, leading=8)
     
-    # --- MENETTERV OLDALAK ---
     for p_idx in range(total_p):
         p.setFont(f_bold, 11); p.drawString(10*mm, h - 12*mm, f"MENETTERV - {fn}")
         p.drawRightString(w - 10*mm, h - 12*mm, f"{p_idx + 1}/{total_p}. oldal")
@@ -266,7 +275,6 @@ def create_manifest_pdf(df, fn):
         t.drawOn(p, 7*mm, h - 22*mm - h_t)
         p.showPage()
 
-    # --- RAKODÁSI LISTA SZÁMÍTÁSA ---
     all_codes = []
     for r in df['Rendelés_Full']: 
         all_codes.extend(re.findall(r'(\d+)-([A-Z0-9*+]+)', str(r)))
@@ -290,11 +298,9 @@ def create_manifest_pdf(df, fn):
         count = counts[code]
         total_val += (count * info['ar'])
         total_items += count
-        
         if info['kategoria'] != last_cat:
             sum_rows.append([Paragraph(f"<br/><b>--- {info['kategoria']} ---</b>", cell_s), ""])
             last_cat = info['kategoria']
-            
         sum_rows.append([Paragraph(f"<b>{code}</b> - {info['nev']}", cell_s), Paragraph(f"{count} db", head_s)])
 
     unknown_codes = [c for c in counts.keys() if c not in menu]
@@ -303,12 +309,9 @@ def create_manifest_pdf(df, fn):
         for code in sorted(unknown_codes):
             sum_rows.append([Paragraph(f"<b>{code}</b> - Ismeretlen étel", cell_s), Paragraph(f"{counts[code]} db", head_s)])
 
-    footer_rows = [
-        [Paragraph(f"<b>ÖSSZESEN: {total_items} db étel</b>", cell_s), Paragraph(f"<b>{total_val} Ft</b>", head_s)],
-        [Paragraph(f"<b>VÁRHATÓ JUTALÉK (13%):</b>", cell_s), Paragraph(f"<b>{round(total_val*0.13)} Ft</b>", head_s)]
-    ]
+    footer_rows = [[Paragraph(f"<b>ÖSSZESEN: {total_items} db étel</b>", cell_s), Paragraph(f"<b>{total_val} Ft</b>", head_s)],
+                   [Paragraph(f"<b>VÁRHATÓ JUTALÉK (13%):</b>", cell_s), Paragraph(f"<b>{round(total_val*0.13)} Ft</b>", head_s)]]
 
-    # --- RAKODÁSI OLDALAK ---
     items_per_page = 30
     total_sum_pages = math.ceil(len(sum_rows) / items_per_page) if sum_rows else 1
     for sp_idx in range(total_sum_pages):
@@ -317,7 +320,6 @@ def create_manifest_pdf(df, fn):
         page_data = [[Paragraph("<b>KÓD ÉS ÉTEL MEGNEVEZÉSE</b>", head_s), Paragraph("<b>DB</b>", head_s)]]
         page_data.extend(sum_rows[sp_idx * items_per_page : (sp_idx + 1) * items_per_page])
         if sp_idx == total_sum_pages - 1: page_data.extend(footer_rows)
-            
         st_t = Table(page_data, colWidths=[150*mm, 30*mm])
         st_t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.black), ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
         st_t.wrapOn(p, 10*mm, 20*mm); h_st = st_t.wrap(180*mm, 260*mm)[1]
@@ -326,7 +328,7 @@ def create_manifest_pdf(df, fn):
 
     p.save(); buf.seek(0); return buf
 
-# --- UI ---
+# --- UI (Változatlanul hagyva a legutóbbi működő állapotot) ---
 
 st.set_page_config(page_title="Interfood Logisztika", layout="wide")
 if 'notes' not in st.session_state: st.session_state.notes = {}
@@ -365,21 +367,13 @@ with st.sidebar:
             st.session_state.mdf = merge_data(raw)
             st.rerun()
 
-# --- Megjelenítés ---
-
 if st.session_state.mdf is not None:
     cols = ['Sorrend', 'ID', 'Ügyintéző', 'Cím', 'Telefon', 'Rendelés_Full', 'Összesen', 'Pénz', 'Megjegyzés']
     display_df = st.session_state.mdf[[c for c in cols if c in st.session_state.mdf.columns]]
-
     st.subheader("📍 Menetlevél szerkesztése")
-    edited_df = st.data_editor(
-        display_df, hide_index=True, use_container_width=True,
-        column_config={
-            "Sorrend": st.column_config.NumberColumn("Sorrend", step=1, format="%d"),
-            "ID": st.column_config.TextColumn("Azonosító", disabled=True),
-        }
-    )
-    
+    edited_df = st.data_editor(display_df, hide_index=True, use_container_width=True,
+                               column_config={"Sorrend": st.column_config.NumberColumn("Sorrend", step=1, format="%d"),
+                                             "ID": st.column_config.TextColumn("Azonosító", disabled=True)})
     c1, c2 = st.columns(2)
     with c1:
         if st.button("✅ SORREND MENTÉSE", use_container_width=True):
@@ -389,11 +383,9 @@ if st.session_state.mdf is not None:
             st.session_state.notes = dict(zip(temp_df['ID'].astype(str), temp_df['Megjegyzés'].fillna("")))
             st.session_state.mdf = temp_df
             st.rerun()
-            
     with c2:
         csv_data = edited_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 MENTÉS CSV-BE", csv_data, "adatok.csv", use_container_width=True)
-
     st.divider()
     col_a, col_b = st.columns(2)
     with col_a:

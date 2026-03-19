@@ -12,6 +12,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Spacer
 
 # --- 1. ALAPFUNKCIÓK & BETŰTÍPUSOK ---
 
@@ -182,107 +183,95 @@ def create_label_pdf(df, fn, ft):
 def create_manifest_pdf(df, fn, meta_list):
     df = df.sort_values('Sorrend')
     f_reg, f_bold = register_fonts()
-    buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
+    buf = BytesIO()
     
-    # Adatok összeszedése a fejléc számára
+    # SimpleDocTemplate-et használunk a dinamikus tördeléshez
+    doc = SimpleDocTemplate(buf, pagesize=A4, 
+                            rightMargin=10*mm, leftMargin=10*mm, 
+                            topMargin=25*mm, bottomMargin=15*mm)
+    
+    # Adatok a fejléchez
     jaratok = ", ".join(sorted(list(set([str(m['jarat']) for m in meta_list if m['jarat']]))))
     ev = meta_list[0].get('year', '') if meta_list else ""
     het = meta_list[0].get('week', '') if meta_list else ""
     nap = meta_list[0].get('day', '') if meta_list else ""
     fejlec_szoveg = f"MENETTERV - Járat: {jaratok} | {ev}. év, {het}. hét | {nap}"
-    
-    # Címek tisztítása a csoportosítás ellenőrzéséhez
+
     cleaned_addrs = [clean_addr(a) for a in df['Cím'].tolist()]
     
-    # --- OLDAL BEÁLLÍTÁSOK ---
-    rows_per_page = 18  # Biztonságos sorszám, hogy ne csorduljon túl
-    total_p = math.ceil(len(df) / rows_per_page)
-    
-    # Stílusok definiálása
+    # Stílusok
     head_s = ParagraphStyle('Head', fontName=f_bold, fontSize=8, alignment=1)
     name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=8, leading=10)
     cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=7, leading=9)
 
-    for p_idx in range(total_p):
-        # Fejléc rajzolása
-        p.setFont(f_bold, 11)
-        p.drawString(10*mm, h - 12*mm, fejlec_szoveg)
-        p.setFont(f_reg, 9)
-        p.drawRightString(w - 10*mm, h - 12*mm, f"Futár: {fn}")
-        
-        # Táblázat fejléce (oszlopnevek)
-        data = [[
-            Paragraph("<b>#</b>", head_s), 
-            Paragraph("<b>NÉV / CÍM / INFÓ</b>", head_s), 
-            Paragraph("<b>[ ]</b>", head_s), 
-            Paragraph("<b>PÉNZ</b>", head_s), 
-            Paragraph("<b>TEL</b>", head_s), 
-            Paragraph("<b>RENDELÉS</b>", head_s), 
-            Paragraph("<b>DB</b>", head_s)
-        ]]
-        
-        subset = df.iloc[p_idx * rows_per_page : (p_idx + 1) * rows_per_page]
-        row_styles = [] # Itt tároljuk a kiemelendő sorok indexét
+    elements = [] # Ebbe pakolunk mindent (táblázat, fejléc)
 
-        for i, (_, r) in enumerate(subset.iterrows()):
-            curr_addr = clean_addr(r['Cím'])
-            g_count = cleaned_addrs.count(curr_addr)
-            is_group = g_count > 1
-            
-            # Adatok előkészítése (nan szűréssel)
-            raw_note = str(r.get('Megjegyzés', ''))
-            note_text = f"<br/><font color='red'><b>{raw_note}</b></font>" if raw_note.lower() != 'nan' and raw_note.strip() != '' else ""
-            penz = "" if str(r['Pénz']).strip().lower() in ["0 ft", "0", "0ft", "nan"] else str(r['Pénz'])
-            tel = str(r.get('Telefon', '')) if str(r.get('Telefon', '')).lower() != 'nan' else ""
-            
-            warn = "▲ CSOPORT " if is_group else ""
-            
-            # Sor hozzáadása a táblázathoz
-            data.append([
-                f"{int(r['Sorrend'])}", 
-                Paragraph(f"<b>{warn}{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font>{note_text}", name_s), 
-                "[ ]", 
-                Paragraph(f"<b>{penz}</b>", head_s),
-                Paragraph(tel, cell_s), 
-                Paragraph(str(r['Rendelés_Full']), cell_s), 
-                f"{int(r['Összesen'])}"
-            ])
-            
-            # Ha csoportos, elmentjük az indexét (fejléc miatt i+1)
-            if is_group:
-                row_styles.append(i + 1)
+    # Táblázat fejléce
+    data = [[
+        Paragraph("<b>#</b>", head_s), 
+        Paragraph("<b>NÉV / CÍM / INFÓ</b>", head_s), 
+        Paragraph("<b>[ ]</b>", head_s), 
+        Paragraph("<b>PÉNZ</b>", head_s), 
+        Paragraph("<b>TEL</b>", head_s), 
+        Paragraph("<b>RENDELÉS</b>", head_s), 
+        Paragraph("<b>DB</b>", head_s)
+    ]]
+    
+    t_style = [
+        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+        ('ALIGN', (0,0), (0,-1), 'CENTER'),
+        ('ALIGN', (-1,0), (-1,-1), 'CENTER'),
+    ]
 
-        # Táblázat generálása
-        t = Table(data, colWidths=[10*mm, 60*mm, 10*mm, 20*mm, 25*mm, 55*mm, 10*mm])
+    for i, (_, r) in enumerate(df.iterrows()):
+        curr_addr = clean_addr(r['Cím'])
+        g_count = cleaned_addrs.count(curr_addr)
+        is_group = g_count > 1
         
-        # Alapstílus beállítása
-        t_style = [
-            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-            ('ALIGN', (0,0), (0,-1), 'CENTER'),
-            ('ALIGN', (-1,0), (-1,-1), 'CENTER'),
-        ]
+        raw_note = str(r.get('Megjegyzés', ''))
+        note_text = f"<br/><font color='red'><b>{raw_note}</b></font>" if raw_note.lower() != 'nan' and raw_note.strip() != '' else ""
+        penz = "" if str(r['Pénz']).strip().lower() in ["0 ft", "0", "0ft", "nan"] else str(r['Pénz'])
+        tel = str(r.get('Telefon', '')) if str(r.get('Telefon', '')).lower() != 'nan' else ""
         
-        # CSOPORTOS KIEMELÉSEK (Szürke háttér + Vastag keret)
-        for row_idx in row_styles:
-            t_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.lightgrey))
-            t_style.append(('LINEABOVE', (0, row_idx), (-1, row_idx), 1.5, colors.black))
-            t_style.append(('LINEBELOW', (0, row_idx), (-1, row_idx), 1.5, colors.black))
+        warn = "▲ CSOPORT " if is_group else ""
+        
+        data.append([
+            f"{int(r['Sorrend'])}", 
+            Paragraph(f"<b>{warn}{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font>{note_text}", name_s), 
+            "[ ]", 
+            Paragraph(f"<b>{penz}</b>", head_s),
+            Paragraph(tel, cell_s), 
+            Paragraph(str(r['Rendelés_Full']), cell_s), 
+            f"{int(r['Összesen'])}"
+        ])
+        
+        # Csoportos kiemelés (i+1 mert van fejléc)
+        if is_group:
+            idx = i + 1
+            t_style.append(('BACKGROUND', (0, idx), (-1, idx), colors.lightgrey))
+            t_style.append(('LINEABOVE', (0, idx), (-1, idx), 1.2, colors.black))
+            t_style.append(('LINEBELOW', (0, idx), (-1, idx), 1.2, colors.black))
 
-        t.setStyle(TableStyle(t_style))
-        
-        # Táblázat kirajzolása a lapra
-        t.wrapOn(p, 10*mm, 20*mm)
-        h_t = t.wrap(w - 20*mm, h - 35*mm)[1]
-        t.drawOn(p, 10*mm, h - 25*mm - h_t)
-        
-        # Lábléc (oldalszám)
-        p.setFont(f_reg, 8)
-        p.drawCentredString(w/2, 10*mm, f"{p_idx+1} / {total_p}")
-        p.showPage()
-        
-    p.save()
+    # Táblázat létrehozása (splitByRow=True a tördeléshez)
+    t = Table(data, colWidths=[10*mm, 60*mm, 10*mm, 20*mm, 25*mm, 55*mm, 10*mm], repeatRows=1)
+    t.setStyle(TableStyle(t_style))
+    elements.append(t)
+
+    # Fejléc és lábléc funkció a PDF-nek
+    def on_page(canvas, doc):
+        canvas.saveState()
+        canvas.setFont(f_bold, 11)
+        canvas.drawString(10*mm, A4[1] - 12*mm, fejlec_szoveg)
+        canvas.setFont(f_reg, 9)
+        canvas.drawRightString(A4[0] - 10*mm, A4[1] - 12*mm, f"Futár: {fn}")
+        # Oldalszám
+        canvas.setFont(f_reg, 8)
+        canvas.drawCentredString(A4[0]/2, 10*mm, f"{doc.page} / ?")
+        canvas.restoreState()
+
+    doc.build(elements, onFirstPage=on_page, onLaterPages=on_page)
     buf.seek(0)
     return buf
 

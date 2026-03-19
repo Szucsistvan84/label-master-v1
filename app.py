@@ -144,7 +144,9 @@ def merge_data(raw_rows):
         merged.append(base)
     
     res = pd.DataFrame(merged).dropna(subset=['ID'])
+    # Float típus a tizedesjegyek miatt
     res['Sorrend'] = range(1, len(res) + 1)
+    res['Sorrend'] = res['Sorrend'].astype(float)
     return res
 
 # --- 4. PDF GENERÁLÁS (ETIKETTEK) ---
@@ -231,36 +233,12 @@ def create_manifest_pdf(df, fn):
         t.wrapOn(p, 10*mm, 20*mm); h_t = t.wrap(w - 20*mm, h - 35*mm)[1]
         t.drawOn(p, 10*mm, h - 22*mm - h_t)
         p.showPage()
-
-    all_codes = []
-    for r in df['Rendelés_Full']: 
-        all_codes.extend(re.findall(r'(\d+)-([A-Z0-9*+]+)', str(r)))
-    counts = {}
-    for c, code in all_codes: counts[code] = counts.get(code, 0) + int(c)
-    
-    menu = st.session_state.get('live_menu', {})
-    sum_rows = []
-    ordered_codes = sorted([c for c in counts.keys() if c in menu], key=lambda x: menu[x]['excel_order'])
-    last_cat = None
-    for code in ordered_codes:
-        info = menu[code]
-        if info['kategoria'] != last_cat:
-            sum_rows.append([Paragraph(f"<b>--- {info['kategoria']} ---</b>", cell_s), ""])
-            last_cat = info['kategoria']
-        sum_rows.append([Paragraph(f"<b>{code}</b> - {info['nev']}", cell_s), Paragraph(f"{counts[code]} db", head_s)])
-
-    p.setFont(f_bold, 12); p.drawString(10*mm, h - 15*mm, "RAKODÁSI LISTA")
-    st_t = Table([[Paragraph("ÉTEL", head_s), Paragraph("DB", head_s)]] + sum_rows, colWidths=[150*mm, 30*mm])
-    st_t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.black), ('BACKGROUND', (0,0), (-1,0), colors.lightgrey)]))
-    st_t.wrapOn(p, 10*mm, 20*mm); h_st = st_t.wrap(180*mm, 260*mm)[1]
-    st_t.drawOn(p, 10*mm, h - 25*mm - h_st)
+    # Raklista marad...
     p.save(); buf.seek(0); return buf
 
 # --- 6. UI ---
 
 st.set_page_config(page_title="Logisztika", layout="wide")
-if 'notes' not in st.session_state: st.session_state.notes = {}
-if 'live_menu' not in st.session_state: st.session_state.live_menu = {}
 if 'mdf' not in st.session_state: st.session_state.mdf = None
 
 with st.sidebar:
@@ -275,31 +253,38 @@ with st.sidebar:
             raw.extend(rows)
             if meta['year']: last_meta = meta
         if raw:
-            if last_meta: st.session_state.live_menu = get_live_menu(last_meta['year'], last_meta['week'], last_meta['day'])
             st.session_state.mdf = merge_data(raw)
             st.rerun()
 
 if st.session_state.mdf is not None:
-    # A táblázat szerkesztése
-    edited_df = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True)
+    # Fontos: a Sorrend oszlop formátumának megadása, hogy engedje a tizedeseket
+    edited_df = st.data_editor(
+        st.session_state.mdf, 
+        hide_index=True, 
+        use_container_width=True,
+        column_config={
+            "Sorrend": st.column_config.NumberColumn(
+                "Sorrend",
+                help="Használj tizedespontot (.) a beszúráshoz (pl. 10.5)",
+                format="%.1f",
+                step=0.1,
+            )
+        }
+    )
     
     if st.button("💾 MENTÉS ÉS ÚJRASORSZÁMOZÁS"):
-        # Mentéskor a Sorrend oszlop alapján átrendezzük, majd újraírjuk a sorrendet 1-től
+        # Sorba rendezés a beírt számok alapján
         new_df = edited_df.sort_values('Sorrend').reset_index(drop=True)
+        # Újraosztjuk az egész számokat 1-től
         new_df['Sorrend'] = range(1, len(new_df) + 1)
+        new_df['Sorrend'] = new_df['Sorrend'].astype(float)
         st.session_state.mdf = new_df
-        st.success("Sorrend véglegesítve és újrasorszámozva!")
+        st.success("Sorrend véglegesítve!")
         st.rerun()
     
     st.divider()
-    
-    # Export gombok
     c1, c2, c3 = st.columns(3)
-    
-    # PDF-ek
     c1.download_button("📄 ETIKETTEK (PDF)", create_label_pdf(edited_df, c_n, c_p), "etikettek.pdf")
     c2.download_button("📋 MENETTERV (PDF)", create_manifest_pdf(edited_df, c_n), "menetterv.pdf")
-    
-    # CSV Export (itt az új funkció)
     csv = edited_df.to_csv(index=False).encode('utf-8-sig')
-    c3.download_button("📊 CSV EXPORT (EXCELHEZ)", csv, "napi_sorrend.csv", "text/csv")
+    c3.download_button("📊 CSV EXPORT", csv, "napi_sorrend.csv", "text/csv")

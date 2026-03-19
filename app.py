@@ -3,6 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 import math
+import requests
 from io import BytesIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -12,6 +13,21 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Spacer, Paragraph, Table, TableStyle
+
+def get_interfood_menu(year, week):
+    url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
+    try:
+        # Letöltjük az Excel fájlt
+        response = requests.get(url)
+        if response.status_code == 200:
+            # Beolvassuk az Excelt (érdemes ellenőrizni, melyik sheet és oszlop kell)
+            df_menu = pd.read_excel(BytesIO(response.content))
+            return df_menu
+        else:
+            return None
+    except Exception as e:
+        st.error(f"Nem sikerült letölteni az étlapot: {e}")
+        return None
 
 # --- 1. ALAPFUNKCIÓK & BETŰTÍPUSOK ---
 

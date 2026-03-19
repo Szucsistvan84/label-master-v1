@@ -72,96 +72,79 @@ def clean_addr(addr):
 # --- PDF PARSER ---
 def parse_interfood_pdf(pdf_file):
     rows = []
-    # Minták a régi kódból
+    # Alapértelmezett metaadatok, hogy a hívó oldal ne kapjon hibát
+    meta = {"date": "", "route": ""} 
+    
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
     phone_pat = r'(\d{2}/\d{6,7})'
     money_pat = r'(-?\s?\d[\d\s]*\s*Ft)' 
     
     with pdfplumber.open(pdf_file) as pdf:
+        # Próbáljuk meg kinyerni a járatot a fájlnévből vagy az első oldalról
+        meta["route"] = re.search(r'\d{4}', str(pdf_file)).group() if re.search(r'\d{4}', str(pdf_file)) else ""
+
         for page in pdf.pages:
             words = page.extract_words()
             lines = {}
             
-            # 1. Szavak sorokba rendezése (3 pixeles toleranciával)
             for w in words:
                 y = round(w['top'], 1)
                 for ey in lines:
                     if abs(y - ey) < 3:
-                        lines[ey].append(w)
-                        break
-                else:
-                    lines[y] = [w]
+                        lines[ey].append(w); break
+                else: lines[y] = [w]
             
             sorted_y = sorted(lines.keys())
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
                 
-                # Ügyfélkód keresése (P-123456 formátum)
                 u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
-                if not u_code_m:
-                    continue
+                if not u_code_m: continue
                 
-                # ID kinyerése
                 prefix = u_code_m.group(0).split('-')[0]
                 uid = u_code_m.group(0).split('-')[-1]
                 
-                # --- A LÉNYEG: OSZLOP ALAPÚ SZÉTVÁLASZTÁS ---
-                # b3: Cím (Irányítószámmal kezdve a 150-355 tartományban)
-                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
+                # Koordináta alapú oszlop szétválasztás
+                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355]) # Cím
+                b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490]) # Ügyintéző
                 
-                # b4: Ügyintéző (A tiszta név tartománya: 355-490)
-                b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
-                
-                # Tisztítás: Csak betűk maradjanak a névben (eltünteti a / jeleket, számokat)
+                # Tisztítás a régi jól bevált módszerrel
                 clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                 
-                # Ha b4 üres lenne (ritka eset), próbáljuk meg az Ügyfél oszlopból, 
-                # de ott is csak a betűket megtartva:
+                # Biztonsági mentés: ha az ügyintéző üres, nézzük az ügyfél oszlopot tisztítva
                 if not clean_name:
                     b2 = " ".join([w['text'] for w in line_words if 40 <= w['x0'] < 150])
                     clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b2).replace(prefix, "").strip()
 
-                # Telefon és Cím kinyerése
                 tel_m = re.search(phone_pat, text_ws.replace(" ", ""))
                 addr_m = re.search(r'(\d{4})', b3)
                 clean_addr = b3[addr_m.start():].strip() if addr_m else b3
                 
-                # Pénz kezelése (következő sorban keresés, mint a régiben)
                 money_val = "0 Ft"
                 if i + 1 < len(sorted_y):
-                    next_line_words = sorted(lines[sorted_y[i+1]], key=lambda x: x['x0'])
-                    next_line_text = " ".join([w['text'] for w in next_line_words])
+                    next_line_text = " ".join([w['text'] for w in sorted(lines[sorted_y[i+1]], key=lambda x: x['x0'])])
                     m_match = re.search(money_pat, next_line_text)
-                    if m_match:
-                        money_val = m_match.group(1).strip()
+                    if m_match: money_val = m_match.group(1).strip()
 
-                # Rendelések kigyűjtése
                 raw_orders = re.findall(order_pat, text_ws)
                 v_o, sq = [], 0
                 for o in raw_orders:
                     try:
-                        # Mennyiség kinyerése a kötőjel előtti számból
-                        q_match = re.search(r'(\d+)', o.split('-')[0])
-                        q = int(q_match.group(1)) if q_match else 1
-                        v_o.append(f"{q}-{o.split('-')[-1]}")
-                        sq += q
-                    except:
-                        continue
+                        q_part = o.split('-')[0]
+                        q = int(re.sub(r'\D', '', q_part)) if re.sub(r'\D', '', q_part) else 1
+                        v_o.append(f"{q}-{o.split('-')[-1]}"); sq += q
+                    except: continue
                 
                 if v_o:
                     rows.append({
-                        "Prefix": prefix,
-                        "ID": uid,
-                        "Ügyintéző": clean_name, 
-                        "Cím": clean_addr,
-                        "Telefon": tel_m.group(0) if tel_m else "", 
-                        "Rendelés": ", ".join(v_o),
-                        "Pénz": money_val,
-                        "Összesen": sq
+                        "Prefix": prefix, "ID": uid, "Ügyintéző": clean_name, 
+                        "Cím": clean_addr, "Telefon": tel_m.group(0) if tel_m else "", 
+                        "Rendelés": ", ".join(v_o), "Pénz": money_val, "Összesen": sq,
+                        "Járat": meta["route"] # Hozzáadva a járat azonosító
                     })
                     
-    return rows
+    return rows, meta # Itt adjuk vissza mindkét értéket!
 
 def merge_data(raw_rows):
     if not raw_rows: return None

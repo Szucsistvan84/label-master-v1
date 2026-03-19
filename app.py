@@ -183,17 +183,32 @@ def create_manifest_pdf(df, fn, meta_list):
     df = df.sort_values('Sorrend')
     f_reg, f_bold = register_fonts()
     buf = BytesIO(); p = canvas.Canvas(buf, pagesize=A4); w, h = A4
+    
+    # Adatok összeszedése a meta_list-ből
+    jaratok = ", ".join(sorted(list(set([str(m['jarat']) for m in meta_list if m['jarat']]))))
+    # Vegyük az első fájl adatait alapul a többire
+    ev = meta_list[0].get('year', '') if meta_list else ""
+    het = meta_list[0].get('week', '') if meta_list else ""
+    nap = meta_list[0].get('day', '') if meta_list else ""
+    
+    # Teljes fejléc szöveg összeállítása
+    fejlec_szoveg = f"MENETTERV - Járat: {jaratok} | {ev}. év, {het}. hét | {nap}"
+    
     cleaned_addrs = [clean_addr(a) for a in df['Cím'].tolist()]
-    jaratok = ", ".join(sorted(list(set([m['jarat'] for m in meta_list if m['jarat']]))))
-    datum = meta_list[0]['day'] if meta_list else ""
     rows_per_page = 22 
     total_p = math.ceil(len(df) / rows_per_page)
+    
     head_s = ParagraphStyle('Head', fontName=f_bold, fontSize=8, alignment=1)
     name_s = ParagraphStyle('Name', fontName=f_bold, fontSize=8, leading=9)
     cell_s = ParagraphStyle('Cell', fontName=f_reg, fontSize=7, leading=8)
+    
     for p_idx in range(total_p):
-        p.setFont(f_bold, 11); p.drawString(10*mm, h - 12*mm, f"MENETTERV - Járat: {jaratok} | {datum}")
-        p.setFont(f_reg, 9); p.drawRightString(w - 10*mm, h - 12*mm, f"Futár: {fn}")
+        # A bővített fejléc kiírása
+        p.setFont(f_bold, 11)
+        p.drawString(10*mm, h - 12*mm, fejlec_szoveg)
+        
+        p.setFont(f_reg, 9)
+        p.drawRightString(w - 10*mm, h - 12*mm, f"Futár: {fn}")
         data = [[Paragraph("<b>#</b>", head_s), Paragraph("<b>NÉV / CÍM / INFÓ</b>", head_s), Paragraph("<b>[ ]</b>", head_s), Paragraph("<b>PÉNZ</b>", head_s), Paragraph("<b>TEL</b>", head_s), Paragraph("<b>RENDELÉS</b>", head_s), Paragraph("<b>DB</b>", head_s)]]
         subset = df.iloc[p_idx * rows_per_page : (p_idx + 1) * rows_per_page]
         for i, (_, r) in enumerate(subset.iterrows()):

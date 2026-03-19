@@ -224,6 +224,8 @@ def create_label_pdf(df, fn, ft):
             para.drawOn(p, x + inner_m, y + inner_m + 5*mm)
             
             p.setFont(f_bold, 9); p.drawRightString(x + lw - inner_m, y + inner_m + 1*mm, f"{int(r['Összesen'])} db")
+            # Vonal rajzolása a futár adatai fölé
+            p.line(x + 5*mm, y + 4.5*mm, x + lw - 5*mm, y + 4.5*mm)
             p.setFont(f_reg, 6); p.drawCentredString(x + lw/2, y + 2*mm, f"Futár: {fn} | {ft}")
 
         # 2. HA NINCS TÖBB ÜGYFÉL (Marketing etikett az üres helyekre)

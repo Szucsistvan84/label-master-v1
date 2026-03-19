@@ -14,20 +14,45 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Spacer, Paragraph, Table, TableStyle
 
-def get_interfood_menu(year, week):
+def get_interfood_excel_data(year, week):
+    """Letölti az Interfood étlapot és feldolgozza a megadott struktúrát."""
     url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     try:
-        # Letöltjük az Excel fájlt
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         if response.status_code == 200:
-            # Beolvassuk az Excelt (érdemes ellenőrizni, melyik sheet és oszlop kell)
-            df_menu = pd.read_excel(BytesIO(response.content))
-            return df_menu
-        else:
-            return None
+            # Az openpyxl motor kell az Excel olvasáshoz
+            df = pd.read_excel(BytesIO(response.content), header=None, engine='openpyxl')
+            menu_data = {}
+            
+            # Végig megyünk a sorokon (2-esével, mert név és ár egymás alatt van)
+            for i in range(0, len(df) - 1):
+                raw_a = str(df.iloc[i, 0])
+                if " - " in raw_a:
+                    # Szétválasztjuk: GOLD - Jubileumi kategória -> GOLD
+                    parts = raw_a.split(" - ")
+                    code = parts[0].strip()
+                    
+                    # Oszlopok: B=1(H), C=2(K), D=3(Sze), E=4(Cs), F=5(P), G=6(Szo)
+                    day_indices = { 'Hé': 1, 'Ke': 2, 'Sze': 3, 'Csü': 4, 'Pé': 5, 'Szo': 6 }
+                    details = {}
+                    
+                    for day_pfix, col_idx in day_indices.items():
+                        try:
+                            name = str(df.iloc[i, col_idx])
+                            price = str(df.iloc[i+1, col_idx])
+                            if name and name != "nan" and name.strip() != "":
+                                details[day_pfix] = {"nev": name, "ar": price}
+                        except:
+                            continue
+                    
+                    menu_data[code] = {
+                        "days": details,
+                        "order_index": i  # Ez őrzi meg az eredeti étlapi sorrendet
+                    }
+            return menu_data
     except Exception as e:
-        st.error(f"Nem sikerült letölteni az étlapot: {e}")
-        return None
+        print(f"Étlap hiba: {e}")
+    return None
 
 # --- 1. ALAPFUNKCIÓK & BETŰTÍPUSOK ---
 
@@ -299,73 +324,100 @@ def create_raklista_pdf(df, jarat_info, meta_list=None):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     
-    # A raklista általában rövidebb, de használjunk itt is Template-et a biztonság kedvéért
+    # Dokumentum margók (topMargin 25mm a fejlécnek)
     doc = SimpleDocTemplate(buf, pagesize=A4, 
-                            rightMargin=20*mm, leftMargin=20*mm, 
-                            topMargin=20*mm, bottomMargin=15*mm)
+                            rightMargin=15*mm, leftMargin=15*mm, 
+                            topMargin=25*mm, bottomMargin=15*mm)
     
-    # Adatok a fejléchez
-    ev = meta_list[0].get('year', '') if meta_list else ""
-    het = meta_list[0].get('week', '') if meta_list else ""
-    nap = meta_list[0].get('day', '') if meta_list else ""
+    # Metaadatok (Év, Hét, Nap) a PDF fejlécéből
+    ev = meta_list[0].get('year', '2026') if meta_list else "2026"
+    het = meta_list[0].get('week', '12') if meta_list else "12"
+    nap_text = meta_list[0].get('day', '') if meta_list else ""
     
-    title_text = f"RAKODÁSI LISTA - Járat: {jarat_info}"
-    sub_title = f"{ev}. év, {het}. hét | {nap}"
-
-    # Összesítés készítése
-    all_codes = []
-    # Végigmegyünk a Rendelés_Full oszlopon és kinyerjük a "szám-kód" párosokat
-    for r in df['Rendelés_Full']:
-        # Keresünk minden "1-R2K" vagy "2-L3" típusú mintát
-        found = re.findall(r'(\d+)-([A-Z0-9*+]+)', str(r))
-        all_codes.extend(found)
+    # Étlap letöltése és feldolgozása az Excel API-ból
+    menu_dict = get_interfood_excel_data(ev, het)
     
+    # Adatok összesítése a rendelésekből
     counts = {}
-    for count, code in all_codes:
-        counts[code] = counts.get(code, 0) + int(count)
+    for r in df['Rendelés_Full']:
+        found = re.findall(r'(\d+)-([A-Z0-9*+]+)', str(r))
+        for qty, raw_code in found:
+            # --- CSILLAG MENTESÍTÉS AZ ÖSSZESÍTÉSHEZ ---
+            # R2* és R2 egy kategória legyen a konyhának
+            clean_code = raw_code.replace('*', '').strip()
+            counts[clean_code] = counts.get(clean_code, 0) + int(qty)
     
-    # Táblázat adatok összeállítása (ABC sorrendben a kódok szerint)
-    data = [[Paragraph("<b>ÉTEL KÓD</b>", ParagraphStyle('H', fontName=f_bold, fontSize=12, alignment=1)), 
-             Paragraph("<b>ÖSSZESEN</b>", ParagraphStyle('H', fontName=f_bold, fontSize=12, alignment=1))]]
-    
-    total_items = 0
-    for code in sorted(counts.keys()):
+    # Sorrendezés az Excel étlap alapján (ha nincs étlap, ABC)
+    if menu_dict:
+        sorted_codes = sorted(counts.keys(), key=lambda x: menu_dict.get(x, {}).get('order_index', 999))
+    else:
+        sorted_codes = sorted(counts.keys())
+
+    # Stílusok a táblázathoz
+    h_s = ParagraphStyle('H', fontName=f_bold, fontSize=10, alignment=1)
+    n_s = ParagraphStyle('N', fontName=f_reg, fontSize=9, leading=11)
+    c_s = ParagraphStyle('C', fontName=f_bold, fontSize=11, alignment=1)
+
+    data = [[
+        Paragraph("<b>KÓD</b>", h_s), 
+        Paragraph("<b>ÉTEL MEGNEVEZÉSE</b>", h_s), 
+        Paragraph("<b>ÁR</b>", h_s), 
+        Paragraph("<b>DB</b>", h_s)
+    ]]
+
+    total_all = 0
+    for code in sorted_codes:
         qty = counts[code]
-        total_items += qty
+        total_all += qty
+        
+        etel_nev = "Nincs az étlapon ezen a napon"
+        ar = "-"
+        
+        # Adatok kikeresése az étlapról a nap alapján (pl. 'Pé' vagy 'Szo')
+        if menu_dict and code in menu_dict:
+            for day_key in ['Pé', 'Szo', 'Hé', 'Ke', 'Sze', 'Csü']:
+                if day_key in nap_text and day_key in menu_dict[code]['days']:
+                    etel_nev = menu_dict[code]['days'][day_key]['nev']
+                    ar = f"{menu_dict[code]['days'][day_key]['ar']} Ft"
+                    break
+
         data.append([
-            Paragraph(code, ParagraphStyle('C', fontName=f_bold, fontSize=11, alignment=1)), 
-            Paragraph(f"<b>{qty} db</b>", ParagraphStyle('Q', fontName=f_bold, fontSize=12, alignment=1))
+            Paragraph(f"<b>{code}</b>", c_s),
+            Paragraph(etel_nev, n_s),
+            Paragraph(ar, h_s),
+            Paragraph(f"<b>{qty}</b>", c_s)
         ])
-    
-    # Összesítő sor a végére
+
+    # Mindösszesen zárósor
     data.append([
-        Paragraph("<b>MINDÖSSZESEN:</b>", ParagraphStyle('T', fontName=f_bold, fontSize=12, alignment=2)),
-        Paragraph(f"<b>{total_items} db</b>", ParagraphStyle('T', fontName=f_bold, fontSize=12, alignment=1))
+        "", 
+        Paragraph("<b>MINDÖSSZESEN</b>", ParagraphStyle('T', fontName=f_bold, fontSize=11, alignment=2)), 
+        "", 
+        Paragraph(f"<b>{total_all} db</b>", c_s)
     ])
 
-    t = Table(data, colWidths=[60*mm, 40*mm])
+    t = Table(data, colWidths=[20*mm, 110*mm, 25*mm, 15*mm], repeatRows=1)
     t.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 1, colors.black),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-        ('BACKGROUND', (0,-1), (-1,-1), colors.lightgrey), # Utolsó sor is szürke
+        ('BACKGROUND', (0,-1), (-1,-1), colors.lightgrey),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0), (-1,-1), 5*mm),
-        ('RIGHTPADDING', (0,0), (-1,-1), 5*mm),
-        ('TOPPADDING', (0,0), (-1,-1), 3*mm),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3*mm),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
     ]))
 
-    elements = [t]
-
+    # Fejléc és oldalszámozás minden lapra
     def on_page(canvas, doc):
         canvas.saveState()
         canvas.setFont(f_bold, 14)
-        canvas.drawString(20*mm, A4[1] - 15*mm, title_text)
-        canvas.setFont(f_reg, 10)
-        canvas.drawString(20*mm, A4[1] - 20*mm, sub_title)
+        canvas.drawString(15*mm, A4[1] - 12*mm, f"RAKODÁSI LISTA - Járat: {jarat_info}")
+        canvas.setFont(f_reg, 11)
+        canvas.drawString(15*mm, A4[1] - 18*mm, f"{ev}. év, {het}. hét | {nap_text}")
+        
+        canvas.setFont(f_reg, 8)
+        canvas.drawCentredString(A4[0]/2, 10*mm, f"{canvas.getPageNumber()}. oldal")
         canvas.restoreState()
 
-    doc.build(elements, onFirstPage=on_page, onLaterPages=on_page)
+    doc.build([t], onFirstPage=on_page, onLaterPages=on_page)
     buf.seek(0)
     return buf
 

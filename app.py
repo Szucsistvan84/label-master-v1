@@ -11,10 +11,10 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.platypus import Paragraph, Table, TableStyle
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle
 import requests
 
-# --- 1. ALAPFUNKCIÓK & BETŰTÍPUSOK ---
+# --- 1. ALAPOK ---
 def register_fonts():
     try:
         pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
@@ -25,7 +25,7 @@ def register_fonts():
 
 DAY_MAP = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
 
-# --- 2. ONLINE ÉTLAP KEZELÉS ---
+# --- 2. ONLINE ÉTLAP (HIBATŰRŐ) ---
 def get_live_menu_data(meta_list):
     menu_map = {}
     if not meta_list: return menu_map
@@ -33,11 +33,10 @@ def get_live_menu_data(meta_list):
     for m in meta_list:
         if m.get('year') and m.get('week'):
             year, week = m['year'], m['week']; break
-    
     if not year or not week: return menu_map
     url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     try:
-        resp = requests.get(url, timeout=4)
+        resp = requests.get(url, timeout=3)
         if resp.status_code == 200:
             df = pd.read_excel(BytesIO(resp.content), engine='openpyxl')
             for i in range(len(df)):
@@ -54,14 +53,18 @@ def get_live_menu_data(meta_list):
     except: pass
     return menu_map
 
-# --- 3. PDF BEOLVASÓ & ADATÖSSZEVONÁS ---
+# --- 3. A STABIL PDF BEOLVASÓ (VISSZAÁLLÍTVA) ---
 def parse_interfood_pdf(pdf_file):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None, 'jarat': None}
+    # Ez a regex a kulcs, ami az ételeket keresi (pl: 1-E2, 2-R1*)
     order_pat = r'(\d+-[A-Z][A-Z0-9*+]*)'
+    
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             text = page.extract_text() or ""
+            
+            # Csak óvatosan keressük a fejlécet, ha nincs meg
             if not metadata['jarat']:
                 jm = re.search(r'(\d{4})\.\s*járat', text)
                 if jm: metadata['jarat'] = jm.group(1)
@@ -79,15 +82,32 @@ def parse_interfood_pdf(pdf_file):
             if not table: continue
             for row in table:
                 if not row or len(row) < 5: continue
+                # Ügyfél ID keresése (pl: P-123456)
                 u_m = re.search(r'([HKSCPZ])-(\d{5,7})', str(row[1]))
                 if u_m:
                     pfix, uid = u_m.groups()
                     name = row[2].split('\n')[0] if row[2] else "Ismeretlen"
                     addr = row[1].split('\n')[-1] if row[1] else ""
-                    tel_m = re.search(r'(\d{2}/\d{6,7})', str(row[3]).replace(" ",""))
-                    orders = re.findall(order_pat, str(row[4]))
-                    sq = sum([int(re.sub(r'\D', '', o.split('-')[0])[-1]) for o in orders if '-' in o])
-                    rows.append({"ID": uid, "Prefix": pfix, "Ügyintéző": name, "Cím": addr, "Telefon": tel_m.group(0) if tel_m else "", "Rendelés": ", ".join(orders), "Pénz": "0 Ft", "Összesen": sq})
+                    
+                    # Rendelések kinyerése - VISSZAÁLLÍTVA A MŰKÖDŐ LOGIKA
+                    raw_order_text = str(row[4]) if len(row) > 4 else ""
+                    orders = re.findall(order_pat, raw_order_text)
+                    
+                    # Darabszám összegzése
+                    sq = 0
+                    for o in orders:
+                        try: sq += int(o.split('-')[0])
+                        except: pass
+
+                    rows.append({
+                        "ID": uid, 
+                        "Prefix": pfix, 
+                        "Ügyintéző": name, 
+                        "Cím": addr, 
+                        "Rendelés": ", ".join(orders), 
+                        "Pénz": "0 Ft", 
+                        "Összesen": sq
+                    })
     return rows, metadata
 
 def merge_data(raw_rows):
@@ -100,7 +120,8 @@ def merge_data(raw_rows):
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
             day_group = group[group['Prefix'] == pfix]
             items = day_group['Rendelés'].tolist()
-            if items: o_p.append(f"{DAY_MAP[pfix]}: {', '.join(items)}")
+            if items and items[0]: # Csak ha van benne kód
+                o_p.append(f"{DAY_MAP[pfix]}: {', '.join(items)}")
         base['Rendelés_Full'] = " | ".join(o_p)
         base['Összesen'] = group['Összesen'].sum()
         merged.append(base)

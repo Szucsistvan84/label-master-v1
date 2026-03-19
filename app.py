@@ -19,8 +19,17 @@ PHONE_PAT = r'(\+?\d{1,2}[/\s-]?)?(\d{2}[/\s-]?)?\d{3}[/\s-]?\d{4}'
 ORDER_PAT = r'\d+-[A-Z][A-Z0-9*+]*'
 
 def register_fonts():
-    """Alapértelmezett betűtípusok"""
-    return 'Helvetica', 'Helvetica-Bold'
+    """Regisztrálja a GitHub-ra feltöltött DejaVu betűtípusokat"""
+    try:
+        # Bold (Félkövér) változat regisztrálása
+        pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
+        # Regular (Normál) változat regisztrálása
+        pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
+        return 'DejaVu', 'DejaVu-Bold'
+    except Exception as e:
+        # Ha valamiért nem találná a fájlt, visszaugrik alapértelmezettre, hogy ne álljon le az app
+        st.warning(f"Nem sikerült betölteni a DejaVu betűtípust: {e}. Helvetica-t használok.")
+        return 'Helvetica', 'Helvetica-Bold'
 
 def clean_name_field(text):
     """
@@ -220,63 +229,94 @@ def create_label_pdf(df, fn, ft):
 # --- 3. RÉSZ: PDF GENERÁLÓK ÉS ADATSZERKESZTŐ ---
 
 def create_manifest_pdf(df, fn, meta_list):
-    """Menetterv készítése"""
+    """Menetterv készítése csoportosítással, oldalszámozással és DejaVu fontokkal"""
     df = df.sort_values('Sorrend')
-    f_reg, f_bold = register_fonts()
+    f_reg, f_bold = register_fonts() # Itt már a DejaVu-t fogja adni
     buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=10*mm, leftMargin=10*mm, topMargin=20*mm, bottomMargin=15*mm)
+    
+    # Alsó margót kicsit megnöveljük az oldalszámnak (20mm)
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=10*mm, leftMargin=10*mm, topMargin=20*mm, bottomMargin=20*mm)
+    
+    # Címek kigyűjtése a csoportosítás ellenőrzéséhez
+    all_addresses = df['Cím'].tolist()
     
     jaratok = ", ".join(sorted(list(set([str(m['jarat']) for m in meta_list if m['jarat']]))))
     ev = meta_list[0].get('year', '') if meta_list else ""
     het = meta_list[0].get('week', '') if meta_list else ""
     nap = meta_list[0].get('day', '') if meta_list else ""
-    fejlec = f"MENETTERV - Járat: {jaratok} | {ev}. év, {het}. hét | {nap}"
+    fejlec_text = f"MENETTERV - Járat: {jaratok} | {ev}. év, {het}. hét | {nap}"
 
     elements = []
+    
+    # Stílusok definiálása ékezet-kezeléssel
+    s_normal = ParagraphStyle('L', fontName=f_reg, fontSize=8, encoding='utf-8')
+    s_bold_center = ParagraphStyle('C', fontName=f_bold, fontSize=8, alignment=1, encoding='utf-8')
+    s_order = ParagraphStyle('O', fontName=f_reg, fontSize=7, encoding='utf-8')
+
     data = [[
-        Paragraph("<b>#</b>", ParagraphStyle('C', fontName=f_bold, fontSize=8, alignment=1)),
-        Paragraph("<b>NÉV / CÍM / INFÓ</b>", ParagraphStyle('C', fontName=f_bold, fontSize=8, alignment=1)),
-        Paragraph("<b>[ ]</b>", ParagraphStyle('C', fontName=f_bold, fontSize=8, alignment=1)),
-        Paragraph("<b>PÉNZ</b>", ParagraphStyle('C', fontName=f_bold, fontSize=8, alignment=1)),
-        Paragraph("<b>TEL</b>", ParagraphStyle('C', fontName=f_bold, fontSize=8, alignment=1)),
-        Paragraph("<b>RENDELÉS</b>", ParagraphStyle('C', fontName=f_bold, fontSize=8, alignment=1)),
-        Paragraph("<b>DB</b>", ParagraphStyle('C', fontName=f_bold, fontSize=8, alignment=1))
+        Paragraph("<b>#</b>", s_bold_center),
+        Paragraph("<b>NÉV / CÍM / INFÓ</b>", s_bold_center),
+        Paragraph("<b>[ ]</b>", s_bold_center),
+        Paragraph("<b>PÉNZ</b>", s_bold_center),
+        Paragraph("<b>TEL</b>", s_bold_center),
+        Paragraph("<b>RENDELÉS</b>", s_bold_center),
+        Paragraph("<b>DB</b>", s_bold_center)
     ]]
     
+    t_style = [
+        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+        ('ALIGN', (0,0), (0,-1), 'CENTER'),
+        ('ALIGN', (-1,0), (-1,-1), 'CENTER'),
+    ]
+
     for i, (_, r) in enumerate(df.iterrows()):
+        # CSOPORTOSÍTÁS: Megnézzük, hányszor szerepel a cím
+        is_group = all_addresses.count(r['Cím']) > 1
+        group_tag = "<b><font color='blue'>▲ CSOPORT </font></b>" if is_group else ""
+        
         note = str(r.get('Megjegyzés', ''))
         note_html = f"<br/><font color='red'><b>{note}</b></font>" if note and note.lower() != 'nan' and note.strip() != "" else ""
         penz = "" if str(r['Pénz']).lower() in ["0 ft", "0", "nan"] else str(r['Pénz'])
         
         data.append([
             f"{int(r['Sorrend'])}",
-            Paragraph(f"<b>{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font>{note_html}", ParagraphStyle('L', fontName=f_reg, fontSize=8)),
+            Paragraph(f"{group_tag}<b>{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font>{note_html}", s_normal),
             "[ ]",
-            Paragraph(f"<b>{penz}</b>", ParagraphStyle('C', fontName=f_bold, fontSize=8, alignment=1)),
+            Paragraph(f"<b>{penz}</b>", s_bold_center),
             str(r['Telefon']),
-            Paragraph(str(r['Rendelés_Full']), ParagraphStyle('L', fontName=f_reg, fontSize=7)),
+            Paragraph(str(r['Rendelés_Full']), s_order),
             f"{int(r['Összesen'])}"
         ])
+        
+        # Ha csoport, kap egy nagyon halvány háttérszínt a sor
+        if is_group:
+            t_style.append(('BACKGROUND', (0, i+1), (-1, i+1), colors.whitesmoke))
 
     t = Table(data, colWidths=[10*mm, 60*mm, 10*mm, 20*mm, 25*mm, 55*mm, 10*mm], repeatRows=1)
-    t.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-        ('ALIGN', (0,0), (0,-1), 'CENTER'),
-        ('ALIGN', (-1,0), (-1,-1), 'CENTER'),
-    ]))
+    t.setStyle(TableStyle(t_style))
     elements.append(t)
 
-    def on_page(canvas, doc):
+    # OLDALSZÁMOZÁS ÉS FEJLÉC FUNKCIÓ
+    def add_header_footer(canvas, doc):
         canvas.saveState()
-        canvas.setFont(f_bold, 11); canvas.drawString(10*mm, A4[1] - 12*mm, fejlec)
-        canvas.setFont(f_reg, 9); canvas.drawRightString(A4[0] - 10*mm, A4[1] - 12*mm, f"Futár: {fn}")
+        # Fejléc (minden oldalon)
+        canvas.setFont(f_bold, 11)
+        canvas.drawString(10*mm, A4[1] - 12*mm, fejlec_text)
+        canvas.setFont(f_reg, 9)
+        canvas.drawRightString(A4[0] - 10*mm, A4[1] - 12*mm, f"Futár: {fn}")
+        
+        # Oldalszám (minden oldalon alul középen)
+        page_num = f"{canvas.getPageNumber()}. oldal"
+        canvas.setFont(f_reg, 8)
+        canvas.drawCentredString(A4[0]/2, 10*mm, page_num)
         canvas.restoreState()
 
-    doc.build(elements, onFirstPage=on_page, onLaterPages=on_page)
+    # Build indítása a fejléc/lábléc funkcióval
+    doc.build(elements, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
     buf.seek(0); return buf
-
+    
 def create_raklista_pdf(df, jarat_info, meta_list):
     """Raklista készítése (Ételek összesítése)"""
     f_reg, f_bold = register_fonts()

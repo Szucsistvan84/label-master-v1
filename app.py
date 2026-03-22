@@ -261,40 +261,40 @@ with st.sidebar:
     st.subheader("2. CSV Visszatöltés")
     up_csv = st.file_uploader("Exportált CSV betöltése", type=['csv'], key="csv_fixer")
 
-    if up_csv:
-        if st.button("📥 ADATOK ÖSSZEFÉSÜLÉSE", type="primary"):
-            try:
-                loaded_df = pd.read_csv(up_csv)
+    if up_csv and st.button("📥 SORREND FRISSÍTÉSE"):
+        try:
+            # 1. CSV beolvasása
+            loaded_df = pd.read_csv(up_csv)
+            
+            if st.session_state.mdf is not None:
+                current_df = st.session_state.mdf.copy()
                 
-                if st.session_state.mdf is not None:
-                    # Biztosítjuk, hogy az ID-k mindkét helyen szövegek (String) legyenek
-                    loaded_df['ID'] = loaded_df['ID'].astype(str)
-                    st.session_state.mdf['ID'] = st.session_state.mdf['ID'].astype(str)
-                    
-                    if 'Sorrend' in loaded_df.columns:
-                        # Csak a két kritikus oszlopot tartjuk meg a CSV-ből
-                        sorrend_df = loaded_df[['ID', 'Sorrend']].drop_duplicates()
-                        
-                        # Ha már van Sorrend az mdf-ben, eldobjuk az újat várakozva
-                        if 'Sorrend' in st.session_state.mdf.columns:
-                            st.session_state.mdf = st.session_state.mdf.drop(columns=['Sorrend'])
-                        
-                        # Összefűzés (Merge) - Most már mindkettő String, így nem fog elszállni
-                        st.session_state.mdf = st.session_state.mdf.merge(sorrend_df, on='ID', how='left')
-                        
-                        # Sorrend formázása és hiányzó értékek kezelése
-                        st.session_state.mdf['Sorrend'] = pd.to_numeric(st.session_state.mdf['Sorrend'], errors='coerce').fillna(999).astype(float)
-                        st.session_state.mdf = st.session_state.mdf.sort_values('Sorrend')
-                        
-                        st.success("Sorrend sikeresen frissítve!")
-                        st.rerun()
-                    else:
-                        st.error("A feltöltött CSV-ben nem található 'Sorrend' oszlop!")
-                else:
-                    st.error("Előbb olvasd be a PDF-et!")
-            except Exception as e:
-                st.error(f"Hiba a CSV betöltésekor: {e}")
-    
+                # 2. A PDF adatok ID-jéből csak a számokat tartjuk meg (P-410511 -> 410511)
+                current_df['match_id'] = current_df['ID'].astype(str).str.replace(r'\D', '', regex=True)
+                
+                # 3. A CSV ID-jéből is biztosítjuk, hogy csak szám maradjon (stringként)
+                loaded_df['match_id'] = loaded_df['ID'].astype(str).str.replace(r'\D', '', regex=True)
+                
+                # 4. Létrehozunk egy "szótárt" a párosításhoz: { '410511': 1.0, '489751': 2.0 ... }
+                sorrend_dict = loaded_df.set_index('match_id')['Sorrend'].to_dict()
+                
+                # 5. Sorrend kiosztása az új táblázatban
+                if 'Sorrend' in current_df.columns:
+                    current_df = current_df.drop(columns=['Sorrend'])
+                
+                current_df['Sorrend'] = current_df['match_id'].map(sorrend_dict)
+                
+                # 6. Tisztítás és mentés
+                current_df['Sorrend'] = pd.to_numeric(current_df['Sorrend'], errors='coerce').fillna(999).astype(float)
+                st.session_state.mdf = current_df.sort_values('Sorrend').drop(columns=['match_id'])
+                
+                st.success("A sorrend sikeresen párosítva az ügyfélkódok alapján!")
+                st.rerun()
+            else:
+                st.error("Előbb olvasd be a PDF-et!")
+        except Exception as e:
+            st.error(f"Hiba a beolvasáskor: {e}")
+        
     # --- INFÓ PANEL ---
     if st.session_state.meta_data:
         st.divider()

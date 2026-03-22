@@ -80,9 +80,9 @@ def parse_interfood_pdf(pdf_file):
     rows = []
     meta = {"year": "", "week": "", "date": "", "jarat": ""} 
     
-    order_pattern = r'\b\d+-[A-Z][A-Z0-9]*\b'
-    # Pénz: Kezeli a negatív előjelet és a belső szóközöket is
-    money_pattern = r'(-?\s?\d[\d\s]{0,7}\s*Ft)'
+    order_pattern = r'\b\d+-[A-Z][A-Z0-9*]*\b'
+    # Pénz: rugalmasabb keresés, ami engedi a negatív jelet és a szóközöket
+    money_pattern = r'(-?\s?\d[\d\s]{0,8}\s*Ft)'
     phone_pattern = r'(\d{2}[/\s]\d{6,7})'
     zip_pattern = r'\b\d{4}\b'
 
@@ -90,9 +90,7 @@ def parse_interfood_pdf(pdf_file):
         if len(pdf.pages) > 0:
             header = pdf.pages[0].extract_text() or ""
             j_m = re.search(r'(\d{4})\.\s*járat', header); y_m = re.search(r'(\d{4})\.\s*év', header); w_m = re.search(r'(\d{1,2})\.\s*hét', header)
-            if j_m: meta["jarat"] = j_m.group(1)
-            if y_m: meta["year"] = y_m.group(1)
-            if w_m: meta["week"] = w_m.group(1)
+            if j_m: meta["jarat"] = j_m.group(1); meta["year"] = y_m.group(1) if y_m else ""; meta["week"] = w_m.group(1) if w_m else ""
 
         for page in pdf.pages:
             words = page.extract_words()
@@ -128,53 +126,59 @@ def parse_interfood_pdf(pdf_file):
                 orders_found = re.findall(order_pattern, all_txt)
                 total_qty = sum([int(o.split('-')[0]) for o in orders_found if '-' in o])
 
-                # 1. LEMONDOTT RENDELÉS SZŰRÉSE (Nagy Barbara hiba)
+                # 1. SZŰRÉS: Lemondott rendelés (0 tétel) kihagyása
                 if total_qty == 0:
                     continue
 
-                # 2. PÉNZ (Hegedűs-Szenteczki fix)
+                # 2. PÉNZ TISZTÍTÁSA (Majoros Krisztina & Magyar Éva fix)
                 money_val = "0 Ft"
                 m_match = re.search(money_pattern, all_txt)
                 if m_match:
-                    m_raw = m_match.group(1).replace(" ", "")
-                    # Ha az utolsó számjegy a darabszám (pl. 30 Ft helyett 0 Ft), levágjuk
-                    if m_raw.endswith(f"Ft") and "0" in m_raw:
-                        # Ha a szám 0-ra végződik és a darabszám az eleje, akkor az 0 Ft
-                        if m_raw.startswith(str(total_qty)) and m_raw != str(total_qty):
-                            money_val = "0 Ft"
-                        else:
-                            money_val = m_raw.replace("Ft", " Ft")
-                    else:
-                        money_val = m_raw.replace("Ft", " Ft")
+                    # Megtartjuk az előjelet és a számokat
+                    m_raw = m_match.group(1)
+                    is_negative = "-" in m_raw
+                    digits = re.sub(r'[^\d]', '', m_raw)
+                    
+                    if digits:
+                        # Ha a szám a darabszámmal kezdődik (pl. 8-as vagy 2-es), levágjuk az elejét
+                        # Kifejezetten a "total_qty" és a rendelés utolsó karaktereinek mintázatát keressük
+                        qty_str = str(total_qty)
+                        
+                        # Ha az összeg gyanúsan hosszú (pl. 180 vagy 25265), és a qty_str ott van az elején
+                        if len(digits) > 4 and digits.startswith(qty_str):
+                            digits = digits[len(qty_str):]
+                        
+                        # Ha még mindig túl hosszú (>5 jegy), az utolsó 4-5 jegyet tartjuk meg (Interfood max ár)
+                        if len(digits) > 5:
+                            digits = digits[-4:] if not digits.endswith('00') else digits[-5:]
 
-                # 3. NÉV
+                        final_num = int(digits)
+                        prefix = "-" if is_negative else ""
+                        money_val = f"{prefix}{final_num} Ft" if final_num != 0 else "0 Ft"
+
+                # 3. NÉV ÉS CÍM
                 name_txt = " ".join(curr["name_raw"])
-                name_clean = re.sub(r'^\d+[\s.]*', '', name_txt).strip()
-                name_clean = re.sub(r'\s+(20|30|70|52)\b', '', name_clean).strip()
-                clean_name = name_clean.split('/')[0].split('Ft')[0].strip()
+                clean_name = re.sub(r'^\d+[\s.]*', '', name_txt).split('/')[0].split('Ft')[0].strip()
+                clean_name = re.sub(r'\s+(20|30|70|52)\b', '', clean_name).strip()
 
-                # 4. CÍM (Emelet/Ajtó védelem)
                 addr_area = " ".join(curr["addr_raw"])
-                # Olyan regex, ami a házszám utáni szám/szám (emelet/ajtó) részt is elviszi
+                # Emelet/Ajtó (7/49) és Házszám intervallum (20-22) megőrzése
                 addr_match = re.search(r'(\d{4}\s+Debrecen,\s+.*?\d+[-\d]*\.?(\s+\d+/\d+)?(\s*sz\.)?)', addr_area)
-                
                 if addr_match:
                     clean_address = addr_match.group(1).strip()
                     leftover_note = addr_area[addr_match.end():].strip()
                 else:
-                    clean_address = addr_area
-                    leftover_note = ""
+                    clean_address = addr_area; leftover_note = ""
 
-                # 5. MEGJEGYZÉS
+                # 4. MEGJEGYZÉS
                 main_note = " ".join(curr["note_raw"])
                 main_note = re.sub(r'^\d+[\s.]*', '', main_note).strip()
-                
-                # Slash kezelés: csak akkor vágunk, ha NEM szám/szám van ott
                 full_note = f"{main_note} {leftover_note}".strip()
+                
+                # Névmaradvány törlése a / után, de csak ha nem emelet/ajtó
+                final_note = full_note
                 if "/" in full_note and not re.search(r'\d/\d', full_note):
                     final_note = full_note.split('/')[0].strip()
-                else:
-                    final_note = full_note
 
                 if clean_name and clean_name in final_note:
                     final_note = final_note.replace(clean_name, "").strip()
@@ -182,10 +186,9 @@ def parse_interfood_pdf(pdf_file):
                 final_note = final_note.replace(u_code_m.group(0), "")
                 phone_m = re.search(phone_pattern, all_txt)
                 clean_tel = phone_m.group(0).replace(" ", "") if phone_m else ""
-
-                for trash in [clean_tel, money_val, "Ft", "GSV Ipari park"]:
-                    final_note = final_note.replace(trash, "")
                 
+                for trash in [clean_tel, "Ft", "GSV Ipari park", clean_name]:
+                    final_note = final_note.replace(trash, "")
                 final_note = re.sub(r'\s+', ' ', final_note).strip("- ,")
 
                 rows.append({

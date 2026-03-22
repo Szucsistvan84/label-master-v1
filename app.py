@@ -165,40 +165,36 @@ def merge_data(raw_rows):
     if not raw_rows: return None
     L_DAYS = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
     df = pd.DataFrame(raw_rows)
-    
-    # Csoportosítás a szám alapú ID szerint (levágva a P-/Z- prefixet)
     df['temp_id'] = df['ID'].astype(str).str.replace(r'\D', '', regex=True)
     
     merged = []
     for tid, group in df.groupby("temp_id", sort=False):
         base = group.iloc[0].copy().to_dict()
         
-        # --- JAVÍTOTT PÉNZKEZELÉS ---
-        pdf_money_val = None
+        # --- 1. ADAT: A PDF-BŐL OLVASOTT TÉNYLEGES FIZETENDŐ (Menettervhez) ---
+        pdf_payment = "0 Ft"
         for _, row in group.iterrows():
-            m_str = str(row.get('Pénz', ''))
+            m_str = str(row.get('Pénz', '0 Ft'))
+            # Csak akkor fogadjuk el, ha benne van a "Ft" (ez a beolvasó védjegye)
             if "Ft" in m_str:
-                # Ha találtunk "Ft"-os sort, kivesszük a számot (lehet 0 is!)
-                digits = "".join(filter(str.isdigit, m_str))
-                if digits == "": digits = "0"
-                
-                # Duplázódás elleni védelem (ha a PDF beolvasáskor kétszer írná oda)
-                if len(digits) >= 8 and digits[:len(digits)//2] == digits[len(digits)//2:]:
-                    digits = digits[:len(digits)//2]
-                
-                pdf_money_val = int(digits)
-                break # Ha megvan az első PDF-es ár, megállunk
+                # Ha mínuszos az eredeti PDF-ben, az 0 Ft beszedendő
+                if "-" in m_str:
+                    pdf_payment = "0 Ft"
+                    break 
+                elif m_str != "0 Ft":
+                    pdf_payment = m_str
+                    # Itt nem break-elünk, mert keresünk hátha van másik napon pozitív összeg
         
-        # KRITIKUS MÓDOSÍTÁS: Ha találtunk PDF-es adatot (még ha 0 is), azt használjuk!
-        if pdf_money_val is not None:
-            base['Pénz'] = "{:,}".format(pdf_money_val).replace(",", " ") + " Ft"
-        else:
-            # Csak ha egyáltalán nem volt "Ft" a beolvasott sorban, akkor legyen 0 Ft
-            # (Ez védi meg a táblázatot a későbbi kalkulációktól)
-            base['Pénz'] = "0 Ft"
-        # ----------------------------
-
-        # Rendelések összevonása
+        # --- 2. ADAT: A RAKLISTÁHOZ KELLŐ KALKULÁLT ÉRTÉK ---
+        # Ezt elmentjük egy külön oszlopba, hogy a menettervet ne rontsa el
+        calculated_value = group['Összesen_Ar'].sum() if 'Összesen_Ar' in group.columns else 0
+        
+        # KÖTELEZŐ: A 'Pénz' oszlopba CSAK a PDF-es adat kerülhet!
+        base['Pénz'] = pdf_payment
+        # A raklistához való összeget egy új, rejtett oszlopba tesszük
+        base['Raklista_Ertek'] = calculated_value 
+        
+        # --- RENDELÉS ÖSSZEVONÁS ---
         o_p, has_weekend = [], False
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
             day_rows = group[group['Prefix'] == pfix]
@@ -213,10 +209,9 @@ def merge_data(raw_rows):
         base['Összesen'] = group['Összesen'].sum()
         base['Hétvégi'] = has_weekend
         base['ID'] = f"P-{tid}"
-        base['Megjegyzés'] = ""
         merged.append(base)
         
-    res = pd.DataFrame(merged)
+    return pd.DataFrame(merged)
     if 'Sorrend' not in res.columns:
         res['Sorrend'] = range(1, len(res) + 1)
         res['Sorrend'] = res['Sorrend'].astype(float)

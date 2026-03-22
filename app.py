@@ -187,38 +187,35 @@ def parse_interfood_pdf(pdf_file):
 
 def merge_data(raw_rows):
     if not raw_rows: return None
+    import pandas as pd # Biztonság kedvéért, ha nincs importálva
     L_DAYS = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
     df = pd.DataFrame(raw_rows)
+    
+    # temp_id képzés - marad az eredeti
     df['temp_id'] = df['ID'].astype(str).str.replace(r'\D', '', regex=True)
     
     merged = []
     for tid, group in df.groupby("temp_id", sort=False):
         base = group.iloc[0].copy().to_dict()
         
-        # --- 1. ADAT: A PDF-BŐL OLVASOTT TÉNYLEGES FIZETENDŐ (Menettervhez) ---
+        # --- 1. ADAT: Pénz kezelés - marad az eredeti logikád ---
         pdf_payment = "0 Ft"
         for _, row in group.iterrows():
             m_str = str(row.get('Pénz', '0 Ft'))
-            # Csak akkor fogadjuk el, ha benne van a "Ft" (ez a beolvasó védjegye)
             if "Ft" in m_str:
-                # Ha mínuszos az eredeti PDF-ben, az 0 Ft beszedendő
                 if "-" in m_str:
                     pdf_payment = "0 Ft"
                     break 
                 elif m_str != "0 Ft":
                     pdf_payment = m_str
-                    # Itt nem break-elünk, mert keresünk hátha van másik napon pozitív összeg
         
-        # --- 2. ADAT: A RAKLISTÁHOZ KELLŐ KALKULÁLT ÉRTÉK ---
-        # Ezt elmentjük egy külön oszlopba, hogy a menettervet ne rontsa el
+        # --- 2. ADAT: Raklista kalkulált érték - marad az eredeti ---
         calculated_value = group['Összesen_Ar'].sum() if 'Összesen_Ar' in group.columns else 0
         
-        # KÖTELEZŐ: A 'Pénz' oszlopba CSAK a PDF-es adat kerülhet!
         base['Pénz'] = pdf_payment
-        # A raklistához való összeget egy új, rejtett oszlopba tesszük
         base['Raklista_Ertek'] = calculated_value 
         
-        # --- RENDELÉS ÖSSZEVONÁS ---
+        # --- RENDELÉS ÖSSZEVONÁS - marad az eredeti ---
         o_p, has_weekend = [], False
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
             day_rows = group[group['Prefix'] == pfix]
@@ -230,7 +227,14 @@ def merge_data(raw_rows):
                     if pfix == 'Z': has_weekend = True
         
         base['Rendelés_Full'] = " | ".join(o_p)
-        base['Összesen'] = group['Összesen'].sum()
+
+        # --- HIBAJAVÍTÁS: BIZTONSÁGOS ÖSSZEGZÉS ---
+        # Ha nincs 'Összesen' oszlop, 0-át adunk meg, hogy ne szálljon el a KeyError-rel
+        if 'Összesen' in group.columns:
+            base['Összesen'] = pd.to_numeric(group['Összesen'], errors='coerce').sum()
+        else:
+            base['Összesen'] = 0 
+            
         base['Hétvégi'] = has_weekend
         base['ID'] = f"P-{tid}"
         merged.append(base)

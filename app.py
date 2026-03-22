@@ -78,10 +78,28 @@ def clean_name_field(text):
 
 def parse_interfood_pdf(pdf_file):
     rows = []
-    # Itt hozunk létre egy üres metaadatot, hogy a fogadó oldal ne kapjon hibát
-    meta = {"date": "", "jarat": ""}
-    # ... (a fejléc beolvasása marad a régi) ...
+    # 1. ALAPÉRTELMEZETT META (hogy ne legyen KeyError, ha nem találunk semmit)
+    meta = {
+        "year": "", 
+        "week": "", 
+        "date": "", 
+        "jarat": ""
+    } 
+    
     with pdfplumber.open(pdf_file) as pdf:
+        # 2. FEJLÉC KIOLVASÁSA (Csak az első oldalról)
+        if len(pdf.pages) > 0:
+            first_page = pdf.pages[0]
+            header_text = first_page.extract_text() or ""
+            # Kikeressük az évet és a hetet (pl: 2026. év, 12. hét)
+            y_m = re.search(r'(\d{4})\.\s*év', header_text)
+            w_m = re.search(r'(\d{1,2})\.\s*hét', header_text)
+            j_m = re.search(r'Járat:\s*([\d\s,]+)', header_text)
+            
+            if y_m: meta["year"] = y_m.group(1)
+            if w_m: meta["week"] = w_m.group(1)
+            if j_m: meta["jarat"] = j_m.group(1).strip()
+
         for page in pdf.pages:
             words = page.extract_words()
             lines = {}

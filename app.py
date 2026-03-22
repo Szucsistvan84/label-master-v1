@@ -27,7 +27,6 @@ def register_fonts():
         return 'Helvetica', 'Helvetica-Bold'
 
 def get_etlap_dict(year, week, target_day):
-    """Interfood Étlap API letöltés és feldolgozás (Név + Ár kinyerése)"""
     if not year or not week or not target_day: return {}
     
     day_map = {'Hétfő': 1, 'Kedd': 2, 'Szerda': 3, 'Csütörtök': 4, 'Péntek': 5, 'Szombat': 6}
@@ -36,24 +35,35 @@ def get_etlap_dict(year, week, target_day):
 
     url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         if response.status_code == 200:
             df_etlap = pd.read_excel(BytesIO(response.content), header=None)
             etlap = {}
             for i in range(len(df_etlap)):
                 val = str(df_etlap.iloc[i, 0])
                 if " - " in val:
+                    # Kód kinyerése (pl. "A - Milánói makaróni" -> "A")
                     cikkszam = val.split(" - ")[0].strip().upper()
                     try:
+                        # Név kinyerése az adott nap oszlopából
                         nev = str(df_etlap.iloc[i, col_idx]).strip()
+                        
+                        # Ár kinyerése (gyakran a név alatti cellában van)
                         ar_val = df_etlap.iloc[i+1, col_idx]
-                        if nev != "nan" and nev != "" and pd.notnull(ar_val):
-                            ar = int(re.sub(r'\D', '', str(ar_val)))
+                        
+                        if nev != "nan" and nev != "" and "étlap" not in nev.lower():
+                            # Csak akkor mentjük, ha találtunk nevet
+                            ar = 0
+                            if pd.notnull(ar_val):
+                                try:
+                                    ar = int(re.sub(r'\D', '', str(ar_val)))
+                                except: ar = 0
+                                
                             etlap[cikkszam] = {'nev': nev, 'ar': ar}
                     except: continue
             return etlap
     except Exception as e:
-        st.error(f"Étlap hiba: {e}")
+        st.error(f"Étlap letöltési hiba: {e}")
     return {}
 
 def clean_name_field(text):
@@ -154,6 +164,7 @@ with st.sidebar:
     c_p = st.text_input("Telefonszám", "+36 20 886 8971")
     st.divider()
     up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
+    
     if up_files and st.button("🚀 FELDOLGOZÁS"):
         all_rows, all_meta = [], []
         for f in up_files:
@@ -172,7 +183,6 @@ with st.sidebar:
                 if etlap:
                     for idx, row in mdf.iterrows():
                         total_sum = 0
-                        # Kinyerjük a kódokat a Rendelés_Full cellából: Pl "Hé: 1-A, 2-B"
                         order_string = str(row['Rendelés_Full'])
                         matches = re.findall(r'(\d+)-([A-Z0-9*+]+)', order_string)
                         for qty, code in matches:
@@ -187,14 +197,24 @@ with st.sidebar:
         st.session_state.meta_data = all_meta
         st.rerun()
 
+    # --- IDE KERÜLNEK AZ ÚJ SOROK (A gomb után, de a divider előtt) ---
+    if st.session_state.meta_data:
+        st.divider()
+        m = st.session_state.meta_data[0]
+        st.info(f"📅 {m.get('year')}.{m.get('week')}. hét, {m.get('day')}")
+        
+        if not st.session_state.etlap:
+            st.warning("⚠️ Az étlap üres! Ellenőrizd a dátumot.")
+        else:
+            st.success(f"✅ {len(st.session_state.etlap)} étel betöltve.")
+    # ----------------------------------------------------------------
+
     st.divider()
     st.subheader("2. CSV Visszatöltés")
-    # Itt tudod visszatölteni a már elmentett sorrendet
     up_csv = st.file_uploader("Exportált CSV betöltése", type=['csv'])
     if up_csv and st.button("📥 BETÖLTÉS"):
         try:
             loaded_df = pd.read_csv(up_csv)
-            # Biztosítjuk, hogy a Sorrend oszlop szám formátumú legyen
             if 'Sorrend' in loaded_df.columns:
                 loaded_df['Sorrend'] = loaded_df['Sorrend'].astype(float)
             st.session_state.mdf = loaded_df

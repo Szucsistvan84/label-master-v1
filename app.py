@@ -181,12 +181,16 @@ def merge_data(raw_rows):
         merged.append(base)
     
     res = pd.DataFrame(merged).dropna(subset=['ID'])
+    
     if 'weights' in st.session_state and st.session_state.weights:
+        # Itt biztosítjuk a float típust a tizedesekhez
         res['Sorrend'] = res['ID'].astype(str).map(st.session_state.weights).fillna(999.0).astype(float)
     else:
         res['Sorrend'] = range(1, len(res) + 1)
         res['Sorrend'] = res['Sorrend'].astype(float)
-    return res.sort_values('Sorrend')
+    
+    # Kényszerített rendezés visszaadás előtt
+    return res.sort_values(by='Sorrend').reset_index(drop=True)
 
 # --- PDF GENERÁLÁS ---
 

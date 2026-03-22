@@ -97,9 +97,9 @@ def parse_interfood_pdf(pdf_file):
             for w in words:
                 y = round(w['top'], 1)
                 for ey in lines:
-                    # MEGEMELT KÜSZÖB: 8-ra állítva, hogy a Péntek és Szombat 
-                    # (ami a PDF-ben egymás alatt van) biztosan egy sorba kerüljön
-                    if abs(y - ey) < 8: lines[ey].append(w); break
+                    # Maradjon a 3-as küszöb, mert az eredeti PDF-ben 
+                    # a Péntek/Szombat adatok néha 2-4 pixel távolságra vannak
+                    if abs(y - ey) < 3.5: lines[ey].append(w); break
                 else:
                     lines[y] = [w]
 
@@ -107,15 +107,15 @@ def parse_interfood_pdf(pdf_file):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
 
-                # Ügyfélkód keresése
+                # ID keresése: P-465258 vagy Z-410511
                 u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
                 if not u_code_m: continue
 
                 full_code = u_code_m.group(0)
-                # Mindig a 'P' (Péntek) prefixet használjuk alapnak az összefűzéshez
-                prefix = "P" 
+                prefix = full_code[0].upper()
                 uid = re.sub(r'\D', '', full_code)
 
+                # Név, Cím, Rendelés adatok kinyerése
                 b4_words = [w['text'] for w in line_words if 360 <= w['x0'] < 520]
                 clean_name = clean_name_field(" ".join(b4_words))
                 b3_words = [w['text'] for w in line_words if 140 <= w['x0'] < 360]
@@ -123,17 +123,24 @@ def parse_interfood_pdf(pdf_file):
                 addr_m = re.search(r'(\d{4})', b3_full)
                 address = b3_full[addr_m.start():].strip() if addr_m else b3_full
                 tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
-                
-                # Összes rendelés kigyűjtése a sorból (Péntek + Szombat is benne lesz)
                 raw_orders = re.findall(ORDER_PAT, text_ws)
 
-                # --- PÉNZ KIOLVASÁSA ---
-                extracted_money = "0 Ft"
-                # A PDF-ben a "3255 Ft" formátumot keressük
-                money_m = re.search(r'(\d[\d\s]*)\s*Ft', text_ws)
+                # --- SPECIÁLIS PÉNZKERESÉS AZ EREDETI PDF-HEZ ---
+                # Keressük: opcionális mínusz jel, számjegyek, szóközök, "Ft"
+                money_val = "0 Ft"
+                # Ez a regex megtalálja a "-7 415 Ft"-ot és a "0 Ft"-ot is
+                money_m = re.search(r'(-?\s?\d[\d\s]*)\s*Ft', text_ws)
+                
                 if money_m:
-                    extracted_money = money_m.group(0).strip()
-                # -----------------------
+                    raw_money = money_m.group(0).strip()
+                    # Megtisztítjuk: ha van benne mínusz, megmarad, de a felesleges szóközöket kivesszük
+                    # pl: "-7 415 Ft" -> "7415 Ft" (mivel neked a beszedendő kell)
+                    digits = "".join(filter(str.isdigit, raw_money))
+                    if digits and digits != "0":
+                        money_val = "{:,}".format(int(digits)).replace(",", " ") + " Ft"
+                    else:
+                        money_val = "0 Ft"
+                # -----------------------------------------------
 
                 v_o, sq = [], 0
                 for o in raw_orders:
@@ -147,12 +154,12 @@ def parse_interfood_pdf(pdf_file):
                 if v_o:
                     rows.append({
                         "Prefix": prefix,
-                        "ID": f"{prefix}-{uid}", # Egységesített ID az összevonáshoz
+                        "ID": f"{prefix}-{uid}",
                         "Ügyintéző": clean_name,
                         "Cím": address,
                         "Telefon": tel_m.group(0) if tel_m else "",
                         "Rendelés": ", ".join(v_o),
-                        "Pénz": extracted_money,
+                        "Pénz": money_val,
                         "Összesen": sq
                     })
     return rows, metadata

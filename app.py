@@ -253,19 +253,6 @@ with st.sidebar:
             st.success(f"✅ {len(st.session_state.etlap)} étel betöltve.")
     # ----------------------------------------------------------------
 
-    st.divider()
-    st.subheader("2. CSV Visszatöltés")
-    up_csv = st.file_uploader("Exportált CSV betöltése", type=['csv'])
-    if up_csv and st.button("📥 BETÖLTÉS"):
-        try:
-            loaded_df = pd.read_csv(up_csv)
-            if 'Sorrend' in loaded_df.columns:
-                loaded_df['Sorrend'] = loaded_df['Sorrend'].astype(float)
-            st.session_state.mdf = loaded_df
-            st.success("CSV sikeresen betöltve!")
-        except Exception as e:
-            st.error(f"Hiba a CSV betöltésekor: {e}")
-
 def create_label_pdf(df, fn, ft):
     """Etikett generálás DejaVu fontokkal és marketing szöveggel az üres helyeken"""
     df = df.sort_values('Sorrend')

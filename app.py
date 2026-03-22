@@ -384,21 +384,21 @@ if st.session_state.mdf is not None:
     display_df = st.session_state.mdf[[c for c in cols if c in st.session_state.mdf.columns]].copy()
 
 st.subheader("📍 Menetlevél szerkesztése")
-    edited_df = st.data_editor(
-        display_df, 
-        hide_index=True, 
-        use_container_width=True,
-        column_config={
-            "Sorrend": st.column_config.NumberColumn(
-                "Sorrend", 
-                help="Használj pontot a tizedesekhez (pl. 1.5)",
-                min_value=0,
-                step=0.1,  # Engedélyezi a tizedes léptetést
-                format="%.1f", # Megjelenítés 1 tizedesjeggyel
-            ),
-            "ID": st.column_config.TextColumn("Azonosító", disabled=True),
-        }
-    )
+edited_df = st.data_editor(
+    display_df, 
+    hide_index=True, 
+    use_container_width=True,
+    column_config={
+        "Sorrend": st.column_config.NumberColumn(
+            "Sorrend", 
+            help="Használj pontot a tizedesekhez (pl. 1.5)",
+            min_value=0,
+            step=0.1,  
+            format="%.1f", 
+        ),
+        "ID": st.column_config.TextColumn("Azonosító", disabled=True),
+    }
+)
     
     c1, c2 = st.columns(2)
     with c1:

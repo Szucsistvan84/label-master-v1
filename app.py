@@ -155,28 +155,29 @@ def merge_data(raw_rows):
     for uid, group in df.groupby("ID", sort=False):
         base = group.iloc[0].copy().to_dict()
         
-        # --- SZIGORÚ PÉNZTISZTÍTÁS ---
-        # Összegyűjtjük az összes talált pénz-stringet
-        raw_money_list = group['Pénz'].astype(str).tolist()
-        
+        # --- JAVÍTOTT PÉNZTISZTÍTÁS (Csak a PDF-ből) ---
         valid_amounts = []
-        for m_str in raw_money_list:
-            # Csak a számokat tartjuk meg (pl. "12 040 Ft" -> "12040")
-            digits = "".join(filter(str.isdigit, m_str))
-            if digits and digits != "0":
-                # Ha a beolvasó véletlenül összefűzte (pl. "1204012040"), kettévágjuk
-                if len(digits) >= 8 and digits[:len(digits)//2] == digits[len(digits)//2:]:
-                    digits = digits[:len(digits)//2]
-                valid_amounts.append(int(digits))
+        for _, row in group.iterrows():
+            m_val = str(row['Pénz'])
+            
+            # KRITIKUS SZŰRŐ: Csak akkor vesszük figyelembe, ha benne van a "Ft" 
+            # Ez megkülönbözteti a PDF-ből olvasott pénzt a számolt értéktől!
+            if "Ft" in m_val:
+                digits = "".join(filter(str.isdigit, m_val))
+                if digits and digits != "0":
+                    # Duplázódás elleni védelem (pl. 1204012040 -> 12040)
+                    if len(digits) >= 8 and digits[:len(digits)//2] == digits[len(digits)//2:]:
+                        digits = digits[:len(digits)//2]
+                    valid_amounts.append(int(digits))
         
         if valid_amounts:
-            # SOHA nem adunk össze! Csak a legelső, egyedi számot vesszük ki.
-            # Így ha Péntek: 12040 és Szombat: 12040, az eredmény 12040 lesz.
+            # Szigorúan az első talált PDF-es összeget tartjuk meg
             final_amount = valid_amounts[0]
             base['Pénz'] = "{:,}".format(final_amount).replace(",", " ") + " Ft"
         else:
+            # Ha nincs "Ft"-os adat, akkor az nulla, hiába számolt bárki bármit
             base['Pénz'] = "0 Ft"
-        # -----------------------------
+        # ----------------------------------------------
 
         o_p, has_weekend = [], False
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
@@ -187,7 +188,7 @@ def merge_data(raw_rows):
                 if pfix == 'Z': has_weekend = True
         
         base['Rendelés_Full'] = " | ".join(o_p)
-        base['Összesen'] = group['Összesen'].sum() # A darabszám összeadása marad
+        base['Összesen'] = group['Összesen'].sum()
         base['Hétvégi'] = has_weekend 
         base['Megjegyzés'] = ""
         merged.append(base)

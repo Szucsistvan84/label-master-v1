@@ -166,60 +166,62 @@ def merge_data(raw_rows):
     L_DAYS = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
     df = pd.DataFrame(raw_rows)
     
-    # --- KRITIKUS PONT 1: AZ ÖSSZEVONÁS KULCSA ---
-    # Létrehozunk egy ideiglenes oszlopot, ami csak a számokat tartalmazza (P-410511 -> 410511)
-    # Ez biztosítja, hogy a Péntek és Szombat egy csoportba kerüljön a groupby-nál.
+    # Csoportosítás a szám alapú ID szerint (levágva a P-/Z- prefixet)
     df['temp_id'] = df['ID'].astype(str).str.replace(r'\D', '', regex=True)
     
     merged = []
-    # Az ideiglenes, tiszta szám alapú ID szerint csoportosítunk
     for tid, group in df.groupby("temp_id", sort=False):
-        # Alapadatok az első sorból
         base = group.iloc[0].copy().to_dict()
         
-        # --- JAVÍTOTT PÉNZTISZTÍTÁS (Csak a PDF-ből) ---
-        valid_amounts = []
+        # --- JAVÍTOTT PÉNZKEZELÉS ---
+        pdf_money_val = None
         for _, row in group.iterrows():
-            m_val = str(row.get('Pénz', ''))
-            if "Ft" in m_val:
-                digits = "".join(filter(str.isdigit, m_val))
-                if digits and digits != "0":
-                    # Duplázódás elleni védelem
-                    if len(digits) >= 8 and digits[:len(digits)//2] == digits[len(digits)//2:]:
-                        digits = digits[:len(digits)//2]
-                    valid_amounts.append(int(digits))
+            m_str = str(row.get('Pénz', ''))
+            if "Ft" in m_str:
+                # Ha találtunk "Ft"-os sort, kivesszük a számot (lehet 0 is!)
+                digits = "".join(filter(str.isdigit, m_str))
+                if digits == "": digits = "0"
+                
+                # Duplázódás elleni védelem (ha a PDF beolvasáskor kétszer írná oda)
+                if len(digits) >= 8 and digits[:len(digits)//2] == digits[len(digits)//2:]:
+                    digits = digits[:len(digits)//2]
+                
+                pdf_money_val = int(digits)
+                break # Ha megvan az első PDF-es ár, megállunk
         
-        if valid_amounts:
-            final_amount = valid_amounts[0]
-            base['Pénz'] = "{:,}".format(final_amount).replace(",", " ") + " Ft"
+        # KRITIKUS MÓDOSÍTÁS: Ha találtunk PDF-es adatot (még ha 0 is), azt használjuk!
+        if pdf_money_val is not None:
+            base['Pénz'] = "{:,}".format(pdf_money_val).replace(",", " ") + " Ft"
         else:
+            # Csak ha egyáltalán nem volt "Ft" a beolvasott sorban, akkor legyen 0 Ft
+            # (Ez védi meg a táblázatot a későbbi kalkulációktól)
             base['Pénz'] = "0 Ft"
+        # ----------------------------
 
-        # --- KRITIKUS PONT 2: RENDELÉSEK ÖSSZEVONÁSA ---
+        # Rendelések összevonása
         o_p, has_weekend = [], False
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
-            # A csoporton belül (ami most már P és Z sorokat is tartalmaz) keressük a napokat
             day_rows = group[group['Prefix'] == pfix]
             if not day_rows.empty:
-                # Összegyűjtjük az adott napi rendeléseket
                 items = day_rows['Rendelés'].astype(str).tolist()
                 clean_items = [i for i in items if i != 'nan' and i.strip() != '']
                 if clean_items:
                     o_p.append(f"{L_DAYS.get(pfix, pfix)}: {', '.join(clean_items)}")
-                if pfix == 'Z': 
-                    has_weekend = True
+                    if pfix == 'Z': has_weekend = True
         
         base['Rendelés_Full'] = " | ".join(o_p)
         base['Összesen'] = group['Összesen'].sum()
-        base['Hétvégi'] = has_weekend 
+        base['Hétvégi'] = has_weekend
+        base['ID'] = f"P-{tid}"
         base['Megjegyzés'] = ""
-        
-        # Visszaállítjuk az ID-t a standard formátumra (mindig P-vel kezdjük a menettervben)
-        base['ID'] = f"P-{tid}" 
-        
         merged.append(base)
         
     res = pd.DataFrame(merged)
+    if 'Sorrend' not in res.columns:
+        res['Sorrend'] = range(1, len(res) + 1)
+        res['Sorrend'] = res['Sorrend'].astype(float)
+        
+    return res.drop(columns=['temp_id']) if 'temp_id' in res.columns else res
     
     # --- KRITIKUS PONT 3: SORREND KEZELÉSE ---
     if 'Sorrend' not in res.columns:

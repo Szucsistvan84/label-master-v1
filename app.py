@@ -81,8 +81,8 @@ def parse_interfood_pdf(pdf_file):
     meta = {"year": "", "week": "", "date": "", "jarat": ""} 
     
     order_pattern = r'\b\d+-[A-Z][A-Z0-9]*\b'
-    # Pénz: Csak a Ft előtti számok, de maximum 6 karakter (szóközökkel)
-    money_pattern = r'(-?\s?\d[\d\s]{0,5}\s*Ft)'
+    # Szigorúbb pénz: szóközök nélkül keressük a számot közvetlenül a Ft előtt
+    money_pattern = r'(-?\s?\d+)\s*Ft'
     phone_pattern = r'(\d{2}[/\s]\d{6,7})'
     zip_pattern = r'\b\d{4}\b'
 
@@ -128,49 +128,59 @@ def parse_interfood_pdf(pdf_file):
                 phone_m = re.search(phone_pattern, all_txt)
                 clean_tel = phone_m.group(0).replace(" ", "") if phone_m else ""
                 
-                # PÉNZ JAVÍTÁS (Magyar Éva fix)
+                # PÉNZ FIX: Először a nyers szövegből a Ft-ot keressük
                 money_val = "0 Ft"
                 m_match = re.search(money_pattern, all_txt)
                 if m_match:
-                    m_digits = re.sub(r'[^\d-]', '', m_match.group(1))
-                    # Ha a szám gyanúsan hosszú (>5), az utolsó 4-5 jegyet vesszük
-                    if len(m_digits.replace("-","")) > 5:
-                        money_val = f"{m_digits[-4:]} Ft"
+                    raw_num = m_match.group(1).strip()
+                    # Ha a szám 0-ra végződik (pl. 30), de a sor végén van egy magányos szám, 
+                    # ellenőrizzük, hogy nem csak a darabszám ragadt-e oda.
+                    # Ha az all_txt végén van a szám, és előtte 0 van, akkor az 0 Ft.
+                    if raw_num.endswith('0') and len(raw_num) > 1:
+                        # Megnézzük, hogy a darabszám (Összesen) megegyezik-e az utolsó számjeggyel
+                        orders_test = re.findall(order_pattern, all_txt)
+                        total_test = sum([int(o.split('-')[0]) for o in orders_test if '-' in o])
+                        if raw_num == f"{total_test}0": # Pl. "3" és "0" -> "30"
+                            money_val = "0 Ft"
+                        else:
+                            money_val = f"{raw_num} Ft"
                     else:
-                        money_val = f"{m_digits} Ft"
+                        money_val = f"{raw_num} Ft"
 
                 orders_found = re.findall(order_pattern, all_txt)
 
-                # NÉV TISZTÍTÁS
+                # NÉV
                 name_txt = " ".join(curr["name_raw"])
                 name_clean = re.sub(r'^\d+[\s.]*', '', name_txt).strip()
                 name_clean = re.sub(r'\s+(20|30|70|52)\b', '', name_clean).strip()
                 clean_name = name_clean.split('/')[0].split('Ft')[0].strip()
 
-                # CÍM ÉS MEGJEGYZÉS (Intervallum és / kezelés)
+                # CÍM (Házszám intervallum + vágás védelem)
                 addr_area = " ".join(curr["addr_raw"])
-                # Regex magyarázat: Irányítószám + Debrecen + Utcanév + Házszám (lehet 20-22 vagy 2) + opcionális / jel utáni rész
-                # Ez megállítja a "j" és "obb" elcsúszást is
-                addr_match = re.search(r'(\d{4}\s+Debrecen,\s+.*?\d+[-\d]*\.?(\s*sz\.)?(\s*/\s*[^,]+)?)', addr_area)
+                # Szigorúbb illesztés a házszámra, hogy ne vigye el a 'j' betűt
+                addr_match = re.search(r'(\d{4}\s+Debrecen,\s+.*?\d+[-\d]*\.?(\s*sz\.)?)', addr_area)
                 
                 if addr_match:
                     clean_address = addr_match.group(1).strip()
-                    # A vágás utáni maradék megy a megjegyzésbe
                     leftover_note = addr_area[addr_match.end():].strip()
                 else:
                     clean_address = addr_area
                     leftover_note = ""
 
-                # MEGJEGYZÉS ÖSSZEÁLLÍTÁS
+                # MEGJEGYZÉS ÉS SLASH UTÁNI TÖRLÉS
                 main_note = " ".join(curr["note_raw"])
                 main_note = re.sub(r'^\d+[\s.]*', '', main_note).strip()
-                final_note = f"{main_note} {leftover_note}".strip()
                 
+                # Összevonjuk és levágjuk a /-t és mindent utána
+                full_note = f"{main_note} {leftover_note}".strip()
+                final_note = full_note.split('/')[0].strip()
+                
+                # Ha a megjegyzésbe beúszott a név, töröljük
                 if clean_name and clean_name in final_note:
                     final_note = final_note.replace(clean_name, "").strip()
                 
                 final_note = final_note.replace(u_code_m.group(0), "")
-                for trash in [clean_tel, money_val, "Ft", "GSV Ipari park/"]:
+                for trash in [clean_tel, money_val, "Ft", "GSV Ipari park"]:
                     final_note = final_note.replace(trash, "")
                 
                 final_note = re.sub(r'\s+', ' ', final_note).strip("- ,")

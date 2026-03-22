@@ -260,17 +260,36 @@ with st.sidebar:
     st.divider()
     st.subheader("2. CSV Visszatöltés")
     up_csv = st.file_uploader("Exportált CSV betöltése", type=['csv'])
-    if up_csv and st.button("📥 BETÖLTÉS"):
-        try:
-            loaded_df = pd.read_csv(up_csv)
-            # Biztosítjuk, hogy a Sorrend float legyen a rendezéshez
-            if 'Sorrend' in loaded_df.columns:
-                loaded_df['Sorrend'] = pd.to_numeric(loaded_df['Sorrend'], errors='coerce').astype(float)
+if up_csv and st.button("📥 BETÖLTÉS"):
+    try:
+        loaded_df = pd.read_csv(up_csv)
+        
+        if st.session_state.mdf is not None:
+            # 1. Csak az ID és a Sorrend oszlopokat tartjuk meg a CSV-ből
+            # Így a 'Pénz', 'Rendelés' stb. marad a friss PDF-ből!
+            sorrend_map = loaded_df[['ID', 'Sorrend']].drop_duplicates()
+            
+            # 2. Összefésüljük a friss adatokat a mentett sorrenddel
+            # Először kidobjuk a régi sorrend oszlopot a friss adatokból (ha van)
+            if 'Sorrend' in st.session_state.mdf.columns:
+                st.session_state.mdf = st.session_state.mdf.drop(columns=['Sorrend'])
+            
+            # Hozzáadjuk a CSV-ből beolvasott sorrendet
+            st.session_state.mdf = st.session_state.mdf.merge(sorrend_map, on='ID', how='left')
+            
+            # 3. Formázás: Aki új (nincs a CSV-ben), kerüljön a végére
+            st.session_state.mdf['Sorrend'] = pd.to_numeric(st.session_state.mdf['Sorrend'], errors='coerce').fillna(999).astype(float)
+            st.session_state.mdf = st.session_state.mdf.sort_values('Sorrend')
+            
+            st.success("Sorrend sikeresen frissítve a CSV alapján!")
+        else:
+            # Ha még nincs beolvasva PDF, de beöltöd a CSV-t (opcionális)
             st.session_state.mdf = loaded_df
-            st.success("CSV sikeresen betöltve!")
-            st.rerun() # Frissítjük az oldalt a betöltött adatokkal
-        except Exception as e:
-            st.error(f"Hiba a CSV betöltésekor: {e}")
+            st.warning("PDF adatok hiányában a teljes CSV-t betöltöttem.")
+            
+        st.rerun()
+    except Exception as e:
+        st.error(f"Hiba a CSV betöltésekor: {e}")
 
     # --- INFÓ PANEL ---
     if st.session_state.meta_data:

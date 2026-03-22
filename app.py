@@ -81,8 +81,8 @@ def parse_interfood_pdf(pdf_file):
     meta = {"year": "", "week": "", "date": "", "jarat": ""} 
     
     order_pattern = r'\b\d+-[A-Z][A-Z0-9]*\b'
-    # Szigorúbb pénz: szóközök nélkül keressük a számot közvetlenül a Ft előtt
-    money_pattern = r'(-?\s?\d+)\s*Ft'
+    # Pénz: Kezeli a negatív előjelet és a belső szóközöket is
+    money_pattern = r'(-?\s?\d[\d\s]{0,7}\s*Ft)'
     phone_pattern = r'(\d{2}[/\s]\d{6,7})'
     zip_pattern = r'\b\d{4}\b'
 
@@ -120,45 +120,43 @@ def parse_interfood_pdf(pdf_file):
                     for w in row_words:
                         x = w['x0']
                         curr["all"].append(w['text'])
-                        if 140 <= x < 360: curr["addr_raw"].append(w['text'])
-                        elif 360 <= x < 520: curr["name_raw"].append(w['text'])
+                        if 140 <= x < 355: curr["addr_raw"].append(w['text'])
+                        elif 355 <= x < 520: curr["name_raw"].append(w['text'])
                         elif x < 140: curr["note_raw"].append(w['text'])
 
                 all_txt = " ".join(curr["all"])
-                phone_m = re.search(phone_pattern, all_txt)
-                clean_tel = phone_m.group(0).replace(" ", "") if phone_m else ""
-                
-                # PÉNZ FIX: Először a nyers szövegből a Ft-ot keressük
+                orders_found = re.findall(order_pattern, all_txt)
+                total_qty = sum([int(o.split('-')[0]) for o in orders_found if '-' in o])
+
+                # 1. LEMONDOTT RENDELÉS SZŰRÉSE (Nagy Barbara hiba)
+                if total_qty == 0:
+                    continue
+
+                # 2. PÉNZ (Hegedűs-Szenteczki fix)
                 money_val = "0 Ft"
                 m_match = re.search(money_pattern, all_txt)
                 if m_match:
-                    raw_num = m_match.group(1).strip()
-                    # Ha a szám 0-ra végződik (pl. 30), de a sor végén van egy magányos szám, 
-                    # ellenőrizzük, hogy nem csak a darabszám ragadt-e oda.
-                    # Ha az all_txt végén van a szám, és előtte 0 van, akkor az 0 Ft.
-                    if raw_num.endswith('0') and len(raw_num) > 1:
-                        # Megnézzük, hogy a darabszám (Összesen) megegyezik-e az utolsó számjeggyel
-                        orders_test = re.findall(order_pattern, all_txt)
-                        total_test = sum([int(o.split('-')[0]) for o in orders_test if '-' in o])
-                        if raw_num == f"{total_test}0": # Pl. "3" és "0" -> "30"
+                    m_raw = m_match.group(1).replace(" ", "")
+                    # Ha az utolsó számjegy a darabszám (pl. 30 Ft helyett 0 Ft), levágjuk
+                    if m_raw.endswith(f"Ft") and "0" in m_raw:
+                        # Ha a szám 0-ra végződik és a darabszám az eleje, akkor az 0 Ft
+                        if m_raw.startswith(str(total_qty)) and m_raw != str(total_qty):
                             money_val = "0 Ft"
                         else:
-                            money_val = f"{raw_num} Ft"
+                            money_val = m_raw.replace("Ft", " Ft")
                     else:
-                        money_val = f"{raw_num} Ft"
+                        money_val = m_raw.replace("Ft", " Ft")
 
-                orders_found = re.findall(order_pattern, all_txt)
-
-                # NÉV
+                # 3. NÉV
                 name_txt = " ".join(curr["name_raw"])
                 name_clean = re.sub(r'^\d+[\s.]*', '', name_txt).strip()
                 name_clean = re.sub(r'\s+(20|30|70|52)\b', '', name_clean).strip()
                 clean_name = name_clean.split('/')[0].split('Ft')[0].strip()
 
-                # CÍM (Házszám intervallum + vágás védelem)
+                # 4. CÍM (Emelet/Ajtó védelem)
                 addr_area = " ".join(curr["addr_raw"])
-                # Szigorúbb illesztés a házszámra, hogy ne vigye el a 'j' betűt
-                addr_match = re.search(r'(\d{4}\s+Debrecen,\s+.*?\d+[-\d]*\.?(\s*sz\.)?)', addr_area)
+                # Olyan regex, ami a házszám utáni szám/szám (emelet/ajtó) részt is elviszi
+                addr_match = re.search(r'(\d{4}\s+Debrecen,\s+.*?\d+[-\d]*\.?(\s+\d+/\d+)?(\s*sz\.)?)', addr_area)
                 
                 if addr_match:
                     clean_address = addr_match.group(1).strip()
@@ -167,19 +165,24 @@ def parse_interfood_pdf(pdf_file):
                     clean_address = addr_area
                     leftover_note = ""
 
-                # MEGJEGYZÉS ÉS SLASH UTÁNI TÖRLÉS
+                # 5. MEGJEGYZÉS
                 main_note = " ".join(curr["note_raw"])
                 main_note = re.sub(r'^\d+[\s.]*', '', main_note).strip()
                 
-                # Összevonjuk és levágjuk a /-t és mindent utána
+                # Slash kezelés: csak akkor vágunk, ha NEM szám/szám van ott
                 full_note = f"{main_note} {leftover_note}".strip()
-                final_note = full_note.split('/')[0].strip()
-                
-                # Ha a megjegyzésbe beúszott a név, töröljük
+                if "/" in full_note and not re.search(r'\d/\d', full_note):
+                    final_note = full_note.split('/')[0].strip()
+                else:
+                    final_note = full_note
+
                 if clean_name and clean_name in final_note:
                     final_note = final_note.replace(clean_name, "").strip()
                 
                 final_note = final_note.replace(u_code_m.group(0), "")
+                phone_m = re.search(phone_pattern, all_txt)
+                clean_tel = phone_m.group(0).replace(" ", "") if phone_m else ""
+
                 for trash in [clean_tel, money_val, "Ft", "GSV Ipari park"]:
                     final_note = final_note.replace(trash, "")
                 
@@ -194,7 +197,7 @@ def parse_interfood_pdf(pdf_file):
                     "Pénz": money_val,
                     "Rendelés": ", ".join(orders_found),
                     "Megjegyzés": final_note,
-                    "Összesen": sum([int(o.split('-')[0]) for o in orders_found if '-' in o])
+                    "Összesen": total_qty
                 })
 
     return rows, meta

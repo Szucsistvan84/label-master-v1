@@ -76,14 +76,6 @@ def clean_name_field(text):
     text = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ\s\-]', '', text)
     return " ".join(text.split()).strip()
 
-Értem, a "foltozgatás" helyett itt a teljes, egybefüggő parse_interfood_pdf függvény. Ebben már benne van a szigorított szűrés, ami megvédi a házszámokat (pl. 20-22) attól, hogy rendelésnek higgye őket a gép, és lepucolja a sorszámokat is.
-
-Ezt az egészet kimásolhatod és beillesztheted a régi helyére:
-
-Python
-import re
-import pdfplumber
-
 def parse_interfood_pdf(pdf_file):
     rows = []
     meta = {"year": "", "week": "", "date": "", "jarat": ""} 
@@ -138,7 +130,6 @@ def parse_interfood_pdf(pdf_file):
                     for w in row_words:
                         x = w['x0']
                         curr["all"].append(w['text'])
-                        # Koordináta alapú gyűjtés
                         if 140 <= x < 355: curr["addr"].append(w['text'])
                         elif 355 <= x < 520: curr["name"].append(w['text'])
                         elif x >= 520: curr["order"].append(w['text'])
@@ -146,7 +137,7 @@ def parse_interfood_pdf(pdf_file):
 
                 all_txt = " ".join(curr["all"])
 
-                # 1. TELEFON ÉS PÉNZ (Az egész blokkból)
+                # 1. TELEFON ÉS PÉNZ
                 phone_m = re.search(phone_pattern, all_txt)
                 clean_tel = phone_m.group(0).replace(" ", "") if phone_m else ""
 
@@ -156,26 +147,22 @@ def parse_interfood_pdf(pdf_file):
                     m_raw = m_match.group(1).replace(" ", "")
                     money_val = "0 Ft" if "0Ft" in m_raw else m_raw.replace("Ft", " Ft")
 
-                # 2. RENDELÉS (Csak a valid kódok: pl. 1-U, de NEM 20-22)
+                # 2. RENDELÉS (Csak betűt tartalmazó kódok)
                 orders_found = re.findall(order_pattern, all_txt)
 
                 # 3. NÉV TISZTÍTÁSA (Sorszám és körzetszám le)
                 name_raw = " ".join(curr["name"])
-                # Sorszám az elejéről le (pl. "1. ", "2 ")
                 name_clean = re.sub(r'^\d+[\s.]*', '', name_raw).strip()
-                # Telefonszám körzet a végéről le (20, 30, 70, 52)
                 name_clean = re.sub(r'\s(20|30|70|52)$', '', name_clean)
-                # Sallangok le
                 clean_name = name_clean.split('/')[0].split('Ft')[0].strip()
 
-                # 4. CÍM (Irányítószámtól kezdve, megőrizve a számokat)
+                # 4. CÍM (Irányítószámtól kezdve)
                 addr_raw = " ".join(curr["addr"])
                 zip_m = re.search(zip_pattern, addr_raw)
                 clean_address = addr_raw[zip_m.start():].strip() if zip_m else addr_raw.strip()
 
-                # 5. MEGJEGYZÉS (Sorszámok és kódok nélkül)
+                # 5. MEGJEGYZÉS (Sorszámok nélkül)
                 note_raw = " ".join(curr["note"])
-                # Sorszám az elejéről le (pl. "1 ")
                 note_clean = re.sub(r'^\d+[\s.]*', '', note_raw).strip()
                 final_note = note_clean.replace(u_code_m.group(0), "")
                 for trash in [clean_tel, money_val, "Ft"]:

@@ -81,8 +81,8 @@ def parse_interfood_pdf(pdf_file):
     meta = {"year": "", "week": "", "date": "", "jarat": ""} 
     
     order_pattern = r'\b\d+-[A-Z][A-Z0-9*]*\b'
-    # Kibővített pénz minta, ami figyeli a mínusz jelet is
-    money_pattern = r'(-?\s?\d[\d\s]{0,7})\s*Ft'
+    # Szigorúbb pénz minta: csak a sor legvégén, Ft előtt, szóközökkel elválasztva
+    money_pattern = r'(-?\s?\d[\d\s]{0,6})\s*Ft'
     phone_pattern = r'(\d{2}[/\s]\d{6,7})'
     area_codes = ['20', '30', '70', '52']
 
@@ -104,6 +104,8 @@ def parse_interfood_pdf(pdf_file):
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
+                
+                # Ügyfélkód (H-123456 vagy P-123456 formátum)
                 u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
                 if not u_code_m: continue
 
@@ -115,57 +117,55 @@ def parse_interfood_pdf(pdf_file):
                     for w in row_words:
                         curr["all"].append(w['text'])
                         x = w['x0']
-                        if 140 <= x < 355: curr["addr_raw"].append(w['text'])
-                        elif 355 <= x < 520: curr["name_raw"].append(w['text'])
+                        # Cím ablak szűkítése, hogy ne lógjon bele a névbe
+                        if 140 <= x < 350: curr["addr_raw"].append(w['text'])
+                        # Név ablak szűkítése, hogy ne lógjon bele a rendelésbe
+                        elif 350 <= x < 485: curr["name_raw"].append(w['text'])
                         elif x < 140: curr["note_raw"].append(w['text'])
 
                 all_txt = " ".join(curr["all"])
                 orders_found = re.findall(order_pattern, all_txt)
-                
-                # Összesen darabszám kinyerése
                 total_qty = sum([int(o.split('-')[0]) for o in orders_found if '-' in o])
                 
-                # PÉNZ ÉS LEMONDÁS KEZELÉSE
+                # --- PÉNZ KEZELÉS ÚJRAGONDOLVA ---
+                # Megkeressük az ÖSSZES Ft-ot tartalmazó részt
+                money_candidates = re.findall(money_pattern, all_txt)
                 money_val = "0 Ft"
-                m_match = re.search(money_pattern, all_txt)
                 
-                if m_match:
-                    raw_num_str = m_match.group(1)
-                    raw_num = re.sub(r'[^\d]', '', raw_num_str)
-                    is_neg = "-" in raw_num_str
+                if money_candidates:
+                    # Mindig az utolsó Ft-os értéket vesszük, mert az az összesítő a sor végén
+                    raw_money = money_candidates[-1].strip()
+                    clean_money = re.sub(r'[^\d-]', '', raw_money)
                     
-                    # 530 Ft fix (sorszám + darabszám + 0)
-                    # Ha a szám 3 jegyű, 0-ra végződik és a közepe a darabszám
-                    if len(raw_num) == 3 and raw_num.endswith('0') and raw_num[1] == str(total_qty):
-                        money_val = "0 Ft"
-                    # Danuti/Magyar Éva fix (ha a darabszámmal kezdődik a nagy szám)
-                    elif len(raw_num) >= 2 and raw_num.startswith(str(total_qty)) and total_qty > 0:
-                        potential_money = raw_num[len(str(total_qty)):]
-                        money_val = f"{potential_money} Ft" if potential_money and potential_money != "0" else "0 Ft"
+                    # Ha a szám gyanúsan összefolyt (pl. több mint 6 számjegy vagy darabszámmal kezdődik)
+                    # és a darabszám is ott van a közelben, akkor óvatosan kezeljük
+                    if len(clean_money) >= 4 and clean_money.endswith('0') and str(total_qty) in clean_money[:2]:
+                        # Ha a darabszám után maradó rész 0, akkor az 0 Ft
+                        potential = clean_money.replace(str(total_qty), "", 1)
+                        if potential == "0" or potential == "":
+                            money_val = "0 Ft"
+                        else:
+                            money_val = f"{potential} Ft"
                     else:
-                        money_val = f"{raw_num} Ft" if raw_num and raw_num != "0" else "0 Ft"
-                    
-                    # Ha mínuszos, az lemondás -> 0 Ft beszedendő
-                    if is_neg: money_val = "0 Ft"
+                        money_val = f"{clean_money} Ft" if clean_money != "0" else "0 Ft"
 
-                # NÉV TISZTÍTÁSA
+                # --- NÉV TISZTÍTÁS (Majoros Krisztina -R hiba ellen) ---
                 name_txt = " ".join(curr["name_raw"])
-                clean_name = re.sub(r'^\d+[\s.]*', '', name_txt) # Elejéről sorszám
+                # Csak a neveket hagyjuk meg, levágjuk a kötőjellel kezdődő kódmaradványokat
+                clean_name = re.sub(r'-[A-Z0-9*]+.*', '', name_txt) 
+                clean_name = re.sub(r'^\d+[\s.]*', '', clean_name)
                 for code in area_codes:
-                    clean_name = re.sub(rf'\b{code}\b', '', clean_name) # Telefonszám kód törlése
+                    clean_name = re.sub(rf'\b{code}\b', '', clean_name)
                 clean_name = re.sub(r'\s+', ' ', clean_name).strip()
 
-                # MEGJEGYZÉS TISZTÍTÁSA (A sorszám-gyalu)
-                raw_note = " ".join(curr["note_raw"])
-                # Levágjuk a magányos sorszámot az elejéről (pl "1 ", "12 ")
-                clean_note = re.sub(r'^\d+\s+', '', raw_note).strip()
-                # Ha még maradt az elején valami szemét
+                # --- MEGJEGYZÉS ---
+                clean_note = re.sub(r'^\d+\s+', '', " ".join(curr["note_raw"])).strip()
                 clean_note = re.sub(r'^[./-]\s*', '', clean_note)
 
                 rows.append({
                     "Prefix": u_code_m.group(0)[0].upper(),
                     "ID": u_code_m.group(0),
-                    "Ügyintéző": clean_name.split('/')[0].strip(),
+                    "Ügyintéző": clean_name.strip(),
                     "Cím": " ".join(curr["addr_raw"]).strip(),
                     "Telefon": (re.search(phone_pattern, all_txt).group(0).replace(" ", "") if re.search(phone_pattern, all_txt) else ""),
                     "Pénz": money_val,

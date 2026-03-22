@@ -407,13 +407,23 @@ if st.session_state.mdf is not None:
     c1, c2 = st.columns(2)
     with c1:
         if st.button("✅ SORREND MENTÉSE", use_container_width=True):
+            # 1. Másolat készítése a szerkesztett adatokról
             temp_df = edited_df.copy()
+            
+            # 2. Számmá alakítás (kezelve a tizedeseket)
             temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(float)
+            
+            # 3. SORRENDEZÉS: Ez hiányzott a tartós mentéshez!
             temp_df = temp_df.sort_values('Sorrend').reset_index(drop=True)
             
+            # 4. A szótárak frissítése az új sorrend alapján
             st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
             st.session_state.notes = dict(zip(temp_df['ID'].astype(str), temp_df['Megjegyzés'].fillna("")))
-            st.session_state.mdf = temp_df
+            
+            # 5. KRITIKUS LÉPÉS: Felülírjuk a fő adatforrást a rendezett változattal
+            st.session_state.mdf = temp_df 
+            
+            # 6. Újratöltés, hogy a táblázat már az mdf új állapotát olvassa be
             st.rerun()
                 
     with c2:

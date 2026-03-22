@@ -151,16 +151,28 @@ def merge_data(raw_rows):
     L_DAYS = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
     df = pd.DataFrame(raw_rows)
     merged = []
+    
     for uid, group in df.groupby("ID", sort=False):
-        # 1. Kimentjük az alap adatokat az első sorból
+        # Alap adatok az első sorból
         base = group.iloc[0].copy().to_dict()
         
-        # --- EZ A RÉSZ JAVÍTJA A DUPLÁZÓDÁST ---
-        # Ahelyett, hogy hagynánk a rendszert összeadni, 
-        # kényszerítjük, hogy CSAK az első sorban talált összeget használja.
-        # Ha a beolvasó jól működött, itt a 'Pénz' mezőben már ott van a korrekt összeg.
-        base['Pénz'] = group.iloc[0]['Pénz'] 
-        # ----------------------------------------
+        # --- A MEGOLDÁS: Beszedendő vs Számolt érték ---
+        # Megnézzük a beolvasott 'Pénz' oszlopot. 
+        # Csak azt tartjuk meg, ami NEM nulla és NEM üres.
+        real_money_values = [
+            str(p).strip() for p in group['Pénz'].tolist() 
+            if str(p).strip().lower() not in ["0 ft", "0", "nan", "", "0.0"]
+        ]
+        
+        if real_money_values:
+            # Ha van benne valódi beszedendő összeg a PDF-ből, azt használjuk
+            # (Az egyediesítés miatt csak az elsőt, ha duplázódna)
+            base['Pénz'] = real_money_values[0]
+        else:
+            # Ha a PDF-ben nem volt összeg (0 Ft vagy üres), 
+            # akkor itt SEM szabad számolnia semmit! Maradjon üres vagy 0 Ft.
+            base['Pénz'] = "0 Ft"
+        # ----------------------------------------------
 
         o_p, has_weekend = [], False
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
@@ -172,7 +184,7 @@ def merge_data(raw_rows):
         
         base['Rendelés_Full'] = " | ".join(o_p)
         
-        # A darabszámokat (Összesen) továbbra is összeadjuk, az így helyes
+        # A 'Összesen' marad a darabszámok összege
         base['Összesen'] = group['Összesen'].sum()
         
         base['Hétvégi'] = has_weekend 

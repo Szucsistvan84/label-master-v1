@@ -383,11 +383,19 @@ if st.session_state.mdf is not None:
     cols = ['Sorrend', 'ID', 'Ügyintéző', 'Cím', 'Telefon', 'Rendelés_Full', 'Összesen', 'Pénz', 'Megjegyzés']
     display_df = st.session_state.mdf[[c for c in cols if c in st.session_state.mdf.columns]].copy()
 
-    st.subheader("📍 Menetlevél szerkesztése")
+st.subheader("📍 Menetlevél szerkesztése")
     edited_df = st.data_editor(
-        display_df, hide_index=True, use_container_width=True,
+        display_df, 
+        hide_index=True, 
+        use_container_width=True,
         column_config={
-            "Sorrend": st.column_config.NumberColumn("Sorrend", step=1, format="%d"),
+            "Sorrend": st.column_config.NumberColumn(
+                "Sorrend", 
+                help="Használj pontot a tizedesekhez (pl. 1.5)",
+                min_value=0,
+                step=0.1,  # Engedélyezi a tizedes léptetést
+                format="%.1f", # Megjelenítés 1 tizedesjeggyel
+            ),
             "ID": st.column_config.TextColumn("Azonosító", disabled=True),
         }
     )
@@ -395,8 +403,14 @@ if st.session_state.mdf is not None:
     c1, c2 = st.columns(2)
     with c1:
         if st.button("✅ SORREND MENTÉSE", use_container_width=True):
-            temp_df = edited_df.sort_values('Sorrend').reset_index(drop=True)
-            temp_df['Sorrend'] = range(1, len(temp_df) + 1)
+            # Biztosítjuk, hogy float-ként kezeljük a sorrendet a rendezés előtt
+            temp_df = edited_df.copy()
+            temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(float)
+            temp_df = temp_df.sort_values('Sorrend').reset_index(drop=True)
+            
+            # Ha utána újra egész számokat akarsz belőle:
+            # temp_df['Sorrend'] = range(1, len(temp_df) + 1)
+            
             st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
             st.session_state.notes = dict(zip(temp_df['ID'].astype(str), temp_df['Megjegyzés'].fillna("")))
             st.session_state.mdf = temp_df

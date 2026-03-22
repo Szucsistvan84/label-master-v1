@@ -380,42 +380,42 @@ with st.sidebar:
 # --- Megjelenítés ---
 
 if st.session_state.mdf is not None:
+    # 1. Előkészítjük az adatokat (ez az IF belseje, 1 tab behúzás)
     cols = ['Sorrend', 'ID', 'Ügyintéző', 'Cím', 'Telefon', 'Rendelés_Full', 'Összesen', 'Pénz', 'Megjegyzés']
     display_df = st.session_state.mdf[[c for c in cols if c in st.session_state.mdf.columns]].copy()
 
-st.subheader("📍 Menetlevél szerkesztése")
-edited_df = st.data_editor(
-    display_df, 
-    hide_index=True, 
-    use_container_width=True,
-    column_config={
-        "Sorrend": st.column_config.NumberColumn(
-            "Sorrend", 
-            help="Használj pontot a tizedesekhez (pl. 1.5)",
-            min_value=0,
-            step=0.1,  
-            format="%.1f", 
-        ),
-        "ID": st.column_config.TextColumn("Azonosító", disabled=True),
-    }
-)
+    st.subheader("📍 Menetlevél szerkesztése")
     
-c1, c2 = st.columns(2)
-with c1:
-    if st.button("✅ SORREND MENTÉSE", use_container_width=True):
-        # Biztosítjuk, hogy float-ként kezeljük a sorrendet a rendezés előtt
-        temp_df = edited_df.copy()
-        temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(float)
-        temp_df = temp_df.sort_values('Sorrend').reset_index(drop=True)
-        
-        # Ha utána újra egész számokat akarsz belőle:
-        # temp_df['Sorrend'] = range(1, len(temp_df) + 1)
-        
-        st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
-        st.session_state.notes = dict(zip(temp_df['ID'].astype(str), temp_df['Megjegyzés'].fillna("")))
-        st.session_state.mdf = temp_df
-        st.rerun()
+    # 2. A táblázat (szintén 1 tab behúzás)
+    edited_df = st.data_editor(
+        display_df, 
+        hide_index=True, 
+        use_container_width=True,
+        column_config={
+            "Sorrend": st.column_config.NumberColumn(
+                "Sorrend", 
+                help="Használj pontot a tizedesekhez (pl. 1.5)",
+                min_value=0,
+                step=0.1,  
+                format="%.1f", 
+            ),
+            "ID": st.column_config.TextColumn("Azonosító", disabled=True),
+        }
+    )
+
+    # 3. A gombok blokkja (szintén beljebb van tolva, mert csak akkor látszódhatnak, ha van adat)
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("✅ SORREND MENTÉSE", use_container_width=True):
+            temp_df = edited_df.copy()
+            temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(float)
+            temp_df = temp_df.sort_values('Sorrend').reset_index(drop=True)
             
+            st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
+            st.session_state.notes = dict(zip(temp_df['ID'].astype(str), temp_df['Megjegyzés'].fillna("")))
+            st.session_state.mdf = temp_df
+            st.rerun()
+                
     with c2:
         csv_data = edited_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 MENTÉS CSV-BE", csv_data, "adatok.csv", use_container_width=True)
@@ -426,3 +426,8 @@ with c1:
         st.download_button("📄 ETIKETTEK", create_label_pdf(edited_df, c_n, c_p), "etikettek.pdf", use_container_width=True)
     with col_b:
         st.download_button("📋 MENETTERV + RAKLISTA", create_manifest_pdf(edited_df, c_n), "menetterv.pdf", use_container_width=True)
+
+# --- ITT AZ ELSE ÁG ---
+else:
+    # Ez a sor pontosan az "if st.session_state.mdf..." vonalában van a bal szélen
+    st.info("Kérlek, tölts be egy fájlt a feldolgozáshoz!")

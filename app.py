@@ -415,44 +415,58 @@ def create_manifest_pdf(df, fn, meta_list):
 def create_raklista_pdf(df, jarat_info, meta_list):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
-    # Margók beállítása, hogy ne legyen üres az oldal teteje
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=15*mm, bottomMargin=15*mm)
-    etlap = st.session_state.get('etlap', {})
+    etlap = st.session_state.get('etlap', {}) # Ez tartalmazza az Excel sorrendet is
     
-    # 1. Összesítés: Kigyűjtjük az összes kódot a táblázatból
+    # 1. Összesítés a táblázatból (Rendelés_Full oszlop alapján)
     counts = {}
-    # Fontos: a szerkesztett df-ből (edited_df) dolgozunk
     for _, r in df.iterrows():
         order_str = str(r.get('Rendelés_Full', ''))
-        # Megkeressük a "darab-KÓD" párosokat (pl: 1-A, 2-BK)
-        found = re.findall(r'(\d+)-([A-Z0-9*+]+)', order_str)
+        # Keresünk minden "szám-kód" formátumot (pl. 1-A, 2-BK)
+        found = re.findall(r'(\d+)\s*-\s*([A-Z0-9*+]+)', order_str)
         for qty, code in found:
             code = code.strip().upper()
             counts[code] = counts.get(code, 0) + int(qty)
     
-    # 2. Táblázat adatok összeállítása
+    # 2. Táblázat adatok összeállítása az EXCEL SORRENDBEN
     data = [[
         Paragraph("<b>KÓD</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1)), 
         Paragraph("<b>MEGNEVEZÉS</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1)),
         Paragraph("<b>DB</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1))
     ]]
     
-    if not counts:
-        data.append(["-", "Nincs megjeleníthető adat (üres rendelés oszlop)", "0"])
-    else:
-        for code in sorted(counts.keys()):
-            clean_c = code.replace('*', '').strip()
-            # Itt keressük ki az Interfood étlapból a nevet
-            item_info = etlap.get(clean_c, {})
-            nev = item_info.get('nev', "--- NINCS AZ ÉTLAPON / KÉZI ---")
+    # Az étlap szótár kulcsai az Excel sorrendjében vannak (P_A, P_B, stb.)
+    # Végigmegyünk az étlapon, és ha a kód szerepel a PDF-ből kigyűjtött rendelésekben, hozzáadjuk
+    processed_codes = set()
+    
+    for full_key in etlap.keys():
+        # A kulcsból (pl. "P_A") kiszedjük a tiszta kódot ("A")
+        code_only = full_key.split('_')[1] if '_' in full_key else full_key
+        
+        if code_only in counts and code_only not in processed_codes:
+            nev = etlap[full_key].get('nev', "---")
+            darab = counts[code_only]
             
             data.append([
-                code, 
+                code_only, 
                 Paragraph(nev, ParagraphStyle('L', fontName=f_reg, fontSize=9)), 
-                f"{counts[code]} db"
+                f"{darab} db"
+            ])
+            processed_codes.add(code_only)
+
+    # 3. Kézi kódok kezelése (amik nincsenek az étlapon, de a PDF-ben benne voltak)
+    for code, darab in counts.items():
+        if code not in processed_codes:
+            data.append([
+                code, 
+                Paragraph("--- NINCS AZ ÉTLAPON / KÉZI ---", ParagraphStyle('L', fontName=f_reg, fontSize=9)), 
+                f"{darab} db"
             ])
 
-    # 3. PDF felépítése
+    # 4. PDF felépítése
+    if len(data) == 1: # Csak a fejléc van benne
+        data.append(["-", "Nincs megjeleníthető adat", "0"])
+
     t = Table(data, colWidths=[30*mm, 125*mm, 25*mm])
     t.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.black),
@@ -463,10 +477,9 @@ def create_raklista_pdf(df, jarat_info, meta_list):
         ('FONTNAME', (0,0), (-1,-1), f_reg)
     ]))
     
-    # Cím hozzáadása a raklista elé
     elements = []
     elements.append(Paragraph(f"<b>ÖSSZESÍTETT RAKLISTA</b> - {jarat_info}", 
-                             ParagraphStyle('Title', fontName=f_bold, fontSize=14, spaceAfter=10)))
+                               ParagraphStyle('Title', fontName=f_bold, fontSize=14, spaceAfter=10)))
     elements.append(t)
     
     doc.build(elements)

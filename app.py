@@ -80,107 +80,109 @@ def parse_interfood_pdf(pdf_file):
     rows = []
     meta = {"year": "", "week": "", "date": "", "jarat": ""} 
     
-    # Rendelés minta: darabszám-kód, opcionális csillaggal
     order_pattern = r'\b\d+-[A-Z][A-Z0-9*]*\b'
     money_pattern = r'(-?\s?\d[\d\s]{0,7})\s*Ft'
     phone_pattern = r'(\d{2}[/\s]\d{6,7})'
-    stop_keywords = ["menetterv összesen", "járat összesen", "összesen:", "oldal"]
+    # Kibővített stop-szavak a biztonság kedvéért
+    stop_keywords = ["menetterv összesen", "járat összesen", "összesen:", "oldal", "nyomtatva:"]
 
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text() or ""
-            # Ha elérjük az összesítőt, ezen az oldalon már nem keresünk több ügyfelet
-            lower_text = text.lower()
-            
-            words = page.extract_words()
-            lines = {}
-            for w in words:
-                y = round(w['top'], 1)
-                for ey in lines:
-                    if abs(y - ey) < 2.0:
-                        lines[ey].append(w)
-                        break
-                else: lines[y] = [w]
-
-            sorted_y = sorted(lines.keys())
-            for i, y in enumerate(sorted_y):
-                line_words = sorted(lines[y], key=lambda x: x['x0'])
-                text_ws = " ".join([w['text'] for w in line_words])
+    try:
+        with pdfplumber.open(pdf_file) as pdf:
+            for page in pdf.pages:
+                words = page.extract_words()
+                if not words: continue
                 
-                # STOP-LOGIKA: Ha a sorban összesítő kulcsszó van, megállunk
-                if any(kw in text_ws.lower() for kw in stop_keywords):
-                    break
+                lines = {}
+                for w in words:
+                    y = round(w['top'], 1)
+                    for ey in lines:
+                        if abs(y - ey) < 2.5: # Kicsit engedékenyebb sorillesztés
+                            lines[ey].append(w)
+                            break
+                    else: lines[y] = [w]
 
-                u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
-                if not u_code_m: continue
-
-                curr = {"all": [], "addr_raw": [], "name_raw": [], "note_raw": []}
-                for idx in range(i, len(sorted_y)):
-                    row_words = sorted(lines[sorted_y[idx]], key=lambda x: x['x0'])
-                    row_text = " ".join([w['text'] for w in row_words])
+                sorted_y = sorted(lines.keys())
+                for i, y in enumerate(sorted_y):
+                    line_words = sorted(lines[y], key=lambda x: x['x0'])
+                    text_ws = " ".join([w['text'] for w in line_words])
                     
-                    # Ha a következő sorban új ügyfélkód vagy STOP szó van
-                    if idx > i and (re.search(r'[HKSCPZ][.-][0-9]{5,7}', row_text) or 
-                                   any(kw in row_text.lower() for kw in stop_keywords)):
+                    # Megállás, ha összesítőhöz érünk
+                    if any(kw in text_ws.lower() for kw in stop_keywords) and i > 5:
                         break
+
+                    u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
+                    if not u_code_m: continue
+
+                    curr = {"all": [], "addr_raw": [], "name_raw": [], "note_raw": []}
+                    for idx in range(i, len(sorted_y)):
+                        row_words = sorted(lines[sorted_y[idx]], key=lambda x: x['x0'])
+                        row_text = " ".join([w['text'] for w in row_words])
                         
-                    for w in row_words:
-                        curr["all"].append(w['text'])
-                        x = w['x0']
-                        if 140 <= x < 355: curr["addr_raw"].append(w['text'])
-                        elif 355 <= x < 520: curr["name_raw"].append(w['text'])
-                        elif x < 140: curr["note_raw"].append(w['text'])
+                        if idx > i and (re.search(r'[HKSCPZ][.-][0-9]{5,7}', row_text) or 
+                                       any(kw in row_text.lower() for kw in stop_keywords)):
+                            break
+                            
+                        for w in row_words:
+                            curr["all"].append(w['text'])
+                            x = w['x0']
+                            if 140 <= x < 355: curr["addr_raw"].append(w['text'])
+                            elif 355 <= x < 520: curr["name_raw"].append(w['text'])
+                            elif x < 140: curr["note_raw"].append(w['text'])
 
-                all_txt = " ".join(curr["all"])
-                orders_found = re.findall(order_pattern, all_txt)
-                
-                # Sor végi összesítő sorszám kinyerése (az utolsó magányos szám a sorban a Ft előtt)
-                total_qty = 0
-                qty_match = re.search(r'(\d+)\s*(?:-?\d+\s*)?Ft', all_txt)
-                if qty_match: total_qty = int(qty_match.group(1))
-                else: total_qty = sum([int(o.split('-')[0]) for o in orders_found if '-' in o])
+                    all_txt = " ".join(curr["all"])
+                    orders_found = re.findall(order_pattern, all_txt)
+                    
+                    # Fix: Ha nem talál rendelést, akkor is próbálja meg a darabszámot kinyerni
+                    total_qty = 0
+                    qty_match = re.search(r'(\d+)\s*(?:-?\d+\s*)?Ft', all_txt)
+                    if qty_match: 
+                        total_qty = int(qty_match.group(1))
+                    else: 
+                        total_qty = sum([int(o.split('-')[0]) for o in orders_found if '-' in o])
 
-                # --- PÉNZ JAVÍTÁS (180/210 fix) ---
-                money_val = "0 Ft"
-                m_match = re.search(money_pattern, all_txt)
-                if m_match:
-                    raw_num = re.sub(r'[^\d]', '', m_match.group(1))
-                    is_neg = "-" in m_match.group(1)
-                    # Ha pl. 8 tétel van és a szám 180 -> 0 Ft
-                    # Ha 1 tétel van és a szám 210 -> 0 Ft
-                    if raw_num.endswith('0') and (str(total_qty) + '0' in raw_num or raw_num == str(total_qty) + '0'):
-                        money_val = "0 Ft"
-                    else:
-                        money_val = f"{'-' if is_neg else ''}{raw_num} Ft" if raw_num != "0" else "0 Ft"
+                    # Ha még mindig 0, de van rendelés kód, akkor legalább 1
+                    if total_qty == 0 and orders_found: total_qty = 1
+                    if total_qty == 0: continue
 
-                # --- NÉV TISZTÍTÁS (30-asok és sorszámok) ---
-                name_raw_txt = " ".join(curr["name_raw"])
-                clean_name = re.sub(r'^\d+[\s.]*', '', name_raw_txt) # Elejéről sorszám
-                clean_name = re.sub(r'\s+(20|30|70|52)$', '', clean_name).strip() # Végéről tel.
-                clean_name = clean_name.split('/')[0].split('Ft')[0].strip()
+                    # PÉNZ JAVÍTÁS (A Magyar Éva és Danuti fix)
+                    money_val = "0 Ft"
+                    m_match = re.search(money_pattern, all_txt)
+                    if m_match:
+                        raw_num = re.sub(r'[^\d]', '', m_match.group(1))
+                        is_neg = "-" in m_match.group(1)
+                        qty_str = str(total_qty)
+                        
+                        if raw_num.endswith('0') and (raw_num == f"{qty_str}0" or raw_num == f"1{qty_str}0"):
+                            money_val = "0 Ft"
+                        elif len(raw_num) >= 5 and raw_num.startswith(qty_str):
+                            money_val = f"{raw_num[len(qty_str):]} Ft"
+                        else:
+                            money_val = f"{raw_num} Ft" if raw_num != "0" else "0 Ft"
+                        if is_neg and money_val != "0 Ft": money_val = "-" + money_val
 
-                # --- CÍM ÉS MEGJEGYZÉS ---
-                addr_area = " ".join(curr["addr_raw"])
-                addr_match = re.search(r'(\d{4}\s+Debrecen,.*?\d+[-\d]*\.?(\s+\d+/\d+)?(\s*sz\.)?)', addr_area)
-                clean_address = addr_match.group(1).strip() if addr_match else addr_area
-                
-                main_note = " ".join(curr["note_raw"])
-                final_note = re.sub(r'^\d+[\s.]*', '', main_note).strip()
-                # Metman specifikus takarítás: ha a név benne maradt a megjegyzésben
-                if clean_name:
-                    final_note = final_note.replace(clean_name, "").strip()
+                    # NÉV ÉS CÍM TISZTÍTÁS
+                    name_raw_txt = " ".join(curr["name_raw"])
+                    clean_name = re.sub(r'^\d+[\s.]*', '', name_raw_txt)
+                    clean_name = re.sub(r'\s+(20|30|70|52)$', '', clean_name).strip()
+                    
+                    addr_area = " ".join(curr["addr_raw"])
+                    addr_match = re.search(r'(\d{4}\s+Debrecen,.*?\d+[-\d]*\.?)', addr_area)
+                    clean_address = addr_match.group(1).strip() if addr_match else addr_area
 
-                rows.append({
-                    "Prefix": u_code_m.group(0)[0].upper(),
-                    "ID": u_code_m.group(0),
-                    "Ügyintéző": clean_name,
-                    "Cím": clean_address,
-                    "Telefon": (re.search(phone_pattern, all_txt).group(0).replace(" ", "") if re.search(phone_pattern, all_txt) else ""),
-                    "Pénz": money_val,
-                    "Rendelés": ", ".join(orders_found),
-                    "Megjegyzés": final_note.replace(u_code_m.group(0), "").strip("- ,"),
-                    "Összesen": total_qty
-                })
+                    rows.append({
+                        "Prefix": u_code_m.group(0)[0].upper(),
+                        "ID": u_code_m.group(0),
+                        "Ügyintéző": clean_name.split('/')[0].strip(),
+                        "Cím": clean_address,
+                        "Telefon": (re.search(phone_pattern, all_txt).group(0).replace(" ", "") if re.search(phone_pattern, all_txt) else ""),
+                        "Pénz": money_val,
+                        "Rendelés": ", ".join(orders_found),
+                        "Megjegyzés": " ".join(curr["note_raw"]).replace(u_code_m.group(0), "").strip("- ,"),
+                        "Összesen": total_qty
+                    })
+    except Exception as e:
+        st.error(f"Hiba a PDF feldolgozása közben: {e}")
+        return [], meta
 
     return rows, meta
 

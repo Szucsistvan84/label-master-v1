@@ -81,16 +81,15 @@ def parse_interfood_pdf(pdf_file):
     meta = {"year": "", "week": "", "date": "", "jarat": ""} 
     
     order_pattern = r'\b\d+-[A-Z][A-Z0-9*]*\b'
-    # Pénz: rugalmasabb keresés, ami engedi a negatív jelet és a szóközöket
-    money_pattern = r'(-?\s?\d[\d\s]{0,8}\s*Ft)'
+    # Szigorúbb pénz mintázat: az összeget a "Ft" szócska előtt keressük
+    money_pattern = r'(-?\s?\d[\d\s]{0,8})\s*Ft'
     phone_pattern = r'(\d{2}[/\s]\d{6,7})'
-    zip_pattern = r'\b\d{4}\b'
 
     with pdfplumber.open(pdf_file) as pdf:
         if len(pdf.pages) > 0:
             header = pdf.pages[0].extract_text() or ""
-            j_m = re.search(r'(\d{4})\.\s*járat', header); y_m = re.search(r'(\d{4})\.\s*év', header); w_m = re.search(r'(\d{1,2})\.\s*hét', header)
-            if j_m: meta["jarat"] = j_m.group(1); meta["year"] = y_m.group(1) if y_m else ""; meta["week"] = w_m.group(1) if w_m else ""
+            j_m = re.search(r'(\d{4})\.\s*járat', header)
+            if j_m: meta["jarat"] = j_m.group(1)
 
         for page in pdf.pages:
             words = page.extract_words()
@@ -126,43 +125,42 @@ def parse_interfood_pdf(pdf_file):
                 orders_found = re.findall(order_pattern, all_txt)
                 total_qty = sum([int(o.split('-')[0]) for o in orders_found if '-' in o])
 
-                # 1. SZŰRÉS: Lemondott rendelés (0 tétel) kihagyása
+                # 1. LEMONDOTT RENDELÉSEK KIHAGYÁSA
                 if total_qty == 0:
                     continue
 
-                # 2. PÉNZ TISZTÍTÁSA (Majoros Krisztina & Magyar Éva fix)
+                # 2. PÉNZ TISZTÍTÁSA (Precíziós szűrő a darabszám ellen)
                 money_val = "0 Ft"
                 m_match = re.search(money_pattern, all_txt)
                 if m_match:
-                    # Megtartjuk az előjelet és a számokat
-                    m_raw = m_match.group(1)
-                    is_negative = "-" in m_raw
-                    digits = re.sub(r'[^\d]', '', m_raw)
+                    raw_num_txt = m_match.group(1)
+                    is_neg = "-" in raw_num_txt
+                    digits = re.sub(r'[^\d]', '', raw_num_txt)
                     
                     if digits:
-                        # Ha a szám a darabszámmal kezdődik (pl. 8-as vagy 2-es), levágjuk az elejét
-                        # Kifejezetten a "total_qty" és a rendelés utolsó karaktereinek mintázatát keressük
                         qty_str = str(total_qty)
-                        
-                        # Ha az összeg gyanúsan hosszú (pl. 180 vagy 25265), és a qty_str ott van az elején
-                        if len(digits) > 4 and digits.startswith(qty_str):
-                            digits = digits[len(qty_str):]
-                        
-                        # Ha még mindig túl hosszú (>5 jegy), az utolsó 4-5 jegyet tartjuk meg (Interfood max ár)
-                        if len(digits) > 5:
-                            digits = digits[-4:] if not digits.endswith('00') else digits[-5:]
+                        # Ha a szám pontosan úgy néz ki, mint "[darabszám]0", akkor az 0 Ft
+                        # Pl: 8 darab mellett a "80" -> 0 Ft, 2 darab mellett a "20" -> 0 Ft
+                        if digits == f"{qty_str}0" or digits == qty_str:
+                            money_val = "0 Ft"
+                        # Ha Majoros Krisztina esete: darabszám + utolsó kód karaktere + 0 (pl. 810)
+                        elif len(digits) > 2 and digits.startswith(qty_str) and digits.endswith('0'):
+                            money_val = "0 Ft"
+                        else:
+                            # Ha valódi összeg, formázzuk
+                            prefix = "-" if is_neg else ""
+                            # Ha gyanúsan hosszú és a darabszámmal kezdődik, levágjuk az elejét
+                            if len(digits) > 5 and digits.startswith(qty_str):
+                                digits = digits[len(qty_str):]
+                            money_val = f"{prefix}{digits} Ft"
 
-                        final_num = int(digits)
-                        prefix = "-" if is_negative else ""
-                        money_val = f"{prefix}{final_num} Ft" if final_num != 0 else "0 Ft"
-
-                # 3. NÉV ÉS CÍM
+                # 3. NÉV TISZTÍTÁSA
                 name_txt = " ".join(curr["name_raw"])
                 clean_name = re.sub(r'^\d+[\s.]*', '', name_txt).split('/')[0].split('Ft')[0].strip()
                 clean_name = re.sub(r'\s+(20|30|70|52)\b', '', clean_name).strip()
 
+                # 4. CÍM
                 addr_area = " ".join(curr["addr_raw"])
-                # Emelet/Ajtó (7/49) és Házszám intervallum (20-22) megőrzése
                 addr_match = re.search(r'(\d{4}\s+Debrecen,\s+.*?\d+[-\d]*\.?(\s+\d+/\d+)?(\s*sz\.)?)', addr_area)
                 if addr_match:
                     clean_address = addr_match.group(1).strip()
@@ -170,25 +168,31 @@ def parse_interfood_pdf(pdf_file):
                 else:
                     clean_address = addr_area; leftover_note = ""
 
-                # 4. MEGJEGYZÉS
+                # 5. MEGJEGYZÉS (Névmaradványok és sorszámok szűrése)
                 main_note = " ".join(curr["note_raw"])
                 main_note = re.sub(r'^\d+[\s.]*', '', main_note).strip()
                 full_note = f"{main_note} {leftover_note}".strip()
                 
-                # Névmaradvány törlése a / után, de csak ha nem emelet/ajtó
-                final_note = full_note
-                if "/" in full_note and not re.search(r'\d/\d', full_note):
-                    final_note = full_note.split('/')[0].strip()
-
-                if clean_name and clean_name in final_note:
-                    final_note = final_note.replace(clean_name, "").strip()
+                # Slash és névmaradvány stop
+                final_note = full_note.split('/')[0].strip()
                 
+                # Összetett nevek (kötőjeles) törlése a megjegyzésből
+                if clean_name:
+                    # Töröljük a teljes nevet
+                    final_note = final_note.replace(clean_name, "").strip()
+                    # Töröljük a név részeit is (pl. Szabó-Salák esetén a Szabó-t és a Salák-ot is)
+                    name_parts = re.split(r'[-\s]', clean_name)
+                    for part in name_parts:
+                        if len(part) > 2: # Csak a 2 karakternél hosszabb névtöredékeket bántjuk
+                            final_note = re.sub(rf'^{part}\b', '', final_note, flags=re.IGNORECASE).strip()
+
                 final_note = final_note.replace(u_code_m.group(0), "")
                 phone_m = re.search(phone_pattern, all_txt)
                 clean_tel = phone_m.group(0).replace(" ", "") if phone_m else ""
                 
-                for trash in [clean_tel, "Ft", "GSV Ipari park", clean_name]:
+                for trash in [clean_tel, "GSV Ipari park", "Kft"]:
                     final_note = final_note.replace(trash, "")
+                
                 final_note = re.sub(r'\s+', ' ', final_note).strip("- ,")
 
                 rows.append({

@@ -415,14 +415,17 @@ def create_manifest_pdf(df, fn, meta_list):
 def create_raklista_pdf(df, jarat_info, meta_list):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
-    # Minimális margók a maximális helykihasználáshoz
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=8*mm, bottomMargin=15*mm, leftMargin=10*mm, rightMargin=10*mm)
+    # Margók minimalizálása az oldalszéleken is
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=7*mm, bottomMargin=12*mm, leftMargin=8*mm, rightMargin=8*mm)
     etlap = st.session_state.get('etlap', {})
     
+    # Napok és időszak kinyerése
     dates_str = ""
     if meta_list:
         m = meta_list[0]
-        dates_str = f"{m.get('year', '')}. {m.get('week', '')}. hét ({m.get('days', '')})"
+        # Ha a 'days' kulcs létezik, azt írjuk be a zárójelbe
+        napok = m.get('days', '')
+        dates_str = f"{m.get('year', '')}. {m.get('week', '')}. hét ({napok})"
 
     # 1. Adatgyűjtés
     counts = {}
@@ -437,12 +440,11 @@ def create_raklista_pdf(df, jarat_info, meta_list):
                 full_key = f"{prefix}_{code.strip().upper()}"
                 counts[full_key] = counts.get(full_key, 0) + int(qty)
     
-    # 2. Stílusok definiálása
+    # 2. Stílusok finomhangolása
     header_style = ParagraphStyle('H', fontName=f_bold, fontSize=8, alignment=1)
-    # Alap stílus a normál soroknak
-    normal_row_style = ParagraphStyle('NR', fontName=f_reg, fontSize=6.5, leading=8)
-    # Félkövér stílus a *-os soroknak
-    star_row_style = ParagraphStyle('SR', fontName=f_bold, fontSize=6.5, leading=8)
+    # Nagyon szűk sorköz (leading), hogy több férjen el
+    normal_row_style = ParagraphStyle('NR', fontName=f_reg, fontSize=6.5, leading=7.5)
+    star_row_style = ParagraphStyle('SR', fontName=f_bold, fontSize=6.5, leading=7.5)
     
     data = [[
         Paragraph("<b>NAP</b>", header_style),
@@ -467,20 +469,19 @@ def create_raklista_pdf(df, jarat_info, meta_list):
                 db = counts[current_lookup]
                 ar = info.get('ar', 0)
                 subtotal = db * ar
-                
                 is_starred = "*" in current_lookup
-                # Ha csillagos, akkor a félkövér betűtípust használjuk az egész sorra
+                
                 current_font = f_bold if is_starred else f_reg
                 current_p_style = star_row_style if is_starred else normal_row_style
                 
-                day = "Péntek" if current_lookup.startswith("P") else "Szombat"
+                day_short = "Péntek" if current_lookup.startswith("P") else "Szombat"
                 code_label = current_lookup.split('_')[1]
                 
                 data.append([
-                    Paragraph(day, ParagraphStyle('D', fontName=current_font, fontSize=6, alignment=1)), # Nap kisebb
+                    Paragraph(day_short, ParagraphStyle('D', fontName=current_font, fontSize=5.5, alignment=1)),
                     Paragraph(code_label, ParagraphStyle('K', fontName=current_font, fontSize=7.5, alignment=1)),
                     Paragraph(f"{db} db", ParagraphStyle('Q', fontName=current_font, fontSize=7.5, alignment=1)),
-                    "[  ]",
+                    Paragraph("[  ]", ParagraphStyle('CB', fontName=f_reg, fontSize=8, alignment=1)), # Középre zárt checkbox
                     Paragraph(info.get('nev', '---'), current_p_style),
                     Paragraph(f"{ar} Ft", ParagraphStyle('A', fontName=current_font, fontSize=7, alignment=2)),
                     Paragraph(f"{subtotal} Ft", ParagraphStyle('S', fontName=current_font, fontSize=7, alignment=2))
@@ -489,20 +490,22 @@ def create_raklista_pdf(df, jarat_info, meta_list):
                 total_money += subtotal
                 processed_full_keys.add(current_lookup)
 
-    # 4. Oszlopszélességek finomhangolása (Összesen 190mm)
-    # Nap: 12, Kód: 16, DB: 12, Check: 8, Név: 100, Ár: 18, Össz: 24
-    col_widths = [12*mm, 16*mm, 12*mm, 8*mm, 100*mm, 18*mm, 24*mm]
+    # Oszlopszélességek (Összesen: 194mm)
+    col_widths = [12*mm, 15*mm, 12*mm, 8*mm, 105*mm, 18*mm, 24*mm]
     
     t = Table(data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.2, colors.black),
+        ('GRID', (0,0), (-1,-1), 0.1, colors.black),
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        # Minimális belső margók (Padding) a sűrűségért
+        ('TOPPADDING', (0,0), (-1,-1), 1),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1),
         ('LEFTPADDING', (0,0), (-1,-1), 2),
         ('RIGHTPADDING', (0,0), (-1,-1), 2),
     ]))
 
-    # 5. Összesítő rész (HTML-mentes)
+    # 4. Összesítő rész (Kompakt)
     jutalek = int(total_money * 0.13)
     summary_data = [
         ["", "", "", "", "ÖSSZESEN:", f"{total_qty} db", f"{total_money} Ft"],
@@ -511,13 +514,15 @@ def create_raklista_pdf(df, jarat_info, meta_list):
     st_table = Table(summary_data, colWidths=col_widths)
     st_table.setStyle(TableStyle([
         ('FONTNAME', (4,0), (-1,-1), f_bold),
-        ('FONTSIZE', (4,0), (-1,-1), 9),
+        ('FONTSIZE', (4,0), (-1,-1), 8.5),
         ('ALIGN', (4,0), (4,-1), 'RIGHT'),
         ('ALIGN', (5,0), (6,-1), 'RIGHT'),
+        ('TOPPADDING', (0,0), (-1,-1), 1),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1),
         ('LINEABOVE', (4,0), (-1,0), 0.5, colors.black),
     ]))
 
-    # Oldalszám funkció
+    # Oldalszámozás
     def footer(canvas, doc):
         canvas.saveState()
         canvas.setFont(f_reg, 7)
@@ -525,10 +530,10 @@ def create_raklista_pdf(df, jarat_info, meta_list):
         canvas.restoreState()
 
     elements = [
-        Paragraph(f"<b>RAKLISTA ÉS ELSZÁMOLÁS</b>", ParagraphStyle('T', fontName=f_bold, fontSize=12)),
-        Paragraph(f"Időszak: {dates_str} | Járat: {jarat_info}", ParagraphStyle('S', fontName=f_reg, fontSize=9, spaceAfter=5)),
+        Paragraph(f"<b>RAKLISTA ÉS ELSZÁMOLÁS</b>", ParagraphStyle('T', fontName=f_bold, fontSize=11)),
+        Paragraph(f"Időszak: {dates_str} | Járat: {jarat_info}", ParagraphStyle('S', fontName=f_reg, fontSize=8.5, spaceAfter=3)),
         t,
-        Spacer(1, 4*mm),
+        Spacer(1, 3*mm),
         st_table
     ]
     

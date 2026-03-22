@@ -413,15 +413,19 @@ if st.session_state.mdf is not None:
         if st.button("✅ SORREND MENTÉSE", use_container_width=True):
             temp_df = edited_df.copy()
             
-            # Kényszerített típusátalakítás és rendezés
+            # Sorrendezés és típusalakítás
             temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(float)
             temp_df = temp_df.sort_values(by='Sorrend').reset_index(drop=True)
             
-            # Mentés a session_state-be
+            # Adatok mentése
             st.session_state.mdf = temp_df
+            st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
             
-            # Ez a trükk: megváltoztatjuk a táblázat kulcsát, hogy ne a régi állapotot mutassa
-            st.session_state.editor_key += 1
+            # BIZTONSÁGOS KULCS NÖVELÉS:
+            if 'editor_key' not in st.session_state:
+                st.session_state.editor_key = 0  # Ha még nem létezik, létrehozzuk
+            
+            st.session_state.editor_key += 1 # Most már biztosan létezik, növelhetjük
             
             st.rerun()
                 

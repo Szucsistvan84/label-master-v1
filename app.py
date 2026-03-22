@@ -416,71 +416,110 @@ def create_raklista_pdf(df, jarat_info, meta_list):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=15*mm, bottomMargin=15*mm)
-    etlap = st.session_state.get('etlap', {}) # Ez tartalmazza az Excel sorrendet is
+    etlap = st.session_state.get('etlap', {})
     
-    # 1. Összesítés a táblázatból (Rendelés_Full oszlop alapján)
+    # 1. Összesítés napok és PONTOS kódok szerint (csillaggal együtt!)
     counts = {}
     for _, r in df.iterrows():
         order_str = str(r.get('Rendelés_Full', ''))
-        # Keresünk minden "szám-kód" formátumot (pl. 1-A, 2-BK)
-        found = re.findall(r'(\d+)\s*-\s*([A-Z0-9*+]+)', order_str)
-        for qty, code in found:
-            code = code.strip().upper()
-            counts[code] = counts.get(code, 0) + int(qty)
+        day_parts = order_str.split('|')
+        for part in day_parts:
+            prefix = ""
+            if "Pé:" in part: prefix = "P"
+            elif "Szo:" in part: prefix = "Z"
+            else: continue
+            
+            # A regex most már megengedi a csillagot is a kód végén
+            found = re.findall(r'(\d+)\s*-\s*([A-Z0-9*+]+)', part)
+            for qty, code in found:
+                code = code.strip().upper()
+                full_key = f"{prefix}_{code}" # pl. "P_R1*"
+                counts[full_key] = counts.get(full_key, 0) + int(qty)
     
-    # 2. Táblázat adatok összeállítása az EXCEL SORRENDBEN
+    # 2. Táblázat adatok összeállítása
     data = [[
-        Paragraph("<b>KÓD</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1)), 
-        Paragraph("<b>MEGNEVEZÉS</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1)),
-        Paragraph("<b>DB</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1))
+        Paragraph("<b>NAP</b>", ParagraphStyle('C', fontName=f_bold, fontSize=9, alignment=1)),
+        Paragraph("<b>KÓD</b>", ParagraphStyle('C', fontName=f_bold, fontSize=9, alignment=1)), 
+        Paragraph("<b>MEGNEVEZÉS</b>", ParagraphStyle('C', fontName=f_bold, fontSize=9, alignment=1)),
+        Paragraph("<b>DB</b>", ParagraphStyle('C', fontName=f_bold, fontSize=9, alignment=1)),
+        Paragraph("<b>EGYSÉGÁR</b>", ParagraphStyle('C', fontName=f_bold, fontSize=9, alignment=1)),
+        Paragraph("<b>ÖSSZESEN</b>", ParagraphStyle('C', fontName=f_bold, fontSize=9, alignment=1))
     ]]
     
-    # Az étlap szótár kulcsai az Excel sorrendjében vannak (P_A, P_B, stb.)
-    # Végigmegyünk az étlapon, és ha a kód szerepel a PDF-ből kigyűjtött rendelésekben, hozzáadjuk
-    processed_codes = set()
-    
-    for full_key in etlap.keys():
-        # A kulcsból (pl. "P_A") kiszedjük a tiszta kódot ("A")
-        code_only = full_key.split('_')[1] if '_' in full_key else full_key
-        
-        if code_only in counts and code_only not in processed_codes:
-            nev = etlap[full_key].get('nev', "---")
-            darab = counts[code_only]
+    total_qty = 0
+    total_money = 0
+    processed_full_keys = set()
+
+    # Először az étlap sorrendjén megyünk végig
+    for etlap_key in etlap.keys():
+        # Az etlap_key pl. "P_R1". Megnézzük, van-e sima vagy csillagos változatunk
+        for suffix in ["", "*"]:
+            current_lookup = f"{etlap_key}{suffix}" # "P_R1" vagy "P_R1*"
             
+            if current_lookup in counts:
+                info = etlap[etlap_key] # Az adatokat a csillag nélküli kulccsal kérjük le
+                nev = info.get('nev', "---")
+                ar = info.get('ar', 0)
+                db = counts[current_lookup]
+                sor_osszesen = db * ar
+                
+                day_name = "Péntek" if current_lookup.startswith("P") else "Szombat"
+                code_with_star = current_lookup.split('_')[1]
+                
+                data.append([
+                    day_name,
+                    code_with_star,
+                    Paragraph(nev, ParagraphStyle('L', fontName=f_reg, fontSize=8)),
+                    f"{db} db",
+                    f"{ar} Ft",
+                    f"{sor_osszesen} Ft"
+                ])
+                
+                total_qty += db
+                total_money += sor_osszesen
+                processed_full_keys.add(current_lookup)
+
+    # 3. Maradék (kézi) kódok, amik sehogyan sem voltak az étlapon
+    for f_key, db in counts.items():
+        if f_key not in processed_full_keys:
+            day_name = "Péntek" if f_key.startswith("P") else "Szombat"
+            code_label = f_key.split('_')[1]
             data.append([
-                code_only, 
-                Paragraph(nev, ParagraphStyle('L', fontName=f_reg, fontSize=9)), 
-                f"{darab} db"
+                day_name, code_label,
+                Paragraph("--- NINCS AZ ÉTLAPON / KÉZI ---", ParagraphStyle('L', fontName=f_reg, fontSize=8)),
+                f"{db} db", "0 Ft", "0 Ft"
             ])
-            processed_codes.add(code_only)
+            total_qty += db
 
-    # 3. Kézi kódok kezelése (amik nincsenek az étlapon, de a PDF-ben benne voltak)
-    for code, darab in counts.items():
-        if code not in processed_codes:
-            data.append([
-                code, 
-                Paragraph("--- NINCS AZ ÉTLAPON / KÉZI ---", ParagraphStyle('L', fontName=f_reg, fontSize=9)), 
-                f"{darab} db"
-            ])
+    # 4. Összesítő sorok (Jutalék számítással)
+    jutalek = int(total_money * 0.13)
+    data.append(["", "", "", "", "", ""]) # Üres sor
+    data.append([
+        "", "", 
+        Paragraph("<b>ÖSSZESEN:</b>", ParagraphStyle('R', fontName=f_bold, fontSize=10, alignment=2)),
+        f"<b>{total_qty} db</b>", "", f"<b>{total_money} Ft</b>"
+    ])
+    data.append([
+        "", "", 
+        Paragraph("<b>JUTALÉK (13%):</b>", ParagraphStyle('R', fontName=f_bold, fontSize=10, alignment=2)),
+        "", "", f"<b>{jutalek} Ft</b>"
+    ])
 
-    # 4. PDF felépítése
-    if len(data) == 1: # Csak a fejléc van benne
-        data.append(["-", "Nincs megjeleníthető adat", "0"])
-
-    t = Table(data, colWidths=[30*mm, 125*mm, 25*mm])
+    # 5. Formázás
+    t = Table(data, colWidths=[20*mm, 18*mm, 82*mm, 15*mm, 25*mm, 30*mm])
     t.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+        ('GRID', (0,0), (-1,-3), 0.5, colors.black),
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('ALIGN', (0,0), (0,-1), 'CENTER'),
-        ('ALIGN', (-1,0), (-1,-1), 'CENTER'),
+        ('ALIGN', (3,0), (-1,-1), 'CENTER'),
         ('FONTNAME', (0,0), (-1,-1), f_reg)
     ]))
     
-    elements = []
-    elements.append(Paragraph(f"<b>ÖSSZESÍTETT RAKLISTA</b> - {jarat_info}", 
-                               ParagraphStyle('Title', fontName=f_bold, fontSize=14, spaceAfter=10)))
-    elements.append(t)
+    elements = [
+        Paragraph("<b>ÖSSZESÍTETT RAKLISTA ÉS ELSZÁMOLÁS</b>", ParagraphStyle('T', fontName=f_bold, fontSize=14, spaceAfter=10)),
+        Paragraph(f"Járat: {jarat_info}", ParagraphStyle('S', fontName=f_reg, fontSize=10, spaceAfter=10)),
+        t
+    ]
     
     doc.build(elements)
     buf.seek(0)

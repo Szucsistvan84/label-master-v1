@@ -119,42 +119,47 @@ def parse_interfood_pdf(pdf_file):
 
                 # --- JAVÍTOTT PÉNZKERESÉS ---
                 money_val = "0 Ft"
-                # Olyan mintát keresünk, ami "Ft"-ra végződik, és lehet előtte mínusz jel is
-                # A [-\s]* rész kezeli, ha a mínusz és a szám között szóköz van
                 money_match = re.search(r'(-?[\s]*\d[\d\s]*)\s*Ft', text_ws)
                 
                 if money_match:
                     raw_m = money_match.group(0).strip()
-                    # Ha van benne mínusz jel, az túlfizetés/online fizetés -> a futárnak 0 Ft
                     if "-" in raw_m:
                         money_val = "0 Ft"
                     else:
                         digits = "".join(filter(str.isdigit, raw_m))
                         if digits and digits != "0":
-                            # Szépen formázzuk: 1234 -> 1 234 Ft
                             money_val = "{:,}".format(int(digits)).replace(",", " ") + " Ft"
-                # ----------------------------
 
-                # Alapadatok kinyerése (megtartva a te x0 alapú logikádat)
+                # Alapadatok kinyerése
                 prefix = u_code_m.group(0)[0].upper()
                 uid = re.sub(r'\D', '', u_code_m.group(0))
                 
-                # Név és cím kinyerése a te koordinátáid alapján
+                # Név és cím kinyerése
                 name_words = [w['text'] for w in line_words if 360 <= w['x0'] < 550]
-                clean_name = " ".join(name_words).split('/')[0].strip()
+                name_raw = " ".join(name_words).split('/')[0].strip()
                 
                 addr_words = [w['text'] for w in line_words if 140 <= w['x0'] < 360]
                 address = " ".join(addr_words).strip()
 
+                # --- ÚJ: TELEFON ÉS TISZTA NÉV SZÉTVÁLASZTÁSA ---
+                # Telefonszám keresése (pl. 30/1234567 formátum)
+                tel_m = re.search(r'(\d{2}/\d{3,9})', text_ws)
+                tel_val = tel_m.group(1) if tel_m else ""
+                
+                # Név megtisztítása (levágjuk a név végéről a beleragadt körzetszámot, pl. "Név 30")
+                clean_name = re.sub(r'\s\d{2}$', '', name_raw).strip()
+
                 rows.append({
                     "Prefix": prefix,
                     "ID": f"{prefix}-{uid}",
-                    "Ügyintéző": clean_name,
+                    "Ügyintéző": clean_name,  # Tisztított név
                     "Cím": address,
-                    "Pénz": money_val, # Ez a kulcs az etikettekhez
+                    "Telefon": tel_val,       # ÚJ OSZLOP: Ez kell a menettervhez!
+                    "Pénz": money_val,
                     "Rendelés": text_ws, 
                     "Összesen": 0
                 })
+                
     return rows, meta
 
 def merge_data(raw_rows):

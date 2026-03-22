@@ -335,6 +335,10 @@ def create_manifest_pdf(df, fn, meta_list):
     # Címek kigyűjtése a csoportosítás ellenőrzéséhez
     all_addresses = df['Cím'].tolist()
     
+    # --- ÚJ RÉSZ: Halmaz a már kiírt pénzösszegek követésére ---
+    mar_kiirt_osszegek = set()
+    # ---------------------------------------------------------
+
     jaratok = ", ".join(sorted(list(set([str(m['jarat']) for m in meta_list if m['jarat']]))))
     ev = meta_list[0].get('year', '') if meta_list else ""
     het = meta_list[0].get('week', '') if meta_list else ""
@@ -373,7 +377,17 @@ def create_manifest_pdf(df, fn, meta_list):
         
         note = str(r.get('Megjegyzés', ''))
         note_html = f"<br/><font color='red'><b>{note}</b></font>" if note and note.lower() != 'nan' and note.strip() != "" else ""
-        penz = "" if str(r['Pénz']).lower() in ["0 ft", "0", "nan"] else str(r['Pénz'])
+        
+        # --- MÓDOSÍTOTT RÉSZ: Duplikált pénz kezelése ---
+        nyers_penz = str(r['Pénz']).lower()
+        ugyfel_kulcs = r['Ügyintéző'] # Az azonosításhoz az ügyintéző nevét használjuk (vagy ha van ID, az még jobb)
+        
+        if nyers_penz in ["0 ft", "0", "nan"] or ugyfel_kulcs in mar_kiirt_osszegek:
+            penz = ""
+        else:
+            penz = str(r['Pénz'])
+            mar_kiirt_osszegek.add(ugyfel_kulcs) # Elmentjük, hogy ennél az ügyfélnél már kiírtuk a pénzt
+        # -----------------------------------------------
         
         data.append([
             f"{int(r['Sorrend'])}",

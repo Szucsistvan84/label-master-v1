@@ -78,6 +78,8 @@ def clean_name_field(text):
 
 def parse_interfood_pdf(pdf_file):
     rows = []
+    # Itt hozunk létre egy üres metaadatot, hogy a fogadó oldal ne kapjon hibát
+    meta = {"date": "", "jarat": ""}
     # ... (a fejléc beolvasása marad a régi) ...
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -135,7 +137,7 @@ def parse_interfood_pdf(pdf_file):
                     "Rendelés": text_ws, 
                     "Összesen": 0
                 })
-    return rows
+    return rows, meta
 
 def merge_data(raw_rows):
     if not raw_rows: return None

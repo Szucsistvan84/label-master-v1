@@ -79,19 +79,23 @@ def clean_name_field(text):
 import pdfplumber
 import re
 
+import pdfplumber
+import re
+
 def parse_interfood_pdf(pdf_file):
     rows = []
     meta = {"year": "", "week": "", "date": "", "jarat": ""} 
     
-    # SZIGORÚ Ételkód minta: Csak a Mennyiség + kötőjel + Kód (pl. 1-A1, 2-R2K)
-    # A magányos számokat (pl. "3") ez a regex teljesen kizárja.
+    # Ételkód minta: Mennyiség-Kód (pl. 1-A1). 
+    # Kizárjuk a magányos számokat a sor végén.
     order_pattern = r'\b\d-[A-Z0-9*]{1,5}\b'
 
     with pdfplumber.open(pdf_file) as pdf:
+        # Metaadatok kinyerése az első oldalról
         if len(pdf.pages) > 0:
-            header_text = pdf.pages[0].extract_text() or ""
-            y_m = re.search(r'(\d{4})\.\s*év', header_text)
-            w_m = re.search(r'(\d{1,2})\.\s*hét', header_text)
+            header = pdf.pages[0].extract_text() or ""
+            y_m = re.search(r'(\d{4})\.\s*év', header)
+            w_m = re.search(r'(\d{1,2})\.\s*hét', header)
             if y_m: meta["year"] = y_m.group(1)
             if w_m: meta["week"] = w_m.group(1)
 
@@ -105,81 +109,82 @@ def parse_interfood_pdf(pdf_file):
                 else: lines[y] = [w]
 
             sorted_y = sorted(lines.keys())
-            used_data_indices = set() 
+            used_money_indices = set()
 
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
 
+                # Ügyfélkód keresése (P-123456)
                 u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
                 if not u_code_m: continue
 
-                # Ügyfél adatok
+                # Alapadatok koordináták alapján
                 addr_parts = [w['text'] for w in line_words if 140 <= w['x0'] < 360]
                 name_parts = [w['text'] for w in line_words if 360 <= w['x0'] < 530]
+                
                 full_addr = " ".join(addr_parts).strip()
                 zip_match = re.search(r'(\d{4}\s.*)', full_addr)
                 clean_address = zip_match.group(1) if zip_match else full_addr
                 clean_name = " ".join(name_parts).split('/')[0].strip()
                 clean_name = re.sub(r'\s\d{2}$', '', clean_name)
 
+                # Többsoros adatgyűjtés (ablakos keresés)
                 current_money = "0 Ft"
                 current_tel = ""
                 order_parts = []
                 note_parts = []
 
-                for idx in [idx for idx in [i, i+1, i+2] if idx < len(sorted_y)]:
+                for idx in range(i, min(i + 4, len(sorted_y))):
                     row_words = sorted(lines[sorted_y[idx]], key=lambda x: x['x0'])
                     row_text = " ".join([w['text'] for w in row_words])
 
-                    # Telefon
+                    # 1. TELEFON
                     if not current_tel:
                         tel_m = re.search(r'(\d{2}/\d{3,9})', row_text)
                         if tel_m: current_tel = tel_m.group(0)
 
-                    # PÉNZ (Negatív összegek javítva)
-                    # Elkapja a "-3 560 Ft" és a "1 200 Ft" formátumot is
-                    m_match = re.search(r'(-?\s?\d[\d\s]{1,})\s*Ft', row_text)
-                    if m_match and idx not in used_data_indices:
-                        raw_v = m_match.group(1).replace(" ", "")
-                        # Biztosítjuk a rendes negatív előjelet
-                        if "-" in m_match.group(0):
-                            raw_v = "-" + re.sub(r'\D', '', raw_v)
+                    # 2. PÉNZ (Negatív és Pozitív)
+                    # Elkapja: "- 3 560 Ft", "-3560 Ft", "1200 Ft"
+                    money_m = re.search(r'(-?\s?\d[\d\s]{1,})\s*Ft', row_text)
+                    if money_m and idx not in used_money_indices:
+                        raw_money = money_m.group(0).replace(" ", "") # "-3560Ft"
+                        # Tisztítás és formázás
+                        val = re.sub(r'[^\d-]', '', raw_money)
                         try:
-                            num_v = int(raw_v)
-                            current_money = "{:,}".format(num_v).replace(",", " ") + " Ft"
-                            used_data_indices.add(idx)
+                            if val and val != "-":
+                                num_v = int(val)
+                                current_money = "{:,}".format(num_v).replace(",", " ") + " Ft"
+                                used_money_indices.add(idx)
                         except: pass
 
-                    # RENDELÉS (Csak a jobb sávból)
-                    row_order_words = [w['text'] for w in row_words if w['x0'] >= 530]
-                    order_parts.extend(row_order_words)
+                    # 3. RENDELÉS (Csak a jobb oldali sávból kódokat)
+                    row_order_text = " ".join([w['text'] for w in row_words if w['x0'] >= 500])
+                    order_parts.extend(re.findall(order_pattern, row_order_text))
 
-                    # MEGJEGYZÉS
-                    if idx >= i:
-                        note_words = [w['text'] for w in row_words if w['x0'] < 530]
-                        note_line = " ".join(note_words).strip()
-                        if (len(note_line) > 2 and "Sor Ügyfél" not in note_line and 
-                            not re.search(r'[HKSCPZ][.-][0-9]', note_line)):
-                            note_parts.append(note_line)
+                    # 4. MEGJEGYZÉS
+                    note_line_words = [w['text'] for w in row_words if w['x0'] < 500]
+                    note_line = " ".join(note_line_words).strip()
+                    # Kizárjuk a fejlécet, az ügyfélkódot és a neveket a megjegyzésből
+                    if (len(note_line) > 2 and "Sor Ügyfél" not in note_line and 
+                        not re.search(r'[HKSCPZ][.-][0-9]', note_line) and
+                        clean_name not in note_line):
+                        note_parts.append(note_line)
 
-                # --- SZIGORÚ RENDELÉS SZŰRÉS ---
-                order_candidate_txt = " ".join(order_parts)
-                found_codes = re.findall(order_pattern, order_candidate_txt)
-                
+                # Rendelés és Összesen számítása
+                unique_orders = []
                 total_qty = 0
-                for item in found_codes:
-                    qty_m = re.match(r'(\d)-', item)
-                    if qty_m: total_qty += int(qty_m.group(1))
+                for item in order_parts:
+                    if item not in unique_orders:
+                        unique_orders.append(item)
+                        qty_m = re.match(r'(\d)-', item)
+                        if qty_m: total_qty += int(qty_m.group(1))
 
-                # --- MEGJEGYZÉS FINISH ---
+                # Megjegyzés finomítása
                 full_note = " ".join(note_parts)
-                for trash in [clean_address, clean_name, current_tel]:
+                for trash in [clean_address, current_tel, "Ft"]:
                     if trash: full_note = full_note.replace(trash, "")
-                
-                full_note = re.sub(r'-?\s?\d[\d\s]*Ft', '', full_note) # Pénz törlése a megjegyzésből
-                clean_note = full_note.strip(",. ").strip() # felesleges space-ek lecsípve
-                clean_note = re.sub(r'\s+', ' ', clean_note)
+                clean_note = re.sub(r'\s+', ' ', full_note).strip(",. ")
 
                 rows.append({
                     "Prefix": u_code_m.group(0)[0].upper(),
@@ -188,7 +193,7 @@ def parse_interfood_pdf(pdf_file):
                     "Cím": clean_address,
                     "Telefon": current_tel,
                     "Pénz": current_money,
-                    "Rendelés": ", ".join(found_codes),
+                    "Rendelés": ", ".join(unique_orders),
                     "Megjegyzés": clean_note,
                     "Összesen": total_qty
                 })

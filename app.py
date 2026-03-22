@@ -78,24 +78,19 @@ def clean_name_field(text):
 
 def parse_interfood_pdf(pdf_file):
     rows = []
-    # 1. Alapértelmezett metaadatok (Hogy ne legyen KeyError)
     meta = {"year": "", "week": "", "date": "", "jarat": ""} 
     
     with pdfplumber.open(pdf_file) as pdf:
-        # 2. Fejléc adatok kinyerése (Év, Hét, Járat)
         if len(pdf.pages) > 0:
             header_text = pdf.pages[0].extract_text() or ""
             y_m = re.search(r'(\d{4})\.\s*év', header_text)
             w_m = re.search(r'(\d{1,2})\.\s*hét', header_text)
-            j_m = re.search(r'Járat:\s*([\d\s,]+)', header_text)
             if y_m: meta["year"] = y_m.group(1)
             if w_m: meta["week"] = w_m.group(1)
-            if j_m: meta["jarat"] = j_m.group(1).strip()
 
         for page in pdf.pages:
             words = page.extract_words()
             lines = {}
-            # Szavak sorokba rendezése (3.5 pixel tűréssel)
             for w in words:
                 y = round(w['top'], 1)
                 for ey in lines:
@@ -104,77 +99,78 @@ def parse_interfood_pdf(pdf_file):
 
             sorted_y = sorted(lines.keys())
             
+            # Ebben a listában tartjuk számon, mit találtunk már meg ezen az oldalon
+            used_money_positions = [] 
+
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
 
-                # Ügyfélkód keresése (ez a biztos pont: pl. P-123456)
                 u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
                 if not u_code_m: continue
 
-                # --- INTELLIGENS KÖRNYEZETI KERESÉS ---
-                # Összegyűjtjük a szomszédos sorokat, mert a pénz/tel/rendelés elcsúszhat
-                context_lines = []
-                for idx in range(max(0, i-2), min(len(sorted_y), i+3)):
-                    context_text = " ".join([w['text'] for w in sorted(lines[sorted_y[idx]], key=lambda x: x['x0'])])
-                    context_lines.append(context_text)
-                full_context = " | ".join(context_lines)
-
-                # 3. PÉNZ KERESÉSE (A teljes környezetben)
+                # --- PÉNZ KERESÉSE (Szigorúbb feltételekkel) ---
                 money_val = "0 Ft"
-                # Olyan számot keresünk, ami után "Ft" van (lehet előtte mínusz is)
-                m_match = re.search(r'(-?\s?\d[\d\s]{2,})\s*Ft', full_context)
-                if m_match:
-                    raw_m = m_match.group(0).strip()
-                    if "-" in raw_m:
-                        money_val = "0 Ft" # Online fizetve/túlfizetés
-                    else:
-                        digits = "".join(filter(str.isdigit, raw_m))
-                        if digits:
-                            money_val = "{:,}".format(int(digits)).replace(",", " ") + " Ft"
-
-                # 4. TELEFON KERESÉSE
-                tel_m = re.search(r'(\d{2}/\d{3,9})', full_context)
-                tel_val = tel_m.group(1) if tel_m else ""
-
-                # 5. ADATOK TISZTÍTÁSA (Név, Cím, Rendelés)
-                # Az eredeti koordinátáid alapján szűrünk az adott sorban
-                addr_parts = [w['text'] for w in line_words if 140 <= w['x0'] < 360]
-                name_parts = [w['text'] for w in line_words if 360 <= w['x0'] < 550]
+                # Csak az aktuális sorban és a közvetlenül alatta lévőben nézzük (+1 sor)
+                search_range = [i, i+1] if i+1 < len(sorted_y) else [i]
                 
-                # Rendelés: kódokat keresünk (szám-betűk, pl. 1-L3K) a jobb oldalon
-                order_candidates = [w['text'] for w in line_words if w['x0'] >= 540]
-                # Ha a fő sorban nincs kód, megnézzük a környező sorok jobb oldalát is
-                if not any("-" in c for c in order_candidates):
-                    for idx in range(max(0, i-1), min(len(sorted_y), i+2)):
-                        extra = [w['text'] for w in lines[sorted_y[idx]] if w['x0'] >= 540]
-                        order_candidates.extend(extra)
+                for idx in search_range:
+                    if idx in used_money_positions: continue # Ha ezt a sort már elhasználtuk másnál, ugrunk
+                    
+                    row_text = " ".join([w['text'] for w in lines[sorted_y[idx]]])
+                    m_match = re.search(r'(-?\s?\d[\d\s]{2,})\s*Ft', row_text)
+                    
+                    if m_match:
+                        raw_m = m_match.group(0).strip()
+                        if "-" in raw_m:
+                            money_val = "0 Ft"
+                        else:
+                            digits = "".join(filter(str.isdigit, raw_m))
+                            if digits and int(digits) > 50: # Kiszűrjük a véletlen kódokat
+                                money_val = "{:,}".format(int(digits)).replace(",", " ") + " Ft"
+                                used_money_positions.append(idx) # Megjelöljük, hogy ez az összeg már "elkelt"
+                        break
 
-                # Rendelés végső tisztítása: kiszűrjük a telefont és a pénzt
+                # --- RENDELÉS KERESÉSE (Szigorúbb koordináták) ---
+                # A rendelés kódok mindig a lap jobb szélén vannak (x0 > 540)
+                # Itt nem csak a kódokat, hanem a napokat (Pé, Szo) is megőrizzük
+                order_candidates = []
+                # Megnézzük az aktuális sort és az alatta lévőt a rendelés oszlopban
+                for idx in [i, i+1] if i+1 < len(sorted_y) else [i]:
+                    right_side_words = [w['text'] for w in lines[sorted_y[idx]] if w['x0'] >= 530]
+                    if right_side_words:
+                        order_candidates.extend(right_side_words)
+
                 order_raw = " ".join(order_candidates)
-                if tel_val: order_raw = order_raw.replace(tel_val, "")
-                if m_match: order_raw = order_raw.replace(m_match.group(0), "")
+                # Tisztítás: telefonszám és pénz ne legyen benne
+                tel_m = re.search(r'(\d{2}/\d{3,9})', order_raw)
+                if tel_m: order_raw = order_raw.replace(tel_m.group(0), "")
+                order_raw = re.sub(r'-?\s?\d[\d\s]{2,}\s*Ft', '', order_raw)
                 
-                # Csak a kódok maradjanak (pl. 1-R2, 1-L3K)
-                clean_order_list = re.findall(r'\d-[A-Z0-9]{1,4}', order_raw)
-                clean_order = ", ".join(clean_order_list) if clean_order_list else re.sub(r'\s+', ' ', order_raw).strip()
+                # Megtartjuk a napokat és a kódokat, de kidobjuk a felesleges szóközöket
+                clean_order = re.sub(r'\s+', ' ', order_raw).strip()
+                # Ha túl hosszú vagy zavaros, próbáljuk csak a kódokat kinyerni
+                if len(clean_order) > 50:
+                    codes = re.findall(r'(?:Pé|Szo|Vas)?\s?\d-[A-Z0-9*]{1,5}', clean_order)
+                    if codes: clean_order = ", ".join(codes)
 
-                # Cím: Irányítószámtól kezdődjön (pl. 4030)
+                # --- ADATOK ÖSSZEGYŰJTÉSE ---
+                addr_parts = [w['text'] for w in line_words if 140 <= w['x0'] < 360]
+                name_parts = [w['text'] for w in line_words if 360 <= w['x0'] < 530]
+                
                 full_addr = " ".join(addr_parts).strip()
                 zip_match = re.search(r'(\d{4}\s.*)', full_addr)
                 clean_address = zip_match.group(1) if zip_match else full_addr
 
-                # Név: Körzetszám levágása a végéről
                 clean_name = " ".join(name_parts).split('/')[0].strip()
                 clean_name = re.sub(r'\s\d{2}$', '', clean_name)
 
-                # Sor hozzáadása
                 rows.append({
                     "Prefix": u_code_m.group(0)[0].upper(),
                     "ID": f"{u_code_m.group(0)[0].upper()}-{re.sub(r'\D', '', u_code_m.group(0))}",
                     "Ügyintéző": clean_name,
                     "Cím": clean_address,
-                    "Telefon": tel_val,
+                    "Telefon": tel_m.group(0) if tel_m else "",
                     "Pénz": money_val,
                     "Rendelés": clean_order,
                     "Összesen": 0

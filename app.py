@@ -151,6 +151,16 @@ def merge_data(raw_rows):
     for uid, group in df.groupby("ID", sort=False):
         base = group.iloc[0].copy().to_dict()
         o_p, has_weekend = [], False
+
+        # --- JAVÍTÁS: Pénzösszeg kezelése ---
+        # Megkeressük az első olyan sort, ahol van értelmes pénzösszeg (nem 0 vagy üres)
+        valid_money_rows = group[~group['Pénz'].astype(str).str.lower().isin(["0 ft", "0", "nan", ""])]
+        if not valid_money_rows.empty:
+            base['Pénz'] = valid_money_rows.iloc[0]['Pénz']
+        else:
+            base['Pénz'] = "0 Ft"
+        # ------------------------------------
+        
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
             day_group = group[group['Prefix'] == pfix]
             items = day_group['Rendelés'].tolist()

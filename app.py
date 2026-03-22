@@ -131,15 +131,14 @@ def parse_interfood_pdf(pdf_file):
                 # Ez a regex megtalálja a "-7 415 Ft"-ot és a "0 Ft"-ot is
                 money_m = re.search(r'(-?\s?\d[\d\s]*)\s*Ft', text_ws)
                 
+                money_m = re.search(r'(-?\s?\d[\d\s]*)\s*Ft', text_ws)
                 if money_m:
-                    raw_money = money_m.group(0).strip()
-                    # Megtisztítjuk: ha van benne mínusz, megmarad, de a felesleges szóközöket kivesszük
-                    # pl: "-7 415 Ft" -> "7415 Ft" (mivel neked a beszedendő kell)
-                    digits = "".join(filter(str.isdigit, raw_money))
-                    if digits and digits != "0":
-                        money_val = "{:,}".format(int(digits)).replace(",", " ") + " Ft"
-                    else:
-                        money_val = "0 Ft"
+                    # Fontos: Megtartjuk a "Ft" szöveget, mert ez lesz a "pajzsunk" a felülírás ellen!
+                    raw_val = money_m.group(0).strip()
+                    digits = "".join(filter(str.isdigit, raw_val))
+                    money_val = f"{int(digits)} Ft" if digits else "0 Ft"
+                else:
+                    money_val = "0 Ft"
                 # -----------------------------------------------
 
                 v_o, sq = [], 0
@@ -168,53 +167,71 @@ def merge_data(raw_rows):
     if not raw_rows: return None
     L_DAYS = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
     df = pd.DataFrame(raw_rows)
-    merged = []
     
-    for uid, group in df.groupby("ID", sort=False):
+    # --- KRITIKUS PONT 1: AZ ÖSSZEVONÁS KULCSA ---
+    # Létrehozunk egy ideiglenes oszlopot, ami csak a számokat tartalmazza (P-410511 -> 410511)
+    # Ez biztosítja, hogy a Péntek és Szombat egy csoportba kerüljön a groupby-nál.
+    df['temp_id'] = df['ID'].astype(str).str.replace(r'\D', '', regex=True)
+    
+    merged = []
+    # Az ideiglenes, tiszta szám alapú ID szerint csoportosítunk
+    for tid, group in df.groupby("temp_id", sort=False):
+        # Alapadatok az első sorból
         base = group.iloc[0].copy().to_dict()
         
         # --- JAVÍTOTT PÉNZTISZTÍTÁS (Csak a PDF-ből) ---
         valid_amounts = []
         for _, row in group.iterrows():
-            m_val = str(row['Pénz'])
-            
-            # KRITIKUS SZŰRŐ: Csak akkor vesszük figyelembe, ha benne van a "Ft" 
-            # Ez megkülönbözteti a PDF-ből olvasott pénzt a számolt értéktől!
+            m_val = str(row.get('Pénz', ''))
             if "Ft" in m_val:
                 digits = "".join(filter(str.isdigit, m_val))
                 if digits and digits != "0":
-                    # Duplázódás elleni védelem (pl. 1204012040 -> 12040)
+                    # Duplázódás elleni védelem
                     if len(digits) >= 8 and digits[:len(digits)//2] == digits[len(digits)//2:]:
                         digits = digits[:len(digits)//2]
                     valid_amounts.append(int(digits))
         
         if valid_amounts:
-            # Szigorúan az első talált PDF-es összeget tartjuk meg
             final_amount = valid_amounts[0]
             base['Pénz'] = "{:,}".format(final_amount).replace(",", " ") + " Ft"
         else:
-            # Ha nincs "Ft"-os adat, akkor az nulla, hiába számolt bárki bármit
             base['Pénz'] = "0 Ft"
-        # ----------------------------------------------
 
+        # --- KRITIKUS PONT 2: RENDELÉSEK ÖSSZEVONÁSA ---
         o_p, has_weekend = [], False
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
-            day_group = group[group['Prefix'] == pfix]
-            items = day_group['Rendelés'].tolist()
-            if items: 
-                o_p.append(f"{L_DAYS.get(pfix, pfix)}: {', '.join(items)}")
-                if pfix == 'Z': has_weekend = True
+            # A csoporton belül (ami most már P és Z sorokat is tartalmaz) keressük a napokat
+            day_rows = group[group['Prefix'] == pfix]
+            if not day_rows.empty:
+                # Összegyűjtjük az adott napi rendeléseket
+                items = day_rows['Rendelés'].astype(str).tolist()
+                clean_items = [i for i in items if i != 'nan' and i.strip() != '']
+                if clean_items:
+                    o_p.append(f"{L_DAYS.get(pfix, pfix)}: {', '.join(clean_items)}")
+                if pfix == 'Z': 
+                    has_weekend = True
         
         base['Rendelés_Full'] = " | ".join(o_p)
         base['Összesen'] = group['Összesen'].sum()
         base['Hétvégi'] = has_weekend 
         base['Megjegyzés'] = ""
+        
+        # Visszaállítjuk az ID-t a standard formátumra (mindig P-vel kezdjük a menettervben)
+        base['ID'] = f"P-{tid}" 
+        
         merged.append(base)
         
     res = pd.DataFrame(merged)
+    
+    # --- KRITIKUS PONT 3: SORREND KEZELÉSE ---
     if 'Sorrend' not in res.columns:
         res['Sorrend'] = range(1, len(res) + 1)
         res['Sorrend'] = res['Sorrend'].astype(float)
+    
+    # Töröljük az ideiglenes oszlopot
+    if 'temp_id' in res.columns:
+        res = res.drop(columns=['temp_id'])
+        
     return res
 
 # --- UI ---

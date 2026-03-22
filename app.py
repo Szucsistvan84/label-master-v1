@@ -97,7 +97,8 @@ def parse_interfood_pdf(pdf_file):
             for w in words:
                 y = round(w['top'], 1)
                 for ey in lines:
-                    if abs(y - ey) < 1.5: lines[ey].append(w); break
+                    # Visszaállítva 3-ra, hogy a Péntek/Szombat egy sor maradjon
+                    if abs(y - ey) < 3: lines[ey].append(w); break
                 else:
                     lines[y] = [w]
 
@@ -105,16 +106,13 @@ def parse_interfood_pdf(pdf_file):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
 
-                # Ügyfélkód keresése
                 u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
                 if not u_code_m: continue
 
-                # Prefix és ID kezelése
                 full_code = u_code_m.group(0)
                 prefix = full_code[0].upper()
                 uid = re.sub(r'\D', '', full_code)
 
-                # Név, Cím, Telefon és Rendelések kinyerése
                 b4_words = [w['text'] for w in line_words if 360 <= w['x0'] < 520]
                 clean_name = clean_name_field(" ".join(b4_words))
                 b3_words = [w['text'] for w in line_words if 140 <= w['x0'] < 360]
@@ -124,14 +122,13 @@ def parse_interfood_pdf(pdf_file):
                 tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
                 raw_orders = re.findall(ORDER_PAT, text_ws)
 
-                # --- ÚJ RÉSZ: PÉNZ KIOLVASÁSA ---
-                # Megkeressük a "Ft" előtti számokat. 
-                # Kezeli a szóközt is az ezresek között (pl. 12 040 Ft)
-                money_val = "0 Ft"
-                money_m = re.search(r'(\d[\d\s]*)\s*Ft', text_ws)
-                if money_m:
-                    money_val = money_m.group(0).strip()
-                # -------------------------------
+                # --- EZ AZ EGYETLEN MÓDOSÍTÁS: PÉNZ KERESÉSE ---
+                # Megkeressük a "Ft" szöveget és a mögötte/előtte lévő számokat
+                extracted_money = "0 Ft"
+                m_match = re.search(r'(\d[\d\s]*)\s*Ft', text_ws)
+                if m_match:
+                    extracted_money = m_match.group(0).strip()
+                # ----------------------------------------------
 
                 v_o, sq = [], 0
                 for o in raw_orders:
@@ -150,7 +147,7 @@ def parse_interfood_pdf(pdf_file):
                         "Cím": address,
                         "Telefon": tel_m.group(0) if tel_m else "",
                         "Rendelés": ", ".join(v_o),
-                        "Pénz": money_val, # Most már a PDF-ből kinyert érték!
+                        "Pénz": extracted_money, # Itt már nem fix 0 Ft van!
                         "Összesen": sq
                     })
     return rows, metadata

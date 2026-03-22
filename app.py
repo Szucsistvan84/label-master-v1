@@ -80,26 +80,22 @@ def parse_interfood_pdf(pdf_file):
     rows = []
     meta = {"year": "", "week": "", "date": "", "jarat": ""} 
     
-    # Szigorú minták az adatok felismeréséhez
-    order_pattern = r'\b\d-[A-Z0-9*]{1,5}\b'
-    money_pattern = r'(-?\s?\d[\d\s]{0,})\s*Ft'
-    zip_pattern = r'\b\d{4}\b'
-    phone_pattern = r'\d{2}[\s/]{1,3}\d{3,9}' # Rugalmasabb telefon regex
+    # Szigorúbb minták
+    order_pattern = r'\b\d+-[A-Z0-9]{1,5}\b'
+    money_pattern = r'(-?\s?\d[\d\s]*\s*Ft)'
+    phone_pattern = r'(\d{2}[/\s]\d{6,7})'
 
     with pdfplumber.open(pdf_file) as pdf:
-        # 1. Metaadatok kinyerése az első oldal tetejéről
+        # Metaadatok (marad az eredeti logikád szerint)
         if len(pdf.pages) > 0:
             header = pdf.pages[0].extract_text() or ""
-            j_m = re.search(r'(\d{4})\.\s*járat', header)
-            y_m = re.search(r'(\d{4})\.\s*év', header)
-            w_m = re.search(r'(\d{1,2})\.\s*hét', header)
+            j_m = re.search(r'(\d{4})\.\s*járat', header); y_m = re.search(r'(\d{4})\.\s*év', header); w_m = re.search(r'(\d{1,2})\.\s*hét', header)
             if j_m: meta["jarat"] = j_m.group(1)
             if y_m: meta["year"] = y_m.group(1)
             if w_m: meta["week"] = w_m.group(1)
 
         for page in pdf.pages:
             words = page.extract_words()
-            # Sorokba rendezés vertikális pozíció alapján
             lines = {}
             for w in words:
                 y = round(w['top'], 1)
@@ -107,86 +103,77 @@ def parse_interfood_pdf(pdf_file):
                     if abs(y - ey) < 2.5:
                         lines[ey].append(w)
                         break
-                else:
-                    lines[y] = [w]
+                else: lines[y] = [w]
 
             sorted_y = sorted(lines.keys())
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
 
-                # Ügyfélkód (Horgony) keresése
                 u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
-                if not u_code_m:
-                    continue
+                if not u_code_m: continue
 
-                # Adatgyűjtés az adott ügyfélhez
-                current_data = {"addr": [], "name": [], "order": [], "note": [], "all": []}
-
-                # Csak addig gyűjtünk, amíg el nem érjük a következő ügyfél kódját
+                # Adatgyűjtés koordináták szerint
+                curr = {"addr": [], "name": [], "order": [], "note": [], "all": []}
                 for idx in range(i, len(sorted_y)):
                     row_words = sorted(lines[sorted_y[idx]], key=lambda x: x['x0'])
                     row_text = " ".join([w['text'] for w in row_words])
-                    
-                    if idx > i and re.search(r'[HKSCPZ][.-][0-9]{5,7}', row_text):
-                        break # Ez már a következő ügyfél kezdete
+                    if idx > i and re.search(r'[HKSCPZ][.-][0-9]{5,7}', row_text): break
                         
                     for w in row_words:
                         x = w['x0']
-                        current_data["all"].append(w['text'])
-                        if 140 <= x < 355: current_data["addr"].append(w['text'])
-                        elif 355 <= x < 520: current_data["name"].append(w['text'])
-                        elif x >= 520: current_data["order"].append(w['text'])
-                        elif x < 140: current_data["note"].append(w['text'])
+                        curr["all"].append(w['text'])
+                        if 140 <= x < 355: curr["addr"].append(w['text'])
+                        elif 355 <= x < 520: curr["name"].append(w['text'])
+                        elif x >= 520: curr["order"].append(w['text'])
+                        elif x < 140: curr["note"].append(w['text'])
 
-                # Összegyűjtött szövegek tisztítása
-                all_txt = " ".join(current_data["all"])
-                name_txt = " ".join(current_data["name"])
-                addr_txt = " ".join(current_data["addr"])
-                order_txt = " ".join(current_data["order"])
-                note_txt = " ".join(current_data["note"])
-
-                # TELEFON
+                all_txt = " ".join(curr["all"])
+                
+                # --- ÚJ, SZIGORÍTOTT TISZTÍTÁSI LOGIKA ---
+                
+                # 1. TELEFON (Az egész sorból keressük, mert bárhol lehet)
                 phone_m = re.search(phone_pattern, all_txt)
-                clean_tel = phone_m.group(0).replace(" ", "") if phone_m else ""
+                clean_tel = phone_m.group(1).replace(" ", "") if phone_m else ""
 
-                # PÉNZ (Negatív előjel kezelésével)
+                # 2. PÉNZ (Csak a Ft előtti részt nézzük)
                 money_val = "0 Ft"
                 m_match = re.search(money_pattern, all_txt)
                 if m_match:
-                    money_val = m_match.group(0).strip()
-                    if "-" in all_txt[max(0, m_match.start()-3):m_match.start()]:
-                        if not money_val.startswith("-"): money_val = "-" + money_val
+                    money_raw = m_match.group(1).replace(" ", "")
+                    # Ha véletlen darabszám került elé (pl. 30Ft helyett 3 0Ft), javítjuk
+                    if "0Ft" in money_raw: money_val = "0 Ft"
+                    else: money_val = money_raw.replace("Ft", " Ft")
+
+                # 3. RENDELÉS (Csak a kódokat gyűjtjük ki)
+                orders_found = re.findall(order_pattern, all_txt)
                 
-                # CÍM (Irányítószámtól vágva)
-                zip_m = re.search(zip_pattern, addr_txt)
-                clean_address = addr_txt[zip_m.start():].strip() if zip_m else addr_txt.strip()
-                clean_address = re.sub(r'\s+', ' ', clean_address)
+                # 4. CÍM (Irányítószámtól a házszámig tartson)
+                addr_txt = " ".join(curr["addr"])
+                zip_m = re.search(r'(\d{4}\s+Debrecen,.*?\d+\.?)', addr_txt)
+                clean_address = zip_m.group(1) if zip_m else addr_txt.strip()
 
-                # NÉV (Tisztítás a telefonszámtól és sorszámoktól)
-                clean_name = name_txt.split('/')[0].split('Ft')[0]
-                clean_name = re.sub(phone_pattern, '', clean_name)
-                clean_name = re.sub(r'^\d+\.\s*', '', clean_name).strip() # Sorszám (pl. 1.) levágása
+                # 5. NÉV (Tisztítás a maradék számoktól)
+                name_txt = " ".join(curr["name"])
+                # Levágjuk a nevek végéről a telefonszám-maradványokat (pl. "Név 30")
+                clean_name = re.sub(r'\d{2}$', '', name_txt.strip()).strip()
+                clean_name = clean_name.split('/')[0].split('Ft')[0].strip()
 
-                # RENDELÉS
-                orders = re.findall(order_pattern, order_txt)
-
-                # MEGJEGYZÉS (Tisztítás a felesleges maradványoktól)
-                final_note = note_txt.replace(u_code_m.group(0), "")
-                for trash in [clean_tel, money_val, "Ft"]:
-                    final_note = final_note.replace(trash, "")
-                final_note = re.sub(r'\s+', ' ', final_note).strip("- ,")
+                # 6. MEGJEGYZÉS (Ami nem azonosító, nem cím, nem telefon)
+                # Itt a koordináta-alapú "note" részt használjuk, de takarítunk benne
+                final_note = " ".join(curr["note"]).replace(u_code_m.group(0), "").strip()
+                # Ha a címből "lecsúszott" valami a note-ba (pl. csarnok), az maradjon ott
 
                 rows.append({
                     "Prefix": u_code_m.group(0)[0].upper(),
                     "ID": u_code_m.group(0),
                     "Ügyintéző": clean_name,
                     "Cím": clean_address,
-                    "Telefon": clean_tel,  # EZ FIXÁLJA A KEYERROR-T
+                    "Telefon": clean_tel,
                     "Pénz": money_val,
-                    "Rendelés": ", ".join(orders),
+                    "Rendelés": ", ".join(orders_found),
                     "Megjegyzés": final_note,
-                    "Összesen": sum([int(o.split('-')[0]) for o in orders if '-' in o])
+                    "Összesen": sum([int(o.split('-')[0]) for o in orders_found if '-' in o])
                 })
 
     return rows, meta
@@ -242,6 +229,7 @@ def merge_data(raw_rows):
         merged.append(base)
         
     return pd.DataFrame(merged)
+    
 # KÖTELEZŐ: Ellenőrizzük, hogy van-e Sorrend, ha nincs, csinálunk
     if 'Sorrend' not in res.columns:
         res['Sorrend'] = range(1, len(res) + 1)

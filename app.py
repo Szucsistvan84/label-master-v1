@@ -81,7 +81,6 @@ def parse_interfood_pdf(pdf_file):
     meta = {"year": "", "week": "", "date": "", "jarat": ""} 
     
     # SZIGORÚ MINTÁK
-    # Rendelés: szám, kötőjel, és legalább egy BETŰ (így a 20-22 nem rendelés, de az 1-U igen)
     order_pattern = r'\b\d+-[A-Z][A-Z0-9]*\b'
     money_pattern = r'(-?\s?\d[\d\s]*\s*Ft)'
     phone_pattern = r'(\d{2}[/\s]\d{6,7})'
@@ -106,8 +105,7 @@ def parse_interfood_pdf(pdf_file):
                     if abs(y - ey) < 2.5:
                         lines[ey].append(w)
                         break
-                else:
-                    lines[y] = [w]
+                else: lines[y] = [w]
 
             sorted_y = sorted(lines.keys())
             for i, y in enumerate(sorted_y):
@@ -115,57 +113,69 @@ def parse_interfood_pdf(pdf_file):
                 text_ws = " ".join([w['text'] for w in line_words])
 
                 u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
-                if not u_code_m:
-                    continue
+                if not u_code_m: continue
 
-                curr = {"addr": [], "name": [], "order": [], "note": [], "all": []}
+                curr = {"all": [], "addr_raw": [], "name_raw": [], "note_raw": []}
 
+                # Adatok gyűjtése a teljes ügyfélblokkból
                 for idx in range(i, len(sorted_y)):
                     row_words = sorted(lines[sorted_y[idx]], key=lambda x: x['x0'])
                     row_text = " ".join([w['text'] for w in row_words])
-                    
-                    if idx > i and re.search(r'[HKSCPZ][.-][0-9]{5,7}', row_text):
-                        break
+                    if idx > i and re.search(r'[HKSCPZ][.-][0-9]{5,7}', row_text): break
                         
                     for w in row_words:
                         x = w['x0']
                         curr["all"].append(w['text'])
-                        if 140 <= x < 355: curr["addr"].append(w['text'])
-                        elif 355 <= x < 520: curr["name"].append(w['text'])
-                        elif x >= 520: curr["order"].append(w['text'])
-                        elif x < 140: curr["note"].append(w['text'])
+                        if 140 <= x < 355: curr["addr_raw"].append(w['text'])
+                        elif 355 <= x < 520: curr["name_raw"].append(w['text'])
+                        elif x < 140: curr["note_raw"].append(w['text'])
 
                 all_txt = " ".join(curr["all"])
-
-                # 1. TELEFON ÉS PÉNZ
+                
+                # 1. TELEFON ÉS PÉNZ (Keresés és azonnali törlés a maradékból)
                 phone_m = re.search(phone_pattern, all_txt)
                 clean_tel = phone_m.group(0).replace(" ", "") if phone_m else ""
-
+                
                 money_val = "0 Ft"
                 m_match = re.search(money_pattern, all_txt)
                 if m_match:
                     m_raw = m_match.group(1).replace(" ", "")
                     money_val = "0 Ft" if "0Ft" in m_raw else m_raw.replace("Ft", " Ft")
 
-                # 2. RENDELÉS (Csak betűt tartalmazó kódok)
+                # 2. RENDELÉSEK (Minden sorból kigyűjtve)
                 orders_found = re.findall(order_pattern, all_txt)
 
-                # 3. NÉV TISZTÍTÁSA (Sorszám és körzetszám le)
-                name_raw = " ".join(curr["name"])
-                name_clean = re.sub(r'^\d+[\s.]*', '', name_raw).strip()
-                name_clean = re.sub(r'\s(20|30|70|52)$', '', name_clean)
+                # 3. CÍM ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (A legkritikusabb rész)
+                # A címet az irányítószámtól keressük a házszám végéig
+                full_addr_area = " ".join(curr["addr_raw"])
+                # Regex: Irányítószám + Debrecen + Utca + Házszám (opcionális emelet/ajtó)
+                addr_match = re.search(r'(\d{4}\s+Debrecen,\s+[^,]*?\d+\.?\s*(?:[fsz|em|aj]+\.?\s*\d*)?)', full_addr_area)
+                
+                if addr_match:
+                    clean_address = addr_match.group(1).strip()
+                    # Ami a cím területén ezen kívül maradt, az megjegyzés
+                    leftover_note = full_addr_area.replace(clean_address, "").strip()
+                else:
+                    clean_address = full_addr_area
+                    leftover_note = ""
+
+                # 4. NÉV TISZTÍTÁSA (Szigorú telefon körzet radír)
+                name_txt = " ".join(curr["name_raw"])
+                # Töröljük a sorszámot és a PDF-es maradékokat
+                name_clean = re.sub(r'^\d+[\s.]*', '', name_txt).strip()
+                # Töröljük a magányos körzetszámokat a név végéről (20, 30, 70, 52)
+                name_clean = re.sub(r'\s+(20|30|70|52)\b', '', name_clean).strip()
                 clean_name = name_clean.split('/')[0].split('Ft')[0].strip()
 
-                # 4. CÍM (Irányítószámtól kezdve)
-                addr_raw = " ".join(curr["addr"])
-                zip_m = re.search(zip_pattern, addr_raw)
-                clean_address = addr_raw[zip_m.start():].strip() if zip_m else addr_raw.strip()
-
-                # 5. MEGJEGYZÉS (Sorszámok nélkül)
-                note_raw = " ".join(curr["note"])
-                note_clean = re.sub(r'^\d+[\s.]*', '', note_raw).strip()
-                final_note = note_clean.replace(u_code_m.group(0), "")
-                for trash in [clean_tel, money_val, "Ft"]:
+                # 5. MEGJEGYZÉS ÖSSZEÁLLÍTÁSA
+                # Kombináljuk a bal oldali oszlopot és a cím mellől leesett darabokat
+                main_note = " ".join(curr["note_raw"])
+                # Tisztítás a sorszámoktól
+                main_note = re.sub(r'^\d+[\s.]*', '', main_note).strip()
+                
+                final_note = f"{main_note} {leftover_note}".strip()
+                final_note = final_note.replace(u_code_m.group(0), "")
+                for trash in [clean_tel, money_val, "Ft", "GSV Ipari park/"]:
                     final_note = final_note.replace(trash, "")
                 final_note = re.sub(r'\s+', ' ', final_note).strip("- ,")
 

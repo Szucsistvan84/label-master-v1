@@ -181,6 +181,8 @@ with st.sidebar:
     st.divider()
     up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
     
+# ... (a kód eleje változatlan) ...
+
     if up_files and st.button("🚀 FELDOLGOZÁS"):
         all_rows, all_meta = [], []
         for f in up_files:
@@ -190,46 +192,63 @@ with st.sidebar:
         
         mdf = merge_data(all_rows)
         
-# --- AUTOMATIKUS ÉTLAP KEZELÉS ---
-if all_meta:
-    y, w = all_meta[0]['year'], all_meta[0]['week']
-    with st.spinner(f"Pénteki és Szombati étlapok betöltése..."):
-        etlap = get_full_etlap(y, w)
-        st.session_state.etlap = etlap
-        
-        if etlap:
-            for idx, row in mdf.iterrows():
-                total_sum = 0
-                # Megnézzük, hogy ez a sor P-vel vagy Z-vel kezdődik-e (pl. az 'ID' oszlopban)
-                row_id = str(row.get('ID', ''))
-                day_prefix = "Z" if row_id.startswith("Z") else "P"
+        # --- AUTOMATIKUS ÉTLAP KEZELÉS (Most már a gombon belül!) ---
+        if all_meta and mdf is not None:
+            y, w = all_meta[0]['year'], all_meta[0]['week']
+            with st.spinner(f"Pénteki és Szombati étlapok betöltése..."):
+                # JAVÍTVA: get_etlap_dict-et hívunk, mert így nevezted el fent!
+                etlap = get_etlap_dict(y, w) 
+                st.session_state.etlap = etlap
                 
-                order_string = str(row['Rendelés_Full'])
-                matches = re.findall(r'(\d+)-([A-Z0-9*+]+)', order_string)
+                if etlap:
+                    for idx, row in mdf.iterrows():
+                        total_sum = 0
+                        # Az ID-ból (pl. P-410511) kinyerjük az első betűt
+                        row_id = str(row.get('ID', ''))
+                        day_prefix = row_id[0] if row_id else "P"
+                        
+                        # A rendelés sztringből kiszedjük a kódokat
+                        order_string = str(row['Rendelés_Full'])
+                        matches = re.findall(r'(\d+)-([A-Z0-9*+]+)', order_string)
+                        
+                        for qty, code in matches:
+                            clean_c = code.replace('*', '').strip().upper()
+                            # Keresés: pl. "P_A" vagy "Z_AK"
+                            lookup_key = f"{day_prefix}_{clean_c}"
+                            
+                            if lookup_key in etlap:
+                                total_sum += int(qty) * etlap[lookup_key]['ar']
+                        
+                        if total_sum > 0:
+                            mdf.at[idx, 'Pénz'] = f"{total_sum} Ft"
                 
-                for qty, code in matches:
-                    clean_c = code.replace('*', '').strip().upper()
-                    # A keresett kulcs most már pl. "P_A" vagy "Z_AK"
-                    lookup_key = f"{day_prefix}_{clean_c}"
-                    
-                    if lookup_key in etlap:
-                        total_sum += int(qty) * etlap[lookup_key]['ar']
-                
-                if total_sum > 0:
-                    mdf.at[idx, 'Pénz'] = f"{total_sum} Ft"
-        
-        st.session_state.mdf = mdf
-        st.session_state.meta_data = all_meta
-        st.rerun()
+                st.session_state.mdf = mdf
+                st.session_state.meta_data = all_meta
+                st.rerun()
 
-    # --- IDE KERÜLNEK AZ ÚJ SOROK (A gomb után, de a divider előtt) ---
+    # --- CSV Visszatöltés (Visszatéve a helyére) ---
+    st.divider()
+    st.subheader("2. CSV Visszatöltés")
+    up_csv = st.file_uploader("Exportált CSV betöltése", type=['csv'])
+    if up_csv and st.button("📥 BETÖLTÉS"):
+        try:
+            loaded_df = pd.read_csv(up_csv)
+            # Biztosítjuk, hogy a Sorrend float legyen a rendezéshez
+            if 'Sorrend' in loaded_df.columns:
+                loaded_df['Sorrend'] = pd.to_numeric(loaded_df['Sorrend'], errors='coerce').astype(float)
+            st.session_state.mdf = loaded_df
+            st.success("CSV sikeresen betöltve!")
+            st.rerun() # Frissítjük az oldalt a betöltött adatokkal
+        except Exception as e:
+            st.error(f"Hiba a CSV betöltésekor: {e}")
+
+    # --- INFÓ PANEL ---
     if st.session_state.meta_data:
         st.divider()
         m = st.session_state.meta_data[0]
         st.info(f"📅 {m.get('year')}.{m.get('week')}. hét, {m.get('day')}")
-        
         if not st.session_state.etlap:
-            st.warning("⚠️ Az étlap üres! Ellenőrizd a dátumot.")
+            st.warning("⚠️ Az étlap üres!")
         else:
             st.success(f"✅ {len(st.session_state.etlap)} étel betöltve.")
     # ----------------------------------------------------------------

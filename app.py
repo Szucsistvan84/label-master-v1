@@ -26,42 +26,45 @@ def register_fonts():
     except Exception as e:
         return 'Helvetica', 'Helvetica-Bold'
 
-def get_etlap_dict(year, week, target_day):
-    if not year or not week or not target_day: return {}
+def get_etlap_dict(year, week, target_day=None):
+    """
+    Lekéri az Interfood Excel étlapot és kigyűjti a pénteki (5) és szombati (6) oszlopokat.
+    A kulcsok prefixet kapnak (P_ vagy Z_), hogy megkülönböztessük a napokat.
+    """
+    if not year or not week: return {}
     
-    day_map = {'Hétfő': 1, 'Kedd': 2, 'Szerda': 3, 'Csütörtök': 4, 'Péntek': 5, 'Szombat': 6}
-    col_idx = day_map.get(target_day)
-    if col_idx is None: return {}
-
     url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
+    etlap_full = {}
+    
     try:
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
-            df_etlap = pd.read_excel(BytesIO(response.content), header=None)
-            etlap = {}
-            for i in range(len(df_etlap)):
-                val = str(df_etlap.iloc[i, 0])
-                if " - " in val:
-                    # Kód kinyerése (pl. "A - Milánói makaróni" -> "A")
-                    cikkszam = val.split(" - ")[0].strip().upper()
-                    try:
-                        # Név kinyerése az adott nap oszlopából
-                        nev = str(df_etlap.iloc[i, col_idx]).strip()
-                        
-                        # Ár kinyerése (gyakran a név alatti cellában van)
-                        ar_val = df_etlap.iloc[i+1, col_idx]
-                        
-                        if nev != "nan" and nev != "" and "étlap" not in nev.lower():
-                            # Csak akkor mentjük, ha találtunk nevet
-                            ar = 0
-                            if pd.notnull(ar_val):
-                                try:
-                                    ar = int(re.sub(r'\D', '', str(ar_val)))
-                                except: ar = 0
+            df = pd.read_excel(BytesIO(response.content), header=None)
+            
+            # 5-ös oszlop: Péntek (F), 6-os oszlop: Szombat (G/Zárónap)
+            # A PDF-ben a 'P' jelöli a pénteket, a 'Z' a szombatot
+            for day_prefix, col_idx in [("P", 5), ("Z", 6)]:
+                for i in range(len(df)):
+                    val = str(df.iloc[i, 0])
+                    if " - " in val:
+                        cikkszam = val.split(" - ")[0].strip().upper()
+                        try:
+                            # Név kinyerése
+                            nev = str(df.iloc[i, col_idx]).strip()
+                            # Ár kinyerése a név alatti cellából
+                            ar_val = df.iloc[i+1, col_idx]
+                            
+                            if nev != "nan" and nev != "" and "étlap" not in nev.lower():
+                                ar = 0
+                                if pd.notnull(ar_val):
+                                    try:
+                                        ar = int(re.sub(r'\D', '', str(ar_val)))
+                                    except: ar = 0
                                 
-                            etlap[cikkszam] = {'nev': nev, 'ar': ar}
-                    except: continue
-            return etlap
+                                # Egyedi kulcs: pl. "P_A" vagy "Z_A"
+                                etlap_full[f"{day_prefix}_{cikkszam}"] = {'nev': nev, 'ar': ar}
+                        except: continue
+            return etlap_full
     except Exception as e:
         st.error(f"Étlap letöltési hiba: {e}")
     return {}
@@ -100,11 +103,17 @@ def parse_interfood_pdf(pdf_file):
             for y in sorted(lines.keys()):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
+                
+                # Itt keressük meg a kódot (pl. P-410511 vagy Z-410511)
                 u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
                 if not u_code_m: continue
                 
-                uid = re.sub(r'\D', '', u_code_m.group(0))
-                prefix = u_code_m.group(0)[0]
+                # --- JAVÍTOTT RÉSZ ---
+                full_code = u_code_m.group(0) # Megtartjuk a teljes kódot (pl. "P-410511")
+                prefix = full_code[0].upper() # Kinyerjük az első betűt (P vagy Z)
+                uid = re.sub(r'\D', '', full_code) # Csak a számok az azonosításhoz
+                # ---------------------
+
                 b4_words = [w['text'] for w in line_words if 360 <= w['x0'] < 520]
                 clean_name = clean_name_field(" ".join(b4_words))
                 b3_words = [w['text'] for w in line_words if 140 <= w['x0'] < 360]
@@ -113,17 +122,24 @@ def parse_interfood_pdf(pdf_file):
                 address = b3_full[addr_m.start():].strip() if addr_m else b3_full
                 tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
                 raw_orders = re.findall(ORDER_PAT, text_ws)
+                
                 v_o, sq = [], 0
                 for o in raw_orders:
                     if any(c.isalpha() for c in o.split('-')[-1]):
                         v_o.append(o)
                         try: sq += int(re.sub(r'\D', '', o.split('-')[0]))
                         except: pass
+                
                 if v_o:
                     rows.append({
-                        "Prefix": prefix, "ID": uid, "Ügyintéző": clean_name, 
-                        "Cím": address, "Telefon": tel_m.group(0) if tel_m else "", 
-                        "Rendelés": ", ".join(v_o), "Pénz": "0 Ft", "Összesen": sq
+                        "Prefix": prefix, # Elmentjük a P/Z jelölést
+                        "ID": f"{prefix}-{uid}", # Az ID tartalmazza a napot is!
+                        "Ügyintéző": clean_name, 
+                        "Cím": address, 
+                        "Telefon": tel_m.group(0) if tel_m else "", 
+                        "Rendelés": ", ".join(v_o), 
+                        "Pénz": "0 Ft", 
+                        "Összesen": sq
                     })
     return rows, metadata
 
@@ -174,24 +190,33 @@ with st.sidebar:
         
         mdf = merge_data(all_rows)
         
-        # --- AUTOMATIKUS ÉTLAP KEZELÉS ---
-        if all_meta:
-            y, w, d = all_meta[0]['year'], all_meta[0]['week'], all_meta[0]['day']
-            with st.spinner(f"Étlap betöltése: {y}/W{w} - {d}..."):
-                etlap = get_etlap_dict(y, w, d)
-                st.session_state.etlap = etlap
-                if etlap:
-                    for idx, row in mdf.iterrows():
-                        total_sum = 0
-                        order_string = str(row['Rendelés_Full'])
-                        matches = re.findall(r'(\d+)-([A-Z0-9*+]+)', order_string)
-                        for qty, code in matches:
-                            clean_c = code.replace('*', '').strip().upper()
-                            if clean_c in etlap:
-                                total_sum += int(qty) * etlap[clean_c]['ar']
-                        
-                        if total_sum > 0:
-                            mdf.at[idx, 'Pénz'] = f"{total_sum} Ft"
+# --- AUTOMATIKUS ÉTLAP KEZELÉS ---
+if all_meta:
+    y, w = all_meta[0]['year'], all_meta[0]['week']
+    with st.spinner(f"Pénteki és Szombati étlapok betöltése..."):
+        etlap = get_full_etlap(y, w)
+        st.session_state.etlap = etlap
+        
+        if etlap:
+            for idx, row in mdf.iterrows():
+                total_sum = 0
+                # Megnézzük, hogy ez a sor P-vel vagy Z-vel kezdődik-e (pl. az 'ID' oszlopban)
+                row_id = str(row.get('ID', ''))
+                day_prefix = "Z" if row_id.startswith("Z") else "P"
+                
+                order_string = str(row['Rendelés_Full'])
+                matches = re.findall(r'(\d+)-([A-Z0-9*+]+)', order_string)
+                
+                for qty, code in matches:
+                    clean_c = code.replace('*', '').strip().upper()
+                    # A keresett kulcs most már pl. "P_A" vagy "Z_AK"
+                    lookup_key = f"{day_prefix}_{clean_c}"
+                    
+                    if lookup_key in etlap:
+                        total_sum += int(qty) * etlap[lookup_key]['ar']
+                
+                if total_sum > 0:
+                    mdf.at[idx, 'Pénz'] = f"{total_sum} Ft"
         
         st.session_state.mdf = mdf
         st.session_state.meta_data = all_meta

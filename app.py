@@ -79,12 +79,17 @@ def clean_name_field(text):
 def parse_interfood_pdf(pdf_file):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None, 'jarat': None}
-    
-    # ÚJ: Pénzösszeg kereső minta (pl. 12 040 Ft vagy 560 Ft)
-    MONEY_PAT = r'(\d{1,3}(?:\s?\d{3})*)\s*Ft'
-
     with pdfplumber.open(pdf_file) as pdf:
-        # ... (metadata rész marad változatlan) ...
+        header_text = pdf.pages[0].extract_text()
+        if header_text:
+            j_m = re.search(r'(\d{4})\.\s*járat', header_text)
+            y_m = re.search(r'Év:\s*(\d{4})', header_text)
+            w_m = re.search(r'Hét:\s*(\d{1,2})', header_text)
+            d_m = re.search(r'Nap:\s*([^I\n]+)', header_text)
+            if j_m: metadata['jarat'] = j_m.group(1)
+            if y_m: metadata['year'] = y_m.group(1)
+            if w_m: metadata['week'] = w_m.group(1)
+            if d_m: metadata['day'] = d_m.group(1).strip()
 
         for page in pdf.pages:
             words = page.extract_words()
@@ -93,23 +98,21 @@ def parse_interfood_pdf(pdf_file):
                 y = round(w['top'], 1)
                 for ey in lines:
                     if abs(y - ey) < 3: lines[ey].append(w); break
-                else: lines[y] = [w]
-            
+                else:
+                    lines[y] = [w]
+
             for y in sorted(lines.keys()):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
-                
+
+                # Itt keressük meg a kódot (pl. P-410511 vagy Z-410511)
                 u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
                 if not u_code_m: continue
-                
-                full_code = u_code_m.group(0)
-                prefix = full_code[0].upper()
-                uid = re.sub(r'\D', '', full_code)
 
-                # --- PÉNZ KERESÉSE ---
-                # Megkeressük a "Ft" előtti számot a sorban
-                money_m = re.search(MONEY_PAT, text_ws)
-                found_money = money_m.group(0) if money_m else "0 Ft"
+                # --- JAVÍTOTT RÉSZ ---
+                full_code = u_code_m.group(0)  # Megtartjuk a teljes kódot (pl. "P-410511")
+                prefix = full_code[0].upper()  # Kinyerjük az első betűt (P vagy Z)
+                uid = re.sub(r'\D', '', full_code)  # Csak a számok az azonosításhoz
                 # ---------------------
 
                 b4_words = [w['text'] for w in line_words if 360 <= w['x0'] < 520]
@@ -120,23 +123,25 @@ def parse_interfood_pdf(pdf_file):
                 address = b3_full[addr_m.start():].strip() if addr_m else b3_full
                 tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
                 raw_orders = re.findall(ORDER_PAT, text_ws)
-                
+
                 v_o, sq = [], 0
                 for o in raw_orders:
                     if any(c.isalpha() for c in o.split('-')[-1]):
                         v_o.append(o)
-                        try: sq += int(re.sub(r'\D', '', o.split('-')[0]))
-                        except: pass
-                
+                        try:
+                            sq += int(re.sub(r'\D', '', o.split('-')[0]))
+                        except:
+                            pass
+
                 if v_o:
                     rows.append({
-                        "Prefix": prefix,
-                        "ID": f"{prefix}-{uid}",
-                        "Ügyintéző": clean_name, 
-                        "Cím": address, 
-                        "Telefon": tel_m.group(0) if tel_m else "", 
-                        "Rendelés": ", ".join(v_o), 
-                        "Pénz": found_money,  # <--- ITT MÁR A VALÓDI ÖSSZEG LESZ
+                        "Prefix": prefix,  # Elmentjük a P/Z jelölést
+                        "ID": f"{prefix}-{uid}",  # Az ID tartalmazza a napot is!
+                        "Ügyintéző": clean_name,
+                        "Cím": address,
+                        "Telefon": tel_m.group(0) if tel_m else "",
+                        "Rendelés": ", ".join(v_o),
+                        "Pénz": "0 Ft",
                         "Összesen": sq
                     })
     return rows, metadata
@@ -147,28 +152,17 @@ def merge_data(raw_rows):
     df = pd.DataFrame(raw_rows)
     merged = []
     for uid, group in df.groupby("ID", sort=False):
+        # 1. Kimentjük az alap adatokat az első sorból
         base = group.iloc[0].copy().to_dict()
-        o_p, has_weekend = [], False
+        
+        # --- EZ A RÉSZ JAVÍTJA A DUPLÁZÓDÁST ---
+        # Ahelyett, hogy hagynánk a rendszert összeadni, 
+        # kényszerítjük, hogy CSAK az első sorban talált összeget használja.
+        # Ha a beolvasó jól működött, itt a 'Pénz' mezőben már ott van a korrekt összeg.
+        base['Pénz'] = group.iloc[0]['Pénz'] 
+        # ----------------------------------------
 
-        # --- KRITIKUS JAVÍTÁS: Pénzösszeg egyediesítése ---
-        # 1. Kigyűjtjük az összes nem nulla/üres pénz értéket a csoportból
-        penz_list = group['Pénz'].astype(str).tolist()
-        tisztitott_penzek = []
-        for p in penz_list:
-            p_low = p.lower().strip()
-            if p_low not in ["0 ft", "0", "nan", "", "0.0", "none"]:
-                tisztitott_penzek.append(p.strip())
-        
-        # 2. Csak az EGYEDI összegeket tartjuk meg (set), így 12040 + 12040-ből csak egy 12040 marad
-        egyedi_penzek = list(dict.fromkeys(tisztitott_penzek)) 
-        
-        if egyedi_penzek:
-            # Csak a legelső egyedi talált összeget vesszük
-            base['Pénz'] = egyedi_penzek[0]
-        else:
-            base['Pénz'] = "0 Ft"
-        # --------------------------------------------------
-        
+        o_p, has_weekend = [], False
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
             day_group = group[group['Prefix'] == pfix]
             items = day_group['Rendelés'].tolist()
@@ -177,7 +171,10 @@ def merge_data(raw_rows):
                 if pfix == 'Z': has_weekend = True
         
         base['Rendelés_Full'] = " | ".join(o_p)
+        
+        # A darabszámokat (Összesen) továbbra is összeadjuk, az így helyes
         base['Összesen'] = group['Összesen'].sum()
+        
         base['Hétvégi'] = has_weekend 
         base['Megjegyzés'] = ""
         merged.append(base)

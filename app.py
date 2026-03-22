@@ -256,41 +256,46 @@ with st.sidebar:
                 st.session_state.meta_data = all_meta
                 st.rerun()
 
-    # --- CSV Visszatöltés (Visszatéve a helyére) ---
+# --- CSV Visszatöltés (Javított indentálás) ---
     st.divider()
     st.subheader("2. CSV Visszatöltés")
     up_csv = st.file_uploader("Exportált CSV betöltése", type=['csv'])
-        if up_csv and st.button("📥 BETÖLTÉS"):
+
+    if up_csv:
+        if st.button("📥 BETÖLTÉS"):
             try:
                 loaded_df = pd.read_csv(up_csv)
-        
-        if st.session_state.mdf is not None:
-            # 1. Csak az ID és a Sorrend oszlopokat tartjuk meg a CSV-ből
-            # Így a 'Pénz', 'Rendelés' stb. marad a friss PDF-ből!
-            sorrend_map = loaded_df[['ID', 'Sorrend']].drop_duplicates()
-            
-            # 2. Összefésüljük a friss adatokat a mentett sorrenddel
-            # Először kidobjuk a régi sorrend oszlopot a friss adatokból (ha van)
-            if 'Sorrend' in st.session_state.mdf.columns:
-                st.session_state.mdf = st.session_state.mdf.drop(columns=['Sorrend'])
-            
-            # Hozzáadjuk a CSV-ből beolvasott sorrendet
-            st.session_state.mdf = st.session_state.mdf.merge(sorrend_map, on='ID', how='left')
-            
-            # 3. Formázás: Aki új (nincs a CSV-ben), kerüljön a végére
-            st.session_state.mdf['Sorrend'] = pd.to_numeric(st.session_state.mdf['Sorrend'], errors='coerce').fillna(999).astype(float)
-            st.session_state.mdf = st.session_state.mdf.sort_values('Sorrend')
-            
-            st.success("Sorrend sikeresen frissítve a CSV alapján!")
-        else:
-            # Ha még nincs beolvasva PDF, de beöltöd a CSV-t (opcionális)
-            st.session_state.mdf = loaded_df
-            st.warning("PDF adatok hiányában a teljes CSV-t betöltöttem.")
-            
-        st.rerun()
-    except Exception as e:
-        st.error(f"Hiba a CSV betöltésekor: {e}")
-
+                
+                if st.session_state.mdf is not None:
+                    # 1. Csak az ID és a Sorrend oszlopokat tartjuk meg a CSV-ből
+                    # Így az új PDF-ből jövő friss 'Pénz' és 'Rendelés' nem vész el!
+                    if 'ID' in loaded_df.columns and 'Sorrend' in loaded_df.columns:
+                        sorrend_map = loaded_df[['ID', 'Sorrend']].drop_duplicates()
+                        
+                        # 2. Először kidobjuk a régi sorrend oszlopot a friss adatokból
+                        if 'Sorrend' in st.session_state.mdf.columns:
+                            st.session_state.mdf = st.session_state.mdf.drop(columns=['Sorrend'])
+                        
+                        # 3. Hozzáadjuk a CSV-ből beolvasott sorrendet az ID alapján
+                        st.session_state.mdf = st.session_state.mdf.merge(sorrend_map, on='ID', how='left')
+                        
+                        # 4. Formázás: Aki új (nincs a CSV-ben), kerüljön a végére (999)
+                        st.session_state.mdf['Sorrend'] = pd.to_numeric(st.session_state.mdf['Sorrend'], errors='coerce').fillna(999).astype(float)
+                        st.session_state.mdf = st.session_state.mdf.sort_values('Sorrend')
+                        
+                        st.success("Sorrend sikeresen frissítve a CSV alapján!")
+                    else:
+                        st.error("A CSV-ben nincs 'ID' vagy 'Sorrend' oszlop!")
+                else:
+                    # Ha még nincs beolvasva PDF, a teljes CSV-t betöltjük
+                    st.session_state.mdf = loaded_df
+                    st.warning("PDF adatok hiányában a teljes CSV-t betöltöttem.")
+                
+                st.rerun()  # Csak a sikeres folyamat végén frissítünk
+                
+            except Exception as e:
+                st.error(f"Hiba a CSV betöltésekor: {e}")
+    
     # --- INFÓ PANEL ---
     if st.session_state.meta_data:
         st.divider()

@@ -260,9 +260,9 @@ with st.sidebar:
     st.divider()
     st.subheader("2. CSV Visszatöltés")
     up_csv = st.file_uploader("Exportált CSV betöltése", type=['csv'])
-if up_csv and st.button("📥 BETÖLTÉS"):
-    try:
-        loaded_df = pd.read_csv(up_csv)
+        if up_csv and st.button("📥 BETÖLTÉS"):
+            try:
+                loaded_df = pd.read_csv(up_csv)
         
         if st.session_state.mdf is not None:
             # 1. Csak az ID és a Sorrend oszlopokat tartjuk meg a CSV-ből

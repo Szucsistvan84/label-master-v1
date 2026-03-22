@@ -400,21 +400,21 @@ edited_df = st.data_editor(
     }
 )
     
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("✅ SORREND MENTÉSE", use_container_width=True):
-            # Biztosítjuk, hogy float-ként kezeljük a sorrendet a rendezés előtt
-            temp_df = edited_df.copy()
-            temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(float)
-            temp_df = temp_df.sort_values('Sorrend').reset_index(drop=True)
-            
-            # Ha utána újra egész számokat akarsz belőle:
-            # temp_df['Sorrend'] = range(1, len(temp_df) + 1)
-            
-            st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
-            st.session_state.notes = dict(zip(temp_df['ID'].astype(str), temp_df['Megjegyzés'].fillna("")))
-            st.session_state.mdf = temp_df
-            st.rerun()
+c1, c2 = st.columns(2)
+with c1:
+    if st.button("✅ SORREND MENTÉSE", use_container_width=True):
+        # Biztosítjuk, hogy float-ként kezeljük a sorrendet a rendezés előtt
+        temp_df = edited_df.copy()
+        temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(float)
+        temp_df = temp_df.sort_values('Sorrend').reset_index(drop=True)
+        
+        # Ha utána újra egész számokat akarsz belőle:
+        # temp_df['Sorrend'] = range(1, len(temp_df) + 1)
+        
+        st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
+        st.session_state.notes = dict(zip(temp_df['ID'].astype(str), temp_df['Megjegyzés'].fillna("")))
+        st.session_state.mdf = temp_df
+        st.rerun()
             
     with c2:
         csv_data = edited_df.to_csv(index=False).encode('utf-8-sig')

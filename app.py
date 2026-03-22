@@ -113,53 +113,65 @@ def parse_interfood_pdf(pdf_file):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
 
-                # Ügyfélkód keresése
+                # 1. Ügyfélkód keresése - ha nincs, nem ez a mi sorunk
                 u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
                 if not u_code_m: continue
 
-                # --- JAVÍTOTT PÉNZKERESÉS ---
+                # 2. PÉNZ ÉS TELEFON kinyerése a teljes sorból (Regex-szel, mert bárhol lehetnek)
                 money_val = "0 Ft"
-                money_match = re.search(r'(-?[\s]*\d[\d\s]*)\s*Ft', text_ws)
-                
-                if money_match:
-                    raw_m = money_match.group(0).strip()
+                # Keresünk bármit, ami szám + Ft, és nézzük, van-e előtte mínusz
+                m_match = re.search(r'(-?\s?\d[\d\s]*)\s*Ft', text_ws)
+                if m_match:
+                    raw_m = m_match.group(0).strip()
                     if "-" in raw_m:
                         money_val = "0 Ft"
                     else:
                         digits = "".join(filter(str.isdigit, raw_m))
-                        if digits and digits != "0":
+                        if digits:
                             money_val = "{:,}".format(int(digits)).replace(",", " ") + " Ft"
 
-                # Alapadatok kinyerése
-                prefix = u_code_m.group(0)[0].upper()
-                uid = re.sub(r'\D', '', u_code_m.group(0))
-                
-                # Név és cím kinyerése
-                name_words = [w['text'] for w in line_words if 360 <= w['x0'] < 550]
-                name_raw = " ".join(name_words).split('/')[0].strip()
-                
-                addr_words = [w['text'] for w in line_words if 140 <= w['x0'] < 360]
-                address = " ".join(addr_words).strip()
-
-                # --- ÚJ: TELEFON ÉS TISZTA NÉV SZÉTVÁLASZTÁSA ---
-                # Telefonszám keresése (pl. 30/1234567 formátum)
                 tel_m = re.search(r'(\d{2}/\d{3,9})', text_ws)
                 tel_val = tel_m.group(1) if tel_m else ""
-                
-                # Név megtisztítása (levágjuk a név végéről a beleragadt körzetszámot, pl. "Név 30")
-                clean_name = re.sub(r'\s\d{2}$', '', name_raw).strip()
+
+                # 3. NÉV, CÍM ÉS RENDELÉS (A koordináták helyett tartalom alapján)
+                # A név általában az Ügyintéző mezőben van (360 < x0 < 550)
+                name_parts = [w['text'] for w in line_words if 360 <= w['x0'] < 550]
+                # A cím az Ügyfél címe mezőben (140 < x0 < 360)
+                addr_parts = [w['text'] for w in line_words if 140 <= w['x0'] < 360]
+                # A rendelés a Telefon/Rendelés mezőben (550 < x0)
+                order_parts = [w['text'] for w in line_words if x0 >= 550]
+
+                # TISZTÍTÁS:
+                # Cím: Vegyük ki belőle, ha véletlenül belekerült az Ügyfélkód vagy Név
+                full_addr = " ".join(addr_parts).strip()
+                # Ha a cím névvel kezdődik (pl. Kovács Máté 4030...), vágjuk le a nevet az elejéről
+                # Segítség: A valódi cím általában az irányítószámmal (4-es szám) kezdődik
+                zip_match = re.search(r'(\d{4}\s.*)', full_addr)
+                clean_address = zip_match.group(1) if zip_match else full_addr
+
+                # Név: Vegyük le a körzetszámot a végéről (pl. "Név 30")
+                clean_name = " ".join(name_parts).split('/')[0].strip()
+                clean_name = re.sub(r'\s\d{2}$', '', clean_name)
+
+                # Rendelés: CSAK a kódok maradjanak (pl. 1-L3K), ne a telefonszám vagy a Ft
+                order_text = " ".join([w['text'] for w in line_words if w['x0'] > 550])
+                # Vegyük ki a telefonszámot és a pénzt a rendelés szövegéből
+                order_text = order_text.replace(tel_val, "").strip()
+                if m_match:
+                    order_text = order_text.replace(m_match.group(0), "").strip()
+                # Csak a kötőjeles kódok és darabszámok maradjanak
+                clean_order = re.sub(r'\s+', ' ', order_text).strip()
 
                 rows.append({
-                    "Prefix": prefix,
-                    "ID": f"{prefix}-{uid}",
-                    "Ügyintéző": clean_name,  # Tisztított név
-                    "Cím": address,
-                    "Telefon": tel_val,       # ÚJ OSZLOP: Ez kell a menettervhez!
+                    "Prefix": u_code_m.group(0)[0].upper(),
+                    "ID": f"{u_code_m.group(0)[0].upper()}-{re.sub(r'\D', '', u_code_m.group(0))}",
+                    "Ügyintéző": clean_name,
+                    "Cím": clean_address,
+                    "Telefon": tel_val,
                     "Pénz": money_val,
-                    "Rendelés": text_ws, 
+                    "Rendelés": clean_order,
                     "Összesen": 0
-                })
-                
+                })                
     return rows, meta
 
 def merge_data(raw_rows):

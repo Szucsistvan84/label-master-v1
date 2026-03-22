@@ -80,6 +80,7 @@ def parse_interfood_pdf(pdf_file):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None, 'jarat': None}
     with pdfplumber.open(pdf_file) as pdf:
+        # Metadata kinyerése (marad az eredeti)
         header_text = pdf.pages[0].extract_text()
         if header_text:
             j_m = re.search(r'(\d{4})\.\s*járat', header_text)
@@ -97,17 +98,13 @@ def parse_interfood_pdf(pdf_file):
             for w in words:
                 y = round(w['top'], 1)
                 for ey in lines:
-                    # Maradjon a 3-as küszöb, mert az eredeti PDF-ben 
-                    # a Péntek/Szombat adatok néha 2-4 pixel távolságra vannak
                     if abs(y - ey) < 3.5: lines[ey].append(w); break
-                else:
-                    lines[y] = [w]
+                else: lines[y] = [w]
 
             for y in sorted(lines.keys()):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
 
-                # ID keresése: P-465258 vagy Z-410511
                 u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
                 if not u_code_m: continue
 
@@ -115,40 +112,41 @@ def parse_interfood_pdf(pdf_file):
                 prefix = full_code[0].upper()
                 uid = re.sub(r'\D', '', full_code)
 
-                # Név, Cím, Rendelés adatok kinyerése
+                # Név és cím (marad a régi logika)
                 b4_words = [w['text'] for w in line_words if 360 <= w['x0'] < 520]
                 clean_name = clean_name_field(" ".join(b4_words))
                 b3_words = [w['text'] for w in line_words if 140 <= w['x0'] < 360]
                 b3_full = " ".join(b3_words)
                 addr_m = re.search(r'(\d{4})', b3_full)
                 address = b3_full[addr_m.start():].strip() if addr_m else b3_full
+                
                 tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
                 raw_orders = re.findall(ORDER_PAT, text_ws)
 
-                # --- SPECIÁLIS PÉNZKERESÉS AZ EREDETI PDF-HEZ ---
-                # Keressük: opcionális mínusz jel, számjegyek, szóközök, "Ft"
+                # --- JAVÍTOTT PÉNZKERESÉS: A teljes sorban keresünk! ---
+                # Az Interfood PDF-ben a pénz bárhol lehet a sor végén.
+                # Keressük a "Ft" szót és a közvetlen előtte lévő számokat/mínuszjelet.
                 money_val = "0 Ft"
-                # Ez a regex megtalálja a "-7 415 Ft"-ot és a "0 Ft"-ot is
-                money_m = re.search(r'(-?\s?\d[\d\s]*)\s*Ft', text_ws)
+                # Regex: opcionális mínusz, számok/szóközök, "Ft"
+                money_match = re.search(r'(-?\s?\d[\d\s]*)\s*Ft', text_ws)
                 
-                money_m = re.search(r'(-?\s?\d[\d\s]*)\s*Ft', text_ws)
-                if money_m:
-                    # Fontos: Megtartjuk a "Ft" szöveget, mert ez lesz a "pajzsunk" a felülírás ellen!
-                    raw_val = money_m.group(0).strip()
-                    digits = "".join(filter(str.isdigit, raw_val))
-                    money_val = f"{int(digits)} Ft" if digits else "0 Ft"
-                else:
-                    money_val = "0 Ft"
-                # -----------------------------------------------
+                if money_match:
+                    money_str = money_match.group(0).strip()
+                    # Ha találtunk "Ft"-ot, azt rakjuk be, így a MERGE tudni fogja,
+                    # hogy ez PDF-ből jött, és NEM fogja felülírni kalkulált árral.
+                    digits = "".join(filter(str.isdigit, money_str))
+                    if digits and digits != "0":
+                        money_val = "{:,}".format(int(digits)).replace(",", " ") + " Ft"
+                    else:
+                        money_val = "0 Ft"
+                # ------------------------------------------------------
 
                 v_o, sq = [], 0
                 for o in raw_orders:
                     if any(c.isalpha() for c in o.split('-')[-1]):
                         v_o.append(o)
-                        try:
-                            sq += int(re.sub(r'\D', '', o.split('-')[0]))
-                        except:
-                            pass
+                        try: sq += int(re.sub(r'\D', '', o.split('-')[0]))
+                        except: pass
 
                 if v_o:
                     rows.append({
@@ -158,7 +156,7 @@ def parse_interfood_pdf(pdf_file):
                         "Cím": address,
                         "Telefon": tel_m.group(0) if tel_m else "",
                         "Rendelés": ", ".join(v_o),
-                        "Pénz": money_val,
+                        "Pénz": money_val, # Fontos: Mindig legyen benne a "Ft"!
                         "Összesen": sq
                     })
     return rows, metadata

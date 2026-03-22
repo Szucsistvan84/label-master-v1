@@ -364,35 +364,63 @@ def create_manifest_pdf(df, fn, meta_list):
 def create_raklista_pdf(df, jarat_info, meta_list):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=15*mm)
+    # Margók beállítása, hogy ne legyen üres az oldal teteje
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=15*mm, bottomMargin=15*mm)
     etlap = st.session_state.get('etlap', {})
     
-    # Kódok összesítése a Rendelés_Full-ból
+    # 1. Összesítés: Kigyűjtjük az összes kódot a táblázatból
     counts = {}
-    for r in df['Rendelés_Full']:
-        found = re.findall(r'(\d+)-([A-Z0-9*+]+)', str(r))
+    # Fontos: a szerkesztett df-ből (edited_df) dolgozunk
+    for _, r in df.iterrows():
+        order_str = str(r.get('Rendelés_Full', ''))
+        # Megkeressük a "darab-KÓD" párosokat (pl: 1-A, 2-BK)
+        found = re.findall(r'(\d+)-([A-Z0-9*+]+)', order_str)
         for qty, code in found:
+            code = code.strip().upper()
             counts[code] = counts.get(code, 0) + int(qty)
     
-    data = [[Paragraph("<b>KÓD</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1)), 
-             Paragraph("<b>MEGNEVEZÉS</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1)),
-             Paragraph("<b>DB</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1))]]
+    # 2. Táblázat adatok összeállítása
+    data = [[
+        Paragraph("<b>KÓD</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1)), 
+        Paragraph("<b>MEGNEVEZÉS</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1)),
+        Paragraph("<b>DB</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1))
+    ]]
     
-    for code in sorted(counts.keys()):
-        clean_c = code.replace('*', '').strip().upper()
-        # Megnevezés kikérése a letöltött étlapból
-        nev = etlap.get(clean_c, {}).get('nev', "--- NINCS AZ ÉTLAPON ---")
-        data.append([code, Paragraph(nev, ParagraphStyle('L', fontName=f_reg, fontSize=9)), f"{counts[code]} db"])
+    if not counts:
+        data.append(["-", "Nincs megjeleníthető adat (üres rendelés oszlop)", "0"])
+    else:
+        for code in sorted(counts.keys()):
+            clean_c = code.replace('*', '').strip()
+            # Itt keressük ki az Interfood étlapból a nevet
+            item_info = etlap.get(clean_c, {})
+            nev = item_info.get('nev', "--- NINCS AZ ÉTLAPON / KÉZI ---")
+            
+            data.append([
+                code, 
+                Paragraph(nev, ParagraphStyle('L', fontName=f_reg, fontSize=9)), 
+                f"{counts[code]} db"
+            ])
 
-    t = Table(data, colWidths=[25*mm, 120*mm, 20*mm])
+    # 3. PDF felépítése
+    t = Table(data, colWidths=[30*mm, 125*mm, 25*mm])
     t.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.5, colors.black),
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('ALIGN', (0,0), (0,-1), 'CENTER'),
+        ('ALIGN', (-1,0), (-1,-1), 'CENTER'),
         ('FONTNAME', (0,0), (-1,-1), f_reg)
     ]))
-    doc.build([t])
-    buf.seek(0); return buf
+    
+    # Cím hozzáadása a raklista elé
+    elements = []
+    elements.append(Paragraph(f"<b>ÖSSZESÍTETT RAKLISTA</b> - {jarat_info}", 
+                             ParagraphStyle('Title', fontName=f_bold, fontSize=14, spaceAfter=10)))
+    elements.append(t)
+    
+    doc.build(elements)
+    buf.seek(0)
+    return buf
     
 # --- FŐ PROGRAMFUTÁS ---
 
@@ -409,7 +437,7 @@ if st.session_state.mdf is not None:
     
     if st.button("💾 MÓDOSÍTÁSOK MENTÉSE"):
         st.session_state.mdf = edited_df
-        st.success("Mentve!")
+        st.success("Mentve! Most már letöltheted a friss PDF-eket.")
 
     st.divider()
     c1, c2, c3 = st.columns(3)
@@ -427,7 +455,11 @@ if st.session_state.mdf is not None:
     c2.download_button("📋 MENETTERV (PDF)", create_manifest_pdf(edited_df, c_n, st.session_state.meta_data), "menetterv.pdf")
     
     # RAKLISTA LETÖLTÉSE
-    c3.download_button("📦 RAKLISTA (PDF)", create_raklista_pdf(edited_df, j_info, st.session_state.meta_data), "raklista.pdf")
+    c3.download_button(
+        label="📦 RAKLISTA (PDF)", 
+        data=create_raklista_pdf(edited_df, j_info, st.session_state.meta_data), 
+        file_name=f"raklista_{j_info.replace(', ','_')}.pdf"
+    )
     
     # CSV EXPORT (hogy később visszatölthető legyen)
     csv_data = edited_df.to_csv(index=False).encode('utf-8-sig')

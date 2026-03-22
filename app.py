@@ -97,7 +97,7 @@ def parse_interfood_pdf(pdf_file):
             for w in words:
                 y = round(w['top'], 1)
                 for ey in lines:
-                    if abs(y - ey) < 3: lines[ey].append(w); break
+                    if abs(y - ey) < 1.5: lines[ey].append(w); break
                 else:
                     lines[y] = [w]
 

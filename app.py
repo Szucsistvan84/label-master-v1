@@ -24,14 +24,12 @@ def register_fonts():
         pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
         return 'DejaVu', 'DejaVu-Bold'
     except Exception as e:
-        st.warning(f"DejaVu font hiba: {e}. Helvetica-t használok.")
         return 'Helvetica', 'Helvetica-Bold'
 
 def get_etlap_dict(year, week, target_day):
     """Interfood Étlap API letöltés és feldolgozás (Név + Ár kinyerése)"""
     if not year or not week or not target_day: return {}
     
-    # Napok és oszlopindexek (B=1, C=2, D=3, E=4, F=5, G=6)
     day_map = {'Hétfő': 1, 'Kedd': 2, 'Szerda': 3, 'Csütörtök': 4, 'Péntek': 5, 'Szombat': 6}
     col_idx = day_map.get(target_day)
     if col_idx is None: return {}
@@ -40,7 +38,6 @@ def get_etlap_dict(year, week, target_day):
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            # Header=None, mert nincsenek fix fejlécneveink
             df_etlap = pd.read_excel(BytesIO(response.content), header=None)
             etlap = {}
             for i in range(len(df_etlap)):
@@ -51,13 +48,12 @@ def get_etlap_dict(year, week, target_day):
                         nev = str(df_etlap.iloc[i, col_idx]).strip()
                         ar_val = df_etlap.iloc[i+1, col_idx]
                         if nev != "nan" and nev != "" and pd.notnull(ar_val):
-                            # Csak számok megtartása az árban
                             ar = int(re.sub(r'\D', '', str(ar_val)))
                             etlap[cikkszam] = {'nev': nev, 'ar': ar}
                     except: continue
             return etlap
     except Exception as e:
-        st.error(f"Étlap hiba ({url}): {e}")
+        st.error(f"Étlap hiba: {e}")
     return {}
 
 def clean_name_field(text):
@@ -175,13 +171,17 @@ with st.sidebar:
                 st.session_state.etlap = etlap
                 if etlap:
                     for idx, row in mdf.iterrows():
-                        total = 0
-                        found = re.findall(r'(\d+)-([A-Z0-9*+]+)', str(row['Rendelés_Full']))
-                        for qty, code in found:
+                        total_sum = 0
+                        # Kinyerjük a kódokat a Rendelés_Full cellából: Pl "Hé: 1-A, 2-B"
+                        order_string = str(row['Rendelés_Full'])
+                        matches = re.findall(r'(\d+)-([A-Z0-9*+]+)', order_string)
+                        for qty, code in matches:
                             clean_c = code.replace('*', '').strip().upper()
                             if clean_c in etlap:
-                                total += int(qty) * etlap[clean_c]['ar']
-                        if total > 0: mdf.at[idx, 'Pénz'] = f"{total} Ft"
+                                total_sum += int(qty) * etlap[clean_c]['ar']
+                        
+                        if total_sum > 0:
+                            mdf.at[idx, 'Pénz'] = f"{total_sum} Ft"
         
         st.session_state.mdf = mdf
         st.session_state.meta_data = all_meta
@@ -366,12 +366,13 @@ def create_raklista_pdf(df, jarat_info, meta_list):
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=15*mm)
     etlap = st.session_state.get('etlap', {})
+    
+    # Kódok összesítése a Rendelés_Full-ból
     counts = {}
     for r in df['Rendelés_Full']:
         found = re.findall(r'(\d+)-([A-Z0-9*+]+)', str(r))
         for qty, code in found:
-            if any(c.isalpha() for c in code):
-                counts[code] = counts.get(code, 0) + int(qty)
+            counts[code] = counts.get(code, 0) + int(qty)
     
     data = [[Paragraph("<b>KÓD</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1)), 
              Paragraph("<b>MEGNEVEZÉS</b>", ParagraphStyle('C', fontName=f_bold, fontSize=10, alignment=1)),
@@ -379,29 +380,40 @@ def create_raklista_pdf(df, jarat_info, meta_list):
     
     for code in sorted(counts.keys()):
         clean_c = code.replace('*', '').strip().upper()
-        nev = etlap.get(clean_c, {}).get('nev', "---")
+        # Megnevezés kikérése a letöltött étlapból
+        nev = etlap.get(clean_c, {}).get('nev', "--- NINCS AZ ÉTLAPON ---")
         data.append([code, Paragraph(nev, ParagraphStyle('L', fontName=f_reg, fontSize=9)), f"{counts[code]} db"])
 
     t = Table(data, colWidths=[25*mm, 120*mm, 20*mm])
-    t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.black), ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
+    t.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('FONTNAME', (0,0), (-1,-1), f_reg)
+    ]))
     doc.build([t])
     buf.seek(0); return buf
     
 # --- FŐ PROGRAMFUTÁS ---
 
 if st.session_state.mdf is not None:
-    st.subheader("📦 Adatok ellenőrzése és szerkesztése")
+    st.subheader("📦 Adatok ellenőrzése")
     
-    # Adatszerkesztő megjelenítése
-    # Itt tudod manuálisan átírni a nevet vagy címet ha mégis maradt benne valami
-    edited_df = st.data_editor(st.session_state.mdf, hide_index=True, use_container_width=True,
-                              column_config={"Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f")})
+    # A num_rows="dynamic" engedélyezi az új sorok hozzáadását és a törlést
+    edited_df = st.data_editor(
+        st.session_state.mdf, 
+        hide_index=True, 
+        use_container_width=True,
+        num_rows="dynamic"  # <--- EZT ADD HOZZÁ
+    )
     
-    if st.button("💾 MÓDOSÍTÁSOK VÉGLEGESÍTÉSE"):
+    if st.button("💾 MÓDOSÍTÁSOK MENTÉSE"):
         st.session_state.mdf = edited_df
-        st.success("Módosítások mentve a memóriába!")
+        st.success("Mentve!")
 
     st.divider()
+    c1, c2, c3 = st.columns(3)
+    j_info = ", ".join(list(set([str(m['jarat']) for m in st.session_state.meta_data if m['jarat']])))
     
     # Letöltések szekció
     c1, c2, c3, c4 = st.columns(4)

@@ -212,11 +212,17 @@ def merge_data(raw_rows):
         merged.append(base)
         
     return pd.DataFrame(merged)
+# KÖTELEZŐ: Ellenőrizzük, hogy van-e Sorrend, ha nincs, csinálunk
     if 'Sorrend' not in res.columns:
         res['Sorrend'] = range(1, len(res) + 1)
         res['Sorrend'] = res['Sorrend'].astype(float)
+    
+    # KÖTELEZŐ: A temp_id-t le kell dobni, de a Sorrendet MEG KELL TARTANI
+    if 'temp_id' in res.columns:
+        res = res.drop(columns=['temp_id'])
         
-    return res.drop(columns=['temp_id']) if 'temp_id' in res.columns else res
+    # NAGYON FONTOS: Itt a teljes 'res' változót adjuk vissza!
+    return res
     
     # --- KRITIKUS PONT 3: SORREND KEZELÉSE ---
     if 'Sorrend' not in res.columns:

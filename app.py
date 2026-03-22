@@ -415,113 +415,125 @@ def create_manifest_pdf(df, fn, meta_list):
 def create_raklista_pdf(df, jarat_info, meta_list):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=15*mm, bottomMargin=15*mm)
+    # Margók kicsit kisebbek, hogy több adat férjen el
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=10*mm, bottomMargin=15*mm)
     etlap = st.session_state.get('etlap', {})
     
-    # 1. Összesítés napok és PONTOS kódok szerint (csillaggal együtt!)
+    # Dátum infó kinyerése a metaadatokból a fejlécbe
+    dates_str = ""
+    if meta_list:
+        m = meta_list[0]
+        dates_str = f"{m.get('year', '')}. {m.get('week', '')}. hét ({m.get('days', '')})"
+
+    # 1. Összesítés (Prefix + Kód + Csillag logika)
     counts = {}
     for _, r in df.iterrows():
         order_str = str(r.get('Rendelés_Full', ''))
         day_parts = order_str.split('|')
         for part in day_parts:
-            prefix = ""
-            if "Pé:" in part: prefix = "P"
-            elif "Szo:" in part: prefix = "Z"
-            else: continue
+            prefix = "P" if "Pé:" in part else "Z" if "Szo:" in part else ""
+            if not prefix: continue
             
-            # A regex most már megengedi a csillagot is a kód végén
             found = re.findall(r'(\d+)\s*-\s*([A-Z0-9*+]+)', part)
             for qty, code in found:
-                code = code.strip().upper()
-                full_key = f"{prefix}_{code}" # pl. "P_R1*"
+                full_key = f"{prefix}_{code.strip().upper()}"
                 counts[full_key] = counts.get(full_key, 0) + int(qty)
     
-    # 2. Táblázat adatok összeállítása
+    # 2. Táblázat felépítése az új sorrendben
+    # Sorrend: Nap, Kód, DB, [ ], Megnevezés, Ár, Összesen
+    header_style = ParagraphStyle('H', fontName=f_bold, fontSize=8, alignment=1)
     data = [[
-        Paragraph("<b>NAP</b>", ParagraphStyle('C', fontName=f_bold, fontSize=9, alignment=1)),
-        Paragraph("<b>KÓD</b>", ParagraphStyle('C', fontName=f_bold, fontSize=9, alignment=1)), 
-        Paragraph("<b>MEGNEVEZÉS</b>", ParagraphStyle('C', fontName=f_bold, fontSize=9, alignment=1)),
-        Paragraph("<b>DB</b>", ParagraphStyle('C', fontName=f_bold, fontSize=9, alignment=1)),
-        Paragraph("<b>EGYSÉGÁR</b>", ParagraphStyle('C', fontName=f_bold, fontSize=9, alignment=1)),
-        Paragraph("<b>ÖSSZESEN</b>", ParagraphStyle('C', fontName=f_bold, fontSize=9, alignment=1))
+        Paragraph("<b>NAP</b>", header_style),
+        Paragraph("<b>KÓD</b>", header_style), 
+        Paragraph("<b>DB</b>", header_style),
+        Paragraph("<b>[ ]</b>", header_style),
+        Paragraph("<b>MEGNEVEZÉS</b>", header_style),
+        Paragraph("<b>EGYSÉGÁR</b>", header_style),
+        Paragraph("<b>ÖSSZESEN</b>", header_style)
     ]]
     
     total_qty = 0
     total_money = 0
     processed_full_keys = set()
+    row_style = ParagraphStyle('R', fontName=f_reg, fontSize=7.5, leading=9)
 
-    # Először az étlap sorrendjén megyünk végig
+    # Étlap szerinti listázás
     for etlap_key in etlap.keys():
-        # Az etlap_key pl. "P_R1". Megnézzük, van-e sima vagy csillagos változatunk
         for suffix in ["", "*"]:
-            current_lookup = f"{etlap_key}{suffix}" # "P_R1" vagy "P_R1*"
-            
+            current_lookup = f"{etlap_key}{suffix}"
             if current_lookup in counts:
-                info = etlap[etlap_key] # Az adatokat a csillag nélküli kulccsal kérjük le
-                nev = info.get('nev', "---")
-                ar = info.get('ar', 0)
+                info = etlap[etlap_key]
                 db = counts[current_lookup]
-                sor_osszesen = db * ar
+                ar = info.get('ar', 0)
+                subtotal = db * ar
                 
-                day_name = "Péntek" if current_lookup.startswith("P") else "Szombat"
-                code_with_star = current_lookup.split('_')[1]
+                day = "Péntek" if current_lookup.startswith("P") else "Szombat"
+                code_label = current_lookup.split('_')[1]
                 
                 data.append([
-                    day_name,
-                    code_with_star,
-                    Paragraph(nev, ParagraphStyle('L', fontName=f_reg, fontSize=8)),
-                    f"{db} db",
-                    f"{ar} Ft",
-                    f"{sor_osszesen} Ft"
+                    day, code_label, f"{db} db", "[  ]",
+                    Paragraph(info.get('nev', '---'), row_style),
+                    f"{ar} Ft", f"{subtotal} Ft"
                 ])
-                
                 total_qty += db
-                total_money += sor_osszesen
+                total_money += subtotal
                 processed_full_keys.add(current_lookup)
 
-    # 3. Maradék (kézi) kódok, amik sehogyan sem voltak az étlapon
+    # Kézi/Hiányzó tételek
     for f_key, db in counts.items():
         if f_key not in processed_full_keys:
-            day_name = "Péntek" if f_key.startswith("P") else "Szombat"
-            code_label = f_key.split('_')[1]
+            day = "Péntek" if f_key.startswith("P") else "Szombat"
             data.append([
-                day_name, code_label,
-                Paragraph("--- NINCS AZ ÉTLAPON / KÉZI ---", ParagraphStyle('L', fontName=f_reg, fontSize=8)),
-                f"{db} db", "0 Ft", "0 Ft"
+                day, f_key.split('_')[1], f"{db} db", "[  ]",
+                Paragraph("--- NINCS AZ ÉTLAPON ---", row_style), "0 Ft", "0 Ft"
             ])
             total_qty += db
 
-    # 4. Összesítő sorok (Jutalék számítással)
-    jutalek = int(total_money * 0.13)
-    data.append(["", "", "", "", "", ""]) # Üres sor
-    data.append([
-        "", "", 
-        Paragraph("<b>ÖSSZESEN:</b>", ParagraphStyle('R', fontName=f_bold, fontSize=10, alignment=2)),
-        f"<b>{total_qty} db</b>", "", f"<b>{total_money} Ft</b>"
-    ])
-    data.append([
-        "", "", 
-        Paragraph("<b>JUTALÉK (13%):</b>", ParagraphStyle('R', fontName=f_bold, fontSize=10, alignment=2)),
-        "", "", f"<b>{jutalek} Ft</b>"
-    ])
-
-    # 5. Formázás
-    t = Table(data, colWidths=[20*mm, 18*mm, 82*mm, 15*mm, 25*mm, 30*mm])
+    # 3. Táblázat formázása
+    # Oszlop szélességek: Nap(18), Kód(18), DB(12), Check(10), Név(85), Ár(22), Össz(25)
+    t = Table(data, colWidths=[18*mm, 18*mm, 12*mm, 10*mm, 85*mm, 22*mm, 25*mm], repeatRows=1)
     t.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-3), 0.5, colors.black),
+        ('GRID', (0,0), (-1,-1), 0.3, colors.black),
         ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('ALIGN', (3,0), (-1,-1), 'CENTER'),
-        ('FONTNAME', (0,0), (-1,-1), f_reg)
+        ('ALIGN', (0,0), (3,-1), 'CENTER'), # Nap, Kód, DB, Check középre
+        ('ALIGN', (5,0), (6,-1), 'RIGHT'),  # Árak jobbra
+        ('FONTNAME', (0,0), (-1,-1), f_reg),
+        ('FONTSIZE', (0,0), (-1,-1), 7.5),
     ]))
+
+    # 4. Összesítő rész (HTML mentesítve)
+    jutalek = int(total_money * 0.13)
     
+    summary_data = [
+        ["", "", "", "", "ÖSSZESEN:", f"{total_qty} db", f"{total_money} Ft"],
+        ["", "", "", "", "JUTALÉK (13%):", "", f"{jutalek} Ft"]
+    ]
+    st_table = Table(summary_data, colWidths=[18*mm, 18*mm, 12*mm, 10*mm, 85*mm, 22*mm, 25*mm])
+    st_table.setStyle(TableStyle([
+        ('FONTNAME', (0,0), (-1,-1), f_bold),
+        ('FONTSIZE', (0,0), (-1,-1), 9),
+        ('ALIGN', (4,0), (4,-1), 'RIGHT'),
+        ('ALIGN', (5,0), (6,-1), 'RIGHT'),
+        ('LINEABOVE', (4,0), (-1,0), 1, colors.black),
+    ]))
+
+    # 5. Oldalszámozás és Felépítés
+    def footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont(f_reg, 8)
+        canvas.drawRightString(200*mm, 10*mm, f"{doc.page}. oldal")
+        canvas.restoreState()
+
     elements = [
-        Paragraph("<b>ÖSSZESÍTETT RAKLISTA ÉS ELSZÁMOLÁS</b>", ParagraphStyle('T', fontName=f_bold, fontSize=14, spaceAfter=10)),
-        Paragraph(f"Járat: {jarat_info}", ParagraphStyle('S', fontName=f_reg, fontSize=10, spaceAfter=10)),
-        t
+        Paragraph(f"<b>RAKLISTA ÉS ELSZÁMOLÁS</b>", ParagraphStyle('T', fontName=f_bold, fontSize=14)),
+        Paragraph(f"Időszak: {dates_str} | Járat: {jarat_info}", ParagraphStyle('S', fontName=f_reg, fontSize=10, spaceAfter=10)),
+        t,
+        Spacer(1, 5*mm),
+        st_table
     ]
     
-    doc.build(elements)
+    doc.build(elements, onFirstPage=footer, onLaterPages=footer)
     buf.seek(0)
     return buf
     

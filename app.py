@@ -81,10 +81,9 @@ def parse_interfood_pdf(pdf_file):
     meta = {"year": "", "week": "", "date": "", "jarat": ""} 
     
     order_pattern = r'\b\d+-[A-Z][A-Z0-9*]*\b'
-    # Még szigorúbb pénz: csak a sor legvégéről, Ft előtt
-    money_pattern = r'(-?\s?\d[\d\s]{0,6})\s*Ft'
+    # Szigorú pénz: csak a Ft előtti részt nézzük
+    money_pattern = r'(-?\s?\d[\d\s]{0,7})\s*Ft'
     phone_pattern = r'(\d{2}[/\s]\d{6,7})'
-    area_codes = ['20', '30', '70', '52']
 
     with pdfplumber.open(pdf_file) as pdf:
         if len(pdf.pages) > 0:
@@ -98,7 +97,7 @@ def parse_interfood_pdf(pdf_file):
             for w in words:
                 y = round(w['top'], 1)
                 for ey in lines:
-                    if abs(y - ey) < 2.0: # Még szigorúbb sorillesztés
+                    if abs(y - ey) < 2.0:
                         lines[ey].append(w)
                         break
                 else: lines[y] = [w]
@@ -107,70 +106,74 @@ def parse_interfood_pdf(pdf_file):
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
+                
+                # Ügyfélkód keresése (P- vagy Z- kezdetű)
                 u_code_m = re.search(r'([HKSCPZ][.-][0-9]{5,7})', text_ws)
                 if not u_code_m: continue
 
-                curr = {"all": [], "addr_raw": [], "name_raw": [], "note_raw": [], "money_area": []}
+                curr = {"all": [], "addr_raw": [], "name_raw": [], "note_raw": []}
+                # Adatgyűjtés a sorokból
                 for idx in range(i, len(sorted_y)):
                     row_words = sorted(lines[sorted_y[idx]], key=lambda x: x['x0'])
                     row_text = " ".join([w['text'] for w in row_words])
                     if idx > i and re.search(r'[HKSCPZ][.-][0-9]{5,7}', row_text): break
                     for w in row_words:
-                        x = w['x0']
                         curr["all"].append(w['text'])
+                        x = w['x0']
                         if 140 <= x < 355: curr["addr_raw"].append(w['text'])
-                        elif 355 <= x < 500: curr["name_raw"].append(w['text']) # Szűkített név sáv
-                        elif x >= 500: curr["money_area"].append(w['text']) # Külön pénz sáv
+                        elif 355 <= x < 520: curr["name_raw"].append(w['text'])
                         elif x < 140: curr["note_raw"].append(w['text'])
 
                 all_txt = " ".join(curr["all"])
-                money_txt = " ".join(curr["money_area"])
                 orders_found = re.findall(order_pattern, all_txt)
                 total_qty = sum([int(o.split('-')[0]) for o in orders_found if '-' in o])
 
                 if total_qty == 0: continue
 
-                # PÉNZ JAVÍTÁS (Danuti és Majoros fix)
+                # --- 1. PÉNZ "SZÉTROBBANTÁSA" ---
                 money_val = "0 Ft"
-                # Első körben a dedikált pénz sávban keresünk
-                m_match = re.search(money_pattern, money_txt if "Ft" in money_txt else all_txt)
+                m_match = re.search(money_pattern, all_txt)
                 if m_match:
-                    digits = re.sub(r'[^\d]', '', m_match.group(1))
+                    raw_num = re.sub(r'[^\d]', '', m_match.group(1))
                     is_neg = "-" in m_match.group(1)
+                    qty_str = str(total_qty)
                     
-                    if digits:
-                        qty_str = str(total_qty)
-                        # Ha a szám 0-ra végződik és benne van a darabszám (vagy a darabszám + 0)
-                        if digits.endswith('0') and (qty_str in digits or digits == "0"):
-                            # KIVÉTEL: Ha a szám gyanúsan csak darabszám-töredék
-                            if digits == f"{qty_str}0" or len(digits) <= 2:
-                                money_val = "0 Ft"
-                            else:
-                                money_val = f"{'-' if is_neg else ''}{digits} Ft"
+                    # Ha az összeg 0-ra végződik (pl. 180 vagy 210)
+                    if raw_num.endswith('0'):
+                        # Megnézzük, hogy a 0 előtti rész megegyezik-e a darabszámmal
+                        # Pl. 180 esetén: qty=8, a szám végén '80' van.
+                        if raw_num.endswith(f"{qty_str}0") or raw_num == f"{qty_str}0":
+                            money_val = "0 Ft"
                         else:
-                            money_val = f"{'-' if is_neg else ''}{digits} Ft"
+                            # Ha nem darabszám-töredék, akkor valódi összeg
+                            money_val = f"{'-' if is_neg else ''}{raw_num} Ft"
+                    else:
+                        money_val = f"{'-' if is_neg else ''}{raw_num} Ft"
 
-                # NÉV TISZTÍTÁS (Telefonszám előhívók törlése)
+                # --- 2. NÉV TISZTÍTÁSA ---
                 name_txt = " ".join(curr["name_raw"])
-                clean_name = re.sub(r'^\d+[\s.]*', '', name_txt).split('/')[0].split('Ft')[0].strip()
-                for code in area_codes:
-                    clean_name = re.sub(rf'\s+{code}$', '', clean_name).strip()
+                # Sorszám levágása az elejéről és tételösszesítő a végéről
+                clean_name = re.sub(r'^\d+\s+', '', name_txt) # Sor eleji sorszám törlése
+                clean_name = re.sub(r'\s+\d+$', '', clean_name).strip() # Sor végi összesítő törlése
+                clean_name = clean_name.split('/')[0].split('Ft')[0].strip()
 
-                # CÍM ÉS MEGJEGYZÉS (marad a korábbi jól működő logika)
+                # --- 3. MEGJEGYZÉS TISZTÍTÁSA ---
+                main_note = " ".join(curr["note_raw"])
+                # Töröljük a magányos sorszámokat az elejéről
+                main_note = re.sub(r'^\d+[\s.]*', '', main_note).strip()
+                
+                # Cím maradványok kezelése
                 addr_area = " ".join(curr["addr_raw"])
                 addr_match = re.search(r'(\d{4}\s+Debrecen,\s+.*?\d+[-\d]*\.?(\s+\d+/\d+)?(\s*sz\.)?)', addr_area)
                 clean_address = addr_match.group(1).strip() if addr_match else addr_area
-                
-                main_note = " ".join(curr["note_raw"])
-                full_note = main_note.strip()
-                final_note = full_note.split('/')[0].strip()
-                
-                # Névtöredékek takarítása a megjegyzésből
+                leftover = addr_area[addr_match.end():].strip() if addr_match else ""
+
+                final_note = f"{main_note} {leftover}".strip()
+                # Név-részek törlése a megjegyzésből
                 if clean_name:
-                    final_note = final_note.replace(clean_name, "").strip()
+                    final_note = final_note.replace(clean_name, "")
                     for part in re.split(r'[-\s]', clean_name):
-                        if len(part) > 2:
-                            final_note = re.sub(rf'^{part}\b', '', final_note, flags=re.IGNORECASE).strip()
+                        if len(part) > 2: final_note = re.sub(rf'^{part}\b', '', final_note, flags=re.IGNORECASE).strip()
 
                 rows.append({
                     "Prefix": u_code_m.group(0)[0].upper(),
@@ -180,7 +183,8 @@ def parse_interfood_pdf(pdf_file):
                     "Telefon": (re.search(phone_pattern, all_txt).group(0).replace(" ", "") if re.search(phone_pattern, all_txt) else ""),
                     "Pénz": money_val,
                     "Rendelés": ", ".join(orders_found),
-                    "Megjegyzés": final_note.replace(u_code_m.group(0), "").strip("- ,")
+                    "Megjegyzés": final_note.replace(u_code_m.group(0), "").strip("- ,"),
+                    "Összesen": total_qty
                 })
 
     return rows, meta

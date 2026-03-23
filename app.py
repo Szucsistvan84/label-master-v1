@@ -136,33 +136,34 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- SZTRINGALAPÚ PÉNZKINYERÉS (Végleges, "Szomszéd-elv" alapján) ---
-            phone_m = re.search(phone_pattern, content)
-            order_matches = list(re.finditer(order_pattern, content))
+           # --- 1. A SOR VÉGI ÖSSZESÍTŐ SZÁM LIKVIDÁLÁSA ---
+            # A blokk legvégén lévő magányos számot (pl. "\n2\n") eltávolítjuk
+            content_cleaned = re.sub(r'\s+\d+\s*$', '', content).strip()
+
+            # --- 2. SZTRINGALAPÚ PÉNZKINYERÉS (Már a tiszta szövegből) ---
+            phone_m = re.search(phone_pattern, content_cleaned)
+            order_matches = list(re.finditer(order_pattern, content_cleaned))
             
             money_val = "0 Ft"
             raw_string_area = ""
 
-            # 1. LÉPÉS: Kivágjuk a szöveget a telefon/rendelés és a "Ft" között
-            if phone_m and "Ft" in content[phone_m.end():]:
-                raw_string_area = content[phone_m.end():].split("Ft")[0]
-            elif order_matches and "Ft" in content[order_matches[-1].end():]:
-                raw_string_area = content[order_matches[-1].end():].split("Ft")[0]
+            # Kerítés felhúzása a tisztított szövegben
+            if phone_m and "Ft" in content_cleaned[phone_m.end():]:
+                raw_string_area = content_cleaned[phone_m.end():].split("Ft")[0]
+            elif order_matches and "Ft" in content_cleaned[order_matches[-1].end():]:
+                raw_string_area = content_cleaned[order_matches[-1].end():].split("Ft")[0]
             
-            # 2. LÉPÉS: Megkeressük a közvetlenül a "Ft" előtt álló számot
+            # 3. LÉPÉS: Most már bátran kivehetjük a számokat a kerítésen belülről
             if raw_string_area:
-                # Olyan számokat keresünk, amik után már nincs több szám a blokkban (tehát a végén vannak)
-                # A regex: (\d[\d\s]*) a blokk végén
-                money_match = re.search(r'(-?\d[\d\s]*)$', raw_string_area.strip())
+                # Mivel a sor végi számot már likvidáltuk, és a rendelési kódokat is ismerjük:
+                temp_area = re.sub(order_pattern, '', raw_string_area)
                 
-                if money_match:
-                    raw_num = money_match.group(1).strip()
-                    # Tisztítás: csak a szóközöket vesszük ki (6 865 -> 6865)
-                    clean_num = raw_num.replace(" ", "")
-                    if clean_num:
-                        money_val = f"{clean_num} Ft"
-                else:
-                    money_val = "0 Ft"
+                # Csak azokat a számokat tartjuk meg, amik a legvégén maradtak (ezres tagolással)
+                final_money_match = re.search(r'(-?\d[\d\s]*)$', temp_area.strip())
+                if final_money_match:
+                    raw_num = final_money_match.group(1).replace(" ", "")
+                    if raw_num:
+                        money_val = f"{raw_num} Ft"
 
             # --- 3. CÍM ÉS ÜGYINTÉZŐ ---
             zip_m = re.search(zip_pattern, content)

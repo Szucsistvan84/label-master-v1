@@ -120,24 +120,35 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- 2. PÉNZKERESŐ (A "szóköz-fal" logika) ---
+            # --- 2. PÉNZKERESŐ (A darabszám-csapda és a "több soros hiba" ellen) ---
             money_val = "0 Ft"
             
             if "Ft" in content:
-                # 1. Megkeressük az utolsó "Ft" helyét
+                # 1. Megkeressük az UTOLSÓ "Ft"-ot a blokkban
                 ft_pos = content.rfind("Ft")
                 
-                # 2. Kivágunk egy nagyobb részt a Ft előtt (max 20 karakter)
+                # 2. Kivágunk egy 20 karakteres zónát közvetlenül a Ft előtt
+                # Itt lakik a darabszám (pl. 2) és az összeg (pl. 20100)
                 penz_zona = content[max(0, ft_pos - 20):ft_pos].strip()
                 
-                # 3. A split() szétvágja a szöveget a szóközöknél.
-                # Ha a zóna "2 20100", akkor a split() eredménye: ["2", "20100"]
-                # Ha a zóna "1 -1320", akkor: ["1", "-1320"]
+                # 3. Szétvágjuk szóközök mentén
                 reszek = penz_zona.split()
                 
                 if reszek:
-                    # Mindig a legutolsó elem kell, mert az van a legközelebb a "Ft"-hoz
+                    # A legutolsó "szó" a zónában a tényleges összeg (mert az van a Ft mellett)
+                    # Pl. ha a zóna "2 20100", akkor a reszek[-1] a "20100" lesz.
                     utolso_blokk = reszek[-1]
+        
+        # 4. Megnézzük a negatív jelet
+        vonalak = ["-", "–", "—", "−"]
+        is_negativ = any(v in utolso_blokk for v in vonalak)
+        
+        # 5. Csak a számokat tartjuk meg
+        szamok = "".join(re.findall(r'\d', utolso_blokk))
+        
+        if szamok:
+            prefix = "-" if is_negativ else ""
+            money_val = f"{prefix}{szamok} Ft"
         
         # 4. Megnézzük, van-e benne bármilyen mínusz jel
         vonalak = ["-", "–", "—", "−"]

@@ -119,42 +119,49 @@ def parse_interfood_pdf(pdf_file):
             u_code = chunks[i]
             content = chunks[i+1]
             
-            # --- 1. A TELEFONSZÁM KERESÉSE (Mint határvonal) ---
-            phone_m = re.search(phone_pattern, content)
-            phone_val = phone_m.group(0) if phone_m else ""
-            
-            # --- 1. KERÍTÉSEK FELHÚZÁSA ---
+            # --- SZTRINGALAPÚ PÉNZKINYERÉS ---
             phone_m = re.search(phone_pattern, content)
             order_matches = list(re.finditer(order_pattern, content))
             
             money_val = "0 Ft"
-            search_area = ""
+            raw_string_area = ""
 
-            # --- 2. AZ "IF-ELSE" LOGIKA ---
+            # 1. LÉPÉS: A SZÖVEGBLOKK KIVÁGÁSA (SZTRINGKÉNT)
             if phone_m and "Ft" in content[phone_m.end():]:
-                # "A" verzió: A pénz a telefon után van
-                # De csak a következő "Ft"-ig nézzük!
-                search_area = content[phone_m.end():].split("Ft")[0]
+                # Telefonszám vége és az első "Ft" közötti rész
+                raw_string_area = content[phone_m.end():].split("Ft")[0]
             elif order_matches and "Ft" in content[order_matches[-1].end():]:
-                # "B" verzió: A pénz az utolsó rendelési kód után van
-                search_area = content[order_matches[-1].end():].split("Ft")[0]
+                # Utolsó rendelés vége és a "Ft" közötti rész
+                raw_string_area = content[order_matches[-1].end():].split("Ft")[0]
             
-            # --- 3. TISZTÍTÁS ---
-            if search_area:
-                # Kiszedünk minden betűt és kötőjelet (kivéve ha az negatív összeg)
-                # A lényeg: csak azokat a számokat hagyjuk meg, amik magányosan állnak
-                # (levágjuk az összesítő számot a végéről, ha odakerült)
-                numbers = re.findall(r'(-?\d[\d\s]*)', search_area)
-                if numbers:
-                    # A talált számok közül az első lesz a pénzünk 
-                    # (mivel a splitting miatt a sorvégi összesítő már a 'Ft' utáni részbe került)
-                    raw_num = re.sub(r'\s', '', numbers[0])
-                    if raw_num:
-                        money_val = f"{raw_num} Ft"
+            # 2. LÉPÉS: TISZTÍTÁS ÉS FORMÁZÁS
+            if raw_string_area:
+                # Szétvágjuk a szöveget szóközök mentén listává
+                parts = raw_string_area.strip().split()
+                if parts:
+                    # A pénzösszeg mindig a "Ft" közvetlen közelében van, 
+                    # tehát a listánk UTOLSÓ eleme lesz a pénz (vagy annak vége)
+                    # Ha szóközös (pl. 6 865), akkor az utolsó két elem is lehet, 
+                    # de a legtöbb esetben az utolsó elem a döntő.
+                    
+                    # Nézzük meg az utolsó elemet:
+                    last_part = parts[-1]
+                    
+                    # Ha az utolsó elem csak egy magányos sorszám (pl. "1" vagy "2"), 
+                    # de előtte is van szám, akkor összefűzzük (pl. "6865" és "1" helyett csak a "6865")
+                    # De maradjunk egyszerűek: vegyük az utolsó olyan részt, ami nem a sorvégi összesítő.
+                    
+                    # Mivel a split("Ft")[0] miatt a "Ft" utáni rész (összesítő) már kiesett,
+                    # így a parts[-1] a legpontosabb találatunk.
+                    
+                    pénz_sztring = last_part.replace(" ", "")
+                    # Csak akkor fogadjuk el, ha van benne szám (kiszűrjük a maradék karaktereket)
+                    if any(char.isdigit() for char in pénz_sztring):
+                        money_val = f"{pénz_sztring} Ft"
 
-            # Ha a tisztítás után üres maradt vagy csak egy kötőjel:
-            if money_val.strip() == "Ft" or money_val.strip() == "0 Ft":
-                money_val = "0 Ft"
+            # 3. LÉPÉS: ELLENŐRZÉS (Ha negatív az egyenleg)
+            if "-" in raw_string_area and "-" not in money_val:
+                money_val = "-" + money_val
 
             # --- 3. RENDELÉS ÉS ÖSSZESÍTŐ SZÁM ---
             all_orders = list(re.finditer(order_pattern, content))

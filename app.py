@@ -711,47 +711,67 @@ def create_raklista_pdf(df, jarat_info, meta_list):
     buf.seek(0)
     return buf
 
-
-# --- FŐ PROGRAMFUTÁS ---
+# --- FŐ PROGRAMFUTÁS JAVÍTVA ---
 
 if st.session_state.mdf is not None:
-    st.subheader("📦 Adatok ellenőrzése")
+    st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
 
-    # A num_rows="dynamic" engedélyezi az új sorok hozzáadását és a törlést
+    # 1. KULCS INICIALIZÁLÁSA (Ha még nem létezne)
+    if 'editor_key' not in st.session_state:
+        st.session_state.editor_key = 0
+
+    # 2. ADATSZERKESZTŐ (Tizedesvessző barát konfigurációval)
     edited_df = st.data_editor(
         st.session_state.mdf,
+        key=f"editor_v_{st.session_state.editor_key}", # Kényszerített frissítéshez
         hide_index=True,
         use_container_width=True,
-        num_rows="dynamic"  # <--- EZT ADD HOZZÁ
+        num_rows="dynamic",
+        column_config={
+            "Sorrend": st.column_config.NumberColumn(
+                "Sorrend",
+                help="Tizedesekhez használj pontot! (pl. 1.5)",
+                min_value=0,
+                step=0.1,  # Ez engedi a tizedeseket
+                format="%.1f", # Így fog megjelenni
+            ),
+            "ID": st.column_config.TextColumn("Azonosító", disabled=True),
+        }
     )
 
-    if st.button("💾 MÓDOSÍTÁSOK MENTÉSE"):
-        st.session_state.mdf = edited_df
-        st.success("Mentve! Most már letöltheted a friss PDF-eket.")
+    # 3. MENTÉS ÉS ÚJRARENDEZÉS GOMB
+    if st.button("💾 MÓDOSÍTÁSOK ÉS SORREND MENTÉSE", use_container_width=True):
+        # Adatok átvétele
+        temp_df = edited_df.copy()
+        
+        # Típusbiztos konverzió (vessző/pont hiba ellen)
+        temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(float)
+        
+        # Fizikai sorrendezés az adatkeretben (hogy a PDF is jó legyen)
+        temp_df = temp_df.sort_values(by='Sorrend').reset_index(drop=True)
+        
+        # Mentés a központi állapotba
+        st.session_state.mdf = temp_df
+        # Frissítjük a súlyokat is a merge_data függvény számára
+        st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
+        
+        # Kulcs növelése -> a táblázat ugrani fog az új sorrendbe
+        st.session_state.editor_key += 1
+        
+        st.success("Sorrend elmentve és lista újrarendezve!")
+        st.rerun()
 
     st.divider()
-    c1, c2, c3 = st.columns(3)
-    j_info = ", ".join(list(set([str(m['jarat']) for m in st.session_state.meta_data if m['jarat']])))
-
-    # Letöltések szekció
+    
+    # 4. LETÖLTÉSEK (Biztonságos j_info kinyeréssel)
+    meta = st.session_state.meta_data
+    j_info = ", ".join(list(set([str(m.get('jarat', '')) for m in meta if m.get('jarat')]))) if meta else "Nincs adat"
+    
     c1, c2, c3, c4 = st.columns(4)
 
-    j_info = ", ".join(list(set([str(m['jarat']) for m in st.session_state.meta_data if m['jarat']])))
+    c1.download_button("📄 ETIKETTEK (PDF)", create_label_pdf(edited_df, c_n, c_p), "etikettek.pdf", use_container_width=True)
+    c2.download_button("📋 MENETTERV (PDF)", create_manifest_pdf(edited_df, c_n, meta), "menetterv.pdf", use_container_width=True)
+    c3.download_button("📦 RAKLISTA (PDF)", create_raklista_pdf(edited_df, j_info, meta), f"raklista_{j_info}.pdf", use_container_width=True)
 
-    # ETIKETTEK LETÖLTÉSE (create_label_pdf függvényt az előző blokkból használja)
-    c1.download_button("📄 ETIKETTEK (PDF)", create_label_pdf(edited_df, c_n, c_p), "etikettek.pdf")
-
-    # MENETTERV LETÖLTÉSE
-    c2.download_button("📋 MENETTERV (PDF)", create_manifest_pdf(edited_df, c_n, st.session_state.meta_data),
-                       "menetterv.pdf")
-
-    # RAKLISTA LETÖLTÉSE
-    c3.download_button(
-        label="📦 RAKLISTA (PDF)",
-        data=create_raklista_pdf(edited_df, j_info, st.session_state.meta_data),
-        file_name=f"raklista_{j_info.replace(', ', '_')}.pdf"
-    )
-
-    # CSV EXPORT (hogy később visszatölthető legyen)
     csv_data = edited_df.to_csv(index=False).encode('utf-8-sig')
-    c4.download_button("📊 CSV EXPORT", csv_data, "szallitasi_lista.csv", "text/csv")
+    c4.download_button("📊 CSV EXPORT", csv_data, "szallitasi_lista.csv", "text/csv", use_container_width=True)

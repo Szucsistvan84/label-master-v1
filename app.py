@@ -105,9 +105,9 @@ def parse_interfood_pdf(pdf_file):
         full_text = "\n".join(all_texts)
         
         # Ügyfélblokkok keresése (szigorúan új sor elején kezdődő H-)
-        matches = list(re.finditer(r'\n(H-(\d{6}))', full_text))
+        matches = list(re.finditer(r'\n(H-\d{6})', full_text))
         if not matches:
-            matches = list(re.finditer(r'H-(\d{6})', full_text))
+            matches = list(re.finditer(r'H-\d{6}', full_text))
 
         for i in range(len(matches)):
             start = matches[i].start()
@@ -115,18 +115,18 @@ def parse_interfood_pdf(pdf_file):
             
             # Ez az eredeti, nyers szövegdarabunk
             raw_content = full_text[start:end].strip()
-            current_text = raw_content # Ebből fogunk "vágni"
+            current_text = raw_content # Ebből fogunk fokozatosan "vágni"
             
             # --- 2. AZONOSÍTÓ KIVÁGÁSA ---
-            u_code = matches[i].group(1)
-            temp_id = matches[i].group(2)
+            u_code = matches[i].group(0).strip() # Pl: "H-404715"
+            temp_id = u_code.replace("H-", "")    # Pl: "404715"
             current_text = current_text.replace(u_code, "")
 
-            # --- 3. RENDELÉSEK KIVÁGÁSA (Ez a legfontosabb a pénz előtt!) ---
+            # --- 3. RENDELÉSEK KIVÁGÁSA ---
+            # Fontos: a rendeléseket vesszük ki először, hogy ne zavarják a pénzt
             order_matches = list(re.finditer(ORDER_PAT, current_text))
-            orders_found = [m.group(0) for m in order_matches]
+            orders_found = [om.group(0) for om in order_matches]
             for om in order_matches:
-                # Kicseréljük a rendelést egy szóközre, hogy ne ragadjanak össze a számok
                 current_text = current_text.replace(om.group(0), " ")
 
             # --- 4. TELEFON KIVÁGÁSA ---
@@ -134,38 +134,33 @@ def parse_interfood_pdf(pdf_file):
             phone_m = re.search(PHONE_PAT, current_text)
             if phone_m:
                 raw_p = phone_m.group(0)
-                # Csak a valódi számokat tartjuk meg
                 if len(re.findall(r'\d', raw_p)) >= 8:
                     phone_val = raw_p
                 current_text = current_text.replace(raw_p, " ")
 
             # --- 5. PÉNZ KIVÁGÁSA A MARADÉKBÓL ---
             money_val = "0 Ft"
-            # Most már a maradékban keresünk Ft-ot
+            # A Ft feliratot keressük, előtte a számokkal
             ft_match = re.search(r'(-?\s?\d+[\s\d]*)\s*Ft', current_text)
             if ft_match:
-                money_val = ft_match.group(0).strip()
-                current_text = current_text.replace(money_val, " ")
+                raw_money = ft_match.group(0).strip()
+                # Csak a számokat és az esetleges mínusz jelet tartjuk meg
+                is_neg = "-" in raw_money
+                digits = "".join(re.findall(r'\d', raw_money))
+                if digits:
+                    money_val = f"{'-' if is_neg else ''}{digits} Ft"
+                current_text = current_text.replace(raw_money, " ")
             
-            # Tisztítsuk meg a money_val-t a felesleges szóközöktől a számok között (pl "20 100" -> "20100")
-            if money_val != "0 Ft":
-                is_neg = "-" in money_val
-                digits = "".join(re.findall(r'\d', money_val))
-                money_val = f"{'-' if is_neg else ''}{digits} Ft"
-
             # --- 6. NÉV ÉS CÍM SZÉTVÁLASZTÁSA A MARADÉKBÓL ---
-            # Ami maradt, az az irányítószám, város, utca és a név
             ugyintezo = ""
             cim = ""
             
             zip_m = re.search(r'\d{4}', current_text)
             if zip_m:
-                # Irányítószám előtti rész (Név + Épületjel + esetleg prefix megjegyzés)
                 prefix_part = current_text[:zip_m.start()].strip()
-                # Irányítószámtól kezdődő rész (Cím)
                 address_part = current_text[zip_m.start():].strip()
                 
-                # Épületjelek (A., b., c B épület) leválasztása a név elejéről
+                # Épületjelek (A., b., c B épület) leválasztása
                 b_pattern = r'^([a-zA-Z]\.?\s+|[a-zA-Z]\s+épület\s+|[a-zA-Z]\s+[a-zA-Z]\s+épület\s+)'
                 b_match = re.search(b_pattern, prefix_part, re.IGNORECASE)
                 
@@ -176,8 +171,7 @@ def parse_interfood_pdf(pdf_file):
                 else:
                     name_candidate = prefix_part
 
-                # Név tisztítása a maradék számoktól (emelet/ajtó ami a név elé csúszott)
-                # Megkeressük az utolsó számot a névjelöltben
+                # Házszám-maradékok szűrése a névből (Czinege-szűrő)
                 noise = list(re.finditer(r'\d+[\s./\d]*', name_candidate))
                 if noise:
                     last_n = noise[-1]
@@ -202,7 +196,7 @@ def parse_interfood_pdf(pdf_file):
                     "Pénz": money_val,
                     "Rendelés": ", ".join(orders_found),
                     "Megjegyzés": "", 
-                    "Ö5szesen": len(orders_found),
+                    "Összesen": len(orders_found),
                     "temp_id": temp_id,
                     "Raklista_Ertek": 0,
                     "Rendelés_Full": f"Hé: {', '.join(orders_found)}",

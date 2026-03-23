@@ -92,10 +92,6 @@ def parse_interfood_pdf(pdf_file):
     order_pattern = r'\b\d+-[A-Z][A-Z0-9*+]*\b'
 
     with pdfplumber.open(pdf_file) as pdf:
-        first_page_text = pdf.pages[0].extract_text() or ""
-        jarat_m = re.search(r'(\d{4})\.\s*járat', first_page_text)
-        if jarat_m: meta["jarat"] = jarat_m.group(1)
-
         full_text = ""
         for page in pdf.pages:
             full_text += (page.extract_text() or "") + "\n"
@@ -104,76 +100,56 @@ def parse_interfood_pdf(pdf_file):
         
         for i in range(1, len(chunks), 2):
             u_code = chunks[i]
-            content = chunks[i+1]
+            content = chunks[i+1].strip()
             
-            # Alapértékek
-            phone_val = ""
-            money_val = "0 Ft"
-            ugyintezo = ""
-            cim = ""
-            note_1 = ""
-            note_2 = ""
+            lines = [l.strip() for l in content.split("\n") if l.strip()]
+            if not lines: continue
 
-            # 1. TELEFON ÉS RENDELÉS (Ezek a fix pontjaink)
+            # 1. ÜGYINTÉZŐ (Mindig az első sor)
+            ugyintezo = lines[0]
+
+            # 2. TELEFON ÉS RENDELÉS
             phone_m = re.search(phone_pattern, content)
-            if phone_m: phone_val = phone_m.group(0)
-
+            phone_val = phone_m.group(0) if phone_m else ""
+            
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # 2. PÉNZKERESŐ (Precíziós, mutáció-mentes verzió)
+            # 3. PÉNZKERESŐ (Vissza az alapokhoz, de mínusz-biztosan)
+            money_val = "0 Ft"
             if "Ft" in content:
-                # Csak az utolsó Ft előtti részt nézzük
-                pre_ft_full = content.split("Ft")[-2]
-                lines = [l.strip() for l in pre_ft_full.split('\n') if l.strip()]
+                pre_ft = content.split("Ft")[-2]
+                # Kiszedünk minden számot és vonalat az utolsó 30 karakterből
+                money_area = pre_ft[-30:]
                 
-                if lines:
-                    last_line = lines[-1]
-                    # Csak a sor VÉGÉN lévő számokat keressük (ez megállítja a telefonszám beolvasztását)
-                    m_match = re.search(r'(\d[\d\s]*)$', last_line)
-                    if m_match:
-                        digits = "".join(re.findall(r'\d', m_match.group(1)))
-                        
-                        # NEGATÍV ELLENŐRZÉS: Bárhol az utolsó sorban vagy felette 1 sorral van-e vonal?
-                        vonalak = ["-", "–", "—", "−", "\u2013", "\u2014"]
-                        check_text = "\n".join(lines[-2:]) # Az utolsó két sort nézzük át vonalért
-                        is_negativ = any(v in check_text for v in vonalak)
-                        
-                        prefix = "-" if is_negativ else ""
-                        money_val = f"{prefix}{digits} Ft"
+                # Regex: keressük a számokat, és nézzük meg, van-e előtte kötőjel
+                digits_match = re.search(r'(\d[\d\s]*)', money_area)
+                if digits_match:
+                    digits = digits_match.group(1).replace(" ", "")
+                    # Bármilyen vonal a szám ELŐTTI részen az utolsó sorban
+                    is_neg = any(v in money_area for v in ["-", "–", "—", "−"])
+                    money_val = f"{'-' if is_neg else ''}{digits} Ft"
 
-            # 3. CÍM ÉS ÜGYINTÉZŐ (Szigorú szétválasztás)
+            # 4. CÍM ÉS MEGJEGYZÉS
             zip_m = re.search(zip_pattern, content)
+            cim = ""
+            megjegyzes_resz = ""
+            
             if zip_m:
-                # Az ügyintéző neve MINDIG az irányítószám ELŐTT van ebben a PDF-ben
-                pre_zip = content[:zip_m.start()].strip()
-                # Az ügyintéző a legutolsó sor a zip előtt
-                if "\n" in pre_zip:
-                    ugyintezo = pre_zip.split("\n")[-1].strip()
-                    note_1 = "\n".join(pre_zip.split("\n")[:-1]).strip()
-                else:
-                    ugyintezo = pre_zip
-
-                # A Cím az irányítószámtól a telefonig vagy rendelésig tart
-                remaining = content[zip_m.start():]
-                limit = len(remaining)
-                order_m = re.search(order_pattern, remaining)
-                if phone_m and phone_val in remaining:
-                    limit = min(limit, remaining.find(phone_val))
-                if order_m:
-                    limit = min(limit, order_m.start())
+                # A Cím a ZIP-től a telefonig (vagy rendelésig) tart
+                start_idx = zip_m.start()
+                end_idx = len(content)
+                if phone_m: end_idx = min(end_idx, phone_m.start())
+                if all_orders: end_idx = min(end_idx, all_orders[0].start())
                 
-                cim = remaining[:limit].strip()
-                if phone_val: cim = cim.replace(phone_val, "").strip()
-
-            # 4. MEGJEGYZÉS 2
-            if all_orders and phone_m:
-                start_n2 = all_orders[-1].end()
-                end_n2 = phone_m.start()
-                if end_n2 > start_n2:
-                    note_2 = content[start_n2:end_n2].strip()
-
-            full_note = " / ".join(filter(None, [note_1, note_2]))
+                cim = content[start_idx:end_idx].strip().replace("\n", " ")
+                
+                # A megjegyzés minden, ami az Ügyintéző és a Cím (ZIP) között van
+                # lines[0] az ügyintéző, utána jöhet megjegyzés
+                if len(lines) > 1:
+                    # Megkeressük a szövegben, hol ér véget az ügyintéző és hol kezdődik a ZIP
+                    header_end = content.find(lines[0]) + len(lines[0])
+                    megjegyzes_resz = content[header_end:zip_m.start()].strip().replace("\n", " ")
 
             rows.append({
                 "Prefix": u_code[0].upper(),
@@ -183,11 +159,11 @@ def parse_interfood_pdf(pdf_file):
                 "Telefon": phone_val,
                 "Pénz": money_val,
                 "Rendelés": ", ".join(orders_found),
-                "Megjegyzés": full_note,
+                "Megjegyzés": megjegyzes_resz,
                 "Összesen": sum([int(o.split('-')[0]) for o in orders_found if '-' in o])
             })
 
-    return rows, meta
+    return rows, {}
 
 def merge_data(raw_rows):
     if not raw_rows: return None

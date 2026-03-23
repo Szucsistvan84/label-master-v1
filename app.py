@@ -120,24 +120,33 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- 2. JAVÍTOTT PÉNZKERESŐ (A mutáció ellen) ---
-            if "Ft" in content:
-                pre_ft_text = content.split("Ft")[-2] 
-                # Csak az UTOLSÓ sort nézzük a "Ft" előtt
-                last_line = pre_ft_text.strip().split("\n")[-1].strip()
+            # --- 2. PÉNZKERESŐ (Frissített "KÖZÉP" logika) ---
+            money_val = "0 Ft"
+            
+            # Megkeressük az utolsó cikkszám (rendelés) végét és a "Ft" elejét
+            if all_orders and "Ft" in content:
+                # SZÖVEG.KERES megfelelője: az utolsó megtalált rendelés vége
+                honnan = all_orders[-1].end()
                 
-                # Szigorítás: Csak a sor VÉGÉN lévő számblokkot keressük
-                # Ez megállítja a kódot, hogy ne szívja be a telefonszámot vagy házszámot
-                money_match = re.search(r'([-–—−\s]*\d[\d\s]*)$', last_line)
+                # SZÖVEG.KERES hátulról: az utolsó "Ft" pozíciója
+                meddig = content.rfind("Ft")
                 
-                if money_match:
-                    raw_money = money_match.group(1).strip()
-                    vonalak = ["-", "–", "—", "−", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015"]
-                    is_negativ = any(v in raw_money for v in vonalak)
+                if meddig > honnan:
+                    # KÖZÉP(content; honnan; meddig-honnan)
+                    # Kivágjuk a két pont közötti szövegrészt
+                    koztes_resz = content[honnan:meddig].strip()
                     
-                    digits = "".join(re.findall(r'\d', raw_money))
-                    if digits:
-                        money_val = f"{'-' if is_negativ else ''}{digits} Ft"
+                    # Megnézzük, van-e benne bármilyen kötőjel (negatív összeg jele)
+                    # A PDF-ben többféle "mínusz" karakter is létezhet
+                    is_negativ = any(v in koztes_resz for v in ["-", "–", "—", "−"])
+                    
+                    # Csak a számokat tartjuk meg a kivágott részből
+                    szamok = "".join(re.findall(r'\d', koztes_resz))
+                    
+                    if szamok:
+                        # Ha találtunk mínusz jelet a "közép" részben, elé tesszük
+                        prefix = "-" if is_negativ else ""
+                        money_val = f"{prefix}{szamok} Ft"
 
             # --- 3. CÍM ÉS ÜGYINTÉZŐ (Csak a tiltólista hozzáadása) ---
             zip_m = re.search(zip_pattern, content)

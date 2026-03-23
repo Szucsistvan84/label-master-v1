@@ -139,7 +139,7 @@ def parse_interfood_pdf(pdf_file):
                     if digits:
                         money_val = f"{'-' if is_negativ else ''}{digits} Ft"
 
-            # --- 3. CÍM ÉS ÜGYINTÉZŐ (Titulus-kezeléssel) ---
+            # --- 3. CÍM ÉS ÜGYINTÉZŐ (Szigorított név-tisztítással) ---
             zip_m = re.search(zip_pattern, content)
             if zip_m:
                 remaining = content[zip_m.start():]
@@ -152,40 +152,50 @@ def parse_interfood_pdf(pdf_file):
                 address_block = remaining[:limit].strip()
                 clean_block = address_block.replace(phone_val, "").strip()
 
-                # Hivatalos magyar titulusok listája
+                # 1. HIVATALOS TITULUSOK (Amik a NÉV részei)
                 titulusok = [r'Dr\.', r'dr\.', r'Ifj\.', r'ifj\.', r'Id\.', r'id\.', r'Özv\.', r'özv\.', r'Báró', r'Gróf']
-                titulus_pattern = '|'.join(titulusok)
+                tit_pattern = '|'.join(titulusok)
 
-                # 1. Alap vágás az utolsó házszám után
+                # 2. CÍM-ELEMEK (Amik SOHA nem a név részei)
+                cim_elemek = [r'fszt\.?', r'Fszt\.?', r'porta', r'Porta', r'emelet', r'em\.', r'ajtó', r'sz\.', r'épület', r'ép\.']
+                cim_pattern = '|'.join(cim_elemek)
+
+                # Alap vágás házszám után
                 hazszam_vege_m = list(re.finditer(r'\d+', clean_block))
                 if hazszam_vege_m:
-                    last_digit_pos = hazszam_vege_m[-1].end()
-                    # Megnézzük mi van a szám után (szóköz, pont)
-                    suffix_m = re.search(r'^[.\s]*', clean_block[last_digit_pos:])
-                    split_idx = last_digit_pos + suffix_m.end()
+                    split_idx = hazszam_vege_m[-1].end()
+                    suffix_m = re.search(r'^[.\s]*', clean_block[split_idx:])
+                    split_idx += suffix_m.end()
                     
-                    ideiglenes_cim = clean_block[:split_idx].strip()
-                    ideiglenes_nev = clean_block[split_idx:].strip()
+                    cim = clean_block[:split_idx].strip()
+                    ugyintezo = clean_block[split_idx:].strip()
 
-                    # 2. Ellenőrizzük, hogy a cím végén nem maradt-e titulus
-                    # (pl. "... Vécsey u. 54. Dr.")
-                    check_titulus = re.search(f'({titulus_pattern})$', ideiglenes_cim)
-                    
-                    if check_titulus:
-                        # Ha találtunk titulust a cím végén, áthelyezzük a név elé
-                        tit_found = check_titulus.group(1)
-                        cim = ideiglenes_cim[:check_titulus.start()].strip()
-                        # Ha a cím végén maradt egy felesleges pont a titulus előtt, azt is levágjuk
-                        cim = cim.rstrip('.').strip()
-                        ugyintezo = f"{tit_found} {ideiglenes_nev}".strip()
-                    else:
-                        cim = ideiglenes_cim
-                        ugyintezo = ideiglenes_nev
+                    # --- KORREKCIÓS CIKLUS ---
+                    # Addig ismételjük, amíg az ügyintéző elején nemkívánatos szó van
+                    while True:
+                        # a) Titulus ellenőrzése a cím végén (Dr., Ifj.)
+                        tit_m = re.search(f'({tit_pattern})$', cim)
+                        if tit_m:
+                            ugyintezo = f"{tit_m.group(1)} {ugyintezo}".strip()
+                            cim = cim[:tit_m.start()].strip().rstrip('.').strip()
+                            continue
+                        
+                        # b) Cím-elem ellenőrzése az ügyintéző elején (fszt, porta)
+                        # Megnézzük az ügyintéző első szavát
+                        elso_szo_m = re.match(r'^(\S+)', ugyintezo)
+                        if elso_szo_m:
+                            szo = elso_szo_m.group(1)
+                            if re.match(f'^({cim_pattern})$', szo, re.IGNORECASE):
+                                cim = f"{cim} {szo}".strip()
+                                ugyintezo = ugyintezo[len(szo):].strip()
+                                continue
+                        
+                        break # Ha egyik sem teljesül, kész vagyunk
                 else:
                     cim = clean_block
                     ugyintezo = ""
 
-                # --- /C és társai kezelése (korábbi javítás megtartva) ---
+                # VÉGSŐ FINOMÍTÁS: Ha az ugyintezo még mindig / jellel kezdődik
                 if ugyintezo.startswith('/'):
                     parts = ugyintezo.split(maxsplit=1)
                     if len(parts) > 1:

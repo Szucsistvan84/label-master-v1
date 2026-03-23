@@ -136,30 +136,33 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- 2. SZTRINGALAPÚ PÉNZKINYERÉS (Mínuszjel-barát verzió) ---
+            # --- 2. SZTRINGALAPÚ PÉNZKINYERÉS (Mínuszjel-garanciával) ---
             money_val = "0 Ft"
             
             if "Ft" in content:
                 # Elvágjuk az UTOLSÓ "Ft"-nál
                 pre_ft_text = content.split("Ft")[-2] 
                 
-                # A regex most már kötelezően kezeli a mínuszjelet is, ha van: (-?[\d\s]+)
-                # A $ jel biztosítja, hogy a közvetlenül a Ft előtti részt nézzük
-                match = re.search(r'(-?[\d\s]+)$', pre_ft_text.rstrip())
+                # 1. Megkeressük az utolsó számblokkot (ezres tagolással együtt)
+                match = re.search(r'([\d\s]+)$', pre_ft_text.rstrip())
                 
                 if match:
-                    raw_num = match.group(1).strip()
+                    raw_num_part = match.group(1).strip()
                     
-                    # Ha újsor van benne (a sorszám miatt), csak az alját tartjuk meg
-                    if "\n" in raw_num:
-                        raw_num = raw_num.split("\n")[-1].strip()
+                    # Ha újsor van benne, csak az alját tartjuk meg (sorszám likvidálás)
+                    if "\n" in raw_num_part:
+                        raw_num_part = raw_num_part.split("\n")[-1].strip()
                     
-                    # Tisztítás: CSAK a szóközöket vesszük ki, a mínuszjelet MEGTARTJUK
-                    clean_num = raw_num.replace(" ", "")
+                    # 2. MEGNÉZZÜK, VAN-E MÍNUSZJEL A SZÁM ELŐTT (bárhol a maradék szövegben)
+                    # A szám előtti 5-10 karakterben keresünk egy kötőjelet
+                    prefix_area = pre_ft_text.rstrip()[:-len(match.group(1))].strip()
+                    is_negative = prefix_area.endswith('-') or "-" in prefix_area[-3:]
                     
-                    # Ellenőrizzük, hogy maradt-e benne számjegy
+                    clean_num = raw_num_part.replace(" ", "")
+                    
                     if any(char.isdigit() for char in clean_num):
-                        money_val = f"{clean_num} Ft"
+                        prefix = "-" if is_negative else ""
+                        money_val = f"{prefix}{clean_num} Ft"
 
             # --- 3. CÍM ÉS ÜGYINTÉZŐ ---
             zip_m = re.search(zip_pattern, content)

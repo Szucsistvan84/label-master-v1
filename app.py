@@ -123,25 +123,20 @@ def parse_interfood_pdf(pdf_file):
             phone_m = re.search(phone_pattern, content)
             phone_val = phone_m.group(0) if phone_m else ""
             
-            # --- AZ ÚJ, "TELEFONSZÁM UTÁNI" PÉNZKERESŐ ---
-            money_val = "0 Ft"
-            if phone_m:
-                # 1. Mindent kiveszünk, ami a telefonszám UTÁN van
-                after_phone = content[phone_m.end():].strip()
-                
-                # 2. Megkeressük benne a "Ft" feliratot
-                if "Ft" in after_phone:
-                    # Elvágjuk a szöveget a Ft-nál, hogy az esetleges 
-                    # utána lévő szemetet (pl. oldalszám) ne vigye bele
-                    money_part = after_phone.split("Ft")[0] + "Ft"
-                    
-                    # 3. Tisztítás: Csak számok, szóköz, mínuszjel és a "Ft" maradjon
-                    # Ez kiszűri a véletlen bekerülő neveket vagy karaktereket
-                    money_val = re.sub(r'[^0-9\- \tFt]', '', money_part).strip()
+            # --- A PROFI PÉNZKERESŐ ---
+            # Keressük a blokkban az összes olyan számot, ami után "Ft" áll.
+            # A regex: \s(\d[\d\s]*)Ft 
+            # Jelentése: szóköz, majd számjegyek (akár szóközzel tagolva), majd a Ft.
+            money_matches = re.findall(r'\s(-?\d[\d\s]{0,8})\s*Ft', content)
+            
+            if money_matches:
+                # Az utolsó találat a mérvadó (a blokk végén lévő összeg)
+                raw_val = money_matches[-1].strip()
+                # Csak a számokat és a mínuszjelet tartjuk meg (szóközöket kidobjuk: 6 865 -> 6865)
+                clean_num = re.sub(r'[^\d-]', '', raw_val)
+                money_val = f"{clean_num} Ft"
             else:
-                # Biztonsági tartalék, ha nincs telefon (ritka)
-                m_fallback = re.search(r'(-?[\d\s]+Ft)', content)
-                money_val = m_fallback.group(1).strip() if m_fallback else "0 Ft"
+                money_val = "0 Ft"
 
             # --- 3. RENDELÉS ÉS ÖSSZESÍTŐ SZÁM ---
             all_orders = list(re.finditer(order_pattern, content))

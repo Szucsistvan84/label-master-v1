@@ -136,30 +136,31 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- 2. A GOLYÓÁLLÓ PÉNZKERESŐ (Negatív-biztos verzió) ---
+            # --- 2. A "NAGY BARBARA" SPECIÁLIS PÉNZKERESŐ ---
             money_val = "0 Ft"
             
             if "Ft" in content:
                 # 1. Elvágjuk az UTOLSÓ "Ft"-nál
                 pre_ft_text = content.split("Ft")[-2] 
                 
-                # 2. Csak a legalsó sor kell (levágjuk a felette lévő sorszámot)
+                # 2. Csak a legalsó sor kell (hogy a sorszám ne zavarjon)
                 last_line = pre_ft_text.strip().split("\n")[-1].strip()
                 
-                # 3. Kigyűjtünk MINDEN számjegyet és a kötőjelet a sorból
-                # Nem érdekel, hol van a szóköz vagy a kötőjel, mindent kimentünk
-                clean_num = "".join(re.findall(r'[0-9-]', last_line))
+                # 3. MEGOLDÁS: Minden olyan karaktert kimentünk, ami SZÁM vagy valamilyen Vonal
+                # Ez lefedi a sima kötőjelet, a gondolatjelet és a hosszú kötőjelet is.
+                # A \d a szám, a \u2010-\u2015 és a \x2d a különféle kötőjelek.
+                clean_num = "".join(re.findall(r'[\d\x2d\u2010-\u2015]', last_line))
                 
                 if clean_num:
-                    # Ha csak egy magányos kötőjel maradt szám nélkül, az 0 Ft
+                    # Ha van benne bármilyen kötőjel-szerűség, cseréljük le sima mínuszra
+                    if any(c in clean_num for c in "–—\u2010\u2011\u2012\u2013\u2014\u2015"):
+                        # Kiszedjük az eredeti vonalat és rakunk a helyére egy rendes mínuszjelet
+                        just_digits = "".join(re.findall(r'\d', clean_num))
+                        clean_num = "-" + just_digits
+                    
+                    # Végső ellenőrzés: van-e benne egyáltalán szám?
                     if any(char.isdigit() for char in clean_num):
-                        # Ha a kötőjel a szám végére került volna a PDF-ben, tegyük az elejére
-                        if clean_num.endswith("-"):
-                            clean_num = "-" + clean_num.replace("-", "")
-                        
                         money_val = f"{clean_num} Ft"
-                    else:
-                        money_val = "0 Ft"
 
             # --- 3. CÍM ÉS ÜGYINTÉZŐ ---
             zip_m = re.search(zip_pattern, content)

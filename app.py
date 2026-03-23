@@ -120,32 +120,35 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- 2. JAVÍTOTT PÉNZKERESŐ (Telefonszám-kiszűréssel) ---
+            # --- 2. PÉNZKERESŐ (A "szóköz-fal" logika) ---
             money_val = "0 Ft"
             
-            if all_orders and "Ft" in content:
-                honnan = all_orders[-1].end()
-                meddig = content.rfind("Ft")
+            if "Ft" in content:
+                # 1. Megkeressük az utolsó "Ft" helyét
+                ft_pos = content.rfind("Ft")
                 
-                if meddig > honnan:
-                    # 1. Kivágjuk a köztes részt
-                    koztes_resz = content[honnan:meddig].strip()
-                    
-                    # 2. KRITIKUS LÉPÉS: Ha van telefonszám, töröljük ki a vizsgált szövegből
-                    # Így a telefonszám vége nem tud beleolvadni a pénzbe
-                    if phone_val:
-                        koztes_resz = koztes_resz.replace(phone_val, "")
-                    
-                    # 3. Negatív jel ellenőrzése
-                    vonalak = ["-", "–", "—", "−", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015"]
-                    is_negativ = any(v in koztes_resz for v in vonalak)
-                    
-                    # 4. Csak a maradék számokat tartjuk meg (ez már csak a pénz lehet)
-                    szamok = "".join(re.findall(r'\d', koztes_resz))
-                    
-                    if szamok:
-                        prefix = "-" if is_negativ else ""
-                        money_val = f"{prefix}{szamok} Ft"
+                # 2. Kivágunk egy nagyobb részt a Ft előtt (max 20 karakter)
+                penz_zona = content[max(0, ft_pos - 20):ft_pos].strip()
+                
+                # 3. A split() szétvágja a szöveget a szóközöknél.
+                # Ha a zóna "2 20100", akkor a split() eredménye: ["2", "20100"]
+                # Ha a zóna "1 -1320", akkor: ["1", "-1320"]
+                reszek = penz_zona.split()
+                
+                if reszek:
+                    # Mindig a legutolsó elem kell, mert az van a legközelebb a "Ft"-hoz
+                    utolso_blokk = reszek[-1]
+        
+        # 4. Megnézzük, van-e benne bármilyen mínusz jel
+        vonalak = ["-", "–", "—", "−"]
+        is_negativ = any(v in utolso_blokk for v in vonalak)
+        
+        # 5. Csak a számokat tartjuk meg az utolsó blokkból
+        tisztitott_szam = "".join(re.findall(r'\d', utolso_blokk))
+        
+        if tisztitott_szam:
+            prefix = "-" if is_negativ else ""
+            money_val = f"{prefix}{tisztitott_szam} Ft"
 
             # --- 3. CÍM ÉS ÜGYINTÉZŐ (Csak a tiltólista hozzáadása) ---
             zip_m = re.search(zip_pattern, content)

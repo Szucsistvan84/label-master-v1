@@ -139,9 +139,12 @@ def parse_interfood_pdf(pdf_file):
                     if digits:
                         money_val = f"{'-' if is_negativ else ''}{digits} Ft"
 
-            # --- 3. CÍM ÉS ÜGYINTÉZŐ (Zárójelek és komplex címek kezelése) ---
+            # --- 3. CÍM ÉS ÜGYINTÉZŐ (Csak a tiltólista hozzáadása) ---
             zip_m = re.search(zip_pattern, content)
             if zip_m:
+                note_1 = content[:zip_m.start()].strip()
+                note_1 = re.sub(r'^\d+\s+', '', note_1) 
+                
                 remaining = content[zip_m.start():]
                 limit = len(remaining)
                 if phone_m and phone_val in remaining:
@@ -151,56 +154,37 @@ def parse_interfood_pdf(pdf_file):
                 
                 address_block = remaining[:limit].strip()
                 clean_block = address_block.replace(phone_val, "").strip()
-
-                # Név részei (Titulusok)
-                titulusok = [r'Dr\.', r'dr\.', r'Ifj\.', r'ifj\.', r'Id\.', r'id\.', r'Özv\.', r'özv\.', r'Báró', r'Gróf']
-                tit_pattern = '|'.join(titulusok)
-
-                # Cím részei (Tiltólista)
-                cim_elemek = [r'\w+\.?\s?ép\.?', r'\w+\.?\s?lph\.?', r'fszt\.?', r'porta', r'emelet', r'em\.', r'ajtó', r'sz\.']
-                cim_pattern = '|'.join(cim_elemek)
-
-                # Alap vágás
+                
+                # 1. Alap vágás a házszám után
                 hazszam_vege_m = list(re.finditer(r'\d+', clean_block))
                 if hazszam_vege_m:
-                    split_idx = hazszam_vege_m[-1].end()
-                    suffix_m = re.search(r'^[.\s]*', clean_block[split_idx:])
-                    split_idx += suffix_m.end()
+                    idx = hazszam_vege_m[-1].end()
+                    suffix_m = re.search(r'^[.\s]*', clean_block[idx:])
+                    split_idx = idx + suffix_m.end()
                     
                     cim = clean_block[:split_idx].strip()
                     ugyintezo = clean_block[split_idx:].strip()
-
-                    while True:
-                        # a) Titulus (Dr.) visszaszerzése
-                        tit_m = re.search(f'({tit_pattern})$', cim)
-                        if tit_m:
-                            ugyintezo = f"{tit_m.group(1)} {ugyintezo}".strip()
-                            cim = cim[:tit_m.start()].strip().rstrip('.').strip()
-                            continue
-                        
-                        # b) Cím-elemek (ép., lph., fszt.) visszatolása a címbe
-                        elso_szo_m = re.match(r'^(\S+\.?\s?\S*\.?)', ugyintezo)
-                        if elso_szo_m:
-                            szo = elso_szo_m.group(1).strip()
-                            # Ha a szó benne van a tiltólistában VAGY csak egy magányos betű/jel
-                            if re.match(f'^({cim_pattern})$', szo, re.IGNORECASE) or len(szo) <= 2:
-                                if szo not in ["Dr", "Dr."]: # Kivéve ha titulus
-                                    cim = f"{cim} {szo}".strip()
-                                    ugyintezo = ugyintezo[len(elso_szo_m.group(1)):].strip()
-                                    continue
-                        
-                        # c) Zárójeles megjegyzés kezelése (pl. (LGM))
-                        if ugyintezo.startswith('('):
-                            zaroje_m = re.match(r'^(\(.*?\))', ugyintezo)
-                            if zaroje_m:
-                                extra_note = zaroje_m.group(1)
-                                note_2 = f"{note_2} {extra_note}".strip()
-                                ugyintezo = ugyintezo[len(extra_note):].strip()
-                                continue
-                        break
                 else:
                     cim = clean_block
                     ugyintezo = ""
+
+                # 2. TILTÓLISTA: Ha az ügyintéző neve ilyen "szeméttel" kezdődik, tegyük vissza a címbe
+                # Ide gyűjtöttem az összeset, amit írtál: /a, /b, /c, fszt, porta, épület
+                while True:
+                    # Regex, ami felismeri: /C, /b., fszt., porta, B épület, stb.
+                    rossz_elotag = re.match(r'^(/[a-zA-Z]\.?|fszt\.?|porta|épület|[a-zA-Z]\sépület)\s*', ugyintezo, re.IGNORECASE)
+                    
+                    if rossz_elotag:
+                        talalat = rossz_elotag.group(0).strip()
+                        cim = f"{cim} {talalat}".strip()
+                        ugyintezo = ugyintezo[len(rossz_elotag.group(0)):].strip()
+                        continue # Megnézzük, van-e utána következő rossz szó is
+                    break
+
+                # 3. TITULUS: Ha a cím végén maradt a Dr., tegyük a név elé
+                if cim.endswith(" Dr.") or cim.endswith(" Dr"):
+                    cim = cim[:-3].strip().rstrip('.').strip()
+                    ugyintezo = f"Dr. {ugyintezo}"
 
             # --- 4. MEGJEGYZÉS 2 ---
             if all_orders and phone_m:

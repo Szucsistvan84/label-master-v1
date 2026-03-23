@@ -139,7 +139,7 @@ def parse_interfood_pdf(pdf_file):
                     if digits:
                         money_val = f"{'-' if is_negativ else ''}{digits} Ft"
 
-            # --- 3. JAVÍTOTT CÍM ÉS ÜGYINTÉZŐ (A "porta" és a nevek helyretolása) ---
+            # --- 3. CÍM ÉS ÜGYINTÉZŐ JAVÍTVA ---
             zip_m = re.search(zip_pattern, content)
             if zip_m:
                 note_1 = content[:zip_m.start()].strip()
@@ -149,29 +149,33 @@ def parse_interfood_pdf(pdf_file):
                 limit = len(remaining)
                 if phone_m and phone_val in remaining:
                     limit = min(limit, remaining.find(phone_val))
-                
-                # A rendelések eleje is határvonal
-                order_m = re.search(order_pattern, remaining)
-                if order_m:
-                    limit = min(limit, order_m.start())
+                if all_orders:
+                    limit = min(limit, all_orders[0].start())
                 
                 address_block = remaining[:limit].strip()
                 clean_block = address_block.replace(phone_val, "").strip()
                 
-                # Keressük az utolsó házszám-szerűséget (szám + opcionális betű/jel)
-                # De engedjük utána a "fszt", "porta" szavakat
-                split_patterns = [r'\bfszt\b', r'\bporta\b', r'\bemelet\b', r'\bem\.', r'\bajtó\b']
+                # JAVÍTOTT STRATÉGIA: 
+                # Megkeressük az utolsó számot a blokkban (ez a házszám vége)
+                # Ami utána van, az lesz az Ügyintéző.
+                hazszam_vege_m = list(re.finditer(r'\d+', clean_block))
                 
-                # Stratégia: A név általában Nagybetűvel kezdődő szavakból áll a blokk végén
-                # Keressük meg, hol kezdődik a név (utolsó legalább két nagybetűs szó)
-                name_match = re.search(r'\s([A-Z][a-z/áéíóöőúüű]+(\s[A-Z][a-z/áéíóöőúüű]+)+)$', clean_block)
-                
-                if name_match:
-                    idx = name_match.start()
-                    cim = clean_block[:idx].strip()
-                    ugyintezo = clean_block[idx:].strip()
+                if hazszam_vege_m:
+                    last_digit_pos = hazszam_vege_m[-1].end()
+                    # Megnézzük, van-e utána még pont vagy szóköz (pl. 84. Gyöngyösiné)
+                    suffix_m = re.search(r'^[.\s]*', clean_block[last_digit_pos:])
+                    split_idx = last_digit_pos + suffix_m.end()
+                    
+                    cim = clean_block[:split_idx].strip()
+                    ugyintezo = clean_block[split_idx:].strip()
                 else:
                     cim = clean_block
+                    ugyintezo = ""
+
+                # Ha az ügyintéző üres maradt, de note_1-ben van valami, próbáljuk menteni
+                if not ugyintezo and note_1:
+                    ugyintezo = note_1
+                    note_1 = ""
 
             # --- 4. MEGJEGYZÉS 2 ---
             if all_orders and phone_m:

@@ -136,27 +136,29 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- 2. SZTRINGALAPÚ PÉNZKINYERÉS (Visszafelé olvasó módszer) ---
+            # --- 2. SZTRINGALAPÚ PÉNZKINYERÉS (Mínuszjel-barát verzió) ---
             money_val = "0 Ft"
             
             if "Ft" in content:
-                # Elvágjuk a szöveget az UTOLSÓ "Ft"-nál, és csak az előtte lévő részt nézzük
+                # Elvágjuk az UTOLSÓ "Ft"-nál
                 pre_ft_text = content.split("Ft")[-2] 
                 
-                # Visszafelé haladva keressük az összefüggő számjegyeket és szóközöket
-                # Megállunk, ha újsort (\n), betűt vagy bármi mást találunk
-                # Ez a regex csak a közvetlenül a Ft előtt lévő "tiszta" számblokkot fogja meg
+                # A regex most már kötelezően kezeli a mínuszjelet is, ha van: (-?[\d\s]+)
+                # A $ jel biztosítja, hogy a közvetlenül a Ft előtti részt nézzük
                 match = re.search(r'(-?[\d\s]+)$', pre_ft_text.rstrip())
                 
                 if match:
                     raw_num = match.group(1).strip()
-                    # Ha a talált számban van újsor (ez okozta a 2 \n 6865 hibát), 
-                    # akkor csak az újsor UTÁNI részt tartjuk meg
+                    
+                    # Ha újsor van benne (a sorszám miatt), csak az alját tartjuk meg
                     if "\n" in raw_num:
                         raw_num = raw_num.split("\n")[-1].strip()
                     
+                    # Tisztítás: CSAK a szóközöket vesszük ki, a mínuszjelet MEGTARTJUK
                     clean_num = raw_num.replace(" ", "")
-                    if clean_num:
+                    
+                    # Ellenőrizzük, hogy maradt-e benne számjegy
+                    if any(char.isdigit() for char in clean_num):
                         money_val = f"{clean_num} Ft"
 
             # --- 3. CÍM ÉS ÜGYINTÉZŐ ---

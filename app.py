@@ -120,32 +120,28 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- 2. PÉNZKERESŐ (Javított NameError és darabszám-szűrő) ---
+            # --- 2. PÉNZKERESŐ (Ezt az egy blokkot használd!) ---
             money_val = "0 Ft"
-            
             if "Ft" in content:
                 ft_pos = content.rfind("Ft")
-                # Kicsit nagyobb zónát nézünk (20 karakter), hogy a mínusz jel biztosan benne legyen
+                # 20 karaktert nézünk a Ft előtt, ez a "zóna"
                 zona = content[max(0, ft_pos - 20):ft_pos].strip()
                 
-                # Szétvágjuk szóközök mentén
+                # A split() leválasztja a darabszámot (pl. "2") az összegről (pl. "20100")
                 reszek = zona.split()
-                
                 if reszek:
-                    # Az utolsó elem a szám (pl. "20100" vagy "-1320")
+                    # Az utolsó egység lesz a pénz
                     utolso_szelet = reszek[-1]
                     
-                    # Megnézzük, van-e bármilyen mínusz jel a KIVÁGOTT ZÓNÁBAN
+                    # Negatív jel keresése a zónában
                     vonalak = ["-", "–", "—", "−", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015"]
-                    # Itt volt a hiba, most a 'zona' változót nézzük:
                     is_negativ = any(v in zona for v in vonalak)
                     
-                    # Csak a számokat tartjuk meg az utolsó szeletből
-                    tisztitott_szam = "".join(re.findall(r'\d', utolso_szelet))
-                    
-                    if tisztitott_szam:
+                    # Csak a számokat tartjuk meg
+                    szamok = "".join(re.findall(r'\d', utolso_szelet))
+                    if szamok:
                         prefix = "-" if is_negativ else ""
-                        money_val = f"{prefix}{tisztitott_szam} Ft"
+                        money_val = f"{prefix}{szamok} Ft"
         
         # 4. Megnézzük a negatív jelet
         vonalak = ["-", "–", "—", "−"]

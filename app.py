@@ -120,24 +120,28 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- 2. PÉNZKERESŐ (A darabszám-csapda és a "több soros hiba" ellen) ---
+            # --- 2. PÉNZKERESŐ (Golyóálló verzió) ---
             money_val = "0 Ft"
-            
             if "Ft" in content:
-                # 1. Megkeressük az UTOLSÓ "Ft"-ot a blokkban
+                # Keressük meg az UTOLSÓ Ft-ot
                 ft_pos = content.rfind("Ft")
+                # Vágjunk ki egy 15 karakteres részt előtte
+                zona = content[max(0, ft_pos - 15):ft_pos].strip()
                 
-                # 2. Kivágunk egy 20 karakteres zónát közvetlenül a Ft előtt
-                # Itt lakik a darabszám (pl. 2) és az összeg (pl. 20100)
-                penz_zona = content[max(0, ft_pos - 20):ft_pos].strip()
-                
-                # 3. Szétvágjuk szóközök mentén
-                reszek = penz_zona.split()
-                
+                # A titok: a split() az utolsó szóköz utáni részt fogja adni
+                # Ha a zona: "2 20100", a split() után az utolsó elem: "20100"
+                reszek = zona.split()
                 if reszek:
-                    # A legutolsó "szó" a zónában a tényleges összeg (mert az van a Ft mellett)
-                    # Pl. ha a zóna "2 20100", akkor a reszek[-1] a "20100" lesz.
-                    utolso_blokk = reszek[-1]
+                    utolso_szelet = reszek[-1]
+                    
+                    # Mínusz jel ellenőrzése
+                    vonalak = ["-", "–", "—", "−"]
+                    is_negativ = any(v in zona for v in vonalak)
+                    
+                    # Tisztítás
+                    szam = "".join(re.findall(r'\d', utolso_szelet))
+                    if szam:
+                        money_val = f"{'-' if is_negativ else ''}{szam} Ft"
         
         # 4. Megnézzük a negatív jelet
         vonalak = ["-", "–", "—", "−"]

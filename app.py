@@ -139,7 +139,7 @@ def parse_interfood_pdf(pdf_file):
                     if digits:
                         money_val = f"{'-' if is_negativ else ''}{digits} Ft"
 
-            # --- 3. CÍM ÉS ÜGYINTÉZŐ (Szigorított név-tisztítással) ---
+            # --- 3. CÍM ÉS ÜGYINTÉZŐ (Zárójelek és komplex címek kezelése) ---
             zip_m = re.search(zip_pattern, content)
             if zip_m:
                 remaining = content[zip_m.start():]
@@ -152,15 +152,15 @@ def parse_interfood_pdf(pdf_file):
                 address_block = remaining[:limit].strip()
                 clean_block = address_block.replace(phone_val, "").strip()
 
-                # 1. HIVATALOS TITULUSOK (Amik a NÉV részei)
+                # Név részei (Titulusok)
                 titulusok = [r'Dr\.', r'dr\.', r'Ifj\.', r'ifj\.', r'Id\.', r'id\.', r'Özv\.', r'özv\.', r'Báró', r'Gróf']
                 tit_pattern = '|'.join(titulusok)
 
-                # 2. CÍM-ELEMEK (Amik SOHA nem a név részei)
-                cim_elemek = [r'fszt\.?', r'Fszt\.?', r'porta', r'Porta', r'emelet', r'em\.', r'ajtó', r'sz\.', r'épület', r'ép\.']
+                # Cím részei (Tiltólista)
+                cim_elemek = [r'\w+\.?\s?ép\.?', r'\w+\.?\s?lph\.?', r'fszt\.?', r'porta', r'emelet', r'em\.', r'ajtó', r'sz\.']
                 cim_pattern = '|'.join(cim_elemek)
 
-                # Alap vágás házszám után
+                # Alap vágás
                 hazszam_vege_m = list(re.finditer(r'\d+', clean_block))
                 if hazszam_vege_m:
                     split_idx = hazszam_vege_m[-1].end()
@@ -170,37 +170,37 @@ def parse_interfood_pdf(pdf_file):
                     cim = clean_block[:split_idx].strip()
                     ugyintezo = clean_block[split_idx:].strip()
 
-                    # --- KORREKCIÓS CIKLUS ---
-                    # Addig ismételjük, amíg az ügyintéző elején nemkívánatos szó van
                     while True:
-                        # a) Titulus ellenőrzése a cím végén (Dr., Ifj.)
+                        # a) Titulus (Dr.) visszaszerzése
                         tit_m = re.search(f'({tit_pattern})$', cim)
                         if tit_m:
                             ugyintezo = f"{tit_m.group(1)} {ugyintezo}".strip()
                             cim = cim[:tit_m.start()].strip().rstrip('.').strip()
                             continue
                         
-                        # b) Cím-elem ellenőrzése az ügyintéző elején (fszt, porta)
-                        # Megnézzük az ügyintéző első szavát
-                        elso_szo_m = re.match(r'^(\S+)', ugyintezo)
+                        # b) Cím-elemek (ép., lph., fszt.) visszatolása a címbe
+                        elso_szo_m = re.match(r'^(\S+\.?\s?\S*\.?)', ugyintezo)
                         if elso_szo_m:
-                            szo = elso_szo_m.group(1)
-                            if re.match(f'^({cim_pattern})$', szo, re.IGNORECASE):
-                                cim = f"{cim} {szo}".strip()
-                                ugyintezo = ugyintezo[len(szo):].strip()
-                                continue
+                            szo = elso_szo_m.group(1).strip()
+                            # Ha a szó benne van a tiltólistában VAGY csak egy magányos betű/jel
+                            if re.match(f'^({cim_pattern})$', szo, re.IGNORECASE) or len(szo) <= 2:
+                                if szo not in ["Dr", "Dr."]: # Kivéve ha titulus
+                                    cim = f"{cim} {szo}".strip()
+                                    ugyintezo = ugyintezo[len(elso_szo_m.group(1)):].strip()
+                                    continue
                         
-                        break # Ha egyik sem teljesül, kész vagyunk
+                        # c) Zárójeles megjegyzés kezelése (pl. (LGM))
+                        if ugyintezo.startswith('('):
+                            zaroje_m = re.match(r'^(\(.*?\))', ugyintezo)
+                            if zaroje_m:
+                                extra_note = zaroje_m.group(1)
+                                note_2 = f"{note_2} {extra_note}".strip()
+                                ugyintezo = ugyintezo[len(extra_note):].strip()
+                                continue
+                        break
                 else:
                     cim = clean_block
                     ugyintezo = ""
-
-                # VÉGSŐ FINOMÍTÁS: Ha az ugyintezo még mindig / jellel kezdődik
-                if ugyintezo.startswith('/'):
-                    parts = ugyintezo.split(maxsplit=1)
-                    if len(parts) > 1:
-                        cim = f"{parts[0]} {cim}"
-                        ugyintezo = parts[1]
 
             # --- 4. MEGJEGYZÉS 2 ---
             if all_orders and phone_m:

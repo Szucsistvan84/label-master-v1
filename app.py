@@ -119,66 +119,71 @@ def parse_interfood_pdf(pdf_file):
             u_code = chunks[i]
             content = chunks[i+1]
             
-            # --- 1. MEGJEGYZÉS ELEJE ÉS CÍM ---
-            # Keressük az irányítószámot a tartalomban
+            # --- 1. TELEFON ÉS PÉNZ (Ezeket szedjük ki először, mert ezek a fix végpontok) ---
+            phone_m = re.search(phone_pattern, content)
+            phone_val = phone_m.group(0) if phone_m else ""
+            
+            # Pénz: Szigorítjuk, hogy ne vegye be az összesítő számot (pl. "1 0 Ft")
+            # Csak az utolsó Ft előtti számot nézzük, szóközök nélkül
+            money_m = re.findall(r'(-?\s?[\d\s]+)\s*Ft', content)
+            if money_m:
+                raw_money = money_m[-1].strip().replace(" ", "")
+                money_val = f"{raw_money} Ft"
+            else:
+                money_val = "0 Ft"
+
+            # --- 2. CÍM ÉS ÜGYINTÉZŐ SZÉTVÁLASZTÁSA ---
             zip_m = re.search(zip_pattern, content)
+            note_1, cim, ugyintezo = "", "", ""
             
-            note_1 = ""
-            cim = ""
             if zip_m:
-                # Ami a kód és az irányítószám között van, az a Megjegyzés 1 (pl. GSV Ipari park/)
                 note_1 = content[:zip_m.start()].strip()
-                # A címet az irányítószámtól indítjuk
-                # Próbáljuk megkeresni a cím végét (ahol a név vagy rendelésszám kezdődik)
-                remaining_after_zip = content[zip_m.start():]
-                # A cím általában addig tart, amíg nem jön egy telefonszám vagy rendelés kód
-                # De a te logikád szerint a név előtt ér véget.
-                # Egyszerűsítsünk: keressük a rendelést, az egy fix pont.
-                order_m = re.search(order_pattern, remaining_after_zip)
-                if order_m:
-                    address_and_name = remaining_after_zip[:order_m.start()].strip()
-                    # Itt egy trükk: a cím általában tartalmaz házszámot (szám+pont)
-                    # A név pedig az utolsó ilyen után jön.
-                    last_digit_dot = list(re.finditer(r'\d+\.', address_and_name))
-                    if last_digit_dot:
-                        split_idx = last_digit_dot[-1].end()
-                        cim = address_and_name[:split_idx].strip()
-                        ugyintezo = address_and_name[split_idx:].strip()
-                    else:
-                        cim = address_and_name
-                        ugyintezo = ""
+                remaining = content[zip_m.start():]
+                
+                # Hol ér véget a cím? Ott, ahol a telefon vagy a rendelés kezdődik
+                order_m = re.search(order_pattern, remaining)
+                limit = min(phone_m.start() if phone_m else len(remaining), 
+                            order_m.start() if order_m else len(remaining))
+                
+                address_block = remaining[:limit].strip()
+                
+                # Cím vs Név: Keressük az utolsó utca/út/tér/szám jellegű részt
+                # Ha nincs pont, akkor az irányítószám + város + utca utáni részt vágjuk
+                # Új logika: A telefonszámot és a pénzt kitöröljük az address_block-ból, 
+                # ami marad, az a Cím + Név.
+                clean_block = address_block.replace(phone_val, "").replace(money_val, "").strip()
+                
+                # Próbáljuk szétvágni ott, ahol a házszám véget ér
+                split_m = list(re.finditer(r'(\d+[./\s]?[a-zA-Z]?\.?)\s', clean_block))
+                if split_m:
+                    idx = split_m[-1].end()
+                    cim = clean_block[:idx].strip()
+                    ugyintezo = clean_block[idx:].strip()
                 else:
-                    cim = remaining_after_zip
+                    cim = clean_block
                     ugyintezo = ""
-            
-            # --- 2. RENDELÉSEK ÉS ÖSSZESÍTŐ ---
+
+            # --- 3. RENDELÉSEK ÉS MEGJEGYZÉS 2 ---
             orders_found = re.findall(order_pattern, content)
             
-            # --- 3. MEGJEGYZÉS VÉGE (Note 2) ---
-            # A telefonszám és az utolsó rendelés/összesítő közötti rész
-            phone_m = re.search(phone_pattern, content)
+            # Megjegyzés 2: Az utolsó rendelés és a telefonszám között
+            all_orders = list(re.finditer(order_pattern, content))
             note_2 = ""
-            if phone_m:
-                # Megkeressük az utolsó rendelésegységet
-                last_order_end = 0
-                all_orders = list(re.finditer(order_pattern, content))
-                if all_orders:
-                    last_order_end = all_orders[-1].end()
-                
-                # A köztes rész a Megjegyzés 2
-                note_text = content[last_order_end:phone_m.start()].strip()
-                # Tisztítsuk meg a magányos összesítő számoktól (pl. ha egy "1"-es áll ott)
-                note_2 = re.sub(r'^\s*\d+\s*$', '', note_text)
+            if all_orders and phone_m:
+                start_n2 = all_orders[-1].end()
+                end_n2 = phone_m.start()
+                if end_n2 > start_n2:
+                    n2_raw = content[start_n2:end_n2].strip()
+                    # Levágjuk az összesítő számot az elejéről (pl. "1" vagy "2")
+                    note_2 = re.sub(r'^\d+\s*', '', n2_raw)
 
-            # --- 4. PÉNZ ÉS TELEFON ---
-            money_m = re.search(money_pattern, content)
-            money_val = money_m.group(0) if money_m else "0 Ft"
-            phone_val = phone_m.group(0) if phone_m else ""
-
-            # --- 5. ADATOK ÖSSZEFÉSÜLÉSE ---
-            # Megjegyzés 1 és 2 egyesítése
+            # --- 4. UTOLSÓ SIMÍTÁSOK ---
+            # Ha a névbe mégis belekerült a telefon, vágjuk le
+            if phone_val:
+                ugyintezo = ugyintezo.replace(phone_val, "").strip()
+            
             full_note = f"{note_1} {note_2}".strip()
-            # Ha a Megjegyzés 1-ben benne maradt a sorrend száma, vágjuk le
+            # Sorrend szám (pl. "1 ") levágása a megjegyzés elejéről
             full_note = re.sub(r'^\d+\s+', '', full_note)
 
             rows.append({

@@ -123,22 +123,25 @@ def parse_interfood_pdf(pdf_file):
             phone_m = re.search(phone_pattern, content)
             phone_val = phone_m.group(0) if phone_m else ""
             
-            # --- 2. PÉNZÖSSZEG (Csak a telefon után keresünk!) ---
+            # --- AZ ÚJ, "TELEFONSZÁM UTÁNI" PÉNZKERESŐ ---
             money_val = "0 Ft"
             if phone_m:
-                # Csak a telefonszám UTÁNI szövegrészt nézzük
-                text_after_phone = content[phone_m.end():]
-                money_m = re.search(r'(-?\s?[\d\s]+)\s*Ft', text_after_phone)
-                if money_m:
-                    # Tisztítás: csak a számok és az előjel (szóközök nélkül)
-                    raw_money = re.sub(r'[^\d-]', '', money_m.group(1))
-                    money_val = f"{raw_money} Ft"
+                # 1. Mindent kiveszünk, ami a telefonszám UTÁN van
+                after_phone = content[phone_m.end():].strip()
+                
+                # 2. Megkeressük benne a "Ft" feliratot
+                if "Ft" in after_phone:
+                    # Elvágjuk a szöveget a Ft-nál, hogy az esetleges 
+                    # utána lévő szemetet (pl. oldalszám) ne vigye bele
+                    money_part = after_phone.split("Ft")[0] + "Ft"
+                    
+                    # 3. Tisztítás: Csak számok, szóköz, mínuszjel és a "Ft" maradjon
+                    # Ez kiszűri a véletlen bekerülő neveket vagy karaktereket
+                    money_val = re.sub(r'[^0-9\- \tFt]', '', money_part).strip()
             else:
-                # Ha nincs telefon, az utolsó Ft-ot keressük, de óvatosan
-                money_m = re.findall(r'(-?\s?[\d\s]+)\s*Ft', content)
-                if money_m:
-                    raw_money = re.sub(r'[^\d-]', '', money_m[-1])
-                    money_val = f"{raw_money} Ft"
+                # Biztonsági tartalék, ha nincs telefon (ritka)
+                m_fallback = re.search(r'(-?[\d\s]+Ft)', content)
+                money_val = m_fallback.group(1).strip() if m_fallback else "0 Ft"
 
             # --- 3. RENDELÉS ÉS ÖSSZESÍTŐ SZÁM ---
             all_orders = list(re.finditer(order_pattern, content))

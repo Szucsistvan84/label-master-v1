@@ -115,11 +115,12 @@ def parse_interfood_pdf(pdf_file):
         
         # A chunks így néz ki: [fejléc, "H-491512", "maradék szöveg...", "H-493926", "következő..."]
         # i=1-től indulunk, kettesével lépkedve (kód + tartalom)
+        # Ezt a sort keresd meg a kódban:
         for i in range(1, len(chunks), 2):
             u_code = chunks[i]
             content = chunks[i+1]
             
-            # --- 0. ALAPÉRTELMEZETT ÉRTÉKEK (Hogy ne legyen NameError) ---
+            # --- 0. INICIALIZÁLÁS ---
             phone_val = ""
             money_val = "0 Ft"
             ugyintezo = ""
@@ -127,16 +128,15 @@ def parse_interfood_pdf(pdf_file):
             note_1 = ""
             note_2 = ""
 
-            # --- 1. TELEFONSZÁM KERESÉSE (Fix pont) ---
+            # --- 1. TELEFON ÉS RENDELÉS (Fix horgonyok) ---
             phone_m = re.search(phone_pattern, content)
             if phone_m:
                 phone_val = phone_m.group(0)
 
-            # --- 2. RENDELÉSEK KERESÉSE (Fix pont) ---
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- 3. SZTRINGALAPÚ PÉNZKINYERÉS (A te logikád: vágás és utolsó elem) ---
+            # --- 2. SZTRINGALAPÚ PÉNZKINYERÉS (Ezres tagolás biztos) ---
             raw_string_area = ""
             if phone_m and "Ft" in content[phone_m.end():]:
                 raw_string_area = content[phone_m.end():].split("Ft")[0]
@@ -144,23 +144,21 @@ def parse_interfood_pdf(pdf_file):
                 raw_string_area = content[all_orders[-1].end():].split("Ft")[0]
             
             if raw_string_area:
-                parts = raw_string_area.strip().split()
-                if parts:
-                    # A "Ft" előtti utolsó elem a listában
-                    last_part = parts[-1]
-                    # Tisztítás: csak szám maradjon (pl. "6 865" -> "6865")
-                    pénz_szám = re.sub(r'[^\d-]', '', last_part)
-                    if pénz_szám:
-                        money_val = f"{pénz_szám} Ft"
+                # Először töröljük a rendelési kódokat (pl. 1-RZK), hogy a darabszámuk ne zavarjon
+                clean_area = re.sub(order_pattern, '', raw_string_area)
+                # Kigyűjtjük az ÖSSZES számjegyet és kötőjelet a maradék szövegből
+                digits_only = "".join(re.findall(r'[\d-]', clean_area))
+                
+                if digits_only:
+                    money_val = f"{digits_only} Ft"
 
-            # --- 4. CÍM ÉS ÜGYINTÉZŐ (Szeletelés az irányítószámtól) ---
+            # --- 3. CÍM ÉS ÜGYINTÉZŐ ---
             zip_m = re.search(zip_pattern, content)
             if zip_m:
                 note_1 = content[:zip_m.start()].strip()
-                note_1 = re.sub(r'^\d+\s+', '', note_1) # Sorszám levágása
+                note_1 = re.sub(r'^\d+\s+', '', note_1) 
                 
                 remaining = content[zip_m.start():]
-                # A cím vége vagy a telefonnál, vagy az első rendelésnél van
                 limit = len(remaining)
                 order_m = re.search(order_pattern, remaining)
                 
@@ -170,10 +168,8 @@ def parse_interfood_pdf(pdf_file):
                     limit = min(limit, order_m.start())
                 
                 address_block = remaining[:limit].strip()
-                # Itt volt a hiba: most már a phone_val biztosan létezik (akár üresen is)
                 clean_block = address_block.replace(phone_val, "").strip()
                 
-                # Név leválasztása a házszám után
                 split_m = list(re.finditer(r'(\d+[./\s]?[a-zA-Z]?\.?)\s', clean_block))
                 if split_m:
                     idx = split_m[-1].end()
@@ -182,7 +178,7 @@ def parse_interfood_pdf(pdf_file):
                 else:
                     cim = clean_block
 
-            # --- 5. MEGJEGYZÉS 2 (Rendelés és Telefon között) ---
+            # --- 4. MEGJEGYZÉS 2 ---
             if all_orders and phone_m:
                 start_n2 = all_orders[-1].end()
                 end_n2 = phone_m.start()
@@ -190,9 +186,9 @@ def parse_interfood_pdf(pdf_file):
                     n2_raw = content[start_n2:end_n2].strip()
                     note_2 = re.sub(r'^\d+\s*', '', n2_raw)
 
-            # Összefűzés
             full_note = " / ".join(filter(None, [note_1, note_2]))
 
+            # --- 5. ADATSOR ÖSSZEÁLLÍTÁSA ---
             rows.append({
                 "Prefix": u_code[0].upper(),
                 "ID": u_code,

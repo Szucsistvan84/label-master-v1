@@ -119,84 +119,61 @@ def parse_interfood_pdf(pdf_file):
             u_code = chunks[i]
             content = chunks[i+1]
             
-            # --- SZTRINGALAPÚ PÉNZKINYERÉS ---
-            phone_m = re.search(phone_pattern, content)
-            order_matches = list(re.finditer(order_pattern, content))
-            
+            # --- 0. ALAPÉRTELMEZETT ÉRTÉKEK (Hogy ne legyen NameError) ---
+            phone_val = ""
             money_val = "0 Ft"
-            raw_string_area = ""
+            ugyintezo = ""
+            cim = ""
+            note_1 = ""
+            note_2 = ""
 
-            # 1. LÉPÉS: A SZÖVEGBLOKK KIVÁGÁSA (SZTRINGKÉNT)
-            if phone_m and "Ft" in content[phone_m.end():]:
-                # Telefonszám vége és az első "Ft" közötti rész
-                raw_string_area = content[phone_m.end():].split("Ft")[0]
-            elif order_matches and "Ft" in content[order_matches[-1].end():]:
-                # Utolsó rendelés vége és a "Ft" közötti rész
-                raw_string_area = content[order_matches[-1].end():].split("Ft")[0]
-            
-            # 2. LÉPÉS: TISZTÍTÁS ÉS FORMÁZÁS
-            if raw_string_area:
-                # Szétvágjuk a szöveget szóközök mentén listává
-                parts = raw_string_area.strip().split()
-                if parts:
-                    # A pénzösszeg mindig a "Ft" közvetlen közelében van, 
-                    # tehát a listánk UTOLSÓ eleme lesz a pénz (vagy annak vége)
-                    # Ha szóközös (pl. 6 865), akkor az utolsó két elem is lehet, 
-                    # de a legtöbb esetben az utolsó elem a döntő.
-                    
-                    # Nézzük meg az utolsó elemet:
-                    last_part = parts[-1]
-                    
-                    # Ha az utolsó elem csak egy magányos sorszám (pl. "1" vagy "2"), 
-                    # de előtte is van szám, akkor összefűzzük (pl. "6865" és "1" helyett csak a "6865")
-                    # De maradjunk egyszerűek: vegyük az utolsó olyan részt, ami nem a sorvégi összesítő.
-                    
-                    # Mivel a split("Ft")[0] miatt a "Ft" utáni rész (összesítő) már kiesett,
-                    # így a parts[-1] a legpontosabb találatunk.
-                    
-                    pénz_sztring = last_part.replace(" ", "")
-                    # Csak akkor fogadjuk el, ha van benne szám (kiszűrjük a maradék karaktereket)
-                    if any(char.isdigit() for char in pénz_sztring):
-                        money_val = f"{pénz_sztring} Ft"
+            # --- 1. TELEFONSZÁM KERESÉSE (Fix pont) ---
+            phone_m = re.search(phone_pattern, content)
+            if phone_m:
+                phone_val = phone_m.group(0)
 
-            # 3. LÉPÉS: ELLENŐRZÉS (Ha negatív az egyenleg)
-            if "-" in raw_string_area and "-" not in money_val:
-                money_val = "-" + money_val
-
-            # --- 3. RENDELÉS ÉS ÖSSZESÍTŐ SZÁM ---
+            # --- 2. RENDELÉSEK KERESÉSE (Fix pont) ---
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
-            
-            # Megkeressük az utolsó rendelés végét
-            last_order_end = all_orders[-1].end() if all_orders else 0
-            
-            # --- 4. MEGJEGYZÉS 2 ÉS AZ ÖSSZESÍTŐ SZÁM LEVÁLASZTÁSA ---
-            # A Megjegyzés 2 a rendelés vége és a telefon kezdete között van
-            note_2 = ""
-            if last_order_end > 0 and phone_m:
-                between_text = content[last_order_end:phone_m.start()].strip()
-                # Ez a rész tartalmazza az összesítő számot (pl. "1") és a szöveges megjegyzést
-                # Levágjuk az elejéről a magányos számot (ami az összesítő darabszám)
-                note_2 = re.sub(r'^\d+\s*', '', between_text).strip()
 
-            # --- 5. CÍM ÉS ÜGYINTÉZŐ (A korábbi javított logika) ---
+            # --- 3. SZTRINGALAPÚ PÉNZKINYERÉS (A te logikád: vágás és utolsó elem) ---
+            raw_string_area = ""
+            if phone_m and "Ft" in content[phone_m.end():]:
+                raw_string_area = content[phone_m.end():].split("Ft")[0]
+            elif all_orders and "Ft" in content[all_orders[-1].end():]:
+                raw_string_area = content[all_orders[-1].end():].split("Ft")[0]
+            
+            if raw_string_area:
+                parts = raw_string_area.strip().split()
+                if parts:
+                    # A "Ft" előtti utolsó elem a listában
+                    last_part = parts[-1]
+                    # Tisztítás: csak szám maradjon (pl. "6 865" -> "6865")
+                    pénz_szám = re.sub(r'[^\d-]', '', last_part)
+                    if pénz_szám:
+                        money_val = f"{pénz_szám} Ft"
+
+            # --- 4. CÍM ÉS ÜGYINTÉZŐ (Szeletelés az irányítószámtól) ---
             zip_m = re.search(zip_pattern, content)
-            note_1, cim, ugyintezo = "", "", ""
             if zip_m:
                 note_1 = content[:zip_m.start()].strip()
-                # A sor eleji sorszám (pl. "1 ") levágása a Megjegyzés 1-ről
-                note_1 = re.sub(r'^\d+\s+', '', note_1)
+                note_1 = re.sub(r'^\d+\s+', '', note_1) # Sorszám levágása
                 
                 remaining = content[zip_m.start():]
+                # A cím vége vagy a telefonnál, vagy az első rendelésnél van
+                limit = len(remaining)
                 order_m = re.search(order_pattern, remaining)
-                limit = min(phone_m.start() if phone_m else len(remaining), 
-                            order_m.start() if order_m else len(remaining))
+                
+                if phone_m and phone_val in remaining:
+                    limit = min(limit, remaining.find(phone_val))
+                if order_m:
+                    limit = min(limit, order_m.start())
                 
                 address_block = remaining[:limit].strip()
-                # Tisztítás
+                # Itt volt a hiba: most már a phone_val biztosan létezik (akár üresen is)
                 clean_block = address_block.replace(phone_val, "").strip()
                 
-                # Név leválasztása (az utolsó szám. utáni rész)
+                # Név leválasztása a házszám után
                 split_m = list(re.finditer(r'(\d+[./\s]?[a-zA-Z]?\.?)\s', clean_block))
                 if split_m:
                     idx = split_m[-1].end()
@@ -204,14 +181,17 @@ def parse_interfood_pdf(pdf_file):
                     ugyintezo = clean_block[idx:].strip()
                 else:
                     cim = clean_block
-                    ugyintezo = ""
 
-            # --- 6. ÖSSZEFŰZÉS ---
-            # Ha a névbe mégis belement a telefon, töröljük
-            if phone_val:
-                ugyintezo = ugyintezo.replace(phone_val, "").strip()
-            
-            full_note = f"{note_1} | {note_2}".strip(" |")
+            # --- 5. MEGJEGYZÉS 2 (Rendelés és Telefon között) ---
+            if all_orders and phone_m:
+                start_n2 = all_orders[-1].end()
+                end_n2 = phone_m.start()
+                if end_n2 > start_n2:
+                    n2_raw = content[start_n2:end_n2].strip()
+                    note_2 = re.sub(r'^\d+\s*', '', n2_raw)
+
+            # Összefűzés
+            full_note = " / ".join(filter(None, [note_1, note_2]))
 
             rows.append({
                 "Prefix": u_code[0].upper(),

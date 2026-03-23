@@ -120,33 +120,29 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- 2. PÉNZKERESŐ (Frissített "KÖZÉP" logika) ---
+           # --- 2. PÉNZKERESŐ (Telefonszám-szűrővel javítva) ---
             money_val = "0 Ft"
             
-            # Megkeressük az utolsó cikkszám (rendelés) végét és a "Ft" elejét
             if all_orders and "Ft" in content:
-                # SZÖVEG.KERES megfelelője: az utolsó megtalált rendelés vége
                 honnan = all_orders[-1].end()
-                
-                # SZÖVEG.KERES hátulról: az utolsó "Ft" pozíciója
                 meddig = content.rfind("Ft")
                 
                 if meddig > honnan:
-                    # KÖZÉP(content; honnan; meddig-honnan)
-                    # Kivágjuk a két pont közötti szövegrészt
                     koztes_resz = content[honnan:meddig].strip()
                     
-                    # Megnézzük, van-e benne bármilyen kötőjel (negatív összeg jele)
-                    # A PDF-ben többféle "mínusz" karakter is létezhet
-                    is_negativ = any(v in koztes_resz for v in ["-", "–", "—", "−"])
+                    # 1. Megnézzük a negatív jelet
+                    vonalak = ["-", "–", "—", "−", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015"]
+                    is_negativ = any(v in koztes_resz for v in vonalak)
                     
-                    # Csak a számokat tartjuk meg a kivágott részből
-                    szamok = "".join(re.findall(r'\d', koztes_resz))
-                    
-                    if szamok:
-                        # Ha találtunk mínusz jelet a "közép" részben, elé tesszük
+                    # 2. JAVÍTÁS: Csak az UTOLSÓ egybefüggő számblokkot keressük ki
+                    # Ez leválasztja a telefonszámot, ha az is belekerült a "középbe"
+                    szam_blokkok = re.findall(r'\d[\d\s]*', koztes_resz)
+                    if szam_blokkok:
+                        # Az utolsó blokk lesz a pénz (közvetlenül a Ft előtt)
+                        utolso_szam = "".join(re.findall(r'\d', szam_blokkok[-1]))
+                        
                         prefix = "-" if is_negativ else ""
-                        money_val = f"{prefix}{szamok} Ft"
+                        money_val = f"{prefix}{utolso_szam} Ft"
 
             # --- 3. CÍM ÉS ÜGYINTÉZŐ (Csak a tiltólista hozzáadása) ---
             zip_m = re.search(zip_pattern, content)

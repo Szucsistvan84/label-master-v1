@@ -136,21 +136,33 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- 2. SZTRINGALAPÚ PÉNZKINYERÉS (Ezres tagolás biztos) ---
+            # --- SZTRINGALAPÚ PÉNZKINYERÉS (Végleges, "Szomszéd-elv" alapján) ---
+            phone_m = re.search(phone_pattern, content)
+            order_matches = list(re.finditer(order_pattern, content))
+            
+            money_val = "0 Ft"
             raw_string_area = ""
+
+            # 1. LÉPÉS: Kivágjuk a szöveget a telefon/rendelés és a "Ft" között
             if phone_m and "Ft" in content[phone_m.end():]:
                 raw_string_area = content[phone_m.end():].split("Ft")[0]
-            elif all_orders and "Ft" in content[all_orders[-1].end():]:
-                raw_string_area = content[all_orders[-1].end():].split("Ft")[0]
+            elif order_matches and "Ft" in content[order_matches[-1].end():]:
+                raw_string_area = content[order_matches[-1].end():].split("Ft")[0]
             
+            # 2. LÉPÉS: Megkeressük a közvetlenül a "Ft" előtt álló számot
             if raw_string_area:
-                # Először töröljük a rendelési kódokat (pl. 1-RZK), hogy a darabszámuk ne zavarjon
-                clean_area = re.sub(order_pattern, '', raw_string_area)
-                # Kigyűjtjük az ÖSSZES számjegyet és kötőjelet a maradék szövegből
-                digits_only = "".join(re.findall(r'[\d-]', clean_area))
+                # Olyan számokat keresünk, amik után már nincs több szám a blokkban (tehát a végén vannak)
+                # A regex: (\d[\d\s]*) a blokk végén
+                money_match = re.search(r'(-?\d[\d\s]*)$', raw_string_area.strip())
                 
-                if digits_only:
-                    money_val = f"{digits_only} Ft"
+                if money_match:
+                    raw_num = money_match.group(1).strip()
+                    # Tisztítás: csak a szóközöket vesszük ki (6 865 -> 6865)
+                    clean_num = raw_num.replace(" ", "")
+                    if clean_num:
+                        money_val = f"{clean_num} Ft"
+                else:
+                    money_val = "0 Ft"
 
             # --- 3. CÍM ÉS ÜGYINTÉZŐ ---
             zip_m = re.search(zip_pattern, content)

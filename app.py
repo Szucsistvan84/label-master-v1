@@ -99,172 +99,117 @@ def parse_interfood_pdf(pdf_file):
 # --- 1. OLDALAK BEOLVASÁSA ÉS ÖSSZEFŰZÉSE ---
         all_texts = []
         for page in pdf.pages:
-            text_content = page.extract_text()
-            if text_content:
-                all_texts.append(text_content)
+            t = page.extract_text()
+            if t: all_texts.append(t)
         
-        # Szigorúan all_texts (többes szám), hogy ne legyen NameError
         full_text = "\n".join(all_texts)
         
-        # --- 2. ÜGYFÉLBLOKKOK KERESÉSE (A 2 soros hiba ellen) ---
-        # Szigorú vágás: csak az új sor elején kezdődő H-XXXXXX az ügyfél
-        matches = list(re.finditer(r'\n(H-\d{6})', full_text))
-        
+        # Ügyfélblokkok keresése (szigorúan új sor elején kezdődő H-)
+        matches = list(re.finditer(r'\n(H-(\d{6}))', full_text))
         if not matches:
-            matches = list(re.finditer(r'H-\d{6}', full_text))
+            matches = list(re.finditer(r'H-(\d{6})', full_text))
 
         for i in range(len(matches)):
             start = matches[i].start()
             end = matches[i+1].start() if i + 1 < len(matches) else len(full_text)
-            content = full_text[start:end]
             
-            # Ügyfél ID kinyerése csoportok nélkül, hogy ne legyen IndexError
-            u_code = matches[i].group(0).strip() 
-            temp_id = u_code.replace("H-", "")
+            # Ez az eredeti, nyers szövegdarabunk
+            raw_content = full_text[start:end].strip()
+            current_text = raw_content # Ebből fogunk "vágni"
             
-            # --- 1. ALAPADATOK KINYERÉSE ---
-            phone_m = re.search(PHONE_PAT, content)
+            # --- 2. AZONOSÍTÓ KIVÁGÁSA ---
+            u_code = matches[i].group(1)
+            temp_id = matches[i].group(2)
+            current_text = current_text.replace(u_code, "")
+
+            # --- 3. RENDELÉSEK KIVÁGÁSA (Ez a legfontosabb a pénz előtt!) ---
+            order_matches = list(re.finditer(ORDER_PAT, current_text))
+            orders_found = [m.group(0) for m in order_matches]
+            for om in order_matches:
+                # Kicseréljük a rendelést egy szóközre, hogy ne ragadjanak össze a számok
+                current_text = current_text.replace(om.group(0), " ")
+
+            # --- 4. TELEFON KIVÁGÁSA ---
             phone_val = ""
+            phone_m = re.search(PHONE_PAT, current_text)
             if phone_m:
                 raw_p = phone_m.group(0)
-                if len(re.findall(r'\d', raw_p)) >= 8: phone_val = raw_p
+                # Csak a valódi számokat tartjuk meg
+                if len(re.findall(r'\d', raw_p)) >= 8:
+                    phone_val = raw_p
+                current_text = current_text.replace(raw_p, " ")
 
-            all_orders = list(re.finditer(ORDER_PAT, content))
-            orders_found = [m.group(0) for m in all_orders]
+            # --- 5. PÉNZ KIVÁGÁSA A MARADÉKBÓL ---
+            money_val = "0 Ft"
+            # Most már a maradékban keresünk Ft-ot
+            ft_match = re.search(r'(-?\s?\d+[\s\d]*)\s*Ft', current_text)
+            if ft_match:
+                money_val = ft_match.group(0).strip()
+                current_text = current_text.replace(money_val, " ")
+            
+            # Tisztítsuk meg a money_val-t a felesleges szóközöktől a számok között (pl "20 100" -> "20100")
+            if money_val != "0 Ft":
+                is_neg = "-" in money_val
+                digits = "".join(re.findall(r'\d', money_val))
+                money_val = f"{'-' if is_neg else ''}{digits} Ft"
 
-            # --- 2. CÍM ÉS NÉV SZÉTVÁLASZTÁSA (A "Henger" Módszer) ---
+            # --- 6. NÉV ÉS CÍM SZÉTVÁLASZTÁSA A MARADÉKBÓL ---
+            # Ami maradt, az az irányítószám, város, utca és a név
             ugyintezo = ""
             cim = ""
             
-            # Keressük az irányítószámot (ez a választóvonal)
-            zip_m = re.search(r'\d{4}', content)
+            zip_m = re.search(r'\d{4}', current_text)
             if zip_m:
-                # Előtag (Név + Épületjel) és Utótag (Város + Utca + Házszám)
-                prefix_block = content[:zip_m.start()].strip()
-                address_block = content[zip_m.start():].strip()
-
-                # Cím vége (rendelésig vagy telefonig)
-                c_limit = len(address_block)
-                if phone_val and (phone_val in address_part if 'address_part' in locals() else address_block):
-                    c_limit = min(c_limit, address_block.find(phone_val))
-                elif all_orders:
-                    c_limit = min(c_limit, address_block.find(all_orders[0].group(0)))
+                # Irányítószám előtti rész (Név + Épületjel + esetleg prefix megjegyzés)
+                prefix_part = current_text[:zip_m.start()].strip()
+                # Irányítószámtól kezdődő rész (Cím)
+                address_part = current_text[zip_m.start():].strip()
                 
-                full_address = address_block[:c_limit].strip().rstrip(',')
-
-                # --- NÉV TISZTÍTÁSA (A., b., c B épület eltávolítása) ---
-                # Ezeket a prefix_block elejéről keressük
+                # Épületjelek (A., b., c B épület) leválasztása a név elejéről
                 b_pattern = r'^([a-zA-Z]\.?\s+|[a-zA-Z]\s+épület\s+|[a-zA-Z]\s+[a-zA-Z]\s+épület\s+)'
-                b_match = re.search(b_pattern, prefix_block, re.IGNORECASE)
+                b_match = re.search(b_pattern, prefix_part, re.IGNORECASE)
                 
-                found_building_info = ""
+                building_info = ""
                 if b_match:
-                    found_building_info = b_match.group(0).strip()
-                    name_candidate = prefix_block[b_match.end():].strip()
+                    building_info = b_match.group(0).strip()
+                    name_candidate = prefix_part[b_match.end():].strip()
                 else:
-                    name_candidate = prefix_block
+                    name_candidate = prefix_part
 
-                # Czinege Juliánna és társai: Ha a név előtt ott maradt a házszám (pl. 36. 4/31.)
-                # Megkeressük az utolsó szám-sorozatot a névjelöltben
-                noise_m = list(re.finditer(r'\d+[\s./\d]*', name_candidate))
-                if noise_m:
-                    last_noise = noise_m[-1]
-                    extra_address_part = name_candidate[:last_noise.end()].strip()
-                    ugyintezo = name_candidate[last_noise.end():].strip()
-                    cim = f"{full_address} {extra_address_part}"
+                # Név tisztítása a maradék számoktól (emelet/ajtó ami a név elé csúszott)
+                # Megkeressük az utolsó számot a névjelöltben
+                noise = list(re.finditer(r'\d+[\s./\d]*', name_candidate))
+                if noise:
+                    last_n = noise[-1]
+                    extra_addr = name_candidate[:last_n.end()].strip()
+                    ugyintezo = name_candidate[last_n.end():].strip()
+                    cim = f"{address_part} {extra_addr}"
                 else:
                     ugyintezo = name_candidate
-                    cim = full_address
+                    cim = address_part
 
-                # Ha volt épületinfó (A., b.), fűzzük a cím végére
-                if found_building_info:
-                    cim = f"{cim} ({found_building_info})"
+                if building_info:
+                    cim = f"{cim} ({building_info})"
+            
+            # --- 7. SOR MENTÉSE ---
+            if ugyintezo or cim:
+                rows.append({
+                    "Prefix": "H",
+                    "ID": f"P-{temp_id}",
+                    "Ügyintéző": ugyintezo.strip(", "),
+                    "Cím": cim.strip(", "),
+                    "Telefon": phone_val,
+                    "Pénz": money_val,
+                    "Rendelés": ", ".join(orders_found),
+                    "Megjegyzés": "", 
+                    "Ö5szesen": len(orders_found),
+                    "temp_id": temp_id,
+                    "Raklista_Ertek": 0,
+                    "Rendelés_Full": f"Hé: {', '.join(orders_found)}",
+                    "Hétvégi": False
+                })
 
-            # --- 3. PÉNZKERESŐ (A már bevált split módszer) ---
-            money_val = "0 Ft"
-            if "Ft" in content:
-                ft_pos = content.rfind("Ft")
-                zona = content[max(0, ft_pos - 25):ft_pos].strip()
-                reszek = zona.split()
-                if reszek:
-                    utolso = reszek[-1]
-                    is_neg = any(v in zona for v in ["-", "–", "—", "−"])
-                    szam = "".join(re.findall(r'\d', utolso))
-                    if szam: money_val = f"{'-' if is_neg else ''}{szam} Ft"
-
-            # --- 4. CÍM ÉS NÉV SZÉTVÁLASZTÁSA (Okosabb verzió) ---
-            # Megkeressük az irányítószámot (zip_pattern)
-            zip_m = re.search(zip_pattern, content)
-            if zip_m:
-                # A cím az irányítószámtól kezdődik
-                c_start = zip_m.start()
-                
-                # Meghatározzuk meddig tart a blokk (telefonig vagy rendelésig)
-                c_limit = len(content)
-                if phone_val and (phone_val in content):
-                    c_limit = min(c_limit, content.find(phone_val))
-                elif all_orders:
-                    c_limit = min(c_limit, all_orders[0].start())
-                
-                # Ez a nyers szöveg a címnek és névnek
-                raw_address_block = content[c_start:c_limit].strip()
-                
-                # SZÉTVÁLASZTÁS: Megkeressük az utolsó házszámot/emeletet/ajtót
-                # Hozzáadjuk az épület (ép.) és lépcsőház (lph.) jelzéseket is
-                hazszam_m = list(re.finditer(r'\d+|[A-Z]\.\s*ép\.|[A-Z]\.\s*lph\.|fszt\.|em\.', raw_address_block))
-                
-                if hazszam_m:
-                    last_idx = hazszam_m[-1].end()
-                    # Kiterjesztjük a pontokra és perjelekre (pl. 5./2.)
-                    suffix_m = re.search(r'^[./\s\d]*', raw_address_block[last_idx:])
-                    split_point = last_idx + suffix_m.end()
-                    
-                    cim = raw_address_block[:split_point].strip().strip(",")
-                    ugyintezo = raw_address_block[split_point:].strip().strip(",")
-                else:
-                    cim = raw_address_block
-                    ugyintezo = ""
-                # 2. TILTÓLISTA: Ha az ügyintéző neve ilyen "szeméttel" kezdődik, tegyük vissza a címbe
-                # Ide gyűjtöttem az összeset, amit írtál: /a, /b, /c, fszt, porta, épület
-                while True:
-                    # Regex, ami felismeri: /C, /b., fszt., porta, B épület, stb.
-                    rossz_elotag = re.match(r'^(/[a-zA-Z]\.?|fszt\.?|porta|épület|[a-zA-Z]\sépület)\s*', ugyintezo, re.IGNORECASE)
-                    
-                    if rossz_elotag:
-                        talalat = rossz_elotag.group(0).strip()
-                        cim = f"{cim} {talalat}".strip()
-                        ugyintezo = ugyintezo[len(rossz_elotag.group(0)):].strip()
-                        continue # Megnézzük, van-e utána következő rossz szó is
-                    break
-
-                # 3. TITULUS: Ha a cím végén maradt a Dr., tegyük a név elé
-                if cim.endswith(" Dr.") or cim.endswith(" Dr"):
-                    cim = cim[:-3].strip().rstrip('.').strip()
-                    ugyintezo = f"Dr. {ugyintezo}"
-
-            # --- 4. MEGJEGYZÉS 2 ---
-            if all_orders and phone_m:
-                start_n2 = all_orders[-1].end()
-                end_n2 = phone_m.start()
-                if end_n2 > start_n2:
-                    n2_raw = content[start_n2:end_n2].strip()
-                    note_2 = re.sub(r'^\d+\s*', '', n2_raw)
-
-            full_note = " / ".join(filter(None, [note_1, note_2]))
-
-            rows.append({
-                "Prefix": u_code[0].upper(),
-                "ID": u_code,
-                "Ügyintéző": ugyintezo,
-                "Cím": cim,
-                "Telefon": phone_val,
-                "Pénz": money_val,
-                "Rendelés": ", ".join(orders_found),
-                "Megjegyzés": full_note,
-                "Összesen": sum([int(o.split('-')[0]) for o in orders_found if '-' in o])
-            })
-
-    return rows, meta
+        return rows, meta
 
 def merge_data(raw_rows):
     if not raw_rows: return None

@@ -120,7 +120,7 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-           # --- 2. PÉNZKERESŐ (Telefonszám-szűrővel javítva) ---
+            # --- 2. JAVÍTOTT PÉNZKERESŐ (Telefonszám-kiszűréssel) ---
             money_val = "0 Ft"
             
             if all_orders and "Ft" in content:
@@ -128,21 +128,24 @@ def parse_interfood_pdf(pdf_file):
                 meddig = content.rfind("Ft")
                 
                 if meddig > honnan:
+                    # 1. Kivágjuk a köztes részt
                     koztes_resz = content[honnan:meddig].strip()
                     
-                    # 1. Megnézzük a negatív jelet
+                    # 2. KRITIKUS LÉPÉS: Ha van telefonszám, töröljük ki a vizsgált szövegből
+                    # Így a telefonszám vége nem tud beleolvadni a pénzbe
+                    if phone_val:
+                        koztes_resz = koztes_resz.replace(phone_val, "")
+                    
+                    # 3. Negatív jel ellenőrzése
                     vonalak = ["-", "–", "—", "−", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015"]
                     is_negativ = any(v in koztes_resz for v in vonalak)
                     
-                    # 2. JAVÍTÁS: Csak az UTOLSÓ egybefüggő számblokkot keressük ki
-                    # Ez leválasztja a telefonszámot, ha az is belekerült a "középbe"
-                    szam_blokkok = re.findall(r'\d[\d\s]*', koztes_resz)
-                    if szam_blokkok:
-                        # Az utolsó blokk lesz a pénz (közvetlenül a Ft előtt)
-                        utolso_szam = "".join(re.findall(r'\d', szam_blokkok[-1]))
-                        
+                    # 4. Csak a maradék számokat tartjuk meg (ez már csak a pénz lehet)
+                    szamok = "".join(re.findall(r'\d', koztes_resz))
+                    
+                    if szamok:
                         prefix = "-" if is_negativ else ""
-                        money_val = f"{prefix}{utolso_szam} Ft"
+                        money_val = f"{prefix}{szamok} Ft"
 
             # --- 3. CÍM ÉS ÜGYINTÉZŐ (Csak a tiltólista hozzáadása) ---
             zip_m = re.search(zip_pattern, content)

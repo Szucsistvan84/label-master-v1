@@ -121,57 +121,51 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(order_pattern, content))
             orders_found = [m.group(0) for m in all_orders]
 
-            # --- 2. PÉNZKERESŐ (A Nagy Barbara-biztos verzió) ---
+            # --- 2. PÉNZKERESŐ (V4 - A "Mohóság" ellen) ---
             if "Ft" in content:
-                # Az utolsó "Ft" előtti rész
-                parts = content.split("Ft")
-                pre_ft_text = parts[-2] 
+                pre_ft_text = content.split("Ft")[-2]
                 
-                # Vegyük az utolsó 40 karaktert (ebben benne kell lennie a számnak és az előjelnek)
-                # Nem soronként nézzük, hogy az újsor ne zavarjon be!
-                money_area = pre_ft_text[-40:]
+                # Csak az utolsó sort nézzük, de ha az üres, az azelőttit
+                lines = [l.strip() for l in pre_ft_text.split("\n") if l.strip()]
+                target_line = lines[-1] if lines else ""
                 
-                # Számjegyek kinyerése
-                digits_only = "".join(re.findall(r'\d', money_area))
+                # Keressük az UTOLSÓ összefüggő számblokkot a sorban (ezres tagolással)
+                # Ez megállítja a kódot, hogy ne szívja be a telefonszámot
+                money_match = re.search(r'([-–—−\s]*[\d\s]+)$', target_line)
                 
-                if digits_only:
-                    # Keresünk bármilyen vonalat a szám környezetében
-                    # Speciális matematikai mínuszt is (u2212)
+                if money_match:
+                    raw_money = money_match.group(1).strip()
+                    
+                    # Megnézzük van-e benne bármilyen mínuszjel
                     vonalak = ["-", "–", "—", "−", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015"]
+                    is_negativ = any(v in raw_money for v in vonalak)
                     
-                    # Megnézzük, hogy a szám ELŐTTI részen van-e mínusz
-                    # (A sorszámokat a [-40:] levágás már nagyjából kitakarította)
-                    is_negativ = any(v in money_area.split(digits_only[0])[0] for v in vonalak)
+                    # Csak a számjegyeket tartjuk meg a blokkból
+                    digits = "".join(re.findall(r'\d', raw_money))
                     
-                    prefix = "-" if is_negativ else ""
-                    money_val = f"{prefix}{digits_only} Ft"
+                    if digits:
+                        prefix = "-" if is_negativ else ""
+                        money_val = f"{prefix}{digits} Ft"
 
-            # --- 3. CÍM ÉS ÜGYINTÉZŐ ---
+            # --- 3. CÍM ÉS ÜGYINTÉZŐ JAVÍTVA ---
             zip_m = re.search(zip_pattern, content)
             if zip_m:
-                # Cím előtti rész (gyakran itt van a név/megjegyzés)
-                note_1 = content[:zip_m.start()].strip()
-                # Tisztítás: ha az elején maradt valami sorszám vagy maradvány
-                note_1 = re.sub(r'^[^\w\s]+', '', note_1).strip()
-                
-                remaining = content[zip_m.start():]
-                limit = len(remaining)
-                order_m = re.search(order_pattern, remaining)
-                
-                if phone_m and phone_val in remaining:
-                    limit = min(limit, remaining.find(phone_val))
-                if order_m:
-                    limit = min(limit, order_m.start())
+                # ... (note_1 kinyerése változatlan) ...
                 
                 address_block = remaining[:limit].strip()
-                # Ha a telefonszám benne maradt a címben, vágjuk ki
                 if phone_val:
                     address_block = address_block.replace(phone_val, "").strip()
                 
-                # Cím és Ügyintéző szétválasztása (Házszám utáni első nagybetűs rész)
-                split_m = list(re.finditer(r'(\d+[./\s]?[a-zA-Z]?\.?)\s', address_block))
+                # KERESÉS: Házszám + opcionális kiegészítők (fszt, ajtó, porta)
+                # Ezzel a "fszt. porta" a cím része marad
+                split_patterns = [r'fszt', r'porta', r'emelet', r'em\.', r'ajtó']
+                
+                # Megkeressük az utolsó olyan részt, ami NEM cím jellegű (Név)
+                # A trükk: az Ügyintéző neve általában nagybetűvel kezdődik és nincs benne szám
+                split_m = list(re.finditer(r'\s([A-Z][a-z/]+(\s[A-Z][a-z/]+)*)$', address_block))
+                
                 if split_m:
-                    idx = split_m[-1].end()
+                    idx = split_m[-1].start()
                     cim = address_block[:idx].strip()
                     ugyintezo = address_block[idx:].strip()
                 else:

@@ -96,31 +96,33 @@ def parse_interfood_pdf(pdf_file):
         jarat_m = re.search(r'(\d{4})\.\s*járat', first_page_text)
         if jarat_m: meta["jarat"] = jarat_m.group(1)
 
-       # --- 1. OLDALAK BEOLVASÁSA ÉS ÖSSZEFŰZÉSE ---
+# --- 1. OLDALAK BEOLVASÁSA ÉS ÖSSZEFŰZÉSE ---
         all_texts = []
         for page in pdf.pages:
             text_content = page.extract_text()
             if text_content:
                 all_texts.append(text_content)
         
+        # Szigorúan all_texts (többes szám), hogy ne legyen NameError
         full_text = "\n".join(all_texts)
         
         # --- 2. ÜGYFÉLBLOKKOK KERESÉSE (A 2 soros hiba ellen) ---
-        # Csak az új sor elején kezdődő H-XXXXXX kódot keressük
-        matches = list(re.finditer(r'\n(H-(\d{6}))', full_text))
+        # Szigorú vágás: csak az új sor elején kezdődő H-XXXXXX az ügyfél
+        matches = list(re.finditer(r'\n(H-\d{6})', full_text))
         
         if not matches:
-            matches = list(re.finditer(r'H-(\d{6})', full_text))
+            matches = list(re.finditer(r'H-\d{6}', full_text))
 
         for i in range(len(matches)):
             start = matches[i].start()
             end = matches[i+1].start() if i + 1 < len(matches) else len(full_text)
             content = full_text[start:end]
             
-            # Ügyfél adatok alaphelyzetbe állítása
-            u_code = matches[i].group(1)
-            temp_id = matches[i].group(2)
+            # Ügyfél ID kinyerése csoportok nélkül, hogy ne legyen IndexError
+            u_code = matches[i].group(0).strip() 
+            temp_id = u_code.replace("H-", "")
             
+            # Alapértékek ürítése minden kör elején
             phone_val = ""
             money_val = "0 Ft"
             ugyintezo = ""
@@ -128,13 +130,30 @@ def parse_interfood_pdf(pdf_file):
             note_1 = ""
             note_2 = ""
 
-            # Telefon és rendelések
+            # Telefon és rendelések (PHONE_PAT és ORDER_PAT globális konstansokkal)
             phone_m = re.search(PHONE_PAT, content)
             if phone_m:
                 phone_val = phone_m.group(0)
 
             all_orders = list(re.finditer(ORDER_PAT, content))
             orders_found = [m.group(0) for m in all_orders]
+
+            # --- 3. PÉNZKERESŐ (A darabszám-csapda ellen) ---
+            if "Ft" in content:
+                ft_pos = content.rfind("Ft")
+                zona = content[max(0, ft_pos - 20):ft_pos].strip()
+                
+                reszek = zona.split()
+                if reszek:
+                    utolso_szelet = reszek[-1]
+                    
+                    vonalak = ["-", "–", "—", "−", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015"]
+                    is_negativ = any(v in zona for v in vonalak)
+                    
+                    szam_tiszta = "".join(re.findall(r'\d', utolso_szelet))
+                    if szam_tiszta:
+                        prefix = "-" if is_negativ else ""
+                        money_val = f"{prefix}{szam_tiszta} Ft"
 
             # --- 3. PÉNZKERESŐ (Darabszám-szűrővel) ---
             if "Ft" in content:

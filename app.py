@@ -139,12 +139,10 @@ def parse_interfood_pdf(pdf_file):
                     if digits:
                         money_val = f"{'-' if is_negativ else ''}{digits} Ft"
 
-            # --- 3. CÍM ÉS ÜGYINTÉZŐ JAVÍTVA ---
+            # --- 3. CÍM ÉS ÜGYINTÉZŐ (Sziklaszilárd verzió a PDF struktúra alapján) ---
             zip_m = re.search(zip_pattern, content)
             if zip_m:
-                note_1 = content[:zip_m.start()].strip()
-                note_1 = re.sub(r'^\d+\s+', '', note_1) 
-                
+                # 1. Meghatározzuk a határokat
                 remaining = content[zip_m.start():]
                 limit = len(remaining)
                 if phone_m and phone_val in remaining:
@@ -152,30 +150,46 @@ def parse_interfood_pdf(pdf_file):
                 if all_orders:
                     limit = min(limit, all_orders[0].start())
                 
+                # Ez a blokk tartalmazza a címet ÉS az ügyintézőt
                 address_block = remaining[:limit].strip()
                 clean_block = address_block.replace(phone_val, "").strip()
-                
-                # JAVÍTOTT STRATÉGIA: 
-                # Megkeressük az utolsó számot a blokkban (ez a házszám vége)
-                # Ami utána van, az lesz az Ügyintéző.
-                hazszam_vege_m = list(re.finditer(r'\d+', clean_block))
-                
-                if hazszam_vege_m:
-                    last_digit_pos = hazszam_vege_m[-1].end()
-                    # Megnézzük, van-e utána még pont vagy szóköz (pl. 84. Gyöngyösiné)
-                    suffix_m = re.search(r'^[.\s]*', clean_block[last_digit_pos:])
-                    split_idx = last_digit_pos + suffix_m.end()
-                    
-                    cim = clean_block[:split_idx].strip()
-                    ugyintezo = clean_block[split_idx:].strip()
-                else:
-                    cim = clean_block
-                    ugyintezo = ""
 
-                # Ha az ügyintéző üres maradt, de note_1-ben van valami, próbáljuk menteni
-                if not ugyintezo and note_1:
-                    ugyintezo = note_1
-                    note_1 = ""
+                # 2. ÜGYINTÉZŐ KERESÉSE (Gyöngyösiné, Galuska Béla stb.)
+                # A név mindig a blokk VÉGÉN van, és nagybetűvel kezdődik.
+                # De a Galuska Béla előtt ott lehet a /C, ami nem a név része.
+                
+                # Keressük az utolsó nagybetűs név-mintát
+                name_match = re.search(r'([A-Z][a-z/áéíóöőúüű]+\s?([A-Z][a-z/áéíóöőúüű]+\s?)*)$', clean_block)
+                
+                if name_match:
+                    split_idx = name_match.start()
+                    cim = clean_block[:split_idx].strip()
+                    ugyintezo = name_match.group(1).strip()
+                else:
+                    # Ha nincs egyértelmű név, marad a házszám alapú vágás
+                    hazszam_vege_m = list(re.finditer(r'\d+', clean_block))
+                    if hazszam_vege_m:
+                        idx = hazszam_vege_m[-1].end()
+                        cim = clean_block[:idx+1].strip()
+                        ugyintezo = clean_block[idx+1:].strip()
+                    else:
+                        cim = clean_block
+
+                # 3. /C ÉS EGYÉB ELŐTAGOK KEZELÉSE
+                # Ha a név előtt (vagy a cím végén) maradt egy /C, rakjuk át a címbe
+                # Megnézzük a ZIP előtti részt is (note_1), mert a /C sokszor ott van!
+                note_1 = content[:zip_m.start()].strip()
+                
+                # Ha a note_1-ben van / betűvel (pl /C vagy /B), azt mentsük ki a címbe
+                prefix_m = re.search(r'(/\s?[A-Z0-9])', note_1)
+                if prefix_m:
+                    prefix_str = prefix_m.group(1)
+                    cim = f"{prefix_str} {cim}"
+                    # Tisztítsuk meg a note_1-et a prefixtől
+                    note_1 = note_1.replace(prefix_str, "").strip()
+
+                # Végső név tisztítás: ne maradjon benne a kód vége
+                ugyintezo = re.sub(r'^[^\w\s]+', '', ugyintezo).strip()
 
             # --- 4. MEGJEGYZÉS 2 ---
             if all_orders and phone_m:

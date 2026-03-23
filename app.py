@@ -100,63 +100,47 @@ def parse_interfood_pdf(pdf_file):
         for page in pdf.pages:
             full_text += (page.extract_text() or "") + "\n"
 
-        chunks = re.split(client_code_pattern, full_text)
+        # --- 1. ÖSSZEFŰZÉS ÉS SZÉTVÁLASZTÁS JAVÍTÁSA ---
+        full_text = "\n".join(all_text)
         
-        for i in range(1, len(chunks), 2):
-            u_code = chunks[i]
-            content = chunks[i+1]
+        # Szigorúbb illesztés: csak az új sor elején kezdődő H-XXXXXX az ügyfél!
+        # Ez megkülönbözteti az 1-H ételtől és a telefonszámoktól
+        matches = list(re.finditer(r'\n(H-(\d{6}))', full_text))
+        
+        if not matches:
+            # Ha nem talált újsorral, próbáljuk meg anélkül (biztonsági játék)
+            matches = list(re.finditer(r'H-(\d{6})', full_text))
+
+        for i in range(len(matches)):
+            start = matches[i].start()
+            end = matches[i+1].start() if i + 1 < len(matches) else len(full_text)
+            content = full_text[start:end]
             
-            phone_val = ""
-            money_val = "0 Ft"
-            ugyintezo = ""
-            cim = ""
-            note_1 = ""
-            note_2 = ""
-
-            phone_m = re.search(phone_pattern, content)
-            if phone_m:
-                phone_val = phone_m.group(0)
-
-            all_orders = list(re.finditer(order_pattern, content))
-            orders_found = [m.group(0) for m in all_orders]
-
-            # --- 2. PÉNZKERESŐ (Ezt az egy blokkot használd!) ---
+            # Ügyfél ID
+            temp_id = matches[i].group(1).replace("H-", "")
+            
+            # --- 2. PÉNZKERESŐ (Darabszám-szűrővel és NameError védelemmel) ---
             money_val = "0 Ft"
             if "Ft" in content:
                 ft_pos = content.rfind("Ft")
-                # 20 karaktert nézünk a Ft előtt, ez a "zóna"
+                # 20 karaktert nézünk vissza a Ft előtt
                 zona = content[max(0, ft_pos - 20):ft_pos].strip()
                 
-                # A split() leválasztja a darabszámot (pl. "2") az összegről (pl. "20100")
+                # A split() leválasztja a darabszámot (pl. "2") a pénzről (pl. "20100")
                 reszek = zona.split()
                 if reszek:
-                    # Az utolsó egység lesz a pénz
+                    # Az utolsó elem a tényleges összeg
                     utolso_szelet = reszek[-1]
                     
                     # Negatív jel keresése a zónában
                     vonalak = ["-", "–", "—", "−", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015"]
                     is_negativ = any(v in zona for v in vonalak)
                     
-                    # Csak a számokat tartjuk meg
+                    # Tisztítás (csak számok)
                     szamok = "".join(re.findall(r'\d', utolso_szelet))
                     if szamok:
                         prefix = "-" if is_negativ else ""
                         money_val = f"{prefix}{szamok} Ft"
-        
-        # 4. Megnézzük a negatív jelet
-        vonalak = ["-", "–", "—", "−"]
-        is_negativ = any(v in utolso_blokk for v in vonalak)
-        
-        # 5. Csak a számokat tartjuk meg
-        szamok = "".join(re.findall(r'\d', utolso_blokk))
-        
-        if szamok:
-            prefix = "-" if is_negativ else ""
-            money_val = f"{prefix}{szamok} Ft"
-        
-        # 4. Megnézzük, van-e benne bármilyen mínusz jel
-        vonalak = ["-", "–", "—", "−"]
-        is_negativ = any(v in utolso_blokk for v in vonalak)
         
         # 5. Csak a számokat tartjuk meg az utolsó blokkból
         tisztitott_szam = "".join(re.findall(r'\d', utolso_blokk))

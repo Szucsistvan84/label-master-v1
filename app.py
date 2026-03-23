@@ -84,23 +84,18 @@ def clean_name_field(text):
 
 def parse_interfood_pdf(pdf_file):
     rows = []
-    # Alapértelmezett metaadatok, hogy ne legyen KeyError
-    meta = {"year": "2024", "week": "0", "date": "", "jarat": ""}
+    meta = {"year": "2026", "week": "0", "date": "", "jarat": ""}
     
+    # Minták
     client_code_pattern = r'([HKSCPZ][.-][0-9]{5,7})'
     zip_pattern = r'\b(\d{4})\b'
     phone_pattern = r'(\d{2}[/\s]\d{6,7})'
     order_pattern = r'\b\d+-[A-Z][A-Z0-9*+]*\b'
 
     with pdfplumber.open(pdf_file) as pdf:
-        # Metaadatok kinyerése az első oldalról
-        first_page_text = pdf.pages[0].extract_text() or ""
-        jarat_m = re.search(r'(\d{4})\.\s*járat', first_page_text)
+        first_page = pdf.pages[0].extract_text() or ""
+        jarat_m = re.search(r'(\d{4})\.\s*járat', first_page)
         if jarat_m: meta["jarat"] = jarat_m.group(1)
-        
-        # Dátum/Hét kinyerése (opcionális, de nem omlik össze)
-        date_m = re.search(r'(\d{4})\.(\d{2})\.(\d{2})', first_page_text)
-        if date_m: meta["year"] = date_m.group(1)
 
         full_text = ""
         for page in pdf.pages:
@@ -110,69 +105,57 @@ def parse_interfood_pdf(pdf_file):
         
         for i in range(1, len(chunks), 2):
             u_code = chunks[i]
-            content = chunks[i+1].strip()
+            content = chunks[i+1]
             
-            lines = [l.strip() for l in content.split("\n") if l.strip()]
-            if not lines: continue
-
-            # --- 1. ÜGYINTÉZŐ ÉS MEGJEGYZÉS ---
-            # A név általában az első sor, de néha előtte van megjegyzés.
-            # Keressük meg a ZIP kódot, mert az a választófal.
+            # --- 1. KERESÉS ---
             zip_m = re.search(zip_pattern, content)
+            phone_m = re.search(phone_pattern, content)
+            phone_val = phone_m.group(0) if phone_m else ""
             
+            all_orders = list(re.finditer(order_pattern, content))
+            orders_found = [m.group(0) for m in all_orders]
+
+            # --- 2. ÜGYINTÉZŐ ÉS CÍM (A ZIP köré építve) ---
             ugyintezo = ""
             cim = ""
             megjegyzes = ""
-            
+
             if zip_m:
-                # Minden, ami a ZIP előtt van
-                header_part = content[:zip_m.start()].strip()
-                header_lines = [l.strip() for l in header_part.split("\n") if l.strip()]
+                # ÜGYINTÉZŐ: A ZIP előtti legutolsó sor
+                pre_zip = content[:zip_m.start()].strip().split("\n")
+                ugyintezo = pre_zip[-1].strip() if pre_zip else ""
                 
-                if header_lines:
-                    # Az Ügyintéző az UTOLSÓ sor a ZIP előtt
-                    ugyintezo = header_lines[-1]
-                    # Ami az Ügyintéző felett van, az a Megjegyzés 1
-                    if len(header_lines) > 1:
-                        megjegyzes = " / ".join(header_lines[:-1])
+                # MEGJEGYZÉS: Minden, ami az Ügyintéző felett van
+                if len(pre_zip) > 1:
+                    megjegyzes = " / ".join(pre_zip[:-1]).strip()
 
-                # --- 2. CÍM ÉS TELEFON ---
-                phone_m = re.search(phone_pattern, content)
-                phone_val = phone_m.group(0) if phone_m else ""
-                
-                all_orders = list(re.finditer(order_pattern, content))
-                orders_found = [m.group(0) for m in all_orders]
-
-                # A Cím a ZIP-től a telefonig vagy az első rendelésig tart
+                # CÍM: A ZIP-től a telefonszámig vagy rendelésig
                 end_pos = len(content)
                 if phone_m: end_pos = min(end_pos, phone_m.start())
-                if all_orders: end_pos = min(end_pos, all_orders[0].start())
+                elif all_orders: end_pos = min(end_pos, all_orders[0].start())
                 
                 cim = content[zip_m.start():end_pos].strip().replace("\n", " ")
 
-            # --- 3. PÉNZKERESŐ (V5 - Szélesített látókör) ---
+            # --- 3. PÉNZ (A legstabilabb módszer: az utolsó Ft előtti szám) ---
             money_val = "0 Ft"
             if "Ft" in content:
-                # Az utolsó Ft előtti rész
+                # Elvágjuk az utolsó Ft-nál
                 pre_ft = content.split("Ft")[-2]
-                # Vegyük az utolsó két sort a Ft előtt (biztos, ami biztos)
-                target_area = "\n".join(pre_ft.strip().split("\n")[-2:])
-                
-                # Keressük az összes számot a területen
-                all_nums = re.findall(r'\d[\d\s]*', target_area)
+                # Megkeressük az összes számot a végén
+                all_nums = re.findall(r'([-–—−]?\s*\d[\d\s]*)', pre_ft)
                 if all_nums:
-                    # A legutolsó számblokk lesz az összeg
-                    raw_digits = all_nums[-1].replace(" ", "").strip()
+                    # Az utolsó számot vesszük, és kitakarítjuk a szóközöket
+                    last_num_raw = all_nums[-1].strip()
                     
-                    # Megnézzük, van-e bármilyen vonal az adott szám ELŐTT
-                    vonalak = ["-", "–", "—", "−", "\u2013", "\u2014"]
-                    is_neg = any(v in target_area for v in vonalak)
+                    # Negatív jel ellenőrzése (bármilyen kötőjel típus)
+                    vonalak = ["-", "–", "—", "−"]
+                    is_neg = any(v in last_num_raw for v in vonalak)
                     
-                    # Ha a szám 2-vel kezdődik és túl hosszú, lehet, hogy a sorszámot is beszívta
-                    # (Interfoodnál gyakori hiba), de most hagyjuk meg a tisztítást a végére
-                    money_val = f"{'-' if is_neg else ''}{raw_digits} Ft"
+                    digits = "".join(re.findall(r'\d', last_num_raw))
+                    if digits:
+                        money_val = f"{'-' if is_neg else ''}{digits} Ft"
 
-            # --- 4. ADATSOR ---
+            # --- 4. MENTÉS ---
             rows.append({
                 "Prefix": u_code[0].upper(),
                 "ID": u_code,

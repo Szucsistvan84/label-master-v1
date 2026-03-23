@@ -138,20 +138,70 @@ def parse_interfood_pdf(pdf_file):
             all_orders = list(re.finditer(ORDER_PAT, content))
             orders_found = [m.group(0) for m in all_orders]
 
-# --- 2. TELEFONSZÁM SZŰRÉS ---
+# --- 1. TELEFONSZÁM ÉS RENDELÉSEK ---
             phone_m = re.search(PHONE_PAT, content)
             phone_val = ""
             if phone_m:
                 raw_phone = phone_m.group(0)
-                # Szigorítás: Csak ha van benne elég számjegy (min 7 a perjel után)
-                if len(re.findall(r'\d', raw_phone)) >= 9: # Országos + körzet + szám
+                # Csak akkor vesszük figyelembe, ha valódi szám (min. 8 számjegy)
+                if len(re.findall(r'\d', raw_phone)) >= 8:
                     phone_val = raw_phone
 
-            # --- 3. PÉNZKERESŐ (Javított zónával) ---
+            all_orders = list(re.finditer(ORDER_PAT, content))
+            orders_found = [m.group(0) for m in all_orders]
+
+            # --- 2. CÍM ÉS NÉV SZÉTVÁLASZTÁSA (ÚJ LOGIKA) ---
+            zip_m = re.search(r'\d{4}', content) # Irányítószám keresése
+            if zip_m:
+                # Mindent, ami az irányítószám ELŐTT van, névnek és épületjelnek tekintünk
+                prefix_part = content[:zip_m.start()].strip()
+                # Mindent, ami az irányítószámtól kezdődik, címnek
+                address_part = content[zip_m.start():].strip()
+                
+                # Meghatározzuk a cím végét (ne folyjon bele a rendelés/telefon)
+                c_limit = len(address_part)
+                if phone_val and (phone_val in address_part):
+                    c_limit = min(c_limit, address_part.find(phone_val))
+                elif all_orders:
+                    # Megkeressük az első rendelés pozícióját a címrészben
+                    first_order_m = re.search(ORDER_PAT, address_part)
+                    if first_order_m:
+                        c_limit = min(c_limit, first_order_m.start())
+                
+                final_address = address_part[:c_limit].strip().rstrip(',')
+                
+                # Tisztítás: Ha a név (prefix_part) végén ott ragadt egy címrészlet (pl. "Kishegyesi u. 36")
+                # vagy a név elején ott van a "b.", "A.", "c B épület"
+                
+                # Kigyűjtjük a gyanús előtagokat a név elejéről
+                building_patterns = r'^([a-zA-Z]\.?\s+|[a-zA-Z]\s+épület\s+)'
+                b_match = re.search(building_patterns, prefix_part, re.IGNORECASE)
+                
+                if b_match:
+                    b_info = b_match.group(0).strip()
+                    ugyintezo = prefix_part[b_match.end():].strip()
+                    cim = f"{final_address} ({b_info})" # Az épületjelet a cím végére zárójelbe tesszük
+                else:
+                    ugyintezo = prefix_part
+                    cim = final_address
+
+                # Czinege Juliánna speciális javítása: ha a név túl hosszú vagy számokat tartalmaz
+                if any(char.isdigit() for char in ugyintezo):
+                    # Valószínűleg a cím egy része került ide (pl. Kishegyesi u.)
+                    # Megpróbáljuk kimenteni csak a betűket a végéről
+                    parts = ugyintezo.split()
+                    real_name = []
+                    for p in reversed(parts):
+                        if p[0].isupper() and p.isalpha() and len(p) > 2:
+                            real_name.insert(0, p)
+                        else: break
+                    if real_name:
+                        ugyintezo = " ".join(real_name)
+
+            # --- 3. PÉNZKERESŐ (A fix zónával) ---
             money_val = "0 Ft"
             if "Ft" in content:
                 ft_pos = content.rfind("Ft")
-                # 25 karaktert nézünk, hogy a negatív jel és a hosszú szám is beleférjen
                 zona = content[max(0, ft_pos - 25):ft_pos].strip()
                 reszek = zona.split()
                 if reszek:

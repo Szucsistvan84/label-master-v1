@@ -487,7 +487,7 @@ with st.sidebar:
 
     # ... (a kód eleje változatlan) ...
 
-if up_files and st.button("🚀 FELDOLGOZÁS"):
+    if up_files and st.button("🚀 FELDOLGOZÁS"):
         all_rows = []    # <--- EZ A SOR HIÁNYZOTT! Ez hozza létre a listát.
         all_meta = []
         

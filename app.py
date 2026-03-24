@@ -193,14 +193,17 @@ def process_data(block_lines, rows, seen_ids):
     for o in unique_orders: 
         remaining = remaining.replace(o, "")
     
-    # --- JAVÍTOTT TAKARÍTÁS ---
-    if target_raw_val and len(target_raw_val) > 2:
-        # Csak akkor töröljük, ha a talált szövegben van szám (pénz)
-        # és nem egy rövid valami, ami véletlenül a rendelés része
-        if any(char.isdigit() for char in target_raw_val):
-            remaining_text = remaining_text.replace(target_raw_val, "", 1) # Csak az első előfordulást!
-    # A "Ft" szót is töröljük, ha ott maradt
-    remaining = remaining.replace("Ft", "").strip()
+    # --- BIZTONSÁGOS TAKARÍTÁS (Nagy Barbi kötőjel védelme) ---
+    # A 'megj' változóba tesszük a maradék szöveget
+    megj = text_from_id 
+
+    if target_raw_val and len(str(target_raw_val)) > 2:
+        # Csak akkor törlünk, ha a talált pénzben van szám, 
+        # így egy kósza kötőjel nem bántja a rendelést!
+        if any(char.isdigit() for char in str(target_raw_val)):
+            # A ', 1' a végén garantálja, hogy csak egyetlen előfordulást töröl,
+            # így ha a pénz és a rendelés is tartalmaz kötőjelet, a rendelés megmarad.
+            megj = megj.replace(str(target_raw_val), "", 1)
 
     # Irányítószám alapú szétválasztás
     zip_match = re.search(r'\d{4}', remaining)
@@ -215,7 +218,7 @@ def process_data(block_lines, rows, seen_ids):
     rows.append({
         "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": ugyintezo,
         "Cím": cim, "Telefon": phone, "Pénz": money,
-        "Rendelés": ", ".join(unique_orders), "Megjegyzés": megj,
+        "Rendelés": ", ".join(unique_orders), "Megjegyzés": megj.strip(),
         "Összesen": len(unique_orders), "temp_id": u_id,
         "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
         "Hétvégi": False

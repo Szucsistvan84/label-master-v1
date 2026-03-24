@@ -135,33 +135,46 @@ def process_data(block_lines, rows, seen_ids):
     
     zone_after_orders = text_from_id[last_order_end:].strip()
 
-    # 5. PÉNZ KERESÉSE (V4 - Barbi-biztos & NameError-mentes)
+    # --- PÉNZ BLOKK (V5 - FT NÉLKÜLI ÉS KAPUKÓD-BIZTOS) ---
     money = "0 Ft"
-    # Inicializáljuk a találati változót, hogy ne legyen NameError!
     target_raw_val = None 
 
-    # Keressünk minden számot a zónában (szóközöket is engedve)
-    all_numbers = re.findall(r'(\d[\d\s]+)', zone_after_orders)
+    # 1. Minden olyan számcsoportot keresünk, ami után lehet (de nem kötelező) Ft
+    # A regex: számok, köztük szóközökkel, opcionálisan a végén Ft
+    all_num_matches = list(re.finditer(r'(-?\s*\d[\d\s]*)\s*(Ft)?', zone_after_orders))
     
-    if all_numbers:
-        target_raw_val = all_numbers[-1].strip()
-        clean_nums = re.sub(r'[^\d]', '', target_raw_val)
+    if all_num_matches:
+        # A PDF logikája szerint az UTOLSÓ releváns szám lesz a beszedendő pénz
+        # (A sor végi összesítő darabszámot a program már korábban levágta a blokkból)
+        best_match = all_num_matches[-1]
+        raw_val = best_match.group(1).strip()
         
+        # Tisztítás: csak számok és mínusz jel
+        clean_nums = re.sub(r'[^\d-]', '', raw_val)
+        
+        # 2. KAPUKÓD ÉS EGYÉB ZAJ SZŰRÉSE
+        # Ha a talált szám gyanúsan rövid (pl. csak egy "7" a kapukódból) 
+        # és nem 0, akkor megnézzük az előző találatot is
+        if len(clean_nums.replace('-', '')) < 3 and clean_nums != "0" and len(all_num_matches) > 1:
+            best_match = all_num_matches[-2]
+            raw_val = best_match.group(1).strip()
+            clean_nums = re.sub(r'[^\d-]', '', raw_val)
+
         if clean_nums:
-            # Sorszám szűrő
-            if len(clean_nums) > 5:
-                clean_nums = clean_nums[1:]
+            # Sorszám lecsippentés (ha 8-as/7-es ragadt rá és > 100.000)
+            if len(clean_nums.replace('-', '')) > 5:
+                # Ha negatív, a mínusz utáni első karaktert vágjuk
+                if clean_nums.startswith('-'):
+                    clean_nums = "-" + clean_nums[2:]
+                else:
+                    clean_nums = clean_nums[1:]
             
-            # Negatív jel keresése a zónában
-            # Megnézzük a szám előtti részt a zónában
-            num_pos = zone_after_orders.rfind(target_raw_val)
-            zone_before_num = zone_after_orders[:num_pos]
-            
-            # Ha van mínusz a szám előtt VAGY bárhol a zónában
-            if "-" in zone_before_num or "-" in zone_after_orders:
-                money = f"-{clean_nums} Ft"
+            # Formázás: legyen ott a Ft a végén az export kedvéért
+            if clean_nums.startswith('-'):
+                money = f"{clean_nums} Ft"
             else:
                 money = f"{clean_nums} Ft"
+    # ----------------------------------------------------
 
     # 6. EGYÉB ADATOK
     phone = ""

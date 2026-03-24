@@ -81,46 +81,119 @@ def clean_name_field(text):
     text = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ\s\-]', '', text)
     return " ".join(text.split()).strip()
 
+# --- 1. SEGÉDFÜGGVÉNY: A MÉREGFOGAK ELTÁVOLÍTÁSA ---
+def clean_line_edges(line):
+    if not line: return ""
+    
+    # Első méregfog: Mindent eldobunk az ügyfélkód (pl. H-123456) előtt
+    id_pattern = r'[H|K|S|C|P|Z]-\d{6}'
+    id_match = re.search(id_pattern, line)
+    if id_match:
+        line = line[id_match.start():].strip()
+    
+    # Második méregfog: Sor végi magányos szám (összesítő) le
+    line = re.sub(r'\s+\d+$', '', line)
+    return line
 
+# --- 2. SEGÉDFÜGGVÉNY: ADATFELDOLGOZÁS (HÚSDARÁLÓ) ---
+def process_data(block_lines, rows, seen_ids):
+    full_text = " ".join(block_lines)
+    
+    # ID kimentése
+    id_match = re.search(r'([H|K|S|C|P|Z])-(\d{6})', full_text)
+    if not id_match: return
+    prefix, u_id = id_match.groups()
+    key = f"{prefix}-{u_id}"
+    
+    if key in seen_ids: return
+    seen_ids.add(key)
+
+    # Pénz - Mivel a szélek tiszták, ez most már pontos lesz
+    money = "0 Ft"
+    m_match = re.search(r'(\d[\d\s]*)\s*Ft', full_text)
+    if m_match:
+        money = f"{re.sub(r'\s+', '', m_match.group(1))} Ft"
+        full_text = full_text.replace(m_match.group(0), "")
+
+    # Telefon és Rendelés kiharapása
+    phone = ""
+    ph_m = re.search(r'\d{2}/\d{3}-?\d{2}-?\d{2}', full_text)
+    if ph_m:
+        phone = ph_m.group(0)
+        full_text = full_text.replace(phone, "")
+    
+    orders = re.findall(r'\d+-[A-Z0-9]+', full_text)
+    for o in orders: full_text = full_text.replace(o, "")
+
+    # Maradék: Név, Cím, Megjegyzés szétválasztása
+    full_text = full_text.replace(key, "").strip()
+    zip_m = re.search(r'\d{4}', full_text)
+    ugyintezo, cim, megj = "", "", ""
+    
+    if zip_m:
+        before = full_text[:zip_m.start()].strip()
+        after = full_text[zip_m.start():].strip()
+        
+        if "/" in before:
+            parts = before.split("/")
+            megj = parts[0].strip()
+            ugyintezo = parts[-1].strip()
+        else:
+            megj = before
+            words = after.split()
+            ugyintezo = " ".join(words[-2:]) if len(words) >= 2 else after
+            after = " ".join(words[:-2]) if len(words) >= 2 else after
+        
+        cim = after.strip(", ")
+        if ugyintezo.lower() in megj.lower():
+            megj = megj.replace(ugyintezo, "").strip()
+
+    rows.append({
+        "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": ugyintezo,
+        "Cím": cim, "Telefon": phone, "Pénz": money,
+        "Rendelés": ", ".join(orders), "Megjegyzés": megj,
+        "Összesen": len(orders), "temp_id": u_id,
+        "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(orders)}",
+        "Hétvégi": False
+    })
+
+# --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(file):
-    rows = []
-    meta = []
-    seen_keys = set()
-    NAP_ID_PAT = r'([H|K|S|C|P|Z])-(\d{6})'
-
+    all_rows = []
+    seen_ids = set()
+    
     with pdfplumber.open(file) as pdf:
-        # Metaadatok (marad a régi, az jól működik)
+        # Metaadatok (Év, Hét)
         first_page = pdf.pages[0].extract_text() or ""
         y_m = re.search(r'Év[:\s]+(\d{4})', first_page)
         w_m = re.search(r'Hét[:\s]+(\d{1,2})', first_page)
-        j_m = re.search(r'(\d{4})\.\s*járat', first_page)
-        jarat = j_m.group(1) if j_m else ""
-        meta.append({'year': y_m.group(1) if y_m else "2026", 'week': w_m.group(1) if w_m else "1", 'jarat': jarat})
+        current_meta = {'year': y_m.group(1) if y_m else "2026", 'week': w_m.group(1) if w_m else "1"}
 
         for page in pdf.pages:
-            text = page.extract_text()
-            if not text: continue
-            
-            lines = text.split('\n')
+            text_lines = page.extract_text().split('\n')
             current_block = []
 
-            for line in lines:
-                # Lábléc szűrés
-                if any(x in line for x in ["oldal", "Nyomtatva", "Ügyfél címe"]): continue
+            for raw_line in text_lines:
+                if any(x in raw_line for x in ["oldal", "Nyomtatva", "Ügyfél címe"]): continue
                 
-                if re.search(NAP_ID_PAT, line):
+                # AZONNALI TISZTÍTÁS (Méregfogak le)
+                line = clean_line_edges(raw_line)
+                if not line: continue
+
+                # Ha új ID-t találunk, feldolgozzuk az előző blokkot
+                if re.search(r'[H|K|S|C|P|Z]-\d{6}', line):
                     if current_block:
-                        res = process_cleaned_block(" ".join(current_block), seen_keys)
-                        if res: rows.append(res)
+                        process_data(current_block, all_rows, seen_ids)
                     current_block = [line]
                 else:
-                    if current_block: current_block.append(line)
+                    if current_block:
+                        current_block.append(line)
             
+            # Oldal végén az utolsót is feldolgozzuk
             if current_block:
-                res = process_cleaned_block(" ".join(current_block), seen_keys)
-                if res: rows.append(res)
+                process_data(current_block, all_rows, seen_ids)
 
-    return rows, meta
+    return all_rows, [current_meta]
 
 def process_cleaned_block(text, seen_keys):
     # 1. Alap tisztítás: több szóköz -> egy szóköz
@@ -415,17 +488,14 @@ with st.sidebar:
     # ... (a kód eleje változatlan) ...
 
     if up_files and st.button("🚀 FELDOLGOZÁS"):
-        all_rows = []
-        all_meta = []
-        
-        # Végigmegyünk az összes feltöltött fájlon
+        final_rows = []
         for uploaded_file in up_files:
             rows, meta = parse_interfood_pdf(uploaded_file)
-            all_rows.extend(rows)      # Az adatokat hozzáfűzzük a közös listához
-            all_meta.extend(meta)      # A metaadatokat is (opcionális)
-
-        if all_rows:
-            df = pd.DataFrame(all_rows)
+            final_rows.extend(rows)
+        
+        if final_rows:
+            df = pd.DataFrame(final_rows)
+            # Itt jöhet a táblázat megjelenítése...
             # Innen folytatódik a megjelenítés és a mentés...
         
         for f in up_files:

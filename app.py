@@ -311,16 +311,16 @@ with st.sidebar:
     # ... (a kód eleje változatlan) ...
 
     if up_files and st.button("🚀 FELDOLGOZÁS"):
-            all_rows = []
-            all_meta = []
-            
-            for f in up_files:
-                rows, meta = parse_interfood_pdf(f)
-                if rows:
-                    all_rows.extend(rows)
-                # Figyelem: extend-et használunk, és csak ha nem üres!
-                if meta:
-                    all_meta.extend(meta)
+        all_rows = []
+        all_meta = []
+        
+        for f in up_files:
+            rows, meta = parse_interfood_pdf(f)
+            if rows:
+                all_rows.extend(rows)
+            # Figyelem: extend-et használunk, és csak ha nem üres!
+            if meta:
+                all_meta.extend(meta)
     
             # CSAK AKKOR LÉPÜNK TOVÁBB, HA VAN ADAT
             if all_rows and all_meta:

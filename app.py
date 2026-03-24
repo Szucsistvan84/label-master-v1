@@ -94,18 +94,112 @@ def clean_line_edges(line):
     line = re.sub(r'\s+\d+$', '', line)
     return line
 
-# --- 2. SEGÉDFÜGGVÉNY: ADATFELDOLGOZÁS (HÚSDARÁLÓ) ---
-NameError: This app has encountered an error. The original error message is redacted to prevent data leaks. Full error details have been recorded in the logs (if you're on Streamlit Cloud, click on 'Manage app' in the lower right of your app).
-Traceback:
-File "/mount/src/label-master-v1/app.py", line 537, in <module>
-    rows, meta = parse_interfood_pdf(uploaded_file)
-                 ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
-File "/mount/src/label-master-v1/app.py", line 227, in parse_interfood_pdf
-    process_data(current_block, all_rows, seen_ids)
-    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-File "/mount/src/label-master-v1/app.py", line 130, in process_data
-    ft_search = re.search(r'(-\s*)?([\d\s]+)\s*Ft', zone_after_orders)
+def process_data(block_lines, rows, seen_ids):
+    # 1. Alap tisztítás és duplikáció szűrés a blokkon belül
+    unique_lines = []
+    for l in block_lines:
+        l = l.replace(',', ' ').strip()
+        if l not in unique_lines:
+            unique_lines.append(l)
+    
+    text = " ".join(unique_lines)
+    text = re.sub(r'\s+', ' ', text)
 
+    # 2. ID megkeresése (Ez a fix pontunk)
+    id_match = re.search(r'([H|K|S|C|P|Z])-(\d{6})', text)
+    if not id_match: 
+        return
+    
+    prefix, u_id = id_match.groups()
+    key = f"{prefix}-{u_id}"
+    if key in seen_ids: 
+        return
+    seen_ids.add(key)
+
+    # 3. Sorszám levágása: Csak az ID-tól kezdve nézzük a szöveget
+    text_from_id = text[id_match.start():].strip()
+
+    # 4. RENDELÉSEK kigyűjtése
+    found_orders = re.findall(r'\d+-[A-Z0-9]+', text_from_id)
+    unique_orders = []
+    for o in found_orders:
+        if o not in unique_orders:
+            unique_orders.append(o)
+
+    # 5. PÉNZ ZÓNA MEGHATÁROZÁSA (A "Petró-sorompó")
+    last_order_end = 0
+    if unique_orders:
+        for o in unique_orders:
+            matches = list(re.finditer(re.escape(o), text_from_id))
+            if matches:
+                last_order_end = max(last_order_end, matches[-1].end())
+    
+    # A zóna az utolsó rendelés utáni rész a blokk végéig
+    zone_after_orders = text_from_id[last_order_end:].strip()
+
+    # 6. PÉNZ KERESÉSE (Negatív-biztos verzió)
+    money = "0 Ft"
+    # Keresünk opcionális mínusz jelet, számokat és Ft-ot
+    ft_search = re.search(r'(-\s*)?([\d\s]+)\s*Ft', zone_after_orders)
+    
+    if ft_search:
+        pre_sign = ft_search.group(1) # Mínusz jel helye
+        raw_nums = ft_search.group(2) # Számok helye
+        
+        # Csak a számjegyeket tartjuk meg
+        clean_nums = re.sub(r'[^\d]', '', raw_nums)
+        
+        if clean_nums:
+            # Sorszám levágása (ha 8-as vagy 7-es ragadt az elejére)
+            if len(clean_nums) > 5:
+                clean_nums = clean_nums[1:]
+            
+            # Összerakjuk az előjellel
+            if pre_sign and '-' in pre_sign:
+                money = f"-{clean_nums} Ft"
+            else:
+                money = f"{clean_nums} Ft"
+
+    # 7. EGYÉB ADATOK (Telefon, Cím, Ügyintéző)
+    # Telefon keresése a teljes ügyfél-szövegben
+    phone = ""
+    ph_match = re.search(r'\d{2}/\d{3}-?\d{2}-?\d{2}', text_from_id)
+    if ph_match:
+        phone = ph_match.group(0)
+
+    # Maradék szöveg a Címhez és Ügyintézőhöz
+    remaining = text_from_id.replace(key, "").replace(phone, "").strip()
+    for o in unique_orders: 
+        remaining = remaining.replace(o, "")
+    if ft_search: 
+        remaining = remaining.replace(ft_search.group(0), "")
+
+    # Egyszerű szétválasztás irányítószám alapján
+    zip_match = re.search(r'\d{4}', remaining)
+    ugyintezo, cim, megj = "", "", ""
+    if zip_match:
+        cim = remaining[zip_match.start():].strip()
+        megj = remaining[:zip_match.start()].strip()
+    else:
+        ugyintezo = remaining
+
+    # 8. ADATOK MENTÉSE
+    rows.append({
+        "Prefix": prefix, 
+        "ID": f"P-{u_id}", 
+        "Ügyintéző": ugyintezo,
+        "Cím": cim, 
+        "Telefon": phone, 
+        "Pénz": money,
+        "Rendelés": ", ".join(unique_orders), 
+        "Megjegyzés": megj,
+        "Összesen": len(unique_orders), 
+        "temp_id": u_id,
+        "Raklista_Ertek": 0, 
+        "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
+        "Hétvégi": False
+    })
+    
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(file):
     all_rows = []

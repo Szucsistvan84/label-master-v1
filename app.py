@@ -95,88 +95,16 @@ def clean_line_edges(line):
     return line
 
 # --- 2. SEGÉDFÜGGVÉNY: ADATFELDOLGOZÁS (HÚSDARÁLÓ) ---
-def process_data(block_lines, rows, seen_ids):
-    # Alap tisztítás
-    cleaned_block = [l.replace(',', ' ').strip() for l in block_lines]
-    text = " ".join(cleaned_block)
-    text = re.sub(r'\s+', ' ', text)
-
-    # ID keresése és sorszám levágása
-    id_match = re.search(r'([H|K|S|C|P|Z])-(\d{6})', text)
-    if not id_match: return
-    prefix, u_id = id_match.groups()
-    key = f"{prefix}-{u_id}"
-    if key in seen_ids: return
-    seen_ids.add(key)
-
-    # Csak az ID utáni részt tartjuk meg
-    text_from_id = text[id_match.start():].strip()
-
-    # RENDELÉSEK kigyűjtése
-    found_orders = re.findall(r'\d+-[A-Z0-9]+', text_from_id)
-    unique_orders = []
-    for o in found_orders:
-        if o not in unique_orders:
-            unique_orders.append(o)
-
-    # --- PÉNZ BLOKK (VÉGLEGES, NEGATÍV-STABIL) ---
-    money = "0 Ft"
-    
-    # Keressük meg a Ft-ot a zónában
-    # A regex magyarázata:
-    # (-?\s*)      -> opcionális mínusz jel, akár szóközzel utána
-    # ([\d\s]+)    -> számok, akár szóközökkel elválasztva (pl. 3 560)
-    # \s*Ft        -> a végén a Ft felirat
+NameError: This app has encountered an error. The original error message is redacted to prevent data leaks. Full error details have been recorded in the logs (if you're on Streamlit Cloud, click on 'Manage app' in the lower right of your app).
+Traceback:
+File "/mount/src/label-master-v1/app.py", line 537, in <module>
+    rows, meta = parse_interfood_pdf(uploaded_file)
+                 ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+File "/mount/src/label-master-v1/app.py", line 227, in parse_interfood_pdf
+    process_data(current_block, all_rows, seen_ids)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/mount/src/label-master-v1/app.py", line 130, in process_data
     ft_search = re.search(r'(-\s*)?([\d\s]+)\s*Ft', zone_after_orders)
-    
-    if ft_search:
-        pre_sign = ft_search.group(1) # Ez a mínusz jel, ha van
-        raw_nums = ft_search.group(2) # Ez a számsor
-        
-        # Tisztítás: csak a számokat tartjuk meg
-        clean_nums = re.sub(r'[^\d]', '', raw_nums)
-        
-        if clean_nums:
-            # Sorszám-pajzs (ha 100.000 feletti a szám és az eleje gyanús)
-            if len(clean_nums) > 5:
-                clean_nums = clean_nums[1:]
-            
-            # Előjel kezelése
-            final_val = clean_nums
-            if pre_sign and '-' in pre_sign:
-                money = f"-{final_val} Ft"
-            else:
-                money = f"{final_val} Ft"
-    # ------------------------------------------
-
-    # TELEFON
-    phone = ""
-    ph_match = re.search(r'\d{2}/\d{3}-?\d{2}-?\d{2}', text_from_id)
-    if ph_match:
-        phone = ph_match.group(0)
-
-    # CÍM ÉS ÜGYINTÉZŐ MARADÉK (Ideiglenes, amíg a pénzt teszteljük)
-    remaining = text_from_id.replace(key, "").replace(phone, "").strip()
-    for o in unique_orders: remaining = remaining.replace(o, "")
-    if ft_match: remaining = remaining.replace(ft_match.group(0), "")
-
-    # Ez a rész csak azért kell, hogy ne dőljön össze a kód, amíg a pénzre fókuszálunk
-    zip_match = re.search(r'\d{4}', remaining)
-    ugyintezo, cim, megj = "", "", ""
-    if zip_match:
-        cim = remaining[zip_match.start():].strip()
-        megj = remaining[:zip_match.start()].strip()
-    else:
-        ugyintezo = remaining
-
-    rows.append({
-        "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": ugyintezo,
-        "Cím": cim, "Telefon": phone, "Pénz": money,
-        "Rendelés": ", ".join(unique_orders), "Megjegyzés": megj,
-        "Összesen": len(unique_orders), "temp_id": u_id,
-        "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
-        "Hétvégi": False
-    })
 
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(file):

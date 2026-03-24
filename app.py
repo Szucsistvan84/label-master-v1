@@ -87,15 +87,27 @@ def parse_interfood_pdf(file):
     meta = []
     
     with pdfplumber.open(file) as pdf:
-        # --- 1. OLDALAK BEOLVASÁSA ---
         all_texts = []
+        # --- METAADATOK KERESÉSE (Év, Hét, Járat) ---
+        first_page = pdf.pages[0].extract_text()
+        if first_page:
+            year_m = re.search(r'Év:\s*(\d{4})', first_page)
+            week_m = re.search(r'Hét:\s*(\d{1,2})', first_page)
+            jarat_m = re.search(r'(\d{4})\.\s*járat', first_page)
+            
+            meta.append({
+                'year': year_m.group(1) if year_m else "2026",
+                'week': week_m.group(1) if week_m else "1",
+                'jarat': jarat_m.group(1) if jarat_m else ""
+            })
+
         for page in pdf.pages:
             t = page.extract_text()
             if t: all_texts.append(t)
         
         full_text = "\n".join(all_texts)
         
-        # Ügyfélblokkok keresése (H-XXXXXX azonosító alapján)
+        # Ügyfélblokkok keresése
         matches = list(re.finditer(r'(H-\d{6})', full_text))
 
         for i in range(len(matches)):
@@ -103,30 +115,29 @@ def parse_interfood_pdf(file):
             end = matches[i+1].start() if i + 1 < len(matches) else len(full_text)
             
             raw_content = full_text[start:end].strip()
-            current_text = raw_content # Ebből fogunk "vágni"
+            current_text = raw_content 
             
-            # --- 2. AZONOSÍTÓ KIVÁGÁSA ---
+            # --- 1. AZONOSÍTÓ KIVÁGÁSA ---
             u_code = matches[i].group(1)
             temp_id = u_code.replace("H-", "")
             current_text = current_text.replace(u_code, " ")
 
-            # --- 3. RENDELÉSEK KIVÁGÁSA (Pénz előtt!) ---
+            # --- 2. RENDELÉSEK KIVÁGÁSA ---
             order_matches = list(re.finditer(ORDER_PAT, current_text))
             orders_found = [om.group(0) for om in order_matches]
             for om in order_matches:
                 current_text = current_text.replace(om.group(0), " ")
 
-            # --- 4. TELEFON KIVÁGÁSA ---
+            # --- 3. TELEFON KIVÁGÁSA ---
             phone_val = ""
             phone_m = re.search(PHONE_PAT, current_text)
             if phone_m:
                 raw_p = phone_m.group(0)
-                # Szigorú szűrés: csak ha van benne elég számjegy
                 if len(re.findall(r'\d', raw_p)) >= 8:
                     phone_val = raw_p
                 current_text = current_text.replace(raw_p, " ")
 
-            # --- 5. PÉNZ KIVÁGÁSA ---
+            # --- 4. PÉNZ KIVÁGÁSA ---
             money_val = "0 Ft"
             ft_match = re.search(r'(-?\s?\d+[\s\d]*)\s*Ft', current_text)
             if ft_match:
@@ -137,18 +148,14 @@ def parse_interfood_pdf(file):
                     money_val = f"{'-' if is_neg else ''}{digits} Ft"
                 current_text = current_text.replace(raw_money, " ")
 
-            # --- 6. NÉV ÉS CÍM SZÉTVÁLASZTÁSA ---
+            # --- 5. NÉV ÉS CÍM SZÉTVÁLASZTÁSA ---
             ugyintezo = ""
             cim = ""
-            
             zip_m = re.search(r'\d{4}', current_text)
             if zip_m:
-                # Irányítószám előtti rész (Név + Épületjel)
                 prefix_part = current_text[:zip_m.start()].strip()
-                # Irányítószámtól kezdődő rész (Város, utca...)
                 address_part = current_text[zip_m.start():].strip()
                 
-                # Épületjelek (A., b., C. épület) leválasztása a név elejéről
                 b_pattern = r'^([a-zA-Z]\.?\s+|[a-zA-Z]\s+épület\s+|[a-zA-Z]\s+[a-zA-Z]\s+épület\s+)'
                 b_match = re.search(b_pattern, prefix_part, re.IGNORECASE)
                 
@@ -159,7 +166,6 @@ def parse_interfood_pdf(file):
                 else:
                     name_cand = prefix_part
 
-                # Czinege-szűrő: ha a név előtt ott maradt a házszám (pl. 36. 4/31.)
                 noise = list(re.finditer(r'\d+[\s./\d]*', name_cand))
                 if noise:
                     last_n = noise[-1]
@@ -173,7 +179,7 @@ def parse_interfood_pdf(file):
                 if b_info:
                     cim = f"{cim} ({b_info})"
             
-            # --- 7. SOR MENTÉSE ---
+            # --- 6. SOR MENTÉSE ---
             if ugyintezo or cim:
                 rows.append({
                     "Prefix": "H",
@@ -192,7 +198,7 @@ def parse_interfood_pdf(file):
                 })
 
     return rows, meta
-
+    
 def merge_data(raw_rows):
     if not raw_rows: return None
     import pandas as pd  # Biztonság kedvéért, ha nincs importálva

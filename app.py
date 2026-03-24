@@ -86,132 +86,132 @@ def parse_interfood_pdf(file):
     rows = []
     meta = []
     
-    with pdfplumber.open(file) as pdf:
-        all_texts = []
-        
-        # --- 1. METAADATOK (ÉV, HÉT) KIOLVASÁSA BIZTOSRA ---
-        # Az első oldalt nézzük meg alaposan
-        first_page = pdf.pages[0].extract_text()
-        if first_page:
-            # Rugalmasabb keresés: nem számít hány szóköz van az Év: és a szám között
-            year_m = re.search(r'Év[:\s]+(\d{4})', first_page)
-            week_m = re.search(r'Hét[:\s]+(\d{1,2})', first_page)
-            jarat_m = re.search(r'(\d{4})\.\s*járat', first_page)
+    # Alapértelmezett metaadatok, ha semmit nem találnánk
+    default_meta = {'year': '2026', 'week': '1', 'jarat': ''}
+    
+    try:
+        with pdfplumber.open(file) as pdf:
+            all_texts = []
             
-            # Ha nem találja, adunk alapértelmezettet, hogy ne omoljon össze az app
-            found_year = year_m.group(1) if year_m else "2026"
-            found_week = week_m.group(1) if week_m else "1"
-            found_jarat = jarat_m.group(1) if jarat_m else ""
+            # --- 1. METAADATOK KIOLVASÁSA (BIZTONSÁGI JAVÍTÁSSAL) ---
+            first_page_text = pdf.pages[0].extract_text() or ""
             
-            meta.append({
-                'year': found_year,
-                'week': found_week,
-                'jarat': found_jarat
-            })
-        else:
-            # Ha egyáltalán nem olvasható az első oldal, akkor is kell egy üres objektum
-            meta.append({'year': "2026", 'week': "1", 'jarat': ""})
-
-        # --- 2. SZÖVEG ÖSSZEGYŰJTÉSE ---
-        for page in pdf.pages:
-            t = page.extract_text()
-            if t: all_texts.append(t)
-        
-        full_text = "\n".join(all_texts)
-        
-        # Ügyfélblokkok keresése (H-XXXXXX)
-        matches = list(re.finditer(r'(H-\d{6})', full_text))
-
-        for i in range(len(matches)):
-            start = matches[i].start()
-            end = matches[i+1].start() if i + 1 < len(matches) else len(full_text)
+            # Keresés rugalmasabban (regex)
+            y_match = re.search(r'Év[:\s]+(\d{4})', first_page_text)
+            w_match = re.search(r'Hét[:\s]+(\d{1,2})', first_page_text)
+            j_match = re.search(r'(\d{4})\.\s*járat', first_page_text)
             
-            raw_content = full_text[start:end].strip()
-            current_text = raw_content 
+            current_meta = {
+                'year': y_match.group(1) if y_match else default_meta['year'],
+                'week': w_match.group(1) if w_match else default_meta['week'],
+                'jarat': j_match.group(1) if j_match else default_meta['jarat']
+            }
+            meta.append(current_meta)
+
+            # --- 2. SZÖVEG ÖSSZEGYŰJTÉSE ---
+            for page in pdf.pages:
+                t = page.extract_text()
+                if t: all_texts.append(t)
             
-            # --- 3. "HÚSDARÁLÓ" LOGIKA (Fokozatos törlés) ---
-            
-            # Azonosító (pl. H-491512)
-            u_code = matches[i].group(1)
-            temp_id = u_code.replace("H-", "")
-            current_text = current_text.replace(u_code, " ")
+            full_text = "\n".join(all_texts)
+            matches = list(re.finditer(r'(H-\d{6})', full_text))
 
-            # Rendelések (pl. 1-RZK) - Előbb ezt, hogy a pénzt ne zavarja!
-            order_matches = list(re.finditer(ORDER_PAT, current_text))
-            orders_found = [om.group(0) for om in order_matches]
-            for om in order_matches:
-                current_text = current_text.replace(om.group(0), " ")
-
-            # Telefon
-            phone_val = ""
-            phone_m = re.search(PHONE_PAT, current_text)
-            if phone_m:
-                raw_p = phone_m.group(0)
-                if len(re.findall(r'\d', raw_p)) >= 8:
-                    phone_val = raw_p
-                current_text = current_text.replace(raw_p, " ")
-
-            # Pénzösszeg (Ft)
-            money_val = "0 Ft"
-            ft_match = re.search(r'(-?\s?\d+[\s\d]*)\s*Ft', current_text)
-            if ft_match:
-                raw_money = ft_match.group(0).strip()
-                is_neg = "-" in raw_money
-                digits = "".join(re.findall(r'\d', raw_money))
-                if digits:
-                    money_val = f"{'-' if is_neg else ''}{digits} Ft"
-                current_text = current_text.replace(raw_money, " ")
-
-            # --- 4. NÉV ÉS CÍM SZÉTVÁLASZTÁSA ---
-            ugyintezo = ""
-            cim = ""
-            zip_m = re.search(r'\d{4}', current_text)
-            if zip_m:
-                prefix_part = current_text[:zip_m.start()].strip()
-                address_part = current_text[zip_m.start():].strip()
+            for i in range(len(matches)):
+                start = matches[i].start()
+                end = matches[i+1].start() if i + 1 < len(matches) else len(full_text)
                 
-                # Épületjelek (A., b., épület)
-                b_pattern = r'^([a-zA-Z]\.?\s+|[a-zA-Z]\s+épület\s+|[a-zA-Z]\s+[a-zA-Z]\s+épület\s+)'
-                b_match = re.search(b_pattern, prefix_part, re.IGNORECASE)
+                current_text = full_text[start:end].strip()
                 
-                b_info = ""
-                if b_match:
-                    b_info = b_match.group(0).strip()
-                    name_cand = prefix_part[b_match.end():].strip()
-                else:
-                    name_cand = prefix_part
+                # --- 3. "HÚSDARÁLÓ" (CONSUME) LOGIKA ---
+                
+                # Azonosító mentése és törlése
+                u_code = matches[i].group(1)
+                temp_id = u_code.replace("H-", "")
+                current_text = current_text.replace(u_code, " ")
 
-                # "Czinege-szűrő" (Házszámok leválasztása a névről)
-                noise = list(re.finditer(r'\d+[\s./\d]*', name_cand))
-                if noise:
-                    last_n = noise[-1]
-                    extra_a = name_cand[:last_n.end()].strip()
-                    ugyintezo = name_cand[last_n.end():].strip()
-                    cim = f"{address_part} {extra_a}"
-                else:
-                    ugyintezo = name_cand
-                    cim = address_part
+                # Rendelések törlése (Hogy ne zavarják a pénzt!)
+                order_matches = list(re.finditer(ORDER_PAT, current_text))
+                orders_found = [om.group(0) for om in order_matches]
+                for om in order_matches:
+                    current_text = current_text.replace(om.group(0), " ")
 
-                if b_info:
-                    cim = f"{cim} ({b_info})"
-            
-            # --- 5. ADATOK MENTÉSE ---
-            if ugyintezo or cim:
-                rows.append({
-                    "Prefix": "H",
-                    "ID": f"P-{temp_id}",
-                    "Ügyintéző": ugyintezo.strip(", "),
-                    "Cím": cim.strip(", "),
-                    "Telefon": phone_val,
-                    "Pénz": money_val,
-                    "Rendelés": ", ".join(orders_found),
-                    "Megjegyzés": "", 
-                    "Összesen": len(orders_found),
-                    "temp_id": temp_id,
-                    "Raklista_Ertek": 0,
-                    "Rendelés_Full": f"Hé: {', '.join(orders_found)}",
-                    "Hétvégi": False
-                })
+                # Telefon törlése
+                phone_val = ""
+                phone_m = re.search(PHONE_PAT, current_text)
+                if phone_m:
+                    raw_p = phone_m.group(0)
+                    if len(re.findall(r'\d', raw_p)) >= 8:
+                        phone_val = raw_p
+                    current_text = current_text.replace(raw_p, " ")
+
+                # Pénzösszeg kinyerése és törlése
+                money_val = "0 Ft"
+                ft_match = re.search(r'(-?\s?\d+[\s\d]*)\s*Ft', current_text)
+                if ft_match:
+                    raw_money = ft_match.group(0).strip()
+                    is_neg = "-" in raw_money
+                    digits = "".join(re.findall(r'\d', raw_money))
+                    if digits:
+                        money_val = f"{'-' if is_neg else ''}{digits} Ft"
+                    current_text = current_text.replace(raw_money, " ")
+
+                # --- 4. NÉV ÉS CÍM (A MARADÉKBÓL) ---
+                ugyintezo = ""
+                cim = ""
+                zip_m = re.search(r'\d{4}', current_text)
+                
+                if zip_m:
+                    prefix_part = current_text[:zip_m.start()].strip()
+                    address_part = current_text[zip_m.start():].strip()
+                    
+                    # Épületjelek kezelése
+                    b_pat = r'^([a-zA-Z]\.?\s+|[a-zA-Z]\s+épület\s+|[a-zA-Z]\s+[a-zA-Z]\s+épület\s+)'
+                    b_match = re.search(b_pat, prefix_part, re.IGNORECASE)
+                    
+                    b_info = ""
+                    if b_match:
+                        b_info = b_match.group(0).strip()
+                        name_cand = prefix_part[b_match.end():].strip()
+                    else:
+                        name_cand = prefix_part
+
+                    # Házszám/Emelet leválasztása a névről (Czinege-szűrő)
+                    noise = list(re.finditer(r'\d+[\s./\d]*', name_cand))
+                    if noise:
+                        last_n = noise[-1]
+                        extra_a = name_cand[:last_n.end()].strip()
+                        ugyintezo = name_cand[last_n.end():].strip()
+                        cim = f"{address_part} {extra_a}"
+                    else:
+                        ugyintezo = name_cand
+                        cim = address_part
+
+                    if b_info:
+                        cim = f"{cim} ({b_info})"
+                
+                # --- 5. SOR HOZZÁADÁSA ---
+                if ugyintezo or cim:
+                    rows.append({
+                        "Prefix": "H",
+                        "ID": f"P-{temp_id}",
+                        "Ügyintéző": ugyintezo.strip(", "),
+                        "Cím": cim.strip(", "),
+                        "Telefon": phone_val,
+                        "Pénz": money_val,
+                        "Rendelés": ", ".join(orders_found),
+                        "Megjegyzés": "", 
+                        "Összesen": len(orders_found),
+                        "temp_id": temp_id,
+                        "Raklista_Ertek": 0,
+                        "Rendelés_Full": f"Hé: {', '.join(orders_found)}",
+                        "Hétvégi": False
+                    })
+
+    except Exception as e:
+        st.error(f"Hiba a PDF feldolgozása közben: {e}")
+        # Ha minden kötél szakad, legalább a meta ne legyen üres
+        if not meta:
+            meta.append(default_meta)
 
     return rows, meta
     

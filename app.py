@@ -135,12 +135,11 @@ def process_data(block_lines, rows, seen_ids):
     
     zone_after_orders = text_from_id[last_order_end:].strip()
 
-    # --- PÉNZ BLOKK (V5 - FT NÉLKÜLI ÉS KAPUKÓD-BIZTOS) ---
-    # --- PÉNZ BLOKK (V8 - AZ UTOLSÓ ESÉLY) ---
+# --- PÉNZ BLOKK (V8 - AZ UTOLSÓ ESÉLY) ---
     money = "0 Ft"
     target_raw_val = None
     
-    # 1. Próbáljuk a te bevált Ft-os keresődet
+    # 1. Megpróbáljuk a te bevált Ft-os keresődet
     money_pat = r'(-?\s*\d[\d\s]*\s*Ft)'
     for line in reversed(block_lines):
         m_match = re.search(money_pat, line.replace(',', ' '))
@@ -151,29 +150,16 @@ def process_data(block_lines, rows, seen_ids):
 
     # 2. HA MÉG MINDIG 0 Ft (Nagy Barbi és Hegedűsék esete)
     if money == "0 Ft":
-        # Keressünk bármilyen számot a zónában, ami előtt kötőjel van
-        # Akkor is, ha nincs utána Ft!
-        # Regex: opcionális mínusz, szóközök, majd legalább 3 számjegy (hogy a kapukódot kiszűrjük)
+        # Keressük a mínuszos számot (legalább 3 számjegy, hogy a kapukód ne zavarjon)
         neg_search = re.search(r'(-\s*\d[\d\s]{2,})', zone_after_orders)
         
         if neg_search:
             raw_val = neg_search.group(1).strip()
+            # Itt fontos: megtartjuk a számot és a mínusz jelet is!
             clean_nums = re.sub(r'[^\d-]', '', raw_val)
-            if clean_nums.startswith('-') and len(clean_nums) > 2:
+            if '-' in clean_nums and len(clean_nums) > 2:
                 money = f"{clean_nums} Ft"
                 target_raw_val = raw_val
-        
-        # 3. Ha még mindig semmi, nézzük az első számot a rendelés után (V6-os logika)
-        if money == "0 Ft":
-            all_nums = re.findall(r'(\d[\d\s]+)', zone_after_orders)
-            if all_nums:
-                for num in all_nums:
-                    c_num = re.sub(r'[^\d]', '', num)
-                    if len(c_num) >= 3 or c_num == "0":
-                        money = f"{c_num} Ft"
-                        target_raw_val = num
-                        break
-    # ----------------------------------------
 
     # 6. EGYÉB ADATOK
     phone = ""
@@ -1068,11 +1054,17 @@ if st.session_state.mdf is not None:
     )
 
     # 3. MENTÉS ÉS ÚJRARENDEZÉS GOMB
-    if st.button("💾 MÓDOSÍTÁSOK ÉS SORREND MENTÉSE", use_container_width=True):
-        # Adatok átvétele
+    if st.button("💾 MÓDOSÍTÁSOK MENTÉSE ÉS ÚJRARENDEZÉS"):
         temp_df = edited_df.copy()
         
-        # Típusbiztos konverzió (vessző/pont hiba ellen)
+        # Tisztítjuk az ID-t
+        temp_df['temp_id'] = temp_df['ID'].str.replace(r'[^\d]', '', regex=True).replace('', '0').astype(int)
+        
+        # --- EZT A SORT SZÚRD BE MOST: ---
+        temp_df['Pénz'] = temp_df['Pénz'].str.replace(r'[^\d-]', '', regex=True).replace('', '0')
+        # --------------------------------
+        
+        # Sorrend kényszerítése szám típusra
         temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(float)
         
         # Fizikai sorrendezés az adatkeretben (hogy a PDF is jó legyen)

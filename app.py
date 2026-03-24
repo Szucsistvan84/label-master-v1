@@ -136,39 +136,44 @@ def process_data(block_lines, rows, seen_ids):
     zone_after_orders = text_from_id[last_order_end:].strip()
 
     # --- PÉNZ BLOKK (V5 - FT NÉLKÜLI ÉS KAPUKÓD-BIZTOS) ---
-# --- PÉNZ BLOKK (V7 - A "VISSZAÁLLÓS" LOGIKA INTEGRÁLÁSA) ---
+    # --- PÉNZ BLOKK (V8 - AZ UTOLSÓ ESÉLY) ---
     money = "0 Ft"
     target_raw_val = None
     
-    # money_pat a te verziódból, kicsit finomítva a szóközökre
+    # 1. Próbáljuk a te bevált Ft-os keresődet
     money_pat = r'(-?\s*\d[\d\s]*\s*Ft)'
-
-    # A blokk sorait hátulról előre nézzük meg, mert a pénz az alján van
-    # (Hasonlóan ahhoz, ahogy te a next_t-ben kerested)
     for line in reversed(block_lines):
-        # Tisztítjuk a sort a felesleges vesszőktől
-        clean_line = line.replace(',', ' ').strip()
-        
-        m_match = re.search(money_pat, clean_line)
+        m_match = re.search(money_pat, line.replace(',', ' '))
         if m_match:
             money = m_match.group(1).strip()
-            # Ha megvan a Ft-os összeg, megjegyezzük a nyers számot a takarításhoz
             target_raw_val = money
-            break # Megtaláltuk a legalsó Ft-os sort, megállunk
+            break
 
-    # Ha véletlenül nem volt Ft a sorban (Nagy Barbi esete), 
-    # akkor használjuk a V6-os tartalék tervet:
+    # 2. HA MÉG MINDIG 0 Ft (Nagy Barbi és Hegedűsék esete)
     if money == "0 Ft":
-        all_nums = re.findall(r'(-?\s*\d[\d\s]*)', zone_after_orders)
-        if all_nums:
-            # Itt az első számot vesszük a rendelés után (Hegedűs-logika)
-            for num in all_nums:
-                c_num = re.sub(r'[^\d-]', '', num)
-                if len(c_num.replace('-', '')) >= 3 or c_num == "0":
-                    money = f"{c_num} Ft"
-                    target_raw_val = num
-                    break
-    # -----------------------------------------------------------
+        # Keressünk bármilyen számot a zónában, ami előtt kötőjel van
+        # Akkor is, ha nincs utána Ft!
+        # Regex: opcionális mínusz, szóközök, majd legalább 3 számjegy (hogy a kapukódot kiszűrjük)
+        neg_search = re.search(r'(-\s*\d[\d\s]{2,})', zone_after_orders)
+        
+        if neg_search:
+            raw_val = neg_search.group(1).strip()
+            clean_nums = re.sub(r'[^\d-]', '', raw_val)
+            if clean_nums.startswith('-') and len(clean_nums) > 2:
+                money = f"{clean_nums} Ft"
+                target_raw_val = raw_val
+        
+        # 3. Ha még mindig semmi, nézzük az első számot a rendelés után (V6-os logika)
+        if money == "0 Ft":
+            all_nums = re.findall(r'(\d[\d\s]+)', zone_after_orders)
+            if all_nums:
+                for num in all_nums:
+                    c_num = re.sub(r'[^\d]', '', num)
+                    if len(c_num) >= 3 or c_num == "0":
+                        money = f"{c_num} Ft"
+                        target_raw_val = num
+                        break
+    # ----------------------------------------
 
     # 6. EGYÉB ADATOK
     phone = ""

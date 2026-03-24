@@ -215,58 +215,79 @@ def parse_interfood_pdf(file):
 
     return rows, meta
     
-def merge_data(raw_rows):
-    if not raw_rows: return None
-    import pandas as pd  # Biztonság kedvéért, ha nincs importálva
+def merge_data(raw_rows, p_map, sz_map):
+    if not raw_rows: return pd.DataFrame()
+    import pandas as pd
+    
     L_DAYS = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
     df = pd.DataFrame(raw_rows)
 
-    # temp_id képzés - marad az eredeti
+    # Biztonságos temp_id képzés
     df['temp_id'] = df['ID'].astype(str).str.replace(r'\D', '', regex=True)
 
     merged = []
+    # Az ügyfelek (tid) szerint csoportosítunk, hogy ne legyen duplikáció
     for tid, group in df.groupby("temp_id", sort=False):
         base = group.iloc[0].copy().to_dict()
+        u_id = str(tid)
 
-        # --- 1. ADAT: Pénz kezelés - marad az eredeti logikád ---
-        pdf_payment = "0 Ft"
+        # --- 1. PDF PÉNZ KEZELÉSE ---
+        pdf_payment_val = 0
         for _, row in group.iterrows():
-            m_str = str(row.get('Pénz', '0 Ft'))
-            if "Ft" in m_str:
-                if "-" in m_str:
-                    pdf_payment = "0 Ft"
-                    break
-                elif m_str != "0 Ft":
-                    pdf_payment = m_str
+            m_str = str(row.get('Pénz', '0'))
+            # Kinyerjük a számot a PDF-ből (pl. "20100 Ft" -> 20100)
+            digits = "".join(re.findall(r'\d', m_str))
+            val = int(digits) if digits else 0
+            
+            if "-" in m_str: # Ha hátraléka van, a PDF-ben 0 Ft-nak vesszük az aznapi fizetendőt
+                pdf_payment_val = 0
+                break
+            elif val > pdf_payment_val:
+                pdf_payment_val = val
 
-        # --- 2. ADAT: Raklista kalkulált érték - marad az eredeti ---
-        calculated_value = group['Összesen_Ar'].sum() if 'Összesen_Ar' in group.columns else 0
+        # --- 2. HÉTVÉGI ÉTLAP PÉNZ HOZZÁADÁSA ---
+        # Megnézzük az Excelből jövő plusz összegeket
+        p_extra_money = p_map.get(u_id, {}).get('osszeg', 0)
+        sz_extra_money = sz_map.get(u_id, {}).get('osszeg', 0)
+        
+        total_payment = pdf_payment_val + p_extra_money + sz_extra_money
+        base['Pénz'] = f"{total_payment} Ft"
 
-        base['Pénz'] = pdf_payment
-        base['Raklista_Ertek'] = calculated_value
-
-        # --- RENDELÉS ÖSSZEVONÁS - marad az eredeti ---
+        # --- 3. RENDELÉSEK ÖSSZEVONÁSA (PDF + EXCEL) ---
         o_p, has_weekend = [], False
-        for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
+        
+        # Előbb a PDF-ben lévő napok (H-P)
+        for pfix in ['H', 'K', 'S', 'C', 'P']:
             day_rows = group[group['Prefix'] == pfix]
             if not day_rows.empty:
                 items = day_rows['Rendelés'].astype(str).tolist()
                 clean_items = [i for i in items if i != 'nan' and i.strip() != '']
                 if clean_items:
                     o_p.append(f"{L_DAYS.get(pfix, pfix)}: {', '.join(clean_items)}")
-                    if pfix == 'Z': has_weekend = True
+
+        # MOST JÖN AZ EXCELBŐL A PLUSZ PÉNTEK/SZOMBAT
+        p_extra_order = p_map.get(u_id, {}).get('rendeles', "")
+        sz_extra_order = sz_map.get(u_id, {}).get('rendeles', "")
+        
+        if p_extra_order:
+            o_p.append(f"Pé(Ex): {p_extra_order}")
+            has_weekend = True
+        if sz_extra_order:
+            o_p.append(f"Szo(Ex): {sz_extra_order}")
+            has_weekend = True
 
         base['Rendelés_Full'] = " | ".join(o_p)
 
-        # --- HIBAJAVÍTÁS: BIZTONSÁGOS ÖSSZEGZÉS ---
-        # Ha nincs 'Összesen' oszlop, 0-át adunk meg, hogy ne szálljon el a KeyError-rel
+        # --- 4. EGYÉB MEZŐK ---
         if 'Összesen' in group.columns:
             base['Összesen'] = pd.to_numeric(group['Összesen'], errors='coerce').sum()
         else:
             base['Összesen'] = 0
-
+            
         base['Hétvégi'] = has_weekend
         base['ID'] = f"P-{tid}"
+        base['temp_id'] = tid
+        
         merged.append(base)
 
     return pd.DataFrame(merged)

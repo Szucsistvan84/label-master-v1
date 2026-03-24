@@ -310,13 +310,45 @@ with st.sidebar:
 
     # ... (a kód eleje változatlan) ...
 
-    if up_files and st.button("🚀 FELDOLGOZÁS"):
-        all_rows, all_meta = [], []
+if up_files and st.button("🚀 FELDOLGOZÁS"):
+        all_rows = []
+        all_meta = []
+        
         for f in up_files:
             rows, meta = parse_interfood_pdf(f)
-            all_rows.extend(rows)
-            all_meta.append(meta)
+            if rows:
+                all_rows.extend(rows)
+            # Figyelem: extend-et használunk, és csak ha nem üres!
+            if meta:
+                all_meta.extend(meta)
 
+        # CSAK AKKOR LÉPÜNK TOVÁBB, HA VAN ADAT
+        if all_rows and all_meta:
+            # Biztonsági mentés: ha az első elem valamiért mégis rossz lenne
+            try:
+                first_m = all_meta[0]
+                y = first_m.get('year', '2026')
+                w = first_m.get('week', '1')
+            except (IndexError, TypeError):
+                y, w = '2026', '1'
+
+            st.session_state.meta_data = all_meta
+            
+            # Étlepadatok lekérése (Péntek=5, Szombat=6)
+            p_map = get_etlap_dict(y, w, 5)
+            sz_map = get_etlap_dict(y, w, 6)
+            
+            final_rows = merge_data(all_rows, p_map, sz_map)
+            
+            df = pd.DataFrame(final_rows)
+            # Alapértelmezett sorrend: az eredeti PDF sorrendje
+            df['Sorrend'] = range(1, len(df) + 1)
+            
+            st.session_state.mdf = df
+            st.success(f"Sikeres feldolgozás: {len(df)} sor betöltve!")
+            st.rerun()
+        else:
+            st.error("Nem sikerült adatokat kinyerni a PDF-ből. Ellenőrizd a fájlt!")
         mdf = merge_data(all_rows)
 
         # --- AUTOMATIKUS ÉTLAP KEZELÉS (Most már a gombon belül!) ---

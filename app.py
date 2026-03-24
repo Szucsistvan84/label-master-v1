@@ -85,34 +85,32 @@ def clean_name_field(text):
 def parse_interfood_pdf(file):
     rows = []
     meta = []
-    # Alapértelmezett metaadatok
-    d_m = {'year': '2026', 'week': '1', 'jarat': ''}
-    
-    # Regex minták a fixpontokhoz
-    PHONE_PAT = r'(?:\+36|06|3[0167]|\d{2})\/\d{3}-?\d{2}-?\d{2}'
-    ORDER_PAT = r'\d+-[A-Z0-9]+' # Pl: 1-RZK, 1-D4
-    NAP_ID_PAT = r'([H|K|S|C|P|Z])-(\d{6})' # Nap betűjel + 6 számjegy
+    NAP_ID_PAT = r'([H|K|S|C|P|Z])-(\d{6})'
+    # Tiltólista a lábléchez
+    FOOTER_STOPS = ["oldal", "Nyomtatva", "Nyomtatta", "Sor ", "Ügyfél"]
 
     try:
         with pdfplumber.open(file) as pdf:
-            # Metaadatok kinyerése (Év, Hét, Járat)
-            first_page_text = pdf.pages[0].extract_text() or ""
-            y_m = re.search(r'Év[:\s]+(\d{4})', first_page_text)
-            w_m = re.search(r'Hét[:\s]+(\d{1,2})', first_page_text)
-            j_m = re.search(r'(\d{4})\.\s*járat', first_page_text)
-            meta.append({
-                'year': y_m.group(1) if y_m else d_m['year'],
-                'week': w_m.group(1) if w_m else d_m['week'],
-                'jarat': j_m.group(1) if j_m else d_m['jarat']
-            })
+            # Metaadatok (marad a régi)
+            first_text = pdf.pages[0].extract_text() or ""
+            y_m = re.search(r'Év[:\s]+(\d{4})', first_text)
+            w_m = re.search(r'Hét[:\s]+(\d{1,2})', first_text)
+            j_m = re.search(r'(\d{4})\.\s*járat', first_text)
+            current_meta = {'year': y_m.group(1) if y_m else "2026", 
+                            'week': w_m.group(1) if w_m else "1", 
+                            'jarat': j_m.group(1) if j_m else ""}
+            meta.append(current_meta)
 
             for page in pdf.pages:
                 text_lines = page.extract_text().split('\n')
                 customer_blocks = []
                 current_block = []
 
-                # BLOKKOSÍTÁS: Addig gyűjtjük a sorokat, amíg új ügyfélkódot nem látunk
                 for line in text_lines:
+                    # Ha lábléchez érünk, zárjuk a blokkot és ne gyűjtsünk tovább ezen az oldalon
+                    if any(stop in line for stop in FOOTER_STOPS) and not re.search(NAP_ID_PAT, line):
+                        continue
+                        
                     if re.search(NAP_ID_PAT, line):
                         if current_block:
                             customer_blocks.append(" ".join(current_block))
@@ -120,103 +118,76 @@ def parse_interfood_pdf(file):
                     else:
                         if current_block:
                             current_block.append(line)
+                
                 if current_block:
                     customer_blocks.append(" ".join(current_block))
 
                 for block in customer_blocks:
-                    # 1. MÉREGFOGAK KIHÚZÁSA
-                    # Elöl: Sorszám törlése az ügyfélkód előtt
+                    # 1. Méregfogak (Eleje-Vége sorszámok)
                     id_match = re.search(NAP_ID_PAT, block)
                     if not id_match: continue
-                    prefix = id_match.group(1)
-                    temp_id = id_match.group(2)
-                    # Levágjuk a sorszámot az elejéről
+                    prefix, temp_id = id_match.groups()
                     block = block[id_match.start():].strip()
-                    
-                    # Hátul: Magányos összesítő szám törlése a végéről
-                    block = re.sub(r'\s+\d+$', '', block)
+                    block = re.sub(r'\s+\d+$', '', block) # Sor végi összesítő le
 
-                    # 2. FIXPONTOK KIMENTÉSE (Húsdaráló)
-                    # Telefonszám
+                    # 2. Fixpontok kiharapása
                     phone_val = ""
-                    p_match = re.search(PHONE_PAT, block)
-                    if p_match:
-                        phone_val = p_match.group(0)
+                    p_m = re.search(r'(?:\+36|06|3[0167]|\d{2})\/\d{3}-?\d{2}-?\d{2}', block)
+                    if p_m:
+                        phone_val = p_m.group(0)
                         block = block.replace(phone_val, " ")
 
-                    # Rendelés(ek)
-                    order_matches = list(re.finditer(ORDER_PAT, block))
-                    orders_found = [om.group(0) for om in order_matches]
-                    for om in order_matches:
-                        block = block.replace(om.group(0), " ")
+                    orders = re.findall(r'\d+-[A-Z0-9]+', block)
+                    for o in orders: block = block.replace(o, " ")
 
-                    # Pénz (Ft előtti utolsó számcsoport)
                     money_val = "0 Ft"
-                    money_matches = list(re.finditer(r'(\d[\d\s]*)\s*Ft', block))
-                    if money_matches:
-                        last_money = money_matches[-1]
-                        raw_val = last_money.group(1).strip().replace(" ", "")
-                        money_val = f"{raw_val} Ft"
-                        block = block.replace(last_money.group(0), " ")
+                    m_m = re.search(r'(\d[\d\s]*)\s*Ft', block)
+                    if m_m:
+                        money_val = f"{m_m.group(1).strip().split()[-1]} Ft"
+                        block = block.replace(m_m.group(0), " ")
 
-                    # 3. MARADÉK MASSZA BONTÁSA (Irányítószám alapú horgony)
+                    # 3. Név és Cím szétválasztása (A TE SZABÁLYAID)
                     block = block.replace(f"{prefix}-{temp_id}", "").strip()
                     
-                    megj_1, megj_2, cim, ugyintezo = "", "", "", ""
-                    zip_match = re.search(r'\d{4}', block)
+                    # Keressük az irányítószámot
+                    zip_m = re.search(r'\d{4}', block)
+                    if not zip_m: continue
                     
-                    if zip_match:
-                        # Irányítószám előtt: Megjegyzés 1 + (néha) Ügyintéző
-                        before_zip = block[:zip_match.start()].strip()
-                        # Irányítószámtól: Cím + Megjegyzés 2 + Ügyintéző
-                        after_zip = block[zip_match.start():].strip()
+                    before_zip = block[:zip_m.start()].strip()
+                    after_zip = block[zip_m.start():].strip()
 
-                        # SPECIÁLIS SZABÁLY: / jel kezelése a megjegyzésben
-                        if "/" in before_zip:
-                            megj_1 = before_zip.split("/")[0].strip()
-                        else:
-                            megj_1 = before_zip
+                    # Megjegyzés 1 tisztítása (/ jel szabály)
+                    megj_1 = before_zip.split("/")[0].strip()
+                    
+                    # Ügyintéző leválasztása a végéről
+                    # Általában az utolsó szavak, amik nem számok
+                    words = after_zip.split()
+                    # Feltételezzük, hogy az utolsó 1-2 szó a név (pl. "Lanas Lívia")
+                    ugyintezo = " ".join(words[-2:]) if len(words) > 2 else words[-1]
+                    
+                    # Cím tisztítása: Irányítószám + Város + ami maradt az Ügyintéző előtt
+                    full_addr = after_zip.replace(ugyintezo, "").strip(", ")
+                    
+                    # Ha a megj_1-ben benne van az ügyintéző neve, töröljük
+                    clean_megj = megj_1
+                    if ugyintezo.lower() in megj_1.lower() or megj_1.lower() in ugyintezo.lower():
+                        clean_megj = ""
 
-                        # Ügyintéző keresése (általában a maradék végén van)
-                        # Megpróbáljuk elcsípni a nevet (ha maradt ott valami a pénz/rendelés után)
-                        ugyintezo = after_zip.split(",")[-1].strip() # Durva közelítés
-                        # Ha a név túl rövid vagy szám, finomítunk (de a te szabályaid segítenek)
-                        
-                        # CÍM EGYESÍTÉS (Város + utca rész)
-                        cim = after_zip.replace(ugyintezo, "").strip(", ")
-                        
-                        # MEGYJEGYZÉS 2 (Ami nem a cím része)
-                        # Itt bízunk abban, hogy a tisztítás után maradt tájékoztató szöveg
-                        # Ha a címben benne maradt pl. "szürke csarnok", azt ott hagyjuk, 
-                        # de ha külön van, megpróbáljuk áttenni.
-                    
-                    # 4. TISZTÍTÁSI SZABÁLYOK ALKALMAZÁSA
-                    # Ha a megj_1 tartalmazza az ügyintézőt, vágjuk le
-                    if ugyintezo and ugyintezo.lower() in megj_1.lower():
-                        megj_1 = "" # Csak az ügyintéző marad
-                    
-                    # Megjegyzések összefűzése
-                    final_megj = megj_1
-                    # Itt lehetne finomítani a megj_2-t, ha a címből ki tudnánk venni a tájékoztatót
+                    # Megjegyzés 2 (ami a címben maradt esetleg "zajként")
+                    # Ha a cím túl hosszú és gyanús szavakat tartalmaz, áttesszük
+                    # Itt most az egyszerűség kedvéért a megj_1-et használjuk
                     
                     rows.append({
-                        "Prefix": prefix,
-                        "ID": f"P-{temp_id}",
-                        "Ügyintéző": ugyintezo if ugyintezo else megj_1,
-                        "Cím": cim,
-                        "Telefon": phone_val,
-                        "Pénz": money_val,
-                        "Rendelés": ", ".join(orders_found),
-                        "Megjegyzés": final_megj, 
-                        "Összesen": len(orders_found),
-                        "temp_id": temp_id,
-                        "Raklista_Ertek": 0,
-                        "Rendelés_Full": f"{prefix}: {', '.join(orders_found)}",
+                        "Prefix": prefix, "ID": f"P-{temp_id}",
+                        "Ügyintéző": ugyintezo, "Cím": full_addr,
+                        "Telefon": phone_val, "Pénz": money_val,
+                        "Rendelés": ", ".join(orders), "Megjegyzés": clean_megj,
+                        "Összesen": len(orders), "temp_id": temp_id,
+                        "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(orders)}",
                         "Hétvégi": False
                     })
     except Exception as e:
-        if not meta: meta.append(d_m)
-        
+        print(f"Hiba: {e}")
     return rows, meta
     
 def merge_data(raw_rows, p_map, sz_map):
@@ -338,6 +309,16 @@ with st.sidebar:
     if up_files and st.button("🚀 FELDOLGOZÁS"):
         all_rows = []
         all_meta = []
+        
+        # Végigmegyünk az összes feltöltött fájlon
+        for uploaded_file in up_files:
+            rows, meta = parse_interfood_pdf(uploaded_file)
+            all_rows.extend(rows)      # Az adatokat hozzáfűzzük a közös listához
+            all_meta.extend(meta)      # A metaadatokat is (opcionális)
+
+        if all_rows:
+            df = pd.DataFrame(all_rows)
+            # Innen folytatódik a megjelenítés és a mentés...
         
         for f in up_files:
             rows, meta = parse_interfood_pdf(f)

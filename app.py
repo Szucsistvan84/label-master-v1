@@ -135,28 +135,32 @@ def process_data(block_lines, rows, seen_ids):
     
     zone_after_orders = text_from_id[last_order_end:].strip()
 
-    # --- PÉNZ BLOKK (V8 - NAGY BARBI ÉS HEGEDŰS-BIZTOS) ---
+# --- PÉNZ BLOKK (V9 - TELJES BLOKKOT NÉZŐ VERZIÓ) ---
     money = "0 Ft"
     target_raw_val = None 
 
-    # 1. Próbáljuk megkeresni a számot, ami előtt lehet mínusz, és utána lehet Ft
-    # A (Ft)? miatt nem baj, ha hiányzik a Ft felirat!
-    ft_search = re.search(r'(-\s*)?([\d\s]+)\s*(Ft)?', zone_after_orders)
+    # 1. Először megpróbáljuk a "Ft"-os verziót a teljes szövegben (text_from_id)
+    # Ez megfogja Nagy Barbit, ha a Ft ott van valahol
+    ft_search = re.search(r'(-?\s*)?([\d\s]{2,})\s*Ft', text_from_id)
     
+    if not ft_search:
+        # 2. Ha nincs Ft, keressünk olyan számot, ami előtt fixen van egy mínusz
+        # Ez a Hegedűs-féle eset, ahol lemaradt a Ft
+        ft_search = re.search(r'(-\s*)([\d\s]{2,})', text_from_id)
+
     if ft_search:
-        pre_sign = ft_search.group(1) # Ez a mínusz jel
-        raw_nums = ft_search.group(2) # Ez a számsor
-        target_raw_val = raw_nums     # Eltároljuk a későbbi tisztításhoz
+        pre_sign = ft_search.group(1)
+        raw_nums = ft_search.group(2)
+        target_raw_val = raw_nums
         
-        # Csak a számokat tartjuk meg a tisztításhoz
         clean_nums = re.sub(r'[^\d]', '', raw_nums)
         
         if clean_nums:
-            # Sorszám levágása (ha 8-as vagy 7-es ragadt az elejére)
+            # Sorszám szűrő (ha véletlenül az ügyfélkód elejét kapná el)
             if len(clean_nums) > 5:
                 clean_nums = clean_nums[1:]
             
-            # Előjel kezelése: ha volt mínusz jel a szám előtt, rátesszük
+            # Ha találtunk mínusz jelet (akár az ft_search-ben, akár a szövegben előtte)
             if pre_sign and '-' in pre_sign:
                 money = f"-{clean_nums} Ft"
             else:

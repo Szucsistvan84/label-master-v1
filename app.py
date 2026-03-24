@@ -96,77 +96,85 @@ def clean_line_edges(line):
 
 # --- 2. SEGÉDFÜGGVÉNY: ADATFELDOLGOZÁS (HÚSDARÁLÓ) ---
 def process_data(block_lines, rows, seen_ids):
-    # Tisztítjuk a sorokat a felesleges vesszőktől már az elején
+    # Alap tisztítás
     cleaned_block = [l.replace(',', ' ').strip() for l in block_lines]
-    full_text = " ".join(cleaned_block)
-    # Többszörös szóközök eltüntetése
-    full_text = re.sub(r'\s+', ' ', full_text)
+    text = " ".join(cleaned_block)
+    text = re.sub(r'\s+', ' ', text)
 
-    id_match = re.search(r'([H|K|S|C|P|Z])-(\d{6})', full_text)
+    # 1. LÉPÉS: ID MEGTALÁLÁSA ÉS AZ ELŐTTE LÉVŐ RÉSZ TÖRLÉSE
+    id_match = re.search(r'([H|K|S|C|P|Z])-(\d{6})', text)
     if not id_match: return
+    
     prefix, u_id = id_match.groups()
     key = f"{prefix}-{u_id}"
     if key in seen_ids: return
     seen_ids.add(key)
 
-    # Pénz kimentése
+    # Itt a trükk: Csak az ID-tól kezdve tartjuk meg a szöveget!
+    # Ezzel a sorszám (ami az ID előtt volt) fizikai képtelenség, hogy bekerüljön a pénzbe.
+    text_from_id = text[id_match.start():].strip()
+
+    # 2. LÉPÉS: RENDELÉSEK KIVÁGÁSA
+    # Kigyűjtjük a rendeléseket, és megjegyezzük, hol értek véget
+    orders = re.findall(r'\d+-[A-Z0-9]+', text_from_id)
+    unique_orders = list(dict.fromkeys(orders)) # Duplikáció szűrése
+    
+    # Keressük meg az utolsó rendelés pozícióját
+    last_order_end = 0
+    for o in unique_orders:
+        match = list(re.finditer(re.escape(o), text_from_id))
+        if match:
+            last_order_end = max(last_order_end, match[-1].end())
+
+    # 3. LÉPÉS: PÉNZ KERESÉSE (CSAK A RENDELÉS UTÁN!)
+    # Levágjuk a szöveg elejét az utolsó rendelésig
+    text_after_orders = text_from_id[last_order_end:].strip()
+    
     money = "0 Ft"
-    m_match = re.search(r'(\d[\d\s]*)\s*Ft', full_text)
+    # Itt már csak a maradékban keresünk, ahol szinte csak a pénz és az Ügyintéző neve van
+    m_match = re.search(r'(\d[\d\s]*)\s*Ft', text_after_orders)
     if m_match:
         money = f"{re.sub(r'\s+', '', m_match.group(1))} Ft"
-        full_text = full_text.replace(m_match.group(0), "")
+        # Kivágjuk a pénzt is a maradékból
+        text_after_orders = text_after_orders.replace(m_match.group(0), "").strip()
 
-    # Telefon kimentése
+    # 4. LÉPÉS: TELEFON ÉS MARADÉK (CÍM/NÉV)
+    # A telefon bárhol lehet, de általában az ID és a rendelés között
     phone = ""
-    ph_m = re.search(r'\d{2}/\d{3}-?\d{2}-?\d{2}', full_text)
-    if ph_m:
-        phone = ph_m.group(0)
-        full_text = full_text.replace(phone, "")
+    ph_match = re.search(r'\d{2}/\d{3}-?\d{2}-?\d{2}', text_from_id)
+    if ph_match:
+        phone = ph_match.group(0)
 
-    # Rendelések kimentése
-    orders = re.findall(r'\d+-[A-Z0-9]+', full_text)
-    for o in orders: full_text = full_text.replace(o, "")
-
-    # --- NÉV ÉS CÍM SZÉTVÁLASZTÁSA ---
-    full_text = full_text.replace(key, "").strip()
+    # Ami maradt az ID után, de nem rendelés, nem pénz és nem telefon:
+    # Ezt a részt az irányítószám alapján választjuk szét Címre és Ügyintézőre
+    remaining = text_from_id.replace(key, "").replace(phone, "").strip()
+    for o in unique_orders: remaining = remaining.replace(o, "")
     
-    # Keresünk egy irányítószámot (4 számjegy)
-    zip_match = re.search(r'\d{4}', full_text)
+    zip_match = re.search(r'\d{4}', remaining)
     ugyintezo, cim, megj = "", "", ""
 
     if zip_match:
-        # Ami az irányítószám előtt van, az általában a Megjegyzés/Név eleje
-        prefix_part = full_text[:zip_match.start()].strip()
-        # Ami az irányítószám után van, az a Cím + Név + Maradék megjegyzés
-        suffix_part = full_text[zip_match.start():].strip()
-
-        # Cím vége: általában házszámig tart (szám, utána esetleg perjel vagy betű)
-        # Próbáljuk megfogni a címet a házszám utáni első nagybetűs névig
-        address_end_match = re.search(r'(\d+\s*/?\s*[a-zA-Z]?\.?)\s+([A-Z].*)', suffix_part)
+        cim_resz = remaining[zip_match.start():].strip()
+        megj = remaining[:zip_match.start()].strip()
         
-        if address_end_match:
-            cim = suffix_part[:address_end_match.end(1)].strip()
-            # Ami a házszám után van, az megy az ügyintézőhöz/megjegyzéshez
-            extra_stuff = address_end_match.group(2).strip()
-            ugyintezo = extra_stuff
+        # Házszám utáni rész lesz az ügyintéző
+        hazszam_match = re.search(r'(\d+\s*/?\s*[a-zA-Z]?\.?)', cim_resz)
+        if hazszam_match:
+            cim = cim_resz[:hazszam_match.end()].strip()
+            ugyintezo = cim_resz[hazszam_match.end():].strip()
         else:
-            cim = suffix_part
-            ugyintezo = prefix_part
-
-        megj = prefix_part
+            cim = cim_resz
     
-    # Ha az ügyintézőben benne maradt a / jel, szedjük szét
-    if "/" in ugyintezo:
-        parts = ugyintezo.split("/")
-        ugyintezo = parts[-1].strip()
-        if not megj: megj = parts[0].strip()
+    # Ha az Ügyintéző üres maradt, próbáljuk a text_after_orders-ből tölteni
+    if not ugyintezo:
+        ugyintezo = text_after_orders
 
     rows.append({
         "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": ugyintezo,
         "Cím": cim, "Telefon": phone, "Pénz": money,
-        "Rendelés": ", ".join(orders), "Megjegyzés": megj,
-        "Összesen": len(orders), "temp_id": u_id,
-        "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(orders)}",
+        "Rendelés": ", ".join(unique_orders), "Megjegyzés": megj,
+        "Összesen": len(unique_orders), "temp_id": u_id,
+        "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
         "Hétvégi": False
     })
 

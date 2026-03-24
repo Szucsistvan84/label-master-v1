@@ -95,7 +95,7 @@ def clean_line_edges(line):
     return line
 
 def process_data(block_lines, rows, seen_ids):
-    # 1. Alap tisztítás és duplikáció szűrés a blokkon belül
+    # 1. Alap tisztítás
     unique_lines = []
     for l in block_lines:
         l = l.replace(',', ' ').strip()
@@ -105,7 +105,7 @@ def process_data(block_lines, rows, seen_ids):
     text = " ".join(unique_lines)
     text = re.sub(r'\s+', ' ', text)
 
-    # 2. ID megkeresése (Ez a fix pontunk)
+    # 2. ID megkeresése
     id_match = re.search(r'([H|K|S|C|P|Z])-(\d{6})', text)
     if not id_match: 
         return
@@ -116,17 +116,16 @@ def process_data(block_lines, rows, seen_ids):
         return
     seen_ids.add(key)
 
-    # 3. Sorszám levágása: Csak az ID-tól kezdve nézzük a szöveget
     text_from_id = text[id_match.start():].strip()
 
-    # 4. RENDELÉSEK kigyűjtése
+    # 3. RENDELÉSEK kigyűjtése
     found_orders = re.findall(r'\d+-[A-Z0-9]+', text_from_id)
     unique_orders = []
     for o in found_orders:
         if o not in unique_orders:
             unique_orders.append(o)
 
-    # 5. PÉNZ ZÓNA MEGHATÁROZÁSA (A "Petró-sorompó")
+    # 4. PÉNZ ZÓNA (Petró-sorompó)
     last_order_end = 0
     if unique_orders:
         for o in unique_orders:
@@ -134,64 +133,54 @@ def process_data(block_lines, rows, seen_ids):
             if matches:
                 last_order_end = max(last_order_end, matches[-1].end())
     
-    # A zóna az utolsó rendelés utáni rész a blokk végéig
     zone_after_orders = text_from_id[last_order_end:].strip()
 
-    # 6. PÉNZ KERESÉSE (Negatív-biztos verzió)
-    # --- PÉNZ BLOKK (V4 - A "BARBI-BIZTOS" VERZIÓ) ---
+    # 5. PÉNZ KERESÉSE (V4 - Barbi-biztos & NameError-mentes)
     money = "0 Ft"
-    
-    # 1. Zóna kijelölése (utolsó rendelés utáni rész)
-    last_order_end = 0
-    if unique_orders:
-        for o in unique_orders:
-            matches = list(re.finditer(re.escape(o), text_from_id))
-            if matches:
-                last_order_end = max(last_order_end, matches[-1].end())
-    
-    zone_after_orders = text_from_id[last_order_end:].strip()
+    # Inicializáljuk a találati változót, hogy ne legyen NameError!
+    target_raw_val = None 
 
-    # 2. KERESÉS: Minden számot kigyűjtünk a zónából
-    # Ez megfogja a "3 560" jellegű, szóközös számokat is
-    all_numbers_in_zone = re.findall(r'(\d[\d\s]+)', zone_after_orders)
+    # Keressünk minden számot a zónában (szóközöket is engedve)
+    all_numbers = re.findall(r'(\d[\d\s]+)', zone_after_orders)
     
-    if all_numbers_in_zone:
-        # A legutolsó szám a zónában lesz a pénz (Interfood PDF sajátosság)
-        raw_val = all_numbers_in_zone[-1].strip()
-        clean_val = re.sub(r'[^\d]', '', raw_val)
+    if all_numbers:
+        target_raw_val = all_numbers[-1].strip()
+        clean_nums = re.sub(r'[^\d]', '', target_raw_val)
         
-        if clean_val:
-            # Sorszám levágása (ha 8-as vagy 7-es sorszám ragadt rá)
-            if len(clean_val) > 5:
-                clean_val = clean_val[1:]
+        if clean_nums:
+            # Sorszám szűrő
+            if len(clean_nums) > 5:
+                clean_nums = clean_nums[1:]
             
-            # 3. NEGATÍV JEL KERESÉSE
-            # Megnézzük, hogy a zónában a választott szám ELŐTT van-e mínusz
-            # Vagy a teljes zónában van-e szabadon álló mínusz
-            num_index = zone_after_orders.rfind(raw_val)
-            zone_before_num = zone_after_orders[:num_index]
+            # Negatív jel keresése a zónában
+            # Megnézzük a szám előtti részt a zónában
+            num_pos = zone_after_orders.rfind(target_raw_val)
+            zone_before_num = zone_after_orders[:num_pos]
             
+            # Ha van mínusz a szám előtt VAGY bárhol a zónában
             if "-" in zone_before_num or "-" in zone_after_orders:
-                money = f"-{clean_val} Ft"
+                money = f"-{clean_nums} Ft"
             else:
-                money = f"{clean_val} Ft"
-    # -----------------------------------------------
+                money = f"{clean_nums} Ft"
 
-    # 7. EGYÉB ADATOK (Telefon, Cím, Ügyintéző)
-    # Telefon keresése a teljes ügyfél-szövegben
+    # 6. EGYÉB ADATOK
     phone = ""
     ph_match = re.search(r'\d{2}/\d{3}-?\d{2}-?\d{2}', text_from_id)
     if ph_match:
         phone = ph_match.group(0)
 
-    # Maradék szöveg a Címhez és Ügyintézőhöz
+    # Maradék takarítása a Címhez/Névhez
     remaining = text_from_id.replace(key, "").replace(phone, "").strip()
     for o in unique_orders: 
         remaining = remaining.replace(o, "")
-    if ft_search: 
-        remaining = remaining.replace(ft_search.group(0), "")
+    
+    # Ha találtunk pénzt, azt is töröljük a maradékból
+    if target_raw_val:
+        remaining = remaining.replace(target_raw_val, "")
+    # A "Ft" szót is töröljük, ha ott maradt
+    remaining = remaining.replace("Ft", "").strip()
 
-    # Egyszerű szétválasztás irányítószám alapján
+    # Irányítószám alapú szétválasztás
     zip_match = re.search(r'\d{4}', remaining)
     ugyintezo, cim, megj = "", "", ""
     if zip_match:
@@ -200,20 +189,13 @@ def process_data(block_lines, rows, seen_ids):
     else:
         ugyintezo = remaining
 
-    # 8. ADATOK MENTÉSE
+    # 7. MENTÉS
     rows.append({
-        "Prefix": prefix, 
-        "ID": f"P-{u_id}", 
-        "Ügyintéző": ugyintezo,
-        "Cím": cim, 
-        "Telefon": phone, 
-        "Pénz": money,
-        "Rendelés": ", ".join(unique_orders), 
-        "Megjegyzés": megj,
-        "Összesen": len(unique_orders), 
-        "temp_id": u_id,
-        "Raklista_Ertek": 0, 
-        "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
+        "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": ugyintezo,
+        "Cím": cim, "Telefon": phone, "Pénz": money,
+        "Rendelés": ", ".join(unique_orders), "Megjegyzés": megj,
+        "Összesen": len(unique_orders), "temp_id": u_id,
+        "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
         "Hétvégi": False
     })
     

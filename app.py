@@ -84,69 +84,82 @@ def clean_name_field(text):
 # --- 1. SEGÉDFÜGGVÉNY: A MÉREGFOGAK ELTÁVOLÍTÁSA ---
 def clean_line_edges(line):
     if not line: return ""
-    
-    # Első méregfog: Mindent eldobunk az ügyfélkód (pl. H-123456) előtt
+    # 1. SZIGORÚ ID VÁGÁS: mindegy mi van előtte (szám vagy szóköz), levágjuk
     id_pattern = r'[H|K|S|C|P|Z]-\d{6}'
     id_match = re.search(id_pattern, line)
     if id_match:
         line = line[id_match.start():].strip()
     
-    # Második méregfog: Sor végi magányos szám (összesítő) le
+    # 2. MÁSODIK MÉREGFOG: sor végi összesítő le
     line = re.sub(r'\s+\d+$', '', line)
     return line
 
 # --- 2. SEGÉDFÜGGVÉNY: ADATFELDOLGOZÁS (HÚSDARÁLÓ) ---
 def process_data(block_lines, rows, seen_ids):
-    full_text = " ".join(block_lines)
-    
-    # ID kimentése
+    # Tisztítjuk a sorokat a felesleges vesszőktől már az elején
+    cleaned_block = [l.replace(',', ' ').strip() for l in block_lines]
+    full_text = " ".join(cleaned_block)
+    # Többszörös szóközök eltüntetése
+    full_text = re.sub(r'\s+', ' ', full_text)
+
     id_match = re.search(r'([H|K|S|C|P|Z])-(\d{6})', full_text)
     if not id_match: return
     prefix, u_id = id_match.groups()
     key = f"{prefix}-{u_id}"
-    
     if key in seen_ids: return
     seen_ids.add(key)
 
-    # Pénz - Mivel a szélek tiszták, ez most már pontos lesz
+    # Pénz kimentése
     money = "0 Ft"
     m_match = re.search(r'(\d[\d\s]*)\s*Ft', full_text)
     if m_match:
         money = f"{re.sub(r'\s+', '', m_match.group(1))} Ft"
         full_text = full_text.replace(m_match.group(0), "")
 
-    # Telefon és Rendelés kiharapása
+    # Telefon kimentése
     phone = ""
     ph_m = re.search(r'\d{2}/\d{3}-?\d{2}-?\d{2}', full_text)
     if ph_m:
         phone = ph_m.group(0)
         full_text = full_text.replace(phone, "")
-    
+
+    # Rendelések kimentése
     orders = re.findall(r'\d+-[A-Z0-9]+', full_text)
     for o in orders: full_text = full_text.replace(o, "")
 
-    # Maradék: Név, Cím, Megjegyzés szétválasztása
+    # --- NÉV ÉS CÍM SZÉTVÁLASZTÁSA ---
     full_text = full_text.replace(key, "").strip()
-    zip_m = re.search(r'\d{4}', full_text)
-    ugyintezo, cim, megj = "", "", ""
     
-    if zip_m:
-        before = full_text[:zip_m.start()].strip()
-        after = full_text[zip_m.start():].strip()
+    # Keresünk egy irányítószámot (4 számjegy)
+    zip_match = re.search(r'\d{4}', full_text)
+    ugyintezo, cim, megj = "", "", ""
+
+    if zip_match:
+        # Ami az irányítószám előtt van, az általában a Megjegyzés/Név eleje
+        prefix_part = full_text[:zip_match.start()].strip()
+        # Ami az irányítószám után van, az a Cím + Név + Maradék megjegyzés
+        suffix_part = full_text[zip_match.start():].strip()
+
+        # Cím vége: általában házszámig tart (szám, utána esetleg perjel vagy betű)
+        # Próbáljuk megfogni a címet a házszám utáni első nagybetűs névig
+        address_end_match = re.search(r'(\d+\s*/?\s*[a-zA-Z]?\.?)\s+([A-Z].*)', suffix_part)
         
-        if "/" in before:
-            parts = before.split("/")
-            megj = parts[0].strip()
-            ugyintezo = parts[-1].strip()
+        if address_end_match:
+            cim = suffix_part[:address_end_match.end(1)].strip()
+            # Ami a házszám után van, az megy az ügyintézőhöz/megjegyzéshez
+            extra_stuff = address_end_match.group(2).strip()
+            ugyintezo = extra_stuff
         else:
-            megj = before
-            words = after.split()
-            ugyintezo = " ".join(words[-2:]) if len(words) >= 2 else after
-            after = " ".join(words[:-2]) if len(words) >= 2 else after
-        
-        cim = after.strip(", ")
-        if ugyintezo.lower() in megj.lower():
-            megj = megj.replace(ugyintezo, "").strip()
+            cim = suffix_part
+            ugyintezo = prefix_part
+
+        megj = prefix_part
+    
+    # Ha az ügyintézőben benne maradt a / jel, szedjük szét
+    if "/" in ugyintezo:
+        parts = ugyintezo.split("/")
+        ugyintezo = parts[-1].strip()
+        if not megj: megj = parts[0].strip()
 
     rows.append({
         "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": ugyintezo,

@@ -310,27 +310,27 @@ with st.sidebar:
 
     # ... (a kód eleje változatlan) ...
 
-if up_files and st.button("🚀 FELDOLGOZÁS"):
-        all_rows = []
-        all_meta = []
-        
-        for f in up_files:
-            rows, meta = parse_interfood_pdf(f)
-            if rows:
-                all_rows.extend(rows)
-            # Figyelem: extend-et használunk, és csak ha nem üres!
-            if meta:
-                all_meta.extend(meta)
-
-        # CSAK AKKOR LÉPÜNK TOVÁBB, HA VAN ADAT
-        if all_rows and all_meta:
-            # Biztonsági mentés: ha az első elem valamiért mégis rossz lenne
-            try:
-                first_m = all_meta[0]
-                y = first_m.get('year', '2026')
-                w = first_m.get('week', '1')
-            except (IndexError, TypeError):
-                y, w = '2026', '1'
+    if up_files and st.button("🚀 FELDOLGOZÁS"):
+            all_rows = []
+            all_meta = []
+            
+            for f in up_files:
+                rows, meta = parse_interfood_pdf(f)
+                if rows:
+                    all_rows.extend(rows)
+                # Figyelem: extend-et használunk, és csak ha nem üres!
+                if meta:
+                    all_meta.extend(meta)
+    
+            # CSAK AKKOR LÉPÜNK TOVÁBB, HA VAN ADAT
+            if all_rows and all_meta:
+                # Biztonsági mentés: ha az első elem valamiért mégis rossz lenne
+                try:
+                    first_m = all_meta[0]
+                    y = first_m.get('year', '2026')
+                    w = first_m.get('week', '1')
+                except (IndexError, TypeError):
+                    y, w = '2026', '1'
 
             st.session_state.meta_data = all_meta
             

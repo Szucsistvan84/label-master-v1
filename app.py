@@ -487,14 +487,18 @@ with st.sidebar:
 
     # ... (a kód eleje változatlan) ...
 
-    if up_files and st.button("🚀 FELDOLGOZÁS"):
-        final_rows = []
+if up_files and st.button("🚀 FELDOLGOZÁS"):
+        all_rows = []    # <--- EZ A SOR HIÁNYZOTT! Ez hozza létre a listát.
+        all_meta = []
+        
         for uploaded_file in up_files:
             rows, meta = parse_interfood_pdf(uploaded_file)
-            final_rows.extend(rows)
-        
-        if final_rows:
-            df = pd.DataFrame(final_rows)
+            all_rows.extend(rows)  # Most már nem lesz NameError, mert létezik az all_rows
+            all_meta.extend(meta)
+
+        if all_rows:
+            # Innen megy tovább a kódod...
+            df = pd.DataFrame(all_rows)
             # Itt jöhet a táblázat megjelenítése...
             # Innen folytatódik a megjelenítés és a mentés...
         

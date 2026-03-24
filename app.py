@@ -135,36 +135,51 @@ def process_data(block_lines, rows, seen_ids):
     
     zone_after_orders = text_from_id[last_order_end:].strip()
 
-# --- PÉNZ BLOKK (V9 - TELJES BLOKKOT NÉZŐ VERZIÓ) ---
+    # --- PÉNZ BLOKK (V11 - ERŐSZAKOS ÉS MINDEN KÖTŐJELT ISMERŐ) ---
     money = "0 Ft"
     target_raw_val = None 
 
-    # 1. Először megpróbáljuk a "Ft"-os verziót a teljes szövegben (text_from_id)
-    # Ez megfogja Nagy Barbit, ha a Ft ott van valahol
-    ft_search = re.search(r'(-?\s*)?([\d\s]{2,})\s*Ft', text_from_id)
+    # 1. Minden lehetséges kötőjel típus (sima, en-dash, em-dash, stb.)
+    dash_types = r'[-\u2013\u2014\u2212]'
     
-    if not ft_search:
-        # 2. Ha nincs Ft, keressünk olyan számot, ami előtt fixen van egy mínusz
-        # Ez a Hegedűs-féle eset, ahol lemaradt a Ft
-        ft_search = re.search(r'(-\s*)([\d\s]{2,})', text_from_id)
-
-    if ft_search:
-        pre_sign = ft_search.group(1)
-        raw_nums = ft_search.group(2)
-        target_raw_val = raw_nums
+    # 2. A legstabilabb regex: keresünk egy (opcionális) kötőjelet, 
+    # számokat (szóközzel is), és a végén kötelezően a "Ft" feliratot.
+    # Ez a "legalább működik" verzió logikája.
+    money_pattern = rf'({dash_types}?\s*[\d\s]+)\s*Ft'
+    
+    # Az egész ügyfél-blokkban keressük (text_from_id)
+    money_match = re.search(money_pattern, text_from_id)
+    
+    if money_match:
+        raw_val = money_match.group(1).strip()
+        # Tisztítás: csak számok és a kötőjel maradjon
+        # De a speciális kötőjelet azonnal cseréljük sima mínuszra!
+        clean_nums = re.sub(rf'[^{dash_types}\d]', '', raw_val)
+        for d in ['–', '—', '−']: # Speciális dash-ek
+            clean_nums = clean_nums.replace(d, '-')
         
-        clean_nums = re.sub(r'[^\d]', '', raw_nums)
-        
-        if clean_nums:
-            # Sorszám szűrő (ha véletlenül az ügyfélkód elejét kapná el)
-            if len(clean_nums) > 5:
-                clean_nums = clean_nums[1:]
-            
-            # Ha találtunk mínusz jelet (akár az ft_search-ben, akár a szövegben előtte)
-            if pre_sign and '-' in pre_sign:
-                money = f"-{clean_nums} Ft"
+        # Sorszám védelem: ha ráolvadt egy 8-as vagy 7-es (pl. 815420 helyett 15420)
+        # CSAK akkor vágunk, ha 5-nél több számjegy van és nem irreális az összeg
+        pure_digits = re.sub(r'[^\d]', '', clean_nums)
+        if len(pure_digits) > 5:
+            if clean_nums.startswith('-'):
+                clean_nums = "-" + clean_nums[2:]
             else:
-                money = f"{clean_nums} Ft"
+                clean_nums = clean_nums[1:]
+        
+        money = f"{clean_nums} Ft"
+        target_raw_val = money_match.group(0)
+
+    # 3. UTOLSÓ MENTŐÖV (Hegedűs-féle eset, ha nincs Ft)
+    if money == "0 Ft":
+        # Csak akkor, ha fixen van előtte valamilyen negatív jel
+        neg_only_pattern = rf'({dash_types}\s*[\d\s]{{3,}})'
+        neg_match = re.search(neg_only_pattern, zone_after_orders)
+        if neg_match:
+            raw_neg = neg_match.group(1).strip()
+            clean_neg = re.sub(rf'[^{dash_types}\d]', '', raw_neg).replace('–', '-').replace('—', '-').replace('−', '-')
+            money = f"{clean_neg} Ft"
+            target_raw_val = raw_neg
     # ----------------------------------------------------
 
     # 6. EGYÉB ADATOK

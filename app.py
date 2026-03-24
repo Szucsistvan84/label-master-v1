@@ -96,14 +96,9 @@ def clean_line_edges(line):
 
 # --- 2. SEGÉDFÜGGVÉNY: ADATFELDOLGOZÁS (HÚSDARÁLÓ) ---
 def process_data(block_lines, rows, seen_ids):
-    # 1. DUPLÁZÓDÁS ELLENI VÉDELEM: Csak az egyedi sorokat tartjuk meg a blokkból
-    unique_lines = []
-    for l in block_lines:
-        l = l.replace(',', ' ').strip()
-        if l not in unique_lines:
-            unique_lines.append(l)
-    
-    text = " ".join(unique_lines)
+    # Alap tisztítás
+    cleaned_block = [l.replace(',', ' ').strip() for l in block_lines]
+    text = " ".join(cleaned_block)
     text = re.sub(r'\s+', ' ', text)
 
     # ID keresése és sorszám levágása
@@ -114,89 +109,60 @@ def process_data(block_lines, rows, seen_ids):
     if key in seen_ids: return
     seen_ids.add(key)
 
-    # Csak az ID utáni részt vizsgáljuk (sorszám kuka)
+    # Csak az ID utáni részt tartjuk meg
     text_from_id = text[id_match.start():].strip()
 
-    # 2. RENDELÉSEK: Egyedi kódok kigyűjtése
+    # RENDELÉSEK kigyűjtése
     found_orders = re.findall(r'\d+-[A-Z0-9]+', text_from_id)
     unique_orders = []
     for o in found_orders:
         if o not in unique_orders:
             unique_orders.append(o)
 
-    # 3. PÉNZ: Most már a negatív jelre is figyelünk!
-    # --- CSAK A PÉNZ SZUPER-BIZTONSÁGOS JAVÍTÁSA ---
+    # --- PÉNZ BLOKK (JAVÍTOTT, PETRÓ-BIZTOS) ---
     money = "0 Ft"
-    
-    # Keressük meg, hol ér véget az utolsó rendelés (pl. 1-D7)
     last_order_end = 0
     if unique_orders:
         for o in unique_orders:
-            # Megkeressük az utolsó előfordulását a rendelésnek
             matches = list(re.finditer(re.escape(o), text_from_id))
             if matches:
                 last_order_end = max(last_order_end, matches[-1].end())
 
-    # Csak az UTOLSÓ rendelés UTÁNI részt nézzük a Ft-ig
+    # Csak az utolsó rendelés utáni "zónát" nézzük
     zone_after_orders = text_from_id[last_order_end:].strip()
     
-    # Ebben a zónában keressük a Ft-ot
+    # Itt keressük a Ft-ot
     ft_match = re.search(r'(-?\s*[\d\s]+)\s*Ft', zone_after_orders)
     
     if ft_match:
-        # Csak azokat a számokat tartjuk meg, amik közvetlenül a Ft előtt vannak a zónában
         raw_val = ft_match.group(1).strip()
         clean_val = re.sub(r'[^\d-]', '', raw_val)
-        
         if clean_val:
-            # Sorszám szűrő (ha véletlenül mégis becsúszott volna valami az elejére)
+            # Sorszám szűrő (pl. 8-as sorszám ellen)
             if len(clean_val) > 5 and not clean_val.startswith('-'):
                 clean_val = clean_val[1:]
-            
             money = f"{clean_val} Ft"
-    else:
-        # Ha nincs Ft a rendelések után, akkor az biztosan 0 Ft
-        money = "0 Ft"
-    # --- PÉNZ JAVÍTÁS VÉGE ---
+    # ------------------------------------------
 
-    # 4. TELEFON
+    # TELEFON
     phone = ""
     ph_match = re.search(r'\d{2}/\d{3}-?\d{2}-?\d{2}', text_from_id)
     if ph_match:
         phone = ph_match.group(0)
 
-    # 5. CÍM ÉS ÜGYINTÉZŐ (A "Debrecen" hiba javítása)
+    # CÍM ÉS ÜGYINTÉZŐ MARADÉK (Ideiglenes, amíg a pénzt teszteljük)
     remaining = text_from_id.replace(key, "").replace(phone, "").strip()
     for o in unique_orders: remaining = remaining.replace(o, "")
-    if m_match: remaining = remaining.replace(m_match.group(0), "")
+    if ft_match: remaining = remaining.replace(ft_match.group(0), "")
 
-    # Keressük az irányítószámot
+    # Ez a rész csak azért kell, hogy ne dőljön össze a kód, amíg a pénzre fókuszálunk
     zip_match = re.search(r'\d{4}', remaining)
     ugyintezo, cim, megj = "", "", ""
-
     if zip_match:
-        # Megjegyzés az irányítószám előtt (pl. GSV Ipari park)
+        cim = remaining[zip_match.start():].strip()
         megj = remaining[:zip_match.start()].strip()
-        
-        # A cím és az ügyintéző az irányítószámtól kezdődik
-        addr_part = remaining[zip_match.start():].strip()
-        
-        # Keressük a házszámot (szám + pont/perjel)
-        hazszam_match = re.search(r'(\d+\s*/?\s*[a-z]?\.?)', addr_part)
-        if hazszam_match:
-            # A cím az irányítószámtól a házszám végéig tart
-            cim = addr_part[:hazszam_match.end()].strip()
-            # Ami utána van, az az ügyintéző
-            ugyintezo = addr_part[hazszam_match.end():].strip()
-        else:
-            cim = addr_part
     else:
         ugyintezo = remaining
-
-    # Utolsó simítás: ne maradjon "Debrecen" az ügyintézőben, ha a címben nincs ott
-    if "Debrecen" in ugyintezo and "Debrecen" not in cim:
-        cim = "Debrecen " + cim
-        ugyintezo = ugyintezo.replace("Debrecen", "").strip()
 
     rows.append({
         "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": ugyintezo,

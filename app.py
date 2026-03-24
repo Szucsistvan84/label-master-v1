@@ -135,31 +135,33 @@ def process_data(block_lines, rows, seen_ids):
     
     zone_after_orders = text_from_id[last_order_end:].strip()
 
-# --- PÉNZ BLOKK (V8 - AZ UTOLSÓ ESÉLY) ---
+    # --- PÉNZ BLOKK (V8 - NAGY BARBI ÉS HEGEDŰS-BIZTOS) ---
     money = "0 Ft"
-    target_raw_val = None
-    
-    # 1. Megpróbáljuk a te bevált Ft-os keresődet
-    money_pat = r'(-?\s*\d[\d\s]*\s*Ft)'
-    for line in reversed(block_lines):
-        m_match = re.search(money_pat, line.replace(',', ' '))
-        if m_match:
-            money = m_match.group(1).strip()
-            target_raw_val = money
-            break
+    target_raw_val = None 
 
-    # 2. HA MÉG MINDIG 0 Ft (Nagy Barbi és Hegedűsék esete)
-    if money == "0 Ft":
-        # Keressük a mínuszos számot (legalább 3 számjegy, hogy a kapukód ne zavarjon)
-        neg_search = re.search(r'(-\s*\d[\d\s]{2,})', zone_after_orders)
+    # 1. Próbáljuk megkeresni a számot, ami előtt lehet mínusz, és utána lehet Ft
+    # A (Ft)? miatt nem baj, ha hiányzik a Ft felirat!
+    ft_search = re.search(r'(-\s*)?([\d\s]+)\s*(Ft)?', zone_after_orders)
+    
+    if ft_search:
+        pre_sign = ft_search.group(1) # Ez a mínusz jel
+        raw_nums = ft_search.group(2) # Ez a számsor
+        target_raw_val = raw_nums     # Eltároljuk a későbbi tisztításhoz
         
-        if neg_search:
-            raw_val = neg_search.group(1).strip()
-            # Itt fontos: megtartjuk a számot és a mínusz jelet is!
-            clean_nums = re.sub(r'[^\d-]', '', raw_val)
-            if '-' in clean_nums and len(clean_nums) > 2:
+        # Csak a számokat tartjuk meg a tisztításhoz
+        clean_nums = re.sub(r'[^\d]', '', raw_nums)
+        
+        if clean_nums:
+            # Sorszám levágása (ha 8-as vagy 7-es ragadt az elejére)
+            if len(clean_nums) > 5:
+                clean_nums = clean_nums[1:]
+            
+            # Előjel kezelése: ha volt mínusz jel a szám előtt, rátesszük
+            if pre_sign and '-' in pre_sign:
+                money = f"-{clean_nums} Ft"
+            else:
                 money = f"{clean_nums} Ft"
-                target_raw_val = raw_val
+    # ----------------------------------------------------
 
     # 6. EGYÉB ADATOK
     phone = ""

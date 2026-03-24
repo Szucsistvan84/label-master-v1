@@ -163,24 +163,44 @@ def parse_interfood_pdf(file):
     seen_ids = set()
     
     with pdfplumber.open(file) as pdf:
-        # Metaadatok (Év, Hét)
-        first_page = pdf.pages[0].extract_text() or ""
-        y_m = re.search(r'Év[:\s]+(\d{4})', first_page)
-        w_m = re.search(r'Hét[:\s]+(\d{1,2})', first_page)
-        current_meta = {'year': y_m.group(1) if y_m else "2026", 'week': w_m.group(1) if w_m else "1"}
+        # --- 1. JAVÍTOTT METAADAT KINYERÉS ---
+        first_page_text = pdf.pages[0].extract_text() or ""
+        
+        # JÁRAT: megkeressük a pont előtti 4 számjegyet (pl. 4002.)
+        j_m = re.search(r'(\d{4})\.\s*járat', first_page_text)
+        jarat_szam = j_m.group(1) if j_m else ""
+        
+        # ÉV, HÉT
+        y_m = re.search(r'Év[:\s]+(\d{4})', first_page_text)
+        w_m = re.search(r'Hét[:\s]+(\d{1,2})', first_page_text)
+        
+        # NAP (pl. Hétfő)
+        n_m = re.search(r'Nap[:\s]+([a-zA-Záéíóöőúüű]+)', first_page_text)
+        nap_neve = n_m.group(1) if n_m else ""
 
+        current_meta = {
+            'year': y_m.group(1) if y_m else "2026",
+            'week': w_m.group(1) if w_m else "1",
+            'jarat': jarat_szam,
+            'nap': nap_neve
+        }
+
+        # --- 2. FELDOLGOZÁSI CIKLUS ---
         for page in pdf.pages:
             text_lines = page.extract_text().split('\n')
             current_block = []
 
             for raw_line in text_lines:
-                if any(x in raw_line for x in ["oldal", "Nyomtatva", "Ügyfél címe"]): continue
+                # Lábléc/Fejléc szűrése, hogy ne kerüljön szemét a blokkba
+                if any(x in raw_line for x in ["oldal", "Nyomtatva", "Ügyfél címe"]): 
+                    continue
                 
-                # AZONNALI TISZTÍTÁS (Méregfogak le)
+                # MÉREGFOGAK KIHÚZÁSA (Sorszám le elölről, Összesítő le hátulról)
                 line = clean_line_edges(raw_line)
-                if not line: continue
+                if not line: 
+                    continue
 
-                # Ha új ID-t találunk, feldolgozzuk az előző blokkot
+                # Blokkosítás az ügyfélkód (H-123456) alapján
                 if re.search(r'[H|K|S|C|P|Z]-\d{6}', line):
                     if current_block:
                         process_data(current_block, all_rows, seen_ids)
@@ -189,12 +209,13 @@ def parse_interfood_pdf(file):
                     if current_block:
                         current_block.append(line)
             
-            # Oldal végén az utolsót is feldolgozzuk
+            # Oldal végi maradvány feldolgozása
             if current_block:
                 process_data(current_block, all_rows, seen_ids)
 
+    # Fontos: a metaadatokat listába tesszük, mert a főprogram így várja
     return all_rows, [current_meta]
-
+    
 def process_cleaned_block(text, seen_keys):
     # 1. Alap tisztítás: több szóköz -> egy szóköz
     text = re.sub(r'\s+', ' ', text).strip()
@@ -743,7 +764,7 @@ def create_manifest_pdf(df, fn, meta_list):
     mar_kiirt_osszegek = set()
     # ---------------------------------------------------------
 
-    jaratok = ", ".join(sorted(list(set([str(m['jarat']) for m in meta_list if m['jarat']]))))
+    jaratok = ", ".join(sorted(list(set([str(m.get('jarat', '')) for m in meta_list if m.get('jarat')]))))
     ev = meta_list[0].get('year', '') if meta_list else ""
     het = meta_list[0].get('week', '') if meta_list else ""
     nap = meta_list[0].get('day', '') if meta_list else ""

@@ -125,15 +125,39 @@ def process_data(block_lines, rows, seen_ids):
             unique_orders.append(o)
 
     # 3. PÉNZ: Most már a negatív jelre is figyelünk!
+    # --- CSAK A PÉNZ SZUPER-BIZTONSÁGOS JAVÍTÁSA ---
     money = "0 Ft"
-    # A regex elején a (-?\s*) keresi az opcionális mínusz jelet
-    m_match = re.search(r'(-?\s*\d[\d\s]*)\s*Ft', text_from_id)
-    if m_match:
-        raw_m = m_match.group(1).replace(" ", "")
-        # Sorszám korrekció (ha 100.000 feletti pozitív szám és az első számjegy gyanús)
-        if len(raw_m) > 5 and not raw_m.startswith('-') and raw_m[0] in "123456789":
-            raw_m = raw_m[1:]
-        money = f"{raw_m} Ft"
+    
+    # Keressük meg, hol ér véget az utolsó rendelés (pl. 1-D7)
+    last_order_end = 0
+    if unique_orders:
+        for o in unique_orders:
+            # Megkeressük az utolsó előfordulását a rendelésnek
+            matches = list(re.finditer(re.escape(o), text_from_id))
+            if matches:
+                last_order_end = max(last_order_end, matches[-1].end())
+
+    # Csak az UTOLSÓ rendelés UTÁNI részt nézzük a Ft-ig
+    zone_after_orders = text_from_id[last_order_end:].strip()
+    
+    # Ebben a zónában keressük a Ft-ot
+    ft_match = re.search(r'(-?\s*[\d\s]+)\s*Ft', zone_after_orders)
+    
+    if ft_match:
+        # Csak azokat a számokat tartjuk meg, amik közvetlenül a Ft előtt vannak a zónában
+        raw_val = ft_match.group(1).strip()
+        clean_val = re.sub(r'[^\d-]', '', raw_val)
+        
+        if clean_val:
+            # Sorszám szűrő (ha véletlenül mégis becsúszott volna valami az elejére)
+            if len(clean_val) > 5 and not clean_val.startswith('-'):
+                clean_val = clean_val[1:]
+            
+            money = f"{clean_val} Ft"
+    else:
+        # Ha nincs Ft a rendelések után, akkor az biztosan 0 Ft
+        money = "0 Ft"
+    # --- PÉNZ JAVÍTÁS VÉGE ---
 
     # 4. TELEFON
     phone = ""

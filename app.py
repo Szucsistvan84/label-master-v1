@@ -119,29 +119,34 @@ def process_data(block_lines, rows, seen_ids):
         if o not in unique_orders:
             unique_orders.append(o)
 
-    # --- PÉNZ BLOKK (JAVÍTOTT, PETRÓ-BIZTOS) ---
+    # --- PÉNZ BLOKK (VÉGLEGES, NEGATÍV-STABIL) ---
     money = "0 Ft"
-    last_order_end = 0
-    if unique_orders:
-        for o in unique_orders:
-            matches = list(re.finditer(re.escape(o), text_from_id))
-            if matches:
-                last_order_end = max(last_order_end, matches[-1].end())
-
-    # Csak az utolsó rendelés utáni "zónát" nézzük
-    zone_after_orders = text_from_id[last_order_end:].strip()
     
-    # Itt keressük a Ft-ot
-    ft_match = re.search(r'(-?\s*[\d\s]+)\s*Ft', zone_after_orders)
+    # Keressük meg a Ft-ot a zónában
+    # A regex magyarázata:
+    # (-?\s*)      -> opcionális mínusz jel, akár szóközzel utána
+    # ([\d\s]+)    -> számok, akár szóközökkel elválasztva (pl. 3 560)
+    # \s*Ft        -> a végén a Ft felirat
+    ft_search = re.search(r'(-\s*)?([\d\s]+)\s*Ft', zone_after_orders)
     
-    if ft_match:
-        raw_val = ft_match.group(1).strip()
-        clean_val = re.sub(r'[^\d-]', '', raw_val)
-        if clean_val:
-            # Sorszám szűrő (pl. 8-as sorszám ellen)
-            if len(clean_val) > 5 and not clean_val.startswith('-'):
-                clean_val = clean_val[1:]
-            money = f"{clean_val} Ft"
+    if ft_search:
+        pre_sign = ft_search.group(1) # Ez a mínusz jel, ha van
+        raw_nums = ft_search.group(2) # Ez a számsor
+        
+        # Tisztítás: csak a számokat tartjuk meg
+        clean_nums = re.sub(r'[^\d]', '', raw_nums)
+        
+        if clean_nums:
+            # Sorszám-pajzs (ha 100.000 feletti a szám és az eleje gyanús)
+            if len(clean_nums) > 5:
+                clean_nums = clean_nums[1:]
+            
+            # Előjel kezelése
+            final_val = clean_nums
+            if pre_sign and '-' in pre_sign:
+                money = f"-{final_val} Ft"
+            else:
+                money = f"{final_val} Ft"
     # ------------------------------------------
 
     # TELEFON

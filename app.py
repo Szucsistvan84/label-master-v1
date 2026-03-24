@@ -138,27 +138,44 @@ def process_data(block_lines, rows, seen_ids):
     zone_after_orders = text_from_id[last_order_end:].strip()
 
     # 6. PÉNZ KERESÉSE (Negatív-biztos verzió)
+    # --- PÉNZ BLOKK (V4 - A "BARBI-BIZTOS" VERZIÓ) ---
     money = "0 Ft"
-    # Keresünk opcionális mínusz jelet, számokat és Ft-ot
-    ft_search = re.search(r'(-\s*)?([\d\s]+)\s*Ft', zone_after_orders)
     
-    if ft_search:
-        pre_sign = ft_search.group(1) # Mínusz jel helye
-        raw_nums = ft_search.group(2) # Számok helye
+    # 1. Zóna kijelölése (utolsó rendelés utáni rész)
+    last_order_end = 0
+    if unique_orders:
+        for o in unique_orders:
+            matches = list(re.finditer(re.escape(o), text_from_id))
+            if matches:
+                last_order_end = max(last_order_end, matches[-1].end())
+    
+    zone_after_orders = text_from_id[last_order_end:].strip()
+
+    # 2. KERESÉS: Minden számot kigyűjtünk a zónából
+    # Ez megfogja a "3 560" jellegű, szóközös számokat is
+    all_numbers_in_zone = re.findall(r'(\d[\d\s]+)', zone_after_orders)
+    
+    if all_numbers_in_zone:
+        # A legutolsó szám a zónában lesz a pénz (Interfood PDF sajátosság)
+        raw_val = all_numbers_in_zone[-1].strip()
+        clean_val = re.sub(r'[^\d]', '', raw_val)
         
-        # Csak a számjegyeket tartjuk meg
-        clean_nums = re.sub(r'[^\d]', '', raw_nums)
-        
-        if clean_nums:
-            # Sorszám levágása (ha 8-as vagy 7-es ragadt az elejére)
-            if len(clean_nums) > 5:
-                clean_nums = clean_nums[1:]
+        if clean_val:
+            # Sorszám levágása (ha 8-as vagy 7-es sorszám ragadt rá)
+            if len(clean_val) > 5:
+                clean_val = clean_val[1:]
             
-            # Összerakjuk az előjellel
-            if pre_sign and '-' in pre_sign:
-                money = f"-{clean_nums} Ft"
+            # 3. NEGATÍV JEL KERESÉSE
+            # Megnézzük, hogy a zónában a választott szám ELŐTT van-e mínusz
+            # Vagy a teljes zónában van-e szabadon álló mínusz
+            num_index = zone_after_orders.rfind(raw_val)
+            zone_before_num = zone_after_orders[:num_index]
+            
+            if "-" in zone_before_num or "-" in zone_after_orders:
+                money = f"-{clean_val} Ft"
             else:
-                money = f"{clean_nums} Ft"
+                money = f"{clean_val} Ft"
+    # -----------------------------------------------
 
     # 7. EGYÉB ADATOK (Telefon, Cím, Ügyintéző)
     # Telefon keresése a teljes ügyfél-szövegben

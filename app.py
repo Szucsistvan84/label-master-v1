@@ -193,9 +193,12 @@ def process_data(block_lines, rows, seen_ids):
     for o in unique_orders: 
         remaining = remaining.replace(o, "")
     
-    # Ha találtunk pénzt, azt is töröljük a maradékból
-    if target_raw_val:
-        remaining = remaining.replace(target_raw_val, "")
+    # --- JAVÍTOTT TAKARÍTÁS ---
+    if target_raw_val and len(target_raw_val) > 2:
+        # Csak akkor töröljük, ha a talált szövegben van szám (pénz)
+        # és nem egy rövid valami, ami véletlenül a rendelés része
+        if any(char.isdigit() for char in target_raw_val):
+            remaining_text = remaining_text.replace(target_raw_val, "", 1) # Csak az első előfordulást!
     # A "Ft" szót is töröljük, ha ott maradt
     remaining = remaining.replace("Ft", "").strip()
 

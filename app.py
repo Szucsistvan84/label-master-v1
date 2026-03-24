@@ -136,45 +136,39 @@ def process_data(block_lines, rows, seen_ids):
     zone_after_orders = text_from_id[last_order_end:].strip()
 
     # --- PÉNZ BLOKK (V5 - FT NÉLKÜLI ÉS KAPUKÓD-BIZTOS) ---
+# --- PÉNZ BLOKK (V7 - A "VISSZAÁLLÓS" LOGIKA INTEGRÁLÁSA) ---
     money = "0 Ft"
-    target_raw_val = None 
-
-    # 1. Minden olyan számcsoportot keresünk, ami után lehet (de nem kötelező) Ft
-    # A regex: számok, köztük szóközökkel, opcionálisan a végén Ft
-    all_num_matches = list(re.finditer(r'(-?\s*\d[\d\s]*)\s*(Ft)?', zone_after_orders))
+    target_raw_val = None
     
-    if all_num_matches:
-        # A PDF logikája szerint az UTOLSÓ releváns szám lesz a beszedendő pénz
-        # (A sor végi összesítő darabszámot a program már korábban levágta a blokkból)
-        best_match = all_num_matches[-1]
-        raw_val = best_match.group(1).strip()
-        
-        # Tisztítás: csak számok és mínusz jel
-        clean_nums = re.sub(r'[^\d-]', '', raw_val)
-        
-        # 2. KAPUKÓD ÉS EGYÉB ZAJ SZŰRÉSE
-        # Ha a talált szám gyanúsan rövid (pl. csak egy "7" a kapukódból) 
-        # és nem 0, akkor megnézzük az előző találatot is
-        if len(clean_nums.replace('-', '')) < 3 and clean_nums != "0" and len(all_num_matches) > 1:
-            best_match = all_num_matches[-2]
-            raw_val = best_match.group(1).strip()
-            clean_nums = re.sub(r'[^\d-]', '', raw_val)
+    # money_pat a te verziódból, kicsit finomítva a szóközökre
+    money_pat = r'(-?\s*\d[\d\s]*\s*Ft)'
 
-        if clean_nums:
-            # Sorszám lecsippentés (ha 8-as/7-es ragadt rá és > 100.000)
-            if len(clean_nums.replace('-', '')) > 5:
-                # Ha negatív, a mínusz utáni első karaktert vágjuk
-                if clean_nums.startswith('-'):
-                    clean_nums = "-" + clean_nums[2:]
-                else:
-                    clean_nums = clean_nums[1:]
-            
-            # Formázás: legyen ott a Ft a végén az export kedvéért
-            if clean_nums.startswith('-'):
-                money = f"{clean_nums} Ft"
-            else:
-                money = f"{clean_nums} Ft"
-    # ----------------------------------------------------
+    # A blokk sorait hátulról előre nézzük meg, mert a pénz az alján van
+    # (Hasonlóan ahhoz, ahogy te a next_t-ben kerested)
+    for line in reversed(block_lines):
+        # Tisztítjuk a sort a felesleges vesszőktől
+        clean_line = line.replace(',', ' ').strip()
+        
+        m_match = re.search(money_pat, clean_line)
+        if m_match:
+            money = m_match.group(1).strip()
+            # Ha megvan a Ft-os összeg, megjegyezzük a nyers számot a takarításhoz
+            target_raw_val = money
+            break # Megtaláltuk a legalsó Ft-os sort, megállunk
+
+    # Ha véletlenül nem volt Ft a sorban (Nagy Barbi esete), 
+    # akkor használjuk a V6-os tartalék tervet:
+    if money == "0 Ft":
+        all_nums = re.findall(r'(-?\s*\d[\d\s]*)', zone_after_orders)
+        if all_nums:
+            # Itt az első számot vesszük a rendelés után (Hegedűs-logika)
+            for num in all_nums:
+                c_num = re.sub(r'[^\d-]', '', num)
+                if len(c_num.replace('-', '')) >= 3 or c_num == "0":
+                    money = f"{c_num} Ft"
+                    target_raw_val = num
+                    break
+    # -----------------------------------------------------------
 
     # 6. EGYÉB ADATOK
     phone = ""

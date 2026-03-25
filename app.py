@@ -654,30 +654,30 @@ def main():
                 if meta:
                     all_meta.extend(meta)
 
-            # --- INNENTŐL JÖN A JAVÍTÁS (BELJEBB HÚZVA) ---
+            # --- INNENTŐL MINDENNEK A GOMBON BELÜL KELL LENNIE ---
             if all_rows:
-                # Csak most mentjük el a metaadatokat
                 st.session_state.meta_data = all_meta
                 
-                # Biztonságos év/hét kinyerés
+                # Biztonságos év/hét kinyerés (Csak ha van metaadat)
                 if all_meta:
                     y = all_meta[0].get('year', '2025')
                     w = all_meta[0].get('week', '1')
                 else:
                     y, w = '2025', '1'
                 
-                # Étlepadatok (Excel) lekérése
+                # Étlepadatok lekérése
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
                 
-                # Összevonás (Merge) meghívása a helyes paraméterekkel
+                # Összevonás (Maximum szabály és sorrend visszatöltés)
+                # Itt hívjuk meg a merge_data-t az összegyűjtött adatokkal
                 st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
                 
                 st.success(f"Sikeres feldolgozás: {len(st.session_state.mdf)} ügyfél.")
                 st.rerun()
             else:
                 st.error("Nem sikerült adatokat kinyerni a PDF-ből!")
-            # --- JAVÍTÁS VÉGE ---
+            # --- IDÁIG TART A GOMB LOGIKÁJA ---
 
     # Itt folytatódik a kód többi része (st.session_state.mdf is not None...)
                 

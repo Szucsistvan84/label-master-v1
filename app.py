@@ -658,10 +658,10 @@ def main():
                 st.session_state.meta_data = all_meta
                 
                 if all_meta:
-                        y = all_meta[0].get('year', '2025')
-                        w = all_meta[0].get('week', '1')
-                    else:
-                        y, w = '2025', '1'
+                    y = all_meta[0].get('year', '2025')
+                    w = all_meta[0].get('week', '1')
+                else:
+                    y, w = '2025', '1'
                     
                     p_map = get_etlap_dict(y, w, 5)
                     sz_map = get_etlap_dict(y, w, 6)

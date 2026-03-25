@@ -677,8 +677,8 @@ def main():
                 
                 st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
                 st.rerun()
-            else:
-                st.error("Nem sikerült adatot kinyerni a feltöltött fájlokból!")
+        else:
+            st.error("Nem sikerült adatot kinyerni a feltöltött fájlokból!")
 
     # --- MEGJELENÍTÉS ÉS SZERKESZTÉS ---
     if st.session_state.mdf is not None:

@@ -649,11 +649,14 @@ def main():
             
             for f in up_files:
                 rows, meta = parse_interfood_pdf(f)
-                if rows: all_rows.extend(rows)
-                if meta: all_meta.extend(meta)
+                if rows:
+                    all_rows.extend(rows)
+                if meta:
+                    all_meta.extend(meta)
 
-            # --- EZ A RÉSZ KERÜLT BELJEBB (A gomb alá) ---
+            # --- INNENTŐL JÖN A JAVÍTÁS (BELJEBB HÚZVA) ---
             if all_rows:
+                # Csak most mentjük el a metaadatokat
                 st.session_state.meta_data = all_meta
                 
                 # Biztonságos év/hét kinyerés
@@ -674,6 +677,9 @@ def main():
                 st.rerun()
             else:
                 st.error("Nem sikerült adatokat kinyerni a PDF-ből!")
+            # --- JAVÍTÁS VÉGE ---
+
+    # Itt folytatódik a kód többi része (st.session_state.mdf is not None...)
                 
     # --- TÁBLÁZAT ÉS LETÖLTÉSEK (Csak ha van adat) ---
     if st.session_state.mdf is not None:

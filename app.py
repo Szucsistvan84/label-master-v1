@@ -643,31 +643,27 @@ def main():
         st.divider()
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
-        # --- EZ A JÓ RÉSZ (656-681. sor között) ---
-        if up_files and st.button("🚀 FELDOLGOZÁS"):
+    if up_files and st.button("🚀 FELDOLGOZÁS"):
             all_rows = []
             all_meta = []
-            
-            with st.spinner("PDF-ek beolvasása..."):
-                for f in up_files:
-                    rows, meta = parse_interfood_pdf(f)
-                    if rows: all_rows.extend(rows)
-                    if meta: all_meta.extend(meta)
+            for f in up_files:
+                rows, meta = parse_interfood_pdf(f)
+                if rows: all_rows.extend(rows)
+                if meta: all_meta.extend(meta)
 
             if all_rows:
                 st.session_state.meta_data = all_meta
                 
-                # 1. Év és hét meghatározása
+                # Év és hét meghatározása (Behúzva a gomb alá!)
                 if all_meta:
                     y = all_meta[0].get('year', '2025')
                     w = all_meta[0].get('week', '1')
                 else:
                     y, w = '2025', '1'
                 
-                # 2. Feldolgozás (Ez már az IF/ELSE-en KÍVÜL van, de a gomb BELÜL)
+                # Feldolgozás folytatása
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
-                
                 st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
                 
                 st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")

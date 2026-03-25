@@ -670,8 +670,8 @@ def main():
                     
                     st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
                     st.rerun()
-                else:
-                    st.error("Nem sikerült adatot kinyerni a feltöltött fájlokból!")
+            else:
+                st.error("Nem sikerült adatot kinyerni a feltöltött fájlokból!")
         # <--- IDÁIG TART A GOMB! Itt ér véget a sidebar is.
 
     # --- ÉS INNEN TÖRÖLD KI A MARADÉKOT, AMI MÉG OTT VAN ---

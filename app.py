@@ -643,7 +643,7 @@ def main():
         st.divider()
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
-        if up_files and st.button("🚀 FELDOLGOZÁS"):
+if up_files and st.button("🚀 FELDOLGOZÁS"):
             all_rows = []
             all_meta = []
             
@@ -654,27 +654,24 @@ def main():
                 if meta:
                     all_meta.extend(meta)
 
-            # --- INNENTŐL MINDENNEK A GOMBON BELÜL KELL LENNIE ---
+            # --- INNENTŐL JÖTT BELJEBB A KÓD (8 szóköz/2 tab behúzás) ---
             if all_rows:
                 st.session_state.meta_data = all_meta
                 
-                # Biztonságos év/hét kinyerés (Csak ha van metaadat)
+                # Csak itt kérdezzük le az évet, mert itt már biztosan van metaadat!
                 if all_meta:
                     y = all_meta[0].get('year', '2025')
                     w = all_meta[0].get('week', '1')
                 else:
                     y, w = '2025', '1'
-                
-                # Étlepadatok lekérése
+
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
-                
-                # Összevonás (Maximum szabály és sorrend visszatöltés)
-                # Itt hívjuk meg a merge_data-t az összegyűjtött adatokkal
+
                 st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
-                
                 st.success(f"Sikeres feldolgozás: {len(st.session_state.mdf)} ügyfél.")
                 st.rerun()
+            # --- IDÁIG TART A GOMB LOGIKÁJA ---
             else:
                 st.error("Nem sikerült adatokat kinyerni a PDF-ből!")
             # --- IDÁIG TART A GOMB LOGIKÁJA ---

@@ -649,34 +649,29 @@ def main():
             
             for f in up_files:
                 rows, meta = parse_interfood_pdf(f)
-                if rows:
-                    all_rows.extend(rows)
-                if meta:
-                    all_meta.extend(meta)
+                if rows: all_rows.extend(rows)
+                if meta: all_meta.extend(meta)
 
-            # --- JAVÍTÁS: Csak akkor nyúlunk az adatokhoz, ha vannak! ---
+            # --- EZ A RÉSZ KERÜLT BELJEBB (A gomb alá) ---
             if all_rows:
-                # Elmentjük a metaadatokat a session_state-be
                 st.session_state.meta_data = all_meta
                 
-                # Biztonságos év/hét kinyerés (Csak ha van metaadat)
+                # Biztonságos év/hét kinyerés
                 if all_meta:
                     y = all_meta[0].get('year', '2025')
                     w = all_meta[0].get('week', '1')
                 else:
                     y, w = '2025', '1'
                 
-                # Étlepadatok lekérése
+                # Étlepadatok (Excel) lekérése
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
                 
-                # Összevonás (Itt hívjuk meg a merge_data-t)
-                df_final = merge_data(all_rows, p_map, sz_map)
+                # Összevonás (Merge) meghívása a helyes paraméterekkel
+                st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
                 
-                if not df_final.empty:
-                    st.session_state.mdf = df_final
-                    st.success(f"Sikeres feldolgozás: {len(df_final)} ügyfél.")
-                    st.rerun()
+                st.success(f"Sikeres feldolgozás: {len(st.session_state.mdf)} ügyfél.")
+                st.rerun()
             else:
                 st.error("Nem sikerült adatokat kinyerni a PDF-ből!")
                 

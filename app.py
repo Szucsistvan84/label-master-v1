@@ -643,7 +643,7 @@ def main():
         st.divider()
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
-        # --- FONTOS: A GOMB ÉS A BENNE LÉVŐ LOGIKA ---
+        # --- EZ A JÓ RÉSZ (656-681. sor között) ---
         if up_files and st.button("🚀 FELDOLGOZÁS"):
             all_rows = []
             all_meta = []
@@ -654,28 +654,28 @@ def main():
                     if rows: all_rows.extend(rows)
                     if meta: all_meta.extend(meta)
 
-            # --- EZ A RÉSZ KERÜLT BELJEBB (A gomb alá) ---
             if all_rows:
                 st.session_state.meta_data = all_meta
                 
-                # Biztonságos év/hét kinyerés (Csak ha már beolvastuk a PDF-et!)
                 if all_meta:
                     y = all_meta[0].get('year', '2025')
                     w = all_meta[0].get('week', '1')
                 else:
                     y, w = '2025', '1'
                 
-                # Étlepadatok (Excel) lekérése
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
                 
-                # Összevonás (Merge) hívása
                 st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
                 
                 st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
                 st.rerun()
             else:
                 st.error("Nem sikerült adatot kinyerni a feltöltött fájlokból!")
+        # <--- IDÁIG TART A GOMB! Itt ér véget a sidebar is.
+
+    # --- ÉS INNEN TÖRÖLD KI A MARADÉKOT, AMI MÉG OTT VAN ---
+    # (Töröld ki a 661-670. sorokat, amik így kezdődnek: y = all_meta[0]...)
             # --- IDÁIG TART A GOMB LOGIKÁJA ---
 
     # Itt folytatódik a kód többi része (st.session_state.mdf is not None...)

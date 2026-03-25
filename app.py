@@ -643,35 +643,34 @@ def main():
         st.divider()
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
-    if up_files and st.button("🚀 FELDOLGOZÁS"):
+        # A GOMB ÉS MINDEN, AMI BELÜL VAN:
+        if up_files and st.button("🚀 FELDOLGOZÁS"):
             all_rows = []
             all_meta = []
             
             for f in up_files:
                 rows, meta = parse_interfood_pdf(f)
-                if rows:
-                    all_rows.extend(rows)
-                if meta:
-                    all_meta.extend(meta)
+                if rows: all_rows.extend(rows)
+                if meta: all_meta.extend(meta)
 
-            # --- INNENTŐL JÖTT BELJEBB A KÓD (8 szóköz/2 tab behúzás) ---
+            # --- EZT A RÉSZT IS TOLD BE A GOMB ALÁ (8 szóközre a margótól) ---
             if all_rows:
                 st.session_state.meta_data = all_meta
                 
-                # Csak itt kérdezzük le az évet, mert itt már biztosan van metaadat!
                 if all_meta:
                     y = all_meta[0].get('year', '2025')
                     w = all_meta[0].get('week', '1')
                 else:
                     y, w = '2025', '1'
-
+                
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
-
+                
+                # Meghívjuk az összevonást
                 st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
+                
                 st.success(f"Sikeres feldolgozás: {len(st.session_state.mdf)} ügyfél.")
                 st.rerun()
-            # --- IDÁIG TART A GOMB LOGIKÁJA ---
             else:
                 st.error("Nem sikerült adatokat kinyerni a PDF-ből!")
             # --- IDÁIG TART A GOMB LOGIKÁJA ---

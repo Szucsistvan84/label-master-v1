@@ -657,19 +657,21 @@ def main():
             if all_rows:
                 st.session_state.meta_data = all_meta
                 
+                # 1. Év és hét meghatározása
                 if all_meta:
                     y = all_meta[0].get('year', '2025')
                     w = all_meta[0].get('week', '1')
                 else:
                     y, w = '2025', '1'
-                    
-                    p_map = get_etlap_dict(y, w, 5)
-                    sz_map = get_etlap_dict(y, w, 6)
-                    
-                    st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
-                    
-                    st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
-                    st.rerun()
+                
+                # 2. Feldolgozás (Ez már az IF/ELSE-en KÍVÜL van, de a gomb BELÜL)
+                p_map = get_etlap_dict(y, w, 5)
+                sz_map = get_etlap_dict(y, w, 6)
+                
+                st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
+                
+                st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
+                st.rerun()
             else:
                 st.error("Nem sikerült adatot kinyerni a feltöltött fájlokból!")
         # <--- IDÁIG TART A GOMB! Itt ér véget a sidebar is.

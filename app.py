@@ -643,34 +643,42 @@ def main():
         st.divider()
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
-        if up_files and st.button("🚀 FELDOLGOZÁS"):
+if up_files and st.button("🚀 FELDOLGOZÁS"):
             all_rows = []
             all_meta = []
             
-            # 1. Összes PDF beolvasása egy nagy listába
             for f in up_files:
                 rows, meta = parse_interfood_pdf(f)
-                if rows: all_rows.extend(rows)
-                if meta: all_meta.extend(meta)
+                if rows:
+                    all_rows.extend(rows)
+                if meta:
+                    all_meta.extend(meta)
 
-            # 2. Csak ha már minden PDF-et beolvastunk, akkor jön az összevonás
+            # --- JAVÍTÁS: Csak akkor nyúlunk az adatokhoz, ha vannak! ---
             if all_rows:
-                y = all_meta[0].get('year', '2025') if all_meta else '2025'
-                w = all_meta[0].get('week', '1') if all_meta else '1'
+                # Elmentjük a metaadatokat a session_state-be
+                st.session_state.meta_data = all_meta
                 
-                # Excel adatok a háttérszámításokhoz
+                # Biztonságos év/hét kinyerés (Csak ha van metaadat)
+                if all_meta:
+                    y = all_meta[0].get('year', '2025')
+                    w = all_meta[0].get('week', '1')
+                else:
+                    y, w = '2025', '1'
+                
+                # Étlepadatok lekérése
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
-
-                # Most hívjuk meg az ÚJ merge_data-t (Maximum szabállyal!)
-                final_df = merge_data(all_rows, p_map, sz_map)
                 
-                st.session_state.mdf = final_df
-                st.session_state.meta_data = all_meta
-                st.success(f"Sikeres feldolgozás: {len(final_df)} ügyfél.")
-                st.rerun()
+                # Összevonás (Itt hívjuk meg a merge_data-t)
+                df_final = merge_data(all_rows, p_map, sz_map)
+                
+                if not df_final.empty:
+                    st.session_state.mdf = df_final
+                    st.success(f"Sikeres feldolgozás: {len(df_final)} ügyfél.")
+                    st.rerun()
             else:
-                st.error("Nem találtam adatokat a PDF-ben.")
+                st.error("Nem sikerült adatokat kinyerni a PDF-ből!")
                 
     # --- TÁBLÁZAT ÉS LETÖLTÉSEK (Csak ha van adat) ---
     if st.session_state.mdf is not None:

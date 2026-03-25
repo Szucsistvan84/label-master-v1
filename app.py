@@ -662,11 +662,11 @@ def main():
                 st.session_state.meta_data = all_meta
                 
                 # Év és hét meghatározása (Garantáltan a gomb alatt!)
-                if all_meta:
-                    y = all_meta[0].get('year', '2025')
-                    w = all_meta[0].get('week', '1')
-                else:
-                    y, w = '2025', '1'
+            if all_meta:
+                y = all_meta[0].get('year', '2025')
+                w = all_meta[0].get('week', '1')
+            else:
+                y, w = '2025', '1'
                 
                 # Étlepadatok lekérése
                 p_map = get_etlap_dict(y, w, 5)

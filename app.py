@@ -627,14 +627,17 @@ def merge_data(raw_rows, p_map, sz_map):
         )
 
 def main():
-    # --- 1. INICIALIZÁLÁS ---
-    if 'weights' not in st.session_state: st.session_state.weights = {}
-    if 'mdf' not in st.session_state: st.session_state.mdf = None
-    if 'meta_data' not in st.session_state: st.session_state.meta_data = []
-    if 'editor_key' not in st.session_state: st.session_state.editor_key = 0
+    st.set_page_config(page_title="Interfood Label Master", layout="wide")
+    register_fonts()
 
-    st.set_page_config(page_title="Interfood Logisztika", layout="wide")
-    st.title("🏷️ Interfood Label Master v16")
+    if 'mdf' not in st.session_state:
+        st.session_state.mdf = None
+    if 'meta_data' not in st.session_state:
+        st.session_state.meta_data = []
+    if 'weights' not in st.session_state:
+        st.session_state.weights = {}
+    if 'editor_key' not in st.session_state:
+        st.session_state.editor_key = 0
 
     with st.sidebar:
         st.header("⚙️ Kezelés")
@@ -643,59 +646,67 @@ def main():
         st.divider()
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
-    if up_files and st.button("🚀 FELDOLGOZÁS"):
+        if up_files and st.button("🚀 FELDOLGOZÁS"):
             all_rows = []
             all_meta = []
-            for f in up_files:
-                rows, meta = parse_interfood_pdf(f)
-                if rows: all_rows.extend(rows)
-                if meta: all_meta.extend(meta)
+            
+            with st.spinner("PDF-ek beolvasása..."):
+                for f in up_files:
+                    rows, meta = parse_interfood_pdf(f)
+                    if rows:
+                        all_rows.extend(rows)
+                    if meta:
+                        all_meta.extend(meta)
 
             if all_rows:
                 st.session_state.meta_data = all_meta
                 
-                # Év és hét meghatározása (Behúzva a gomb alá!)
+                # Év és hét meghatározása (Garantáltan a gomb alatt!)
                 if all_meta:
                     y = all_meta[0].get('year', '2025')
                     w = all_meta[0].get('week', '1')
                 else:
                     y, w = '2025', '1'
                 
-                # Feldolgozás folytatása
+                # Étlepadatok lekérése
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
+                
+                # Adatok összefésülése
                 st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
                 
                 st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
                 st.rerun()
             else:
                 st.error("Nem sikerült adatot kinyerni a feltöltött fájlokból!")
-        # <--- IDÁIG TART A GOMB! Itt ér véget a sidebar is.
 
-    # --- ÉS INNEN TÖRÖLD KI A MARADÉKOT, AMI MÉG OTT VAN ---
-    # (Töröld ki a 661-670. sorokat, amik így kezdődnek: y = all_meta[0]...)
-            # --- IDÁIG TART A GOMB LOGIKÁJA ---
-
-    # Itt folytatódik a kód többi része (st.session_state.mdf is not None...)
-                
-    # --- TÁBLÁZAT ÉS LETÖLTÉSEK (Csak ha van adat) ---
+    # --- MEGJELENÍTÉS ÉS SZERKESZTÉS ---
     if st.session_state.mdf is not None:
-        st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
+        df = st.session_state.mdf.copy()
         
-        # 1. Adatszerkesztő
+        # Súlyok/Sorrend visszaállítása a session-ből
+        df['Sorrend'] = df['ID'].astype(str).map(st.session_state.weights).fillna(df['Sorrend'])
+        df = df.sort_values(by=['Sorrend', 'Név'], ascending=[True, True])
+
+        st.subheader(f"Szállítási lista")
+        
         edited_df = st.data_editor(
-            st.session_state.mdf,
+            df,
             key=f"editor_{st.session_state.editor_key}",
             num_rows="dynamic",
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
+            column_config={
+                "Sorrend": st.column_config.NumberColumn("Sorrend", format="%d", width="small"),
+                "ID": None
+            }
         )
 
-        # 2. Mentés gomb
-        if st.button("💾 SORREND MENTÉSE ÉS RENDEZÉS"):
+        # Mentés gomb a táblázat alatt
+        if st.button("💾 SORREND MENTÉSE"):
             temp_df = edited_df.copy()
-            temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999)
-            temp_df = temp_df.sort_values(by='Sorrend').reset_index(drop=True)
+            temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(int)
+            temp_df.sort_values('Sorrend', inplace=True)
             
             st.session_state.mdf = temp_df
             st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
@@ -705,12 +716,10 @@ def main():
 
         st.divider()
 
-        # 3. PDF GENERÁLÓ GOMBOK (Ezeket pótold!)
+        # PDF GENERÁLÓ GOMBOK
         meta = st.session_state.meta_data
-        
         c1, c2, c3, c4 = st.columns(4)
         
-        # ETIKETT
         c1.download_button(
             "📄 ETIKETTEK (PDF)", 
             create_label_pdf(edited_df, c_n, c_p), 
@@ -718,7 +727,6 @@ def main():
             use_container_width=True
         )
         
-        # MENETTERV
         c2.download_button(
             "📋 MENETTERV (PDF)", 
             create_manifest_pdf(edited_df, c_n, meta), 
@@ -726,21 +734,10 @@ def main():
             use_container_width=True
         )
         
-        # RAKLISTA
         c3.download_button(
             "📊 RAKLISTA (PDF)", 
             create_raklista_pdf(edited_df, meta), 
             "raklista.pdf", 
-            use_container_width=True
-        )
-        
-        # CSV EXPORT (hogy később visszatölthesd)
-        csv_data = edited_df.to_csv(index=False).encode('utf-8-sig')
-        c4.download_button(
-            "📥 EXPORT (CSV)", 
-            csv_data, 
-            "interfood_lista.csv", 
-            "text/csv", 
             use_container_width=True
         )
 

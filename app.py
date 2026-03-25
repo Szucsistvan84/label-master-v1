@@ -627,199 +627,116 @@ def merge_data(raw_rows, p_map, sz_map):
         )
 
 def main():
-    # --- UI ---
-    st.set_page_config(page_title="Interfood Logisztika", layout="wide")
+    # --- 1. INICIALIZÁLÁS ---
+    if 'weights' not in st.session_state: st.session_state.weights = {}
     if 'mdf' not in st.session_state: st.session_state.mdf = None
     if 'meta_data' not in st.session_state: st.session_state.meta_data = []
-    if 'etlap' not in st.session_state: st.session_state.etlap = {}
-    
+    if 'editor_key' not in st.session_state: st.session_state.editor_key = 0
+
+    st.set_page_config(page_title="Interfood Logisztika", layout="wide")
+    st.title("🏷️ Interfood Label Master v16")
+
     with st.sidebar:
         st.header("⚙️ Kezelés")
         c_n = st.text_input("Futár Neve", "Szűcs István")
         c_p = st.text_input("Telefonszám", "+36 20 886 8971")
         st.divider()
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
-    
-        # ... (a kód eleje változatlan) ...
-    
+
         if up_files and st.button("🚀 FELDOLGOZÁS"):
-            all_rows = []    # <--- EZ A SOR HIÁNYZOTT! Ez hozza létre a listát.
+            all_rows = []
             all_meta = []
             
-            for uploaded_file in up_files:
-                rows, meta = parse_interfood_pdf(uploaded_file)
-                all_rows.extend(rows)  # Most már nem lesz NameError, mert létezik az all_rows
-                all_meta.extend(meta)
-    
-            if all_rows:
-                # Innen megy tovább a kódod...
-                df = pd.DataFrame(all_rows)
-                # Itt jöhet a táblázat megjelenítése...
-                # Innen folytatódik a megjelenítés és a mentés...
-            
+            # 1. Összes PDF beolvasása egy nagy listába
             for f in up_files:
                 rows, meta = parse_interfood_pdf(f)
-                if rows:
-                    all_rows.extend(rows)
-                # Figyelem: extend-et használunk, és csak ha nem üres!
-                if meta:
-                    all_meta.extend(meta)
-        
-                # CSAK AKKOR LÉPÜNK TOVÁBB, HA VAN ADAT
-                if all_rows and all_meta:
-                    # Biztonsági mentés: ha az első elem valamiért mégis rossz lenne
-                    try:
-                        first_m = all_meta[0]
-                        y = first_m.get('year', '2026')
-                        w = first_m.get('week', '1')
-                    except (IndexError, TypeError):
-                        y, w = '2026', '1'
-    
-                st.session_state.meta_data = all_meta
+                if rows: all_rows.extend(rows)
+                if meta: all_meta.extend(meta)
+
+            # 2. Csak ha már minden PDF-et beolvastunk, akkor jön az összevonás
+            if all_rows:
+                y = all_meta[0].get('year', '2025') if all_meta else '2025'
+                w = all_meta[0].get('week', '1') if all_meta else '1'
                 
-                # Étlepadatok lekérése (Péntek=5, Szombat=6)
+                # Excel adatok a háttérszámításokhoz
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
+
+                # Most hívjuk meg az ÚJ merge_data-t (Maximum szabállyal!)
+                final_df = merge_data(all_rows, p_map, sz_map)
                 
-                final_rows = merge_data(all_rows, p_map, sz_map)
-                
-                df = pd.DataFrame(final_rows)
-                # Alapértelmezett sorrend: az eredeti PDF sorrendje
-                df['Sorrend'] = range(1, len(df) + 1)
-                
-                st.session_state.mdf = df
-                st.success(f"Sikeres feldolgozás: {len(df)} sor betöltve!")
+                st.session_state.mdf = final_df
+                st.session_state.meta_data = all_meta
+                st.success(f"Sikeres feldolgozás: {len(final_df)} ügyfél.")
                 st.rerun()
             else:
-                st.error("Nem sikerült adatokat kinyerni a PDF-ből. Ellenőrizd a fájlt!")
-            mdf = merge_data(all_rows)
-    
-            # --- AUTOMATIKUS ÉTLAP KEZELÉS (Most már a gombon belül!) ---
-            if all_meta and mdf is not None:
-                y, w = all_meta[0]['year'], all_meta[0]['week']
-                with st.spinner(f"Pénteki és Szombati étlapok betöltése..."):
-                    # JAVÍTVA: get_etlap_dict-et hívunk, mert így nevezted el fent!
-                    etlap = get_etlap_dict(y, w)
-                    st.session_state.etlap = etlap
-    
-                    if etlap:
-                        for idx, row in mdf.iterrows():
-                            total_sum = 0
-                            # Az ID-ból (pl. P-410511) kinyerjük az első betűt
-                            row_id = str(row.get('ID', ''))
-                            day_prefix = row_id[0] if row_id else "P"
-    
-                            # A rendelés sztringből kiszedjük a kódokat
-                            order_string = str(row['Rendelés_Full'])
-                            matches = re.findall(r'(\d+)-([A-Z0-9*+]+)', order_string)
-    
-                            for qty, code in matches:
-                                clean_c = code.replace('*', '').strip().upper()
-                                # Keresés: pl. "P_A" vagy "Z_AK"
-                                lookup_key = f"{day_prefix}_{clean_c}"
-    
-                                if lookup_key in etlap:
-                                    total_sum += int(qty) * etlap[lookup_key]['ar']
-    
-                            if total_sum > 0:
-                                mdf.at[idx, 'Pénz'] = f"{total_sum} Ft"
-    
-                    st.session_state.mdf = mdf
-                    st.session_state.meta_data = all_meta
-                    st.rerun()
-    
-        # --- CSV Visszatöltés (Javított, típusbiztos verzió) ---
-        st.divider()
-        st.subheader("2. CSV Visszatöltés")
-        up_csv = st.file_uploader("Exportált CSV betöltése", type=['csv'], key="csv_fixer")
-    
-        if up_csv and st.button("📥 SORREND FRISSÍTÉSE"):
-            try:
-                # 1. CSV beolvasása
-                loaded_df = pd.read_csv(up_csv)
-    
-                if st.session_state.mdf is not None:
-                    current_df = st.session_state.mdf.copy()
-    
-                    # 2. A PDF adatok ID-jéből csak a számokat tartjuk meg (P-410511 -> 410511)
-                    current_df['match_id'] = current_df['ID'].astype(str).str.replace(r'\D', '', regex=True)
-    
-                    # 3. A CSV ID-jéből is biztosítjuk, hogy csak szám maradjon (stringként)
-                    loaded_df['match_id'] = loaded_df['ID'].astype(str).str.replace(r'\D', '', regex=True)
-    
-                    # 4. Létrehozunk egy "szótárt" a párosításhoz: { '410511': 1.0, '489751': 2.0 ... }
-                    sorrend_dict = loaded_df.set_index('match_id')['Sorrend'].to_dict()
-    
-                    # 5. Sorrend kiosztása az új táblázatban
-                    if 'Sorrend' in current_df.columns:
-                        current_df = current_df.drop(columns=['Sorrend'])
-    
-                    current_df['Sorrend'] = current_df['match_id'].map(sorrend_dict)
-    
-                    # 6. Tisztítás és mentés
-                    current_df['Sorrend'] = pd.to_numeric(current_df['Sorrend'], errors='coerce').fillna(999).astype(float)
-                    st.session_state.mdf = current_df.sort_values('Sorrend').drop(columns=['match_id'])
-    
-                    st.success("A sorrend sikeresen párosítva az ügyfélkódok alapján!")
-                    st.rerun()
-                else:
-                    st.error("Előbb olvasd be a PDF-et!")
-            except Exception as e:
-                st.error(f"Hiba a beolvasáskor: {e}")
-    
-        # --- INFÓ PANEL ---
-        if st.session_state.meta_data:
-            st.divider()
-            m = st.session_state.meta_data[0]
-            st.info(f"📅 {m.get('year')}.{m.get('week')}. hét, {m.get('day')}")
-            if not st.session_state.etlap:
-                st.warning("⚠️ Az étlap üres!")
-            else:
-                st.success(f"✅ {len(st.session_state.etlap)} étel betöltve.")
-        # ----------------------------------------------------------------
-     
-        # 3. MENTÉS ÉS ÚJRARENDEZÉS GOMB
-        if st.button("💾 MÓDOSÍTÁSOK MENTÉSE ÉS ÚJRARENDEZÉS"):
+                st.error("Nem találtam adatokat a PDF-ben.")
+                
+    # --- TÁBLÁZAT ÉS LETÖLTÉSEK (Csak ha van adat) ---
+    if st.session_state.mdf is not None:
+        st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
+        
+        # 1. Adatszerkesztő
+        edited_df = st.data_editor(
+            st.session_state.mdf,
+            key=f"editor_{st.session_state.editor_key}",
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # 2. Mentés gomb
+        if st.button("💾 SORREND MENTÉSE ÉS RENDEZÉS"):
             temp_df = edited_df.copy()
-            
-            # Tisztítjuk az ID-t
-            temp_df['temp_id'] = temp_df['ID'].str.replace(r'[^\d]', '', regex=True).replace('', '0').astype(int)
-            
-            # --- EZT A SORT SZÚRD BE MOST: ---
-            temp_df['Pénz'] = temp_df['Pénz'].str.replace(r'[^\d-]', '', regex=True).replace('', '0')
-            # --------------------------------
-            
-            # Sorrend kényszerítése szám típusra
-            temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(float)
-            
-            # Fizikai sorrendezés az adatkeretben (hogy a PDF is jó legyen)
+            temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999)
             temp_df = temp_df.sort_values(by='Sorrend').reset_index(drop=True)
             
-            # Mentés a központi állapotba
             st.session_state.mdf = temp_df
-            # Frissítjük a súlyokat is a merge_data függvény számára
             st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
-            
-            # Kulcs növelése -> a táblázat ugrani fog az új sorrendbe
             st.session_state.editor_key += 1
-            
-            st.success("Sorrend elmentve és lista újrarendezve!")
+            st.success("Sorrend elmentve!")
             st.rerun()
-    
+
         st.divider()
-        
-        # 4. LETÖLTÉSEK (Biztonságos j_info kinyeréssel)
+
+        # 3. PDF GENERÁLÓ GOMBOK (Ezeket pótold!)
         meta = st.session_state.meta_data
-        j_info = ", ".join(list(set([str(m.get('jarat', '')) for m in meta if m.get('jarat')]))) if meta else "Nincs adat"
         
         c1, c2, c3, c4 = st.columns(4)
-    
-        c1.download_button("📄 ETIKETTEK (PDF)", create_label_pdf(edited_df, c_n, c_p), "etikettek.pdf", use_container_width=True)
-        c2.download_button("📋 MENETTERV (PDF)", create_manifest_pdf(edited_df, c_n, meta), "menetterv.pdf", use_container_width=True)
-        c3.download_button("📦 RAKLISTA (PDF)", create_raklista_pdf(edited_df, j_info, meta), f"raklista_{j_info}.pdf", use_container_width=True)
-    
+        
+        # ETIKETT
+        c1.download_button(
+            "📄 ETIKETTEK (PDF)", 
+            create_label_pdf(edited_df, c_n, c_p), 
+            "etikettek.pdf", 
+            use_container_width=True
+        )
+        
+        # MENETTERV
+        c2.download_button(
+            "📋 MENETTERV (PDF)", 
+            create_manifest_pdf(edited_df, c_n, meta), 
+            "menetterv.pdf", 
+            use_container_width=True
+        )
+        
+        # RAKLISTA
+        c3.download_button(
+            "📊 RAKLISTA (PDF)", 
+            create_raklista_pdf(edited_df, meta), 
+            "raklista.pdf", 
+            use_container_width=True
+        )
+        
+        # CSV EXPORT (hogy később visszatölthesd)
         csv_data = edited_df.to_csv(index=False).encode('utf-8-sig')
-        c4.download_button("📊 CSV EXPORT", csv_data, "szallitasi_lista.csv", "text/csv", use_container_width=True)
+        c4.download_button(
+            "📥 EXPORT (CSV)", 
+            csv_data, 
+            "interfood_lista.csv", 
+            "text/csv", 
+            use_container_width=True
+        )
 
 if __name__ == "__main__":
     main()

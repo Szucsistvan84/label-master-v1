@@ -643,7 +643,7 @@ def main():
         st.divider()
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
-if up_files and st.button("🚀 FELDOLGOZÁS"):
+    if up_files and st.button("🚀 FELDOLGOZÁS"):
             all_rows = []
             all_meta = []
             

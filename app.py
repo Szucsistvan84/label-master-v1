@@ -639,7 +639,7 @@ def main():
     if 'editor_key' not in st.session_state:
         st.session_state.editor_key = 0
 
-    # Itt hozzuk létre a változókat, amiket később a gomboknál is használunk
+    # 1. SIDEBAR - Itt dől el, mi hova kerül
     with st.sidebar:
         st.header("⚙️ Kezelés")
         c_n = st.text_input("Futár Neve", "Szűcs István")
@@ -647,7 +647,7 @@ def main():
         st.divider()
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
-    if up_files and st.button("🚀 FELDOLGOZÁS"):
+        if up_files and st.button("🚀 FELDOLGOZÁS"):
             all_rows = []
             all_meta = []
             
@@ -661,41 +661,33 @@ def main():
 
             if all_rows:
                 st.session_state.meta_data = all_meta
-                
-                # --- BIZTONSÁGI JAVÍTÁS ---
-                # 1. Beállítunk egy alapértelmezett szezont (amit a PDF-ben láttunk)
-                y, w = '2026', '13' 
+                y, w = '2026', '13' # Alapértelmezett a feltöltött PDF-ek alapján
 
-                # 2. Csak akkor próbálunk frissíteni, ha tényleg találtunk metaadatot
                 if all_meta and len(all_meta) > 0:
                     try:
-                        # Megpróbáljuk kivenni az adatot, de ha hibás a szerkezet, nem omlunk össze
-                        first_item = all_meta[0]
-                        if isinstance(first_item, dict):
-                            y = first_item.get('year', y)
-                            w = first_item.get('week', w)
-                    except Exception:
-                        pass # Marad a 2026/13
+                        y = all_meta[0].get('year', y)
+                        w = all_meta[0].get('week', w)
+                    except:
+                        pass
                 
-                # 3. Most már biztosan vannak változóink, jöhet az étlap lekérése
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
-                
                 st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
                 
-                st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél (Szezon: {y}/{w})")
+                st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
                 st.rerun()
             else:
-                st.error("Nem sikerült adatot kinyerni a feltöltött fájlokból!")
+                st.error("Nem sikerült adatot kinyerni!")
 
-    # MEGJELENÍTÉS ÉS SZERKESZTÉS
+    # 2. MEGJELENÍTÉS (Középen)
     if st.session_state.mdf is not None:
         df = st.session_state.mdf.copy()
         
-        # Súlyok/Sorrend visszaállítása a session-ből
+        # Biztosítjuk, hogy legyen Sorrend oszlop
+        if 'Sorrend' not in df.columns:
+            df['Sorrend'] = 999
+            
         df['Sorrend'] = df['ID'].astype(str).map(st.session_state.weights).fillna(df['Sorrend'])
-        
-        # JAVÍTÁS: Csak a 'Sorrend' alapján rendezünk, mert a 'Név' oszlop hiányozhat
         df = df.sort_values(by=['Sorrend'], ascending=[True])
 
         st.subheader("Szállítási lista")
@@ -724,29 +716,24 @@ def main():
 
         st.divider()
 
-        # PDF GENERÁLÓ GOMBOK - Itt volt a hiba, most már minden a helyén
+        # PDF GENERÁLÁS (Itt már látja a c_n és c_p változókat)
         meta = st.session_state.meta_data
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         
         c1.download_button(
-            "📄 ETIKETTEK (PDF)", 
+            "📄 ETIKETTEK", 
             create_label_pdf(edited_df, c_n, c_p), 
-            "etikettek.pdf", 
-            use_container_width=True
+            "etikettek.pdf", use_container_width=True
         )
-        
         c2.download_button(
-            "📋 MENETTERV (PDF)", 
+            "📋 MENETTERV", 
             create_manifest_pdf(edited_df, c_n, meta), 
-            "menetterv.pdf", 
-            use_container_width=True
+            "menetterv.pdf", use_container_width=True
         )
-        
         c3.download_button(
-            "📊 RAKLISTA (PDF)", 
+            "📊 RAKLISTA", 
             create_raklista_pdf(edited_df, meta), 
-            "raklista.pdf", 
-            use_container_width=True
+            "raklista.pdf", use_container_width=True
         )
 
 if __name__ == "__main__":

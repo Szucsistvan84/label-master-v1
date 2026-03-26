@@ -714,30 +714,30 @@ def main():
 
     st.divider()
 
-        # PDF GENERÁLÓ GOMBOK
-        meta = st.session_state.meta_data
-        c1, c2, c3, c4 = st.columns(4)
-        
-        c1.download_button(
-            "📄 ETIKETTEK (PDF)", 
-            create_label_pdf(edited_df, c_n, c_p), 
-            "etikettek.pdf", 
-            use_container_width=True
-        )
-        
-        c2.download_button(
-            "📋 MENETTERV (PDF)", 
-            create_manifest_pdf(edited_df, c_n, meta), 
-            "menetterv.pdf", 
-            use_container_width=True
-        )
-        
-        c3.download_button(
-            "📊 RAKLISTA (PDF)", 
-            create_raklista_pdf(edited_df, meta), 
-            "raklista.pdf", 
-            use_container_width=True
-        )
+    # PDF GENERÁLÓ GOMBOK
+    meta = st.session_state.meta_data
+    c1, c2, c3, c4 = st.columns(4)
+    
+    c1.download_button(
+        "📄 ETIKETTEK (PDF)", 
+        create_label_pdf(edited_df, c_n, c_p), 
+        "etikettek.pdf", 
+        use_container_width=True
+    )
+    
+    c2.download_button(
+        "📋 MENETTERV (PDF)", 
+        create_manifest_pdf(edited_df, c_n, meta), 
+        "menetterv.pdf", 
+        use_container_width=True
+    )
+    
+    c3.download_button(
+        "📊 RAKLISTA (PDF)", 
+        create_raklista_pdf(edited_df, meta), 
+        "raklista.pdf", 
+        use_container_width=True
+    )
 
 if __name__ == "__main__":
     main()

@@ -659,15 +659,18 @@ def main():
                     if meta:
                         all_meta.extend(meta)
 
+            # --- INNENTŐL FIGYELJ ---
             if all_rows:
                 st.session_state.meta_data = all_meta
                 
-                if all_meta:
+                # Csak akkor keressük az évet/hetet, ha van metaadatunk!
+                if all_meta and len(all_meta) > 0:
                     y = all_meta[0].get('year', '2025')
                     w = all_meta[0].get('week', '1')
                 else:
                     y, w = '2025', '1'
                 
+                # Étlepadatok és összefésülés
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
                 st.session_state.mdf = merge_data(all_rows, p_map, sz_map)

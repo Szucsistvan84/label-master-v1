@@ -647,7 +647,19 @@ def main():
         st.divider()
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
-        if all_rows:
+    if up_files and st.button("🚀 FELDOLGOZÁS"):
+            all_rows = []
+            all_meta = []
+            
+            with st.spinner("PDF-ek beolvasása..."):
+                for f in up_files:
+                    rows, meta = parse_interfood_pdf(f)
+                    if rows:
+                        all_rows.extend(rows)
+                    if meta:
+                        all_meta.extend(meta)
+
+            if all_rows:
                 st.session_state.meta_data = all_meta
                 
                 # --- BIZTONSÁGI JAVÍTÁS ---

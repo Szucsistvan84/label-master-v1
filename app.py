@@ -630,10 +630,7 @@ def main():
     st.set_page_config(page_title="Interfood Label Master", layout="wide")
     register_fonts()
 
-    # 1. ALAPÉRTELMEZETT VÁLTOZÓK (Hogy ne legyen NameError)
-    c_n = "Szűcs István"
-    c_p = "+36 20 886 8971"
-
+    # 1. SESSION STATE INICIALIZÁLÁSA (Itt tároljuk a futár adatait is)
     if 'mdf' not in st.session_state:
         st.session_state.mdf = None
     if 'meta_data' not in st.session_state:
@@ -642,13 +639,17 @@ def main():
         st.session_state.weights = {}
     if 'editor_key' not in st.session_state:
         st.session_state.editor_key = 0
+    if 'c_n' not in st.session_state:
+        st.session_state.c_n = "Szűcs István"
+    if 'c_p' not in st.session_state:
+        st.session_state.c_p = "+36 20 886 8971"
 
     # 2. OLDALSÁV (SIDEBAR)
     with st.sidebar:
         st.header("⚙️ Kezelés")
-        # Felülírjuk az alapértelmezettet a felhasználó által beírtra
-        c_n = st.text_input("Futár Neve", c_n)
-        c_p = st.text_input("Telefonszám", c_p)
+        # Közvetlenül a session_state-be írjuk az adatokat
+        st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
+        st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
         st.divider()
         
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
@@ -719,18 +720,18 @@ def main():
 
         st.divider()
 
-        # PDF LETÖLTÉS - Itt már tuti biztosan létezik c_n és c_p
+        # PDF LETÖLTÉS - A session_state-ből hívjuk le az adatokat
         meta = st.session_state.meta_data
         c1, c2, c3 = st.columns(3)
         
         c1.download_button(
             "📄 ETIKETTEK", 
-            create_label_pdf(edited_df, c_n, c_p), 
+            create_label_pdf(edited_df, st.session_state.c_n, st.session_state.c_p), 
             "etikettek.pdf", use_container_width=True
         )
         c2.download_button(
             "📋 MENETTERV", 
-            create_manifest_pdf(edited_df, c_n, meta), 
+            create_manifest_pdf(edited_df, st.session_state.c_n, meta), 
             "menetterv.pdf", use_container_width=True
         )
         c3.download_button(

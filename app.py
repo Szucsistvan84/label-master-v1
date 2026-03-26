@@ -377,9 +377,18 @@ def create_manifest_pdf(df, fn, meta_list):
     mar_kiirt_osszegek = set()
     # ---------------------------------------------------------
 
-    jaratok = ", ".join(sorted(list(set([str(m.get('jarat', '')) for m in meta_list if isinstance(m, dict) and m.get('jarat')]))))
-    ev = meta_list[0].get('year', '') if meta_list else ""
-    het = meta_list[0].get('week', '') if meta_list else ""
+    # BIZTONSÁGOS ADATLEKÉRÉS (A 4003-AS PDF MIATT)
+    ev, het, jaratok = "", "", ""
+    if meta_list and len(meta_list) > 0:
+        # Év és hét kinyerése az első érvényes adatból
+        first_m = next((m for m in meta_list if isinstance(m, dict)), None)
+        if first_m:
+            ev = first_m.get('year', '')
+            het = first_m.get('week', '')
+        
+        # Járatszámok összefűzése (csak a létező és dict típusú elemekből)
+        j_list = [str(m.get('jarat', '')) for m in meta_list if isinstance(m, dict) and m.get('jarat')]
+        jaratok = ", ".join(sorted(list(set(j_list))))
     nap = meta_list[0].get('day', '') if meta_list else ""
     fejlec_text = f"MENETTERV - Járat: {jaratok} | {ev}. év, {het}. hét | {nap}"
 

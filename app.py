@@ -688,11 +688,15 @@ def main():
             else:
                 st.error("Nem sikerült adatot kinyerni a feltöltött fájlokból!")
 
-    # MEGJELENÍTÉS (Most már látja a c_n és c_p változókat is!)
+    # MEGJELENÍTÉS ÉS SZERKESZTÉS
     if st.session_state.mdf is not None:
         df = st.session_state.mdf.copy()
+        
+        # Súlyok/Sorrend visszaállítása a session-ből
         df['Sorrend'] = df['ID'].astype(str).map(st.session_state.weights).fillna(df['Sorrend'])
-        df = df.sort_values(by=['Sorrend', 'Név'], ascending=[True, True])
+        
+        # JAVÍTÁS: Csak a 'Sorrend' alapján rendezünk, mert a 'Név' oszlop hiányozhat
+        df = df.sort_values(by=['Sorrend'], ascending=[True])
 
         st.subheader("Szállítási lista")
         

@@ -377,7 +377,7 @@ def create_manifest_pdf(df, fn, meta_list):
     mar_kiirt_osszegek = set()
     # ---------------------------------------------------------
 
-    jaratok = ", ".join(sorted(list(set([str(m.get('jarat', '')) for m in meta_list if m.get('jarat')]))))
+    jaratok = ", ".join(sorted(list(set([str(m.get('jarat', '')) for m in meta_list if isinstance(m, dict) and m.get('jarat')]))))
     ev = meta_list[0].get('year', '') if meta_list else ""
     het = meta_list[0].get('week', '') if meta_list else ""
     nap = meta_list[0].get('day', '') if meta_list else ""

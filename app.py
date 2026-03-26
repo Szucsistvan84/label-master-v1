@@ -630,6 +630,7 @@ def main():
     st.set_page_config(page_title="Interfood Label Master", layout="wide")
     register_fonts()
 
+    # Session State inicializálása
     if 'mdf' not in st.session_state:
         st.session_state.mdf = None
     if 'meta_data' not in st.session_state:
@@ -639,12 +640,13 @@ def main():
     if 'editor_key' not in st.session_state:
         st.session_state.editor_key = 0
 
-    # 1. SIDEBAR - Itt dől el, mi hova kerül
+    # 1. OLDALSÁV (SIDEBAR) - Minden beállítás itt marad
     with st.sidebar:
         st.header("⚙️ Kezelés")
         c_n = st.text_input("Futár Neve", "Szűcs István")
         c_p = st.text_input("Telefonszám", "+36 20 886 8971")
         st.divider()
+        
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
         if up_files and st.button("🚀 FELDOLGOZÁS"):
@@ -661,9 +663,9 @@ def main():
 
             if all_rows:
                 st.session_state.meta_data = all_meta
-                y, w = '2026', '13' # Alapértelmezett a feltöltött PDF-ek alapján
+                y, w = '2026', '13' # Alapértelmezett a PDF-ek alapján
 
-                if all_meta and len(all_meta) > 0:
+                if all_meta:
                     try:
                         y = all_meta[0].get('year', y)
                         w = all_meta[0].get('week', w)
@@ -676,14 +678,12 @@ def main():
                 
                 st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
                 st.rerun()
-            else:
-                st.error("Nem sikerült adatot kinyerni!")
 
-    # 2. MEGJELENÍTÉS (Középen)
+    # 2. FŐABLAK (Középen)
     if st.session_state.mdf is not None:
         df = st.session_state.mdf.copy()
         
-        # Biztosítjuk, hogy legyen Sorrend oszlop
+        # Oszlop ellenőrzés és rendezés
         if 'Sorrend' not in df.columns:
             df['Sorrend'] = 999
             
@@ -692,6 +692,7 @@ def main():
 
         st.subheader("Szállítási lista")
         
+        # Táblázat szerkesztő
         edited_df = st.data_editor(
             df,
             key=f"editor_{st.session_state.editor_key}",
@@ -716,7 +717,7 @@ def main():
 
         st.divider()
 
-        # PDF GENERÁLÁS (Itt már látja a c_n és c_p változókat)
+        # 3. PDF LETÖLTÉS (Garantáltan látja c_n és c_p változókat)
         meta = st.session_state.meta_data
         c1, c2, c3 = st.columns(3)
         

@@ -700,19 +700,19 @@ def main():
             }
         )
 
-        # Mentés gomb a táblázat alatt
-        if st.button("💾 SORREND MENTÉSE"):
-            temp_df = edited_df.copy()
-            temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(int)
-            temp_df.sort_values('Sorrend', inplace=True)
-            
-            st.session_state.mdf = temp_df
-            st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
-            st.session_state.editor_key += 1
-            st.success("Sorrend elmentve!")
-            st.rerun()
+    # Mentés gomb a táblázat alatt
+    if st.button("💾 SORREND MENTÉSE"):
+        temp_df = edited_df.copy()
+        temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(int)
+        temp_df.sort_values('Sorrend', inplace=True)
+        
+        st.session_state.mdf = temp_df
+        st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
+        st.session_state.editor_key += 1
+        st.success("Sorrend elmentve!")
+        st.rerun()
 
-        st.divider()
+    st.divider()
 
         # PDF GENERÁLÓ GOMBOK
         meta = st.session_state.meta_data

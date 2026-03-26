@@ -662,16 +662,19 @@ def main():
             if all_rows:
                 st.session_state.meta_data = all_meta
                 
-                # VÉDELEM: Csak akkor keressük az évet/hetet, ha van metaadatunk!
+                # BIZTONSÁGI ELLENŐRZÉS: Csak akkor nyúlunk hozzá, ha nem üres!
                 if all_meta and len(all_meta) > 0:
                     y = all_meta[0].get('year', '2025')
                     w = all_meta[0].get('week', '1')
                 else:
+                    # Ha nincs metaadat, használjunk alapértelmezettet, ne omoljon össze
                     y, w = '2025', '1'
                 
-                # Étlepadatok és összefésülés
+                # Étlepadatok lekérése
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
+                
+                # Adatok összefésülése
                 st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
                 
                 st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")

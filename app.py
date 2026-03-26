@@ -660,24 +660,25 @@ def main():
                         all_meta.extend(meta)
 
             if all_rows:
+                # --- BIZTONSÁGI JAVÍTÁS ---
+                # Alapértelmezett értékek (ha a 4003-asból nem jönne át)
+                current_year = "2026"
+                current_week = "13"
+
+                # Ha van bármilyen talált metaadat, frissítjük az alapértelmezettet
+                if all_meta and len(all_meta) > 0:
+                    current_year = all_meta[0].get('year', current_year)
+                    current_week = all_meta[0].get('week', current_week)
+                
                 st.session_state.meta_data = all_meta
                 
-                # BIZTONSÁGI ELLENŐRZÉS: Csak akkor nyúlunk hozzá, ha nem üres!
-                if all_meta and len(all_meta) > 0:
-                    y = all_meta[0].get('year', '2025')
-                    w = all_meta[0].get('week', '1')
-                else:
-                    # Ha nincs metaadat, használjunk alapértelmezettet, ne omoljon össze
-                    y, w = '2025', '1'
+                # Az étlaphoz már a biztos változókat használjuk
+                p_map = get_etlap_dict(current_year, current_week, 5)
+                sz_map = get_etlap_dict(current_year, current_week, 6)
                 
-                # Étlepadatok lekérése
-                p_map = get_etlap_dict(y, w, 5)
-                sz_map = get_etlap_dict(y, w, 6)
-                
-                # Adatok összefésülése
                 st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
                 
-                st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
+                st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél (Szezon: {current_year}/{current_week})")
                 st.rerun()
             else:
                 st.error("Nem sikerült adatot kinyerni a feltöltött fájlokból!")

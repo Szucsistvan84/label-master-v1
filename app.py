@@ -720,7 +720,7 @@ def main():
 
         st.divider()
 
-        # PDF LETÖLTÉS - A session_state-ből hívjuk le az adatokat
+        # 3. PDF LETÖLTÉS - Javított hivatkozásokkal
         meta = st.session_state.meta_data
         c1, c2, c3 = st.columns(3)
         

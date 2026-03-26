@@ -733,8 +733,13 @@ def main():
 
         st.divider()
 
-        # 3. PDF LETÖLTÉS - Javított hivatkozásokkal
-        meta = st.session_state.meta_data
+        # 3. PDF LETÖLTÉS - Végleges, stabil verzió
+        meta = st.session_state.meta_data if st.session_state.meta_data else []
+        
+        # Kiszámoljuk a járatszámokat itt is, hogy minden gomb lássa
+        j_list = [str(m.get('jarat', '')) for m in meta if isinstance(m, dict) and m.get('jarat')]
+        aktualis_jaratok = ", ".join(sorted(list(set(j_list))))
+
         c1, c2, c3 = st.columns(3)
         
         c1.download_button(
@@ -749,7 +754,7 @@ def main():
         )
         c3.download_button(
             "📊 RAKLISTA", 
-            create_raklista_pdf(edited_df, jaratok, meta), # Hozzáadtuk a 'jaratok' változót!
+            create_raklista_pdf(edited_df, aktualis_jaratok, meta), 
             "raklista.pdf", use_container_width=True
         )
 

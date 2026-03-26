@@ -259,344 +259,344 @@ def merge_data(raw_rows, p_map, sz_map):
 
     return res
 
-    def create_label_pdf(df, fn, ft):
-        """Etikett generálás biztonsági ellenőrzésekkel és hibajavítással"""
-        # --- BIZTONSÁGI MENTÉS ÉS ELLENŐRZÉS ---
-        if df is None or df.empty:
-            return None
+def create_label_pdf(df, fn, ft):
+    """Etikett generálás biztonsági ellenőrzésekkel és hibajavítással"""
+    # --- BIZTONSÁGI MENTÉS ÉS ELLENŐRZÉS ---
+    if df is None or df.empty:
+        return None
+
+    # Ha nincs Sorrend oszlop (ami a KeyError-t okozta), pótoljuk
+    if 'Sorrend' not in df.columns:
+        df['Sorrend'] = range(1, len(df) + 1)
+
+    # Sorrend szerinti rendezés biztonságosan
+    df = df.sort_values('Sorrend')
+
+    f_reg, f_bold = register_fonts()
+    buf = BytesIO()
+    p = canvas.Canvas(buf, pagesize=A4)
+    lw, lh = 70 * mm, 42.42 * mm
+    inner_m = 5.5 * mm
+
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9, encoding='utf-8')
+    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1, encoding='utf-8')
+
+    total_slots = math.ceil(len(df) / 21) * 21
+
+    for i in range(total_slots):
+        idx = i % 21
+        if idx == 0 and i > 0: p.showPage()
+        col, row_i = idx % 3, 6 - (idx // 3)
+        x, y = col * lw, row_i * lh
+
+        if i < len(df):
+            r = df.iloc[i]
+            top_y = y + lh - inner_m
+
+            # Hétvégi jelölés (szürke sáv az ügyintéző alatt)
+            if r.get('Hétvégi'):
+                p.saveState()
+                p.setFillColor(colors.lightgrey)
+                p.rect(x + 1 * mm, top_y - 8.5 * mm, lw - 2 * mm, 4.5 * mm, fill=1, stroke=0)
+                p.restoreState()
+
+            # 1. SOR: Sorszám és ID
+            sorrend_val = int(r['Sorrend']) if pd.notnull(r['Sorrend']) else (i + 1)
+            p.setFont(f_bold, 10);
+            p.drawString(x + inner_m, top_y - 3 * mm, f"#{sorrend_val}")
+            p.setFont(f_reg, 8);
+            p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {r.get('ID', 'N/A')}")
+
+            # 2. SOR: Ügyintéző és Telefon
+            p.setFont(f_bold, 9);
+            p.drawString(x + inner_m, top_y - 8 * mm, str(r.get('Ügyintéző', ''))[:28])
+            p.setFont(f_reg, 8);
+            p.drawRightString(x + lw - inner_m, top_y - 8 * mm, str(r.get('Telefon', '')))
+
+            # 3. SOR: Cím
+            p.setFont(f_reg, 7.5);
+            p.drawString(x + inner_m, top_y - 12 * mm, str(r.get('Cím', ''))[:45])
+
+            # 4. KÖZÉPSŐ RÉSZ: Rendelések összevonva
+            rendeles_text = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
+            para = Paragraph(rendeles_text, order_s)
+            para.wrap(lw - 2 * inner_m, 12 * mm)
+            para.drawOn(p, x + inner_m, y + inner_m + 7 * mm)  # Kicsit feljebb toltam a pénznek
+
+            # --- PÉNZ ÉS DARABSZÁM (Az etikett alja) ---
+            # Megjelenítjük a pénzt, ha van "Ft" benne (PDF-ből jött), egyébként üresen hagyjuk
+            penz_megjelenites = str(r.get('Pénz', ''))
+            if "Ft" not in penz_megjelenites: penz_megjelenites = ""
+
+            p.setFont(f_bold, 10);
+            p.drawString(x + inner_m, y + inner_m + 1 * mm, penz_megjelenites)
+            p.setFont(f_bold, 9);
+            p.drawRightString(x + lw - inner_m, y + inner_m + 1 * mm, f"{int(r.get('Összesen', 0))} db")
+
+            # Vonal és Futár adatok
+            p.setDash(1, 0)
+            p.setLineWidth(0.2)
+            p.line(x + 5 * mm, y + 4.5 * mm, x + lw - 5 * mm, y + 4.5 * mm)
+            p.setFont(f_reg, 6);
+            p.drawCentredString(x + lw / 2, y + 2 * mm, f"Futár: {fn} | {ft}")
+
+        else:
+            # Marketing etikett változatlanul
+            p.setDash(1, 0)
+            m_text = (
+                f"<font size='10.5' name='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
+                f"Új Ügyfeleink részére!<br/><br/>"
+                f"<b>Rendelés leadás:</b><br/>"
+                f"<b>{fn}</b>, tel: <b>{ft}</b><br/><br/>"
+                f"<font size='5.5'><b>* a kedvezmény telefonon leadott rendelésekre érvényesíthető<br/>területi képviselőnk által</b></font>"
+            )
+            para = Paragraph(m_text, promo_s)
+            pw, ph = para.wrap(lw - 6 * mm, lh - 6 * mm)
+            para.drawOn(p, x + (lw - pw) / 2, y + (lh - ph) / 2)
+
+    p.save();
+    buf.seek(0);
+    return buf
     
-        # Ha nincs Sorrend oszlop (ami a KeyError-t okozta), pótoljuk
-        if 'Sorrend' not in df.columns:
-            df['Sorrend'] = range(1, len(df) + 1)
-    
-        # Sorrend szerinti rendezés biztonságosan
-        df = df.sort_values('Sorrend')
-    
-        f_reg, f_bold = register_fonts()
-        buf = BytesIO()
-        p = canvas.Canvas(buf, pagesize=A4)
-        lw, lh = 70 * mm, 42.42 * mm
-        inner_m = 5.5 * mm
-    
-        order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9, encoding='utf-8')
-        promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1, encoding='utf-8')
-    
-        total_slots = math.ceil(len(df) / 21) * 21
-    
-        for i in range(total_slots):
-            idx = i % 21
-            if idx == 0 and i > 0: p.showPage()
-            col, row_i = idx % 3, 6 - (idx // 3)
-            x, y = col * lw, row_i * lh
-    
-            if i < len(df):
-                r = df.iloc[i]
-                top_y = y + lh - inner_m
-    
-                # Hétvégi jelölés (szürke sáv az ügyintéző alatt)
-                if r.get('Hétvégi'):
-                    p.saveState()
-                    p.setFillColor(colors.lightgrey)
-                    p.rect(x + 1 * mm, top_y - 8.5 * mm, lw - 2 * mm, 4.5 * mm, fill=1, stroke=0)
-                    p.restoreState()
-    
-                # 1. SOR: Sorszám és ID
-                sorrend_val = int(r['Sorrend']) if pd.notnull(r['Sorrend']) else (i + 1)
-                p.setFont(f_bold, 10);
-                p.drawString(x + inner_m, top_y - 3 * mm, f"#{sorrend_val}")
-                p.setFont(f_reg, 8);
-                p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {r.get('ID', 'N/A')}")
-    
-                # 2. SOR: Ügyintéző és Telefon
-                p.setFont(f_bold, 9);
-                p.drawString(x + inner_m, top_y - 8 * mm, str(r.get('Ügyintéző', ''))[:28])
-                p.setFont(f_reg, 8);
-                p.drawRightString(x + lw - inner_m, top_y - 8 * mm, str(r.get('Telefon', '')))
-    
-                # 3. SOR: Cím
-                p.setFont(f_reg, 7.5);
-                p.drawString(x + inner_m, top_y - 12 * mm, str(r.get('Cím', ''))[:45])
-    
-                # 4. KÖZÉPSŐ RÉSZ: Rendelések összevonva
-                rendeles_text = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
-                para = Paragraph(rendeles_text, order_s)
-                para.wrap(lw - 2 * inner_m, 12 * mm)
-                para.drawOn(p, x + inner_m, y + inner_m + 7 * mm)  # Kicsit feljebb toltam a pénznek
-    
-                # --- PÉNZ ÉS DARABSZÁM (Az etikett alja) ---
-                # Megjelenítjük a pénzt, ha van "Ft" benne (PDF-ből jött), egyébként üresen hagyjuk
-                penz_megjelenites = str(r.get('Pénz', ''))
-                if "Ft" not in penz_megjelenites: penz_megjelenites = ""
-    
-                p.setFont(f_bold, 10);
-                p.drawString(x + inner_m, y + inner_m + 1 * mm, penz_megjelenites)
-                p.setFont(f_bold, 9);
-                p.drawRightString(x + lw - inner_m, y + inner_m + 1 * mm, f"{int(r.get('Összesen', 0))} db")
-    
-                # Vonal és Futár adatok
-                p.setDash(1, 0)
-                p.setLineWidth(0.2)
-                p.line(x + 5 * mm, y + 4.5 * mm, x + lw - 5 * mm, y + 4.5 * mm)
-                p.setFont(f_reg, 6);
-                p.drawCentredString(x + lw / 2, y + 2 * mm, f"Futár: {fn} | {ft}")
-    
-            else:
-                # Marketing etikett változatlanul
-                p.setDash(1, 0)
-                m_text = (
-                    f"<font size='10.5' name='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
-                    f"Új Ügyfeleink részére!<br/><br/>"
-                    f"<b>Rendelés leadás:</b><br/>"
-                    f"<b>{fn}</b>, tel: <b>{ft}</b><br/><br/>"
-                    f"<font size='5.5'><b>* a kedvezmény telefonon leadott rendelésekre érvényesíthető<br/>területi képviselőnk által</b></font>"
-                )
-                para = Paragraph(m_text, promo_s)
-                pw, ph = para.wrap(lw - 6 * mm, lh - 6 * mm)
-                para.drawOn(p, x + (lw - pw) / 2, y + (lh - ph) / 2)
-    
-        p.save();
-        buf.seek(0);
-        return buf
-    
-    # --- 3. RÉSZ: PDF GENERÁLÓK ÉS ADATSZERKESZTŐ ---
-    
-    def create_manifest_pdf(df, fn, meta_list):
-        """Menetterv készítése csoportosítással, oldalszámozással és DejaVu fontokkal"""
-        df = df.sort_values('Sorrend')
-        f_reg, f_bold = register_fonts()  # Itt már a DejaVu-t fogja adni
-        buf = BytesIO()
-    
-        # Alsó margót kicsit megnöveljük az oldalszámnak (20mm)
-        doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=10 * mm, leftMargin=10 * mm, topMargin=20 * mm,
-                                bottomMargin=20 * mm)
-    
-        # Címek kigyűjtése a csoportosítás ellenőrzéséhez
-        all_addresses = df['Cím'].tolist()
-    
-        # --- ÚJ RÉSZ: Halmaz a már kiírt pénzösszegek követésére ---
-        mar_kiirt_osszegek = set()
-        # ---------------------------------------------------------
-    
-        jaratok = ", ".join(sorted(list(set([str(m.get('jarat', '')) for m in meta_list if m.get('jarat')]))))
-        ev = meta_list[0].get('year', '') if meta_list else ""
-        het = meta_list[0].get('week', '') if meta_list else ""
-        nap = meta_list[0].get('day', '') if meta_list else ""
-        fejlec_text = f"MENETTERV - Járat: {jaratok} | {ev}. év, {het}. hét | {nap}"
-    
-        elements = []
-    
-        # Stílusok definiálása ékezet-kezeléssel
-        s_normal = ParagraphStyle('L', fontName=f_reg, fontSize=8, encoding='utf-8')
-        s_bold_center = ParagraphStyle('C', fontName=f_bold, fontSize=8, alignment=1, encoding='utf-8')
-        s_order = ParagraphStyle('O', fontName=f_reg, fontSize=7, encoding='utf-8')
-    
-        data = [[
-            Paragraph("<b>#</b>", s_bold_center),
-            Paragraph("<b>NÉV / CÍM / INFÓ</b>", s_bold_center),
-            Paragraph("<b>[ ]</b>", s_bold_center),
-            Paragraph("<b>PÉNZ</b>", s_bold_center),
-            Paragraph("<b>TEL</b>", s_bold_center),
-            Paragraph("<b>RENDELÉS</b>", s_bold_center),
-            Paragraph("<b>DB</b>", s_bold_center)
-        ]]
-    
-        t_style = [
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
-            ('ALIGN', (-1, 0), (-1, -1), 'CENTER'),
-        ]
-    
-        for i, (_, r) in enumerate(df.iterrows()):
-            # CSOPORTOSÍTÁS: Megnézzük, hányszor szerepel a cím
-            is_group = all_addresses.count(r['Cím']) > 1
-            group_tag = "<b><font color='blue'>▲ CSOPORT </font></b>" if is_group else ""
-    
-            note = str(r.get('Megjegyzés', ''))
-            note_html = f"<br/><font color='red'><b>{note}</b></font>" if note and note.lower() != 'nan' and note.strip() != "" else ""
-    
-            # --- MÓDOSÍTOTT RÉSZ: Duplikált pénz kezelése ---
-            nyers_penz = str(r['Pénz']).lower()
-            ugyfel_kulcs = r['Ügyintéző']  # Az azonosításhoz az ügyintéző nevét használjuk (vagy ha van ID, az még jobb)
-    
-            if nyers_penz in ["0 ft", "0", "nan"] or ugyfel_kulcs in mar_kiirt_osszegek:
-                penz = ""
-            else:
-                penz = str(r['Pénz'])
-                mar_kiirt_osszegek.add(ugyfel_kulcs)  # Elmentjük, hogy ennél az ügyfélnél már kiírtuk a pénzt
-            # -----------------------------------------------
-    
-            data.append([
-                f"{int(r['Sorrend'])}",
-                Paragraph(f"{group_tag}<b>{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font>{note_html}", s_normal),
-                "[ ]",
-                Paragraph(f"<b>{penz}</b>", s_bold_center),
-                str(r['Telefon']),
-                Paragraph(str(r['Rendelés_Full']), s_order),
-                f"{int(r['Összesen'])}"
-            ])
-    
-            # Ha csoport, kap egy nagyon halvány háttérszínt a sor
-            if is_group:
-                t_style.append(('BACKGROUND', (0, i + 1), (-1, i + 1), colors.whitesmoke))
-    
-        t = Table(data, colWidths=[10 * mm, 60 * mm, 10 * mm, 20 * mm, 25 * mm, 55 * mm, 10 * mm], repeatRows=1)
-        t.setStyle(TableStyle(t_style))
-        elements.append(t)
-    
-        # OLDALSZÁMOZÁS ÉS FEJLÉC FUNKCIÓ
-        def add_header_footer(canvas, doc):
-            canvas.saveState()
-            # Fejléc (minden oldalon)
-            canvas.setFont(f_bold, 11)
-            canvas.drawString(10 * mm, A4[1] - 12 * mm, fejlec_text)
-            canvas.setFont(f_reg, 9)
-            canvas.drawRightString(A4[0] - 10 * mm, A4[1] - 12 * mm, f"Futár: {fn}")
-    
-            # Oldalszám (minden oldalon alul középen)
-            page_num = f"{canvas.getPageNumber()}. oldal"
-            canvas.setFont(f_reg, 8)
-            canvas.drawCentredString(A4[0] / 2, 10 * mm, page_num)
-            canvas.restoreState()
-    
-        # Build indítása a fejléc/lábléc funkcióval
-        doc.build(elements, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
-        buf.seek(0);
-        return buf
+# --- 3. RÉSZ: PDF GENERÁLÓK ÉS ADATSZERKESZTŐ ---
+
+def create_manifest_pdf(df, fn, meta_list):
+    """Menetterv készítése csoportosítással, oldalszámozással és DejaVu fontokkal"""
+    df = df.sort_values('Sorrend')
+    f_reg, f_bold = register_fonts()  # Itt már a DejaVu-t fogja adni
+    buf = BytesIO()
+
+    # Alsó margót kicsit megnöveljük az oldalszámnak (20mm)
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=10 * mm, leftMargin=10 * mm, topMargin=20 * mm,
+                            bottomMargin=20 * mm)
+
+    # Címek kigyűjtése a csoportosítás ellenőrzéséhez
+    all_addresses = df['Cím'].tolist()
+
+    # --- ÚJ RÉSZ: Halmaz a már kiírt pénzösszegek követésére ---
+    mar_kiirt_osszegek = set()
+    # ---------------------------------------------------------
+
+    jaratok = ", ".join(sorted(list(set([str(m.get('jarat', '')) for m in meta_list if m.get('jarat')]))))
+    ev = meta_list[0].get('year', '') if meta_list else ""
+    het = meta_list[0].get('week', '') if meta_list else ""
+    nap = meta_list[0].get('day', '') if meta_list else ""
+    fejlec_text = f"MENETTERV - Járat: {jaratok} | {ev}. év, {het}. hét | {nap}"
+
+    elements = []
+
+    # Stílusok definiálása ékezet-kezeléssel
+    s_normal = ParagraphStyle('L', fontName=f_reg, fontSize=8, encoding='utf-8')
+    s_bold_center = ParagraphStyle('C', fontName=f_bold, fontSize=8, alignment=1, encoding='utf-8')
+    s_order = ParagraphStyle('O', fontName=f_reg, fontSize=7, encoding='utf-8')
+
+    data = [[
+        Paragraph("<b>#</b>", s_bold_center),
+        Paragraph("<b>NÉV / CÍM / INFÓ</b>", s_bold_center),
+        Paragraph("<b>[ ]</b>", s_bold_center),
+        Paragraph("<b>PÉNZ</b>", s_bold_center),
+        Paragraph("<b>TEL</b>", s_bold_center),
+        Paragraph("<b>RENDELÉS</b>", s_bold_center),
+        Paragraph("<b>DB</b>", s_bold_center)
+    ]]
+
+    t_style = [
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+        ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+        ('ALIGN', (-1, 0), (-1, -1), 'CENTER'),
+    ]
+
+    for i, (_, r) in enumerate(df.iterrows()):
+        # CSOPORTOSÍTÁS: Megnézzük, hányszor szerepel a cím
+        is_group = all_addresses.count(r['Cím']) > 1
+        group_tag = "<b><font color='blue'>▲ CSOPORT </font></b>" if is_group else ""
+
+        note = str(r.get('Megjegyzés', ''))
+        note_html = f"<br/><font color='red'><b>{note}</b></font>" if note and note.lower() != 'nan' and note.strip() != "" else ""
+
+        # --- MÓDOSÍTOTT RÉSZ: Duplikált pénz kezelése ---
+        nyers_penz = str(r['Pénz']).lower()
+        ugyfel_kulcs = r['Ügyintéző']  # Az azonosításhoz az ügyintéző nevét használjuk (vagy ha van ID, az még jobb)
+
+        if nyers_penz in ["0 ft", "0", "nan"] or ugyfel_kulcs in mar_kiirt_osszegek:
+            penz = ""
+        else:
+            penz = str(r['Pénz'])
+            mar_kiirt_osszegek.add(ugyfel_kulcs)  # Elmentjük, hogy ennél az ügyfélnél már kiírtuk a pénzt
+        # -----------------------------------------------
+
+        data.append([
+            f"{int(r['Sorrend'])}",
+            Paragraph(f"{group_tag}<b>{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font>{note_html}", s_normal),
+            "[ ]",
+            Paragraph(f"<b>{penz}</b>", s_bold_center),
+            str(r['Telefon']),
+            Paragraph(str(r['Rendelés_Full']), s_order),
+            f"{int(r['Összesen'])}"
+        ])
+
+        # Ha csoport, kap egy nagyon halvány háttérszínt a sor
+        if is_group:
+            t_style.append(('BACKGROUND', (0, i + 1), (-1, i + 1), colors.whitesmoke))
+
+    t = Table(data, colWidths=[10 * mm, 60 * mm, 10 * mm, 20 * mm, 25 * mm, 55 * mm, 10 * mm], repeatRows=1)
+    t.setStyle(TableStyle(t_style))
+    elements.append(t)
+
+    # OLDALSZÁMOZÁS ÉS FEJLÉC FUNKCIÓ
+    def add_header_footer(canvas, doc):
+        canvas.saveState()
+        # Fejléc (minden oldalon)
+        canvas.setFont(f_bold, 11)
+        canvas.drawString(10 * mm, A4[1] - 12 * mm, fejlec_text)
+        canvas.setFont(f_reg, 9)
+        canvas.drawRightString(A4[0] - 10 * mm, A4[1] - 12 * mm, f"Futár: {fn}")
+
+        # Oldalszám (minden oldalon alul középen)
+        page_num = f"{canvas.getPageNumber()}. oldal"
+        canvas.setFont(f_reg, 8)
+        canvas.drawCentredString(A4[0] / 2, 10 * mm, page_num)
+        canvas.restoreState()
+
+    # Build indítása a fejléc/lábléc funkcióval
+    doc.build(elements, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
+    buf.seek(0);
+    return buf
     
     
-    def create_raklista_pdf(df, jarat_info, meta_list):
-        f_reg, f_bold = register_fonts()
-        buf = BytesIO()
-        # Margók minimalizálása az oldalszéleken is
-        doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=7 * mm, bottomMargin=12 * mm, leftMargin=8 * mm,
-                                rightMargin=8 * mm)
-        etlap = st.session_state.get('etlap', {})
-    
-        # Napok és időszak kinyerése
-        dates_str = ""
-        if meta_list:
-            m = meta_list[0]
-            # Ha a 'days' kulcs létezik, azt írjuk be a zárójelbe
-            napok = m.get('days', '')
-            dates_str = f"{m.get('year', '')}. {m.get('week', '')}. hét ({napok})"
-    
-        # 1. Adatgyűjtés
-        counts = {}
-        for _, r in df.iterrows():
-            order_str = str(r.get('Rendelés_Full', ''))
-            day_parts = order_str.split('|')
-            for part in day_parts:
-                prefix = "P" if "Pé:" in part else "Z" if "Szo:" in part else ""
-                if not prefix: continue
-                found = re.findall(r'(\d+)\s*-\s*([A-Z0-9*+]+)', part)
-                for qty, code in found:
-                    full_key = f"{prefix}_{code.strip().upper()}"
-                    counts[full_key] = counts.get(full_key, 0) + int(qty)
-    
-        # 2. Stílusok finomhangolása
-        header_style = ParagraphStyle('H', fontName=f_bold, fontSize=8, alignment=1)
-        # Nagyon szűk sorköz (leading), hogy több férjen el
-        normal_row_style = ParagraphStyle('NR', fontName=f_reg, fontSize=6.5, leading=7.5)
-        star_row_style = ParagraphStyle('SR', fontName=f_bold, fontSize=6.5, leading=7.5)
-    
-        data = [[
-            Paragraph("<b>NAP</b>", header_style),
-            Paragraph("<b>KÓD</b>", header_style),
-            Paragraph("<b>DB</b>", header_style),
-            Paragraph("<b>[ ]</b>", header_style),
-            Paragraph("<b>MEGNEVEZÉS</b>", header_style),
-            Paragraph("<b>ÁR</b>", header_style),
-            Paragraph("<b>ÖSSZES</b>", header_style)
-        ]]
-    
-        total_qty = 0
-        total_money = 0
-        processed_full_keys = set()
-    
-        # 3. Táblázat feltöltése
-        for etlap_key in etlap.keys():
-            for suffix in ["", "*"]:
-                current_lookup = f"{etlap_key}{suffix}"
-                if current_lookup in counts:
-                    info = etlap[etlap_key]
-                    db = counts[current_lookup]
-                    ar = info.get('ar', 0)
-                    subtotal = db * ar
-                    is_starred = "*" in current_lookup
-    
-                    current_font = f_bold if is_starred else f_reg
-                    current_p_style = star_row_style if is_starred else normal_row_style
-    
-                    day_short = "Péntek" if current_lookup.startswith("P") else "Szombat"
-                    code_label = current_lookup.split('_')[1]
-    
-                    data.append([
-                        Paragraph(day_short, ParagraphStyle('D', fontName=current_font, fontSize=5.5, alignment=1)),
-                        Paragraph(code_label, ParagraphStyle('K', fontName=current_font, fontSize=7.5, alignment=1)),
-                        Paragraph(f"{db} db", ParagraphStyle('Q', fontName=current_font, fontSize=7.5, alignment=1)),
-                        Paragraph("[  ]", ParagraphStyle('CB', fontName=f_reg, fontSize=8, alignment=1)),
-                        # Középre zárt checkbox
-                        Paragraph(info.get('nev', '---'), current_p_style),
-                        Paragraph(f"{ar} Ft", ParagraphStyle('A', fontName=current_font, fontSize=7, alignment=2)),
-                        Paragraph(f"{subtotal} Ft", ParagraphStyle('S', fontName=current_font, fontSize=7, alignment=2))
-                    ])
-                    total_qty += db
-                    total_money += subtotal
-                    processed_full_keys.add(current_lookup)
-    
-        # Oszlopszélességek (Összesen: 194mm)
-        col_widths = [12 * mm, 15 * mm, 12 * mm, 8 * mm, 105 * mm, 18 * mm, 24 * mm]
-    
-        t = Table(data, colWidths=col_widths, repeatRows=1)
-        t.setStyle(TableStyle([
-            ('GRID', (0, 0), (-1, -1), 0.1, colors.black),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            # Minimális belső margók (Padding) a sűrűségért
-            ('TOPPADDING', (0, 0), (-1, -1), 1),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
-            ('LEFTPADDING', (0, 0), (-1, -1), 2),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 2),
-        ]))
-    
-        # 4. Összesítő rész (Kompakt)
-        jutalek = int(total_money * 0.13)
-        summary_data = [
-            ["", "", "", "", "ÖSSZESEN:", f"{total_qty} db", f"{total_money} Ft"],
-            ["", "", "", "", "JUTALÉK (13%):", "", f"{jutalek} Ft"]
-        ]
-        st_table = Table(summary_data, colWidths=col_widths)
-        st_table.setStyle(TableStyle([
-            ('FONTNAME', (4, 0), (-1, -1), f_bold),
-            ('FONTSIZE', (4, 0), (-1, -1), 8.5),
-            ('ALIGN', (4, 0), (4, -1), 'RIGHT'),
-            ('ALIGN', (5, 0), (6, -1), 'RIGHT'),
-            ('TOPPADDING', (0, 0), (-1, -1), 1),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
-            ('LINEABOVE', (4, 0), (-1, 0), 0.5, colors.black),
-        ]))
-    
-        # Oldalszámozás
-        def footer(canvas, doc):
-            canvas.saveState()
-            canvas.setFont(f_reg, 7)
-            canvas.drawRightString(200 * mm, 8 * mm, f"{doc.page}. oldal")
-            canvas.restoreState()
-    
-        elements = [
-            Paragraph(f"<b>RAKLISTA ÉS ELSZÁMOLÁS</b>", ParagraphStyle('T', fontName=f_bold, fontSize=11)),
-            Paragraph(f"Időszak: {dates_str} | Járat: {jarat_info}",
-                      ParagraphStyle('S', fontName=f_reg, fontSize=8.5, spaceAfter=3)),
-            t,
-            Spacer(1, 3 * mm),
-            st_table
-        ]
-    
-        doc.build(elements, onFirstPage=footer, onLaterPages=footer)
-        buf.seek(0)
-        return buf
+def create_raklista_pdf(df, jarat_info, meta_list):
+    f_reg, f_bold = register_fonts()
+    buf = BytesIO()
+    # Margók minimalizálása az oldalszéleken is
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=7 * mm, bottomMargin=12 * mm, leftMargin=8 * mm,
+                            rightMargin=8 * mm)
+    etlap = st.session_state.get('etlap', {})
+
+    # Napok és időszak kinyerése
+    dates_str = ""
+    if meta_list:
+        m = meta_list[0]
+        # Ha a 'days' kulcs létezik, azt írjuk be a zárójelbe
+        napok = m.get('days', '')
+        dates_str = f"{m.get('year', '')}. {m.get('week', '')}. hét ({napok})"
+
+    # 1. Adatgyűjtés
+    counts = {}
+    for _, r in df.iterrows():
+        order_str = str(r.get('Rendelés_Full', ''))
+        day_parts = order_str.split('|')
+        for part in day_parts:
+            prefix = "P" if "Pé:" in part else "Z" if "Szo:" in part else ""
+            if not prefix: continue
+            found = re.findall(r'(\d+)\s*-\s*([A-Z0-9*+]+)', part)
+            for qty, code in found:
+                full_key = f"{prefix}_{code.strip().upper()}"
+                counts[full_key] = counts.get(full_key, 0) + int(qty)
+
+    # 2. Stílusok finomhangolása
+    header_style = ParagraphStyle('H', fontName=f_bold, fontSize=8, alignment=1)
+    # Nagyon szűk sorköz (leading), hogy több férjen el
+    normal_row_style = ParagraphStyle('NR', fontName=f_reg, fontSize=6.5, leading=7.5)
+    star_row_style = ParagraphStyle('SR', fontName=f_bold, fontSize=6.5, leading=7.5)
+
+    data = [[
+        Paragraph("<b>NAP</b>", header_style),
+        Paragraph("<b>KÓD</b>", header_style),
+        Paragraph("<b>DB</b>", header_style),
+        Paragraph("<b>[ ]</b>", header_style),
+        Paragraph("<b>MEGNEVEZÉS</b>", header_style),
+        Paragraph("<b>ÁR</b>", header_style),
+        Paragraph("<b>ÖSSZES</b>", header_style)
+    ]]
+
+    total_qty = 0
+    total_money = 0
+    processed_full_keys = set()
+
+    # 3. Táblázat feltöltése
+    for etlap_key in etlap.keys():
+        for suffix in ["", "*"]:
+            current_lookup = f"{etlap_key}{suffix}"
+            if current_lookup in counts:
+                info = etlap[etlap_key]
+                db = counts[current_lookup]
+                ar = info.get('ar', 0)
+                subtotal = db * ar
+                is_starred = "*" in current_lookup
+
+                current_font = f_bold if is_starred else f_reg
+                current_p_style = star_row_style if is_starred else normal_row_style
+
+                day_short = "Péntek" if current_lookup.startswith("P") else "Szombat"
+                code_label = current_lookup.split('_')[1]
+
+                data.append([
+                    Paragraph(day_short, ParagraphStyle('D', fontName=current_font, fontSize=5.5, alignment=1)),
+                    Paragraph(code_label, ParagraphStyle('K', fontName=current_font, fontSize=7.5, alignment=1)),
+                    Paragraph(f"{db} db", ParagraphStyle('Q', fontName=current_font, fontSize=7.5, alignment=1)),
+                    Paragraph("[  ]", ParagraphStyle('CB', fontName=f_reg, fontSize=8, alignment=1)),
+                    # Középre zárt checkbox
+                    Paragraph(info.get('nev', '---'), current_p_style),
+                    Paragraph(f"{ar} Ft", ParagraphStyle('A', fontName=current_font, fontSize=7, alignment=2)),
+                    Paragraph(f"{subtotal} Ft", ParagraphStyle('S', fontName=current_font, fontSize=7, alignment=2))
+                ])
+                total_qty += db
+                total_money += subtotal
+                processed_full_keys.add(current_lookup)
+
+    # Oszlopszélességek (Összesen: 194mm)
+    col_widths = [12 * mm, 15 * mm, 12 * mm, 8 * mm, 105 * mm, 18 * mm, 24 * mm]
+
+    t = Table(data, colWidths=col_widths, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 0.1, colors.black),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        # Minimális belső margók (Padding) a sűrűségért
+        ('TOPPADDING', (0, 0), (-1, -1), 1),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+        ('LEFTPADDING', (0, 0), (-1, -1), 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+    ]))
+
+    # 4. Összesítő rész (Kompakt)
+    jutalek = int(total_money * 0.13)
+    summary_data = [
+        ["", "", "", "", "ÖSSZESEN:", f"{total_qty} db", f"{total_money} Ft"],
+        ["", "", "", "", "JUTALÉK (13%):", "", f"{jutalek} Ft"]
+    ]
+    st_table = Table(summary_data, colWidths=col_widths)
+    st_table.setStyle(TableStyle([
+        ('FONTNAME', (4, 0), (-1, -1), f_bold),
+        ('FONTSIZE', (4, 0), (-1, -1), 8.5),
+        ('ALIGN', (4, 0), (4, -1), 'RIGHT'),
+        ('ALIGN', (5, 0), (6, -1), 'RIGHT'),
+        ('TOPPADDING', (0, 0), (-1, -1), 1),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+        ('LINEABOVE', (4, 0), (-1, 0), 0.5, colors.black),
+    ]))
+
+    # Oldalszámozás
+    def footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont(f_reg, 7)
+        canvas.drawRightString(200 * mm, 8 * mm, f"{doc.page}. oldal")
+        canvas.restoreState()
+
+    elements = [
+        Paragraph(f"<b>RAKLISTA ÉS ELSZÁMOLÁS</b>", ParagraphStyle('T', fontName=f_bold, fontSize=11)),
+        Paragraph(f"Időszak: {dates_str} | Járat: {jarat_info}",
+                  ParagraphStyle('S', fontName=f_reg, fontSize=8.5, spaceAfter=3)),
+        t,
+        Spacer(1, 3 * mm),
+        st_table
+    ]
+
+    doc.build(elements, onFirstPage=footer, onLaterPages=footer)
+    buf.seek(0)
+    return buf
     
     # --- FŐ PROGRAMFUTÁS JAVÍTVA ---
     

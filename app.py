@@ -749,7 +749,7 @@ def main():
         )
         c3.download_button(
             "📊 RAKLISTA", 
-            create_raklista_pdf(edited_df, meta), 
+            create_raklista_pdf(edited_df, jaratok, meta), # Hozzáadtuk a 'jaratok' változót!
             "raklista.pdf", use_container_width=True
         )
 

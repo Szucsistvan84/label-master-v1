@@ -483,13 +483,17 @@ def create_raklista_pdf(df, jarat_info, meta_list):
                             rightMargin=8 * mm)
     etlap = st.session_state.get('etlap', {})
 
-    # Napok és időszak kinyerése
-    dates_str = ""
-    if meta_list:
-        m = meta_list[0]
-        # Ha a 'days' kulcs létezik, azt írjuk be a zárójelbe
-        napok = m.get('days', '')
-        dates_str = f"{m.get('year', '')}. {m.get('week', '')}. hét ({napok})"
+    # BIZTONSÁGOS ADATLEKÉRÉS (A 4003-AS PDF MIATT)
+    ev, het, napok = "", "", ""
+    if meta_list and len(meta_list) > 0:
+        # Megkeressük az első érvényes adatcsomagot (dict), amiből kiolvasható az év/hét
+        first_m = next((m for m in meta_list if isinstance(m, dict)), None)
+        if first_m:
+            ev = first_m.get('year', '')
+            het = first_m.get('week', '')
+            napok = first_m.get('days', '') # Vagy 'day', attól függően mi van a PDF-ben
+    
+    dates_str = f"{ev}. {het}. hét ({napok})"
 
     # 1. Adatgyűjtés
     counts = {}

@@ -647,38 +647,31 @@ def main():
         st.divider()
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
-        if up_files and st.button("🚀 FELDOLGOZÁS"):
-            all_rows = []
-            all_meta = []
-            
-            with st.spinner("PDF-ek beolvasása..."):
-                for f in up_files:
-                    rows, meta = parse_interfood_pdf(f)
-                    if rows:
-                        all_rows.extend(rows)
-                    if meta:
-                        all_meta.extend(meta)
-
-            if all_rows:
-                # --- BIZTONSÁGI JAVÍTÁS ---
-                # Alapértelmezett értékek (ha a 4003-asból nem jönne át)
-                current_year = "2026"
-                current_week = "13"
-
-                # Ha van bármilyen talált metaadat, frissítjük az alapértelmezettet
-                if all_meta and len(all_meta) > 0:
-                    current_year = all_meta[0].get('year', current_year)
-                    current_week = all_meta[0].get('week', current_week)
-                
+        if all_rows:
                 st.session_state.meta_data = all_meta
                 
-                # Az étlaphoz már a biztos változókat használjuk
-                p_map = get_etlap_dict(current_year, current_week, 5)
-                sz_map = get_etlap_dict(current_year, current_week, 6)
+                # --- BIZTONSÁGI JAVÍTÁS ---
+                # 1. Beállítunk egy alapértelmezett szezont (amit a PDF-ben láttunk)
+                y, w = '2026', '13' 
+
+                # 2. Csak akkor próbálunk frissíteni, ha tényleg találtunk metaadatot
+                if all_meta and len(all_meta) > 0:
+                    try:
+                        # Megpróbáljuk kivenni az adatot, de ha hibás a szerkezet, nem omlunk össze
+                        first_item = all_meta[0]
+                        if isinstance(first_item, dict):
+                            y = first_item.get('year', y)
+                            w = first_item.get('week', w)
+                    except Exception:
+                        pass # Marad a 2026/13
+                
+                # 3. Most már biztosan vannak változóink, jöhet az étlap lekérése
+                p_map = get_etlap_dict(y, w, 5)
+                sz_map = get_etlap_dict(y, w, 6)
                 
                 st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
                 
-                st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél (Szezon: {current_year}/{current_week})")
+                st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél (Szezon: {y}/{w})")
                 st.rerun()
             else:
                 st.error("Nem sikerült adatot kinyerni a feltöltött fájlokból!")

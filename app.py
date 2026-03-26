@@ -659,11 +659,10 @@ def main():
                     if meta:
                         all_meta.extend(meta)
 
-            # --- INNENTŐL FIGYELJ ---
             if all_rows:
                 st.session_state.meta_data = all_meta
                 
-                # Csak akkor keressük az évet/hetet, ha van metaadatunk!
+                # VÉDELEM: Csak akkor keressük az évet/hetet, ha van metaadatunk!
                 if all_meta and len(all_meta) > 0:
                     y = all_meta[0].get('year', '2025')
                     w = all_meta[0].get('week', '1')

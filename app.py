@@ -148,45 +148,37 @@ def parse_interfood_pdf(pdf_file):
                 
                 # Telefon és Rendelés (a teljes blokkból!)
                 tel_m = re.search(PHONE_PAT, full_block_text.replace(" ", ""))
+                # --- RENDELÉSEK ÉS MENNYISÉG KINYERÉSE ---
                 raw_orders = re.findall(ORDER_PAT, full_block_text)
+                unique_orders = list(set(raw_orders)) # EZ HIÁNYZOTT!
                 
-                # PÉNZ KINYERÉSE - Nyers szövegként, érintetlenül!
+                # Összes darabszám kiszámítása (pl. 2-L1K -> 2 db)
+                total_q = 0
+                for o in raw_orders:
+                    try:
+                        q_match = re.match(r'(\d+)-', o)
+                        if q_match:
+                            total_q += int(q_match.group(1))
+                        else:
+                            total_q += 1
+                    except:
+                        total_q += 1
+
+                # PÉNZ KINYERÉSE - Nyers szöveg, érintetlenül!
                 money_val = "0 Ft"
                 m_match = re.search(MONEY_PAT, full_block_text)
                 if m_match:
-                    # Itt nem tisztítunk, nem int-elünk, csak elmentjük a szöveget
                     money_val = m_match.group(1).strip()
 
-                # --- 3. LÉPÉS: A SZOBRÁSZAT (KIVONÁS) ---
-                rem = full_block_text
-                # Kivonjuk az ismert adatokat a blokkból, hogy csak a megjegyzés maradjon
-                rem = rem.replace(full_id_match, "")
-                if clean_name: rem = rem.replace(clean_name, "")
-                if address: rem = rem.replace(address, "")
-                if tel_m: rem = rem.replace(tel_m.group(0), "")
-                
-                # A pénzt is kivonjuk a megjegyzésből, de az eredeti formájában
-                if m_match:
-                    rem = rem.replace(m_match.group(0), "")
-                
-                for o in raw_orders:
-                    rem = rem.replace(o, "")
-                
-                # Megjegyzés tisztítása
-                megj = rem.replace("|", " ")
-                megj = re.sub(r'\s+', ' ', megj).strip()
-                megj = re.sub(r'^\d+\s+', '', megj) # Sorszám lecsípése
-                megj = megj.strip(" ,.-")
-
-                # Adatok mentése a táblázatba
-                if unique_orders:
+                # --- ADATOK MENTÉSE ---
+                if unique_orders: # Most már nem lesz NameError
                     rows.append({
                         "Prefix": prefix, 
                         "ID": f"P-{u_id}", 
                         "Ügyintéző": clean_name,
                         "Cím": address, 
                         "Telefon": tel_m.group(0) if tel_m else "",
-                        "Pénz": money_val,  # <--- EZ MOST MÁR SZÖVEG MARAD
+                        "Pénz": money_val, # Sehol egy int() vagy clean_money()!
                         "Rendelés": ", ".join(unique_orders),
                         "Megjegyzés": megj, 
                         "Összesen": total_q, 

@@ -165,22 +165,20 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (RADIKÁLIS TISZTÍTÁS) ---
+                # --- A SZOBRÁSZ-LOGIKA (RADIKÁLIS TISZTÍTÁS - JAVÍTOTT) ---
                 rem = all_relevant_text
                 
-                # 1. ID ÉS KÓDOK TÖRLÉSE (A -F és egyéb végződésekkel együtt)
-                # Regex: Betű-számok-esetleges kötőjel és betű a végén
+                # 1. ID ÉS KÓDOK TÖRLÉSE
                 rem = re.sub(r'[A-Z]-\d+[-A-Z]*', '', rem)
                 rem = rem.replace(full_id_match, "")
 
-                # 2. NEVEK AGGRESSZÍV TÖRLÉSE (Hajós- és Dr. ügyek ellen)
-                # Összeállítunk egy listát mindenről, ami név lehet
+                # 2. NEVEK AGGRESSZÍV TÖRLÉSE (b4 használatával row helyett)
                 name_targets = []
                 if clean_name: name_targets.append(clean_name)
-                if row['Ügyintéző']: 
-                    u_nev = str(row['Ügyintéző']).strip()
+                if b4: 
+                    u_nev = str(b4).strip()
                     name_targets.append(u_nev)
-                    # Ha kötőjeles a név (pl. Hajós-Szabó), a részeit is töröljük
+                    # Kötőjeles nevek (Hajós-Szabó) darabolása a maradványok ellen
                     if "-" in u_nev:
                         for part in u_nev.split("-"):
                             if len(part.strip()) > 2:
@@ -188,21 +186,19 @@ def parse_interfood_pdf(pdf_file):
                                 name_targets.append("-" + part.strip())
                                 name_targets.append(part.strip())
 
-                # Minden név-variációt törlünk, akárhányszor szerepel (duplázódás ellen)
-                # A leghosszabb nevektől haladunk a rövidebbek felé
+                # Minden név-variáció törlése (duplázódás ellen)
                 for target in sorted(list(set(name_targets)), key=len, reverse=True):
                     if len(target) > 2:
                         rem = re.sub(re.escape(target), "", rem, flags=re.IGNORECASE)
 
-                # 3. ALAPADATOK (Cím, Telefon, Rendelés)
+                # 3. ALAPADATOK TÖRLÉSE (Cím, Tel, Rendelés, Pénz)
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 4. KCS ÉS A "MAGÁNYOS K" ELTÜNTETÉSE
-                # Töröljük a KCS-t és a magányos K-t, ha sorszám vagy kapukód (#) előtt áll
+                # 4. A "MAGÁNYOS K" ÉS KCS ELTÜNTETÉSE
                 rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
                 rem = re.sub(r'^\s*K\s*(?=[#\d])', '', rem)
                 rem = re.sub(r'\|\s*K\s*(?=[#\d])', '| ', rem)
@@ -213,15 +209,13 @@ def parse_interfood_pdf(pdf_file):
                     if phrase in rem: rem = rem.split(phrase)[0]
                 rem = re.sub(r'\b\d+\.\s*oldal\b.*', '', rem, flags=re.IGNORECASE)
 
-                # 6. SORSZÁMOK (Csak ha szóköz követi, nem #)
+                # 6. SORSZÁMOK ÉS DARABSZÁMOK
                 rem = re.sub(r'^\s*\d{1,3}(?!\s*#)\s+', '', rem)
                 rem = re.sub(r'\|\s*\d{1,3}(?!\s*#)\s+', '| ', rem)
-
-                # 7. DARABSZÁM (total_q)
                 if total_q > 0:
                     rem = re.sub(rf'(?<![#\w\d]){total_q}(?![#\w\d])', '', rem)
 
-                # 8. ÍRÁSJEL KOZMETIKA (A dupla csövek és vessző-tengerek ellen)
+                # 7. ÍRÁSJEL KOZMETIKA
                 rem = rem.replace("/", " ")
                 rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
                 rem = re.sub(r'[,.\s]{2,}', ' ', rem) 

@@ -126,54 +126,36 @@ def parse_interfood_pdf(pdf_file):
                 prefix = full_id.split('-')[0]
                 u_id = full_id.split('-')[-1]
 
-                # Pénz keresése a KÖVETKEZŐ sorban (ahogy a működő kódodban van)
+                # --- PÉNZ KERESÉSE (Előretekintő verzió) ---
                 money_val = "0 Ft"
-                if i + 1 < len(sorted_y):
-                    next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
-                    m_match = re.search(MONEY_PAT_LOCAL, next_t)
+                raw_money_text = ""  # Ezt kötelező üresre állítani, nehogy elszálljon a kód lejjebb!
+                
+                # Összegyűjtjük az aktuális, és a következő max 3 sort keresésre
+                lines_to_check = [
+                    text_ws, # Jelenlegi sor szóközösen
+                    "".join([w['text'] for w in line_words]) # Jelenlegi sor összevonva
+                ]
+                
+                for offset in range(1, 4): # Nézzük az i+1, i+2, i+3 sorokat
+                    if i + offset < len(sorted_y):
+                        next_line_words = sorted(lines[sorted_y[i + offset]], key=lambda x: x['x0'])
+                        next_t_ws = " ".join([w['text'] for w in next_line_words])
+                        
+                        # Ha a következő sorban már egy ÚJ ügyfélkód van, megállunk (ne vegyük el más pénzét!)
+                        if re.search(r'([HKSCPZ]-[0-9]{5,7})', next_t_ws):
+                            break
+                            
+                        raw_next_line = "".join([w['text'] for w in next_line_words])
+                        lines_to_check.append(raw_next_line) # Összevonva a negatív jel miatt
+                        lines_to_check.append(next_t_ws)     # Szóközösen a biztonság kedvéért
+                
+                # Végigmegyünk a kigyűjtött sorokon, és az első találatot kimentjük
+                for text_variant in lines_to_check:
+                    m_match = re.search(MONEY_PAT, text_variant)
                     if m_match:
                         money_val = m_match.group(1).strip()
-
-                # Rendelések kigyűjtése
-                raw_orders = re.findall(ORDER_PAT_LOCAL, text_ws)
-                
-                # Telefon és Cím (a működő koordinátás logikával)
-                tel_m = re.search(PHONE_PAT_LOCAL, text_ws.replace(" ", ""))
-                
-                # Oszlopok szerinti bontás (b3: cím, b4: név)
-                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
-                b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
-                
-                clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
-                addr_m = re.search(r'(\d{4})', b3)
-                address = b3[addr_m.start():].strip() if addr_m else b3
-
-                # Rendelés feldolgozása
-                unique_orders, total_q = [], 0
-                for o in raw_orders:
-                    try:
-                        q_part = o.split('-')[0]
-                        q = int(re.sub(r'\D', '', q_part)[-1]) if re.sub(r'\D', '', q_part) else 1
-                        unique_orders.append(f"{q}-{o.split('-')[1]}")
-                        total_q += q
-                    except: continue
-
-                rows.append({
-                    "Prefix": prefix,
-                    "ID": f"P-{u_id}",
-                    "Ügyintéző": clean_name,
-                    "Cím": address,
-                    "Telefon": tel_m.group(0) if tel_m else "",
-                    "Pénz": money_val,
-                    "Rendelés": ", ".join(unique_orders),
-                    "Megjegyzés": text_ws.replace(full_id, "").strip(),
-                    "Összesen": total_q,
-                    "temp_id": u_id,
-                    "Raklista_Ertek": 0,
-                    "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
-                    "Hétvégi": False,
-                    "Sorrend": st.session_state.weights.get(f"P-{u_id}", 999)
-                })
+                        raw_money_text = m_match.group(0)
+                        break
     return rows, metadata
     
 def merge_data(raw_rows, p_map, sz_map):

@@ -18,6 +18,11 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 PHONE_PAT = r'(\+?\d{1,2}[/\s-]?)?(\d{2}[/\s-]?)?\d{3}[/\s-]?\d{4}'
 ORDER_PAT = r'\d+-[A-Z][A-Z0-9*+]*'
 
+def clean_money(value):
+    if pd.isna(value) or value == '': return 0
+    # Csak a számokat és az esetleges kezdő mínusz jelet tartsuk meg
+    cleaned = re.sub(r'[^-0-9]', '', str(value))
+    return int(cleaned) if cleaned else 0
 
 def register_fonts():
     try:

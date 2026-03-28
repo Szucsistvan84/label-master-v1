@@ -160,31 +160,36 @@ def parse_interfood_pdf(pdf_file):
                     except:
                         total_q += 1
 
-                # PÉNZ ÉS MEGJEGYZÉS KINYERÉSE
+                # PÉNZ KINYERÉSE
                 money_val = "0 Ft"
-                megj = "" # Alapértelmezett érték, hogy ne legyen NameError
-                
                 m_match = re.search(MONEY_PAT, full_block_text)
                 if m_match:
-                    money_val = m_match.group(1).strip()
-                
-                # SZOBRÁSZAT (Megjegyzés kinyerése a blokkból)
+                    # group(1) tartalmazza a számot és az előjelet
+                    raw_money = m_match.group(1).strip()
+                    money_val = f"{raw_money} Ft"
+
+                # SZOBRÁSZAT - Megjegyzés kinyerése
                 rem = full_block_text
-                rem = rem.replace(full_id_match, "")
-                if clean_name: rem = rem.replace(clean_name, "")
-                if address: rem = rem.replace(address, "")
-                if tel_m: rem = rem.replace(tel_m.group(0), "")
-                if m_match: rem = rem.replace(m_match.group(0), "")
+                # Kivonunk mindent, amit már ismerünk
+                to_remove = [full_id_match, clean_name, address]
+                if tel_m: to_remove.append(tel_m.group(0))
+                if m_match: to_remove.append(m_match.group(0))
+                
+                for item in to_remove:
+                    if item:
+                        rem = rem.replace(item, "")
                 
                 for o in raw_orders:
                     rem = rem.replace(o, "")
                 
-                megj = rem.replace("|", " ")
-                megj = re.sub(r'\s+', ' ', megj).strip()
+                # Tisztítás utáni megjegyzés
+                megj = rem.replace("|", " ").strip()
+                megj = re.sub(r'\s+', ' ', megj)
+                # Sorszám levágása az elejéről
                 megj = re.sub(r'^\d+\s+', '', megj)
                 megj = megj.strip(" ,.-")
 
-                # ADATOK MENTÉSE
+                # ADATOK MENTÉSE - Kifejezetten szövegként!
                 if unique_orders:
                     rows.append({
                         "Prefix": prefix, 
@@ -192,7 +197,7 @@ def parse_interfood_pdf(pdf_file):
                         "Ügyintéző": clean_name,
                         "Cím": address, 
                         "Telefon": tel_m.group(0) if tel_m else "",
-                        "Pénz": money_val, # Nyers szöveg, negatív előjellel együtt
+                        "Pénz": str(money_val), # Kényszerített string típus
                         "Rendelés": ", ".join(unique_orders),
                         "Megjegyzés": megj, 
                         "Összesen": total_q, 

@@ -165,64 +165,61 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (RADIKÁLIS TISZTÍTÁS - JAVÍTOTT) ---
+                # --- A SZOBRÁSZ-LOGIKA (KÓD-PAJZS VERZIÓ) ---
                 rem = all_relevant_text
                 
-                # 1. ID ÉS KÓDOK TÖRLÉSE
-                rem = re.sub(r'[A-Z]-\d+[-A-Z]*', '', rem)
+                # 1. VALÓDI ÉTELKÓDOK TÖRLÉSE (Csak ha van benne szám vagy kötőjel)
+                # Ez megvédi a GOLD, KCS, Porta, stb. szavakat
+                rem = re.sub(r'\b\d+-[A-Z][A-Z0-9*+]*\b', '', rem) # pl. 1-L2K
+                rem = re.sub(r'\b[A-Z]-\d+[-A-Z]*\b', '', rem)     # pl. P-415994
                 rem = rem.replace(full_id_match, "")
 
-                # 2. NEVEK AGGRESSZÍV TÖRLÉSE (b4 használatával row helyett)
+                # 2. NEVEK AGGRESSZÍV TÖRLÉSE (Ügyintéző darabolva is)
                 name_targets = []
                 if clean_name: name_targets.append(clean_name)
                 if b4: 
                     u_nev = str(b4).strip()
                     name_targets.append(u_nev)
-                    # Kötőjeles nevek (Hajós-Szabó) darabolása a maradványok ellen
-                    if "-" in u_nev:
-                        for part in u_nev.split("-"):
-                            if len(part.strip()) > 2:
-                                name_targets.append(part.strip() + "-")
-                                name_targets.append("-" + part.strip())
-                                name_targets.append(part.strip())
+                    # Névtöredékek (pl. Ferenczi, Fábián)
+                    parts = re.split(r'[-\s]+', u_nev)
+                    for part in parts:
+                        if len(part) > 3: name_targets.append(part)
 
-                # Minden név-variáció törlése (duplázódás ellen)
                 for target in sorted(list(set(name_targets)), key=len, reverse=True):
-                    if len(target) > 2:
-                        rem = re.sub(re.escape(target), "", rem, flags=re.IGNORECASE)
+                    rem = re.sub(re.escape(target), "", rem, flags=re.IGNORECASE)
 
-                # 3. ALAPADATOK TÖRLÉSE (Cím, Tel, Rendelés, Pénz)
+                # 3. ALAPADATOK
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 4. A "MAGÁNYOS K" ÉS KCS ELTÜNTETÉSE
-                rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
-                rem = re.sub(r'^\s*K\s*(?=[#\d])', '', rem)
-                rem = re.sub(r'\|\s*K\s*(?=[#\d])', '| ', rem)
-
+                # 4. A "REJTÉLYES K" ÉS EGYÉB MARADVÁNYOK TISZTÍTÁSA
+                # Csak akkor törlünk magányos betűt, ha határoló karakterek mellett van
+                rem = re.sub(r'^\s*[A-Z]\s*\|\s*', '', rem) # Sor eleji "K |"
+                rem = re.sub(r'\|\s*[A-Z]\s*\|', '|', rem)  # Köztes "| K |"
+                
                 # 5. LÁBLÉC ÉS OLDALSZÁM
                 stop_phrases = ["Csillagozott betűnél", "kiegészítő is van", "Összesítés:", "Összesen:", "Nyomtatva:"]
                 for phrase in stop_phrases:
                     if phrase in rem: rem = rem.split(phrase)[0]
                 rem = re.sub(r'\b\d+\.\s*oldal\b.*', '', rem, flags=re.IGNORECASE)
 
-                # 6. SORSZÁMOK ÉS DARABSZÁMOK
-                rem = re.sub(r'^\s*\d{1,3}(?!\s*#)\s+', '', rem)
-                rem = re.sub(r'\|\s*\d{1,3}(?!\s*#)\s+', '| ', rem)
+                # 6. SORSZÁMOK ÉS DARABSZÁMOK (Szigorúbb illesztés)
+                rem = re.sub(r'^\s*\d{1,3}\s+', '', rem)
+                rem = re.sub(r'\|\s*\d{1,3}\s+', '| ', rem)
                 if total_q > 0:
                     rem = re.sub(rf'(?<![#\w\d]){total_q}(?![#\w\d])', '', rem)
 
                 # 7. ÍRÁSJEL KOZMETIKA
                 rem = rem.replace("/", " ")
                 rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
-                rem = re.sub(r'[,.\s]{2,}', ' ', rem) 
+                rem = re.sub(r'\s+', ' ', rem).strip()
                 
-                megj = re.sub(r'\s+', ' ', rem).strip()
-                megj = megj.strip(" |,. /") 
+                megj = rem.strip(" |,. /")
                 
+                # Ha csak egy magányos szám maradt (és nem # kapukód), akkor kuka
                 if re.match(r'^\d+$', megj) and "#" not in megj:
                     megj = ""
                 

@@ -117,54 +117,57 @@ def parse_interfood_pdf(pdf_file):
                 
                 u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
                 
-                # --- 1. HA NINCS ÜGYFÉLKÓD (Ragasztás) ---
+                # --- 1. HA NINCS ÜGYFÉLKÓD: EZ EGY EXTRA SOR (pl. kapukód, épület) ---
                 if not u_code_m:
                     if last_row and len(text_ws.strip()) > 2:
-                        # Kivonjuk az esetleges magányos pénzösszegeket a ragasztott sorból is
+                        # Kivonjuk a pénzt, ha véletlenül ebben a sorban lenne (hogy ne kerüljön a megjegyzésbe)
                         clean_extra = text_ws
-                        m_match_extra = re.search(MONEY_PAT, clean_extra)
-                        if m_match_extra:
-                            clean_extra = clean_extra.replace(m_match_extra.group(0), "")
+                        m_pénz = re.search(MONEY_PAT, clean_extra)
+                        if m_pénz:
+                            clean_extra = clean_extra.replace(m_pénz.group(0), "")
                         
+                        # Tisztítás és hozzáfűzés a megjegyzéshez
                         clean_extra = re.sub(r'^\d+\s+|\s+\d+$', '', clean_extra).strip()
                         if clean_extra:
-                            old_megj = last_row.get("Megjegyzés", "")
-                            last_row["Megjegyzés"] = (old_megj + " " + clean_extra).strip()
+                            curr_megj = last_row.get("Megjegyzés", "")
+                            last_row["Megjegyzés"] = (curr_megj + " " + clean_extra).strip(" ,.-")
                     continue
 
-                # --- 2. HA VAN ÜGYFÉLKÓD ---
+                # --- 2. HA VAN ÜGYFÉLKÓD: ÚJ ÜGYFÉL INDUL ---
                 full_id_match = u_code_m.group(0)
                 prefix = full_id_match.split('-')[0]
                 u_id = full_id_match.split('-')[-1]
 
-                # Koordináták: B3 (Cím), B4 (Név)
+                # Alapadatok kinyerése
                 b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
                 b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
                 clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
-                
                 tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
 
-                # Pénz keresése - Keresés az aktuális sorban IS a negatívok miatt
-                # --- 1. PÉNZ KERESÉSE (Minden más előtt!) ---
+                # --- 3. PÉNZ KERESÉSE (ELŐRETEKINTÉSSEL) ---
+                # Megnézzük az aktuális sorban és az utána lévő 3 sorban
                 money_val = "0 Ft"
                 raw_money_text = ""
-                
-                # Megnézzük az aktuális sorban (text_ws)
-                m_match_curr = re.search(MONEY_PAT, text_ws)
-                if m_match_curr:
-                    money_val = m_match_curr.group(1).strip()
-                    raw_money_text = m_match_curr.group(0)
-                # Ha itt nincs, nézzük a következő sorban
-                elif i + 1 < len(sorted_y):
-                    next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
-                    m_match = re.search(MONEY_PAT, next_t)
-                    if m_match: 
+                for look_ahead in range(0, 4):
+                    if i + look_ahead >= len(sorted_y): break
+                    
+                    # Megnézzük a sor szövegét
+                    check_words = sorted(lines[sorted_y[i + look_ahead]], key=lambda x: x['x0'])
+                    check_text = " ".join([w['text'] for w in check_words])
+                    
+                    # Ha a 2. sortól kezdve új ügyfélkódot találunk, megállunk
+                    if look_ahead > 0 and re.search(r'([HKSCPZ]-[0-9]{5,7})', check_text):
+                        break
+                        
+                    m_match = re.search(MONEY_PAT, check_text)
+                    if m_match:
                         money_val = m_match.group(1).strip()
                         raw_money_text = m_match.group(0)
+                        break
 
-                # --- 2. RENDELÉSEK KINYERÉSE ---
+                # --- 4. RENDELÉSEK ÉS TAKARÍTÁS ---
                 raw_orders = re.findall(ORDER_PAT, text_ws)
                 unique_orders, total_q = [], 0
                 for o in raw_orders:
@@ -175,24 +178,18 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- 3. A SZOBRÁSZ-LOGIKA (KIVONÁS/TAKARÍTÁS) ---
-                # Csak most kezdjük el bántani a text_ws-t!
+                # Maradék szöveg kiszámítása (Megjegyzés első fele)
                 rem = text_ws
                 rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
-                
-                # Itt vonjuk ki a pénzt a megjegyzésből, ha megtaláltuk
-                if raw_money_text:
+                if raw_money_text and raw_money_text in rem: 
                     rem = rem.replace(raw_money_text, "")
 
-                # Megjegyzés végső tisztítása
                 megj = re.sub(r'\s+', ' ', rem).strip()
-                megj = re.sub(r'^\d+\s+', '', megj)
-                megj = re.sub(r'\s+\d+$', '', megj)
-                megj = megj.strip(" ,.-")
+                megj = re.sub(r'^\d+\s+|\s+\d+$', '', megj).strip(" ,.-")
 
                 if unique_orders:
                     new_entry = {

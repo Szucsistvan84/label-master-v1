@@ -81,6 +81,7 @@ def parse_interfood_pdf(pdf_file):
     # Kiegészített regexek
     ORDER_PAT = r'(\d+-[A-Z][A-Z0-9*+]*)'
     PHONE_PAT = r'(\d{2}/\d{6,7})'
+    # Ez felismeri a sima -, a hosszú – és a matematikai − jelet is
     MONEY_PAT = r'([-\u2013\u2014\u2212]?\s?\d[\d\s]*\s*Ft)'
 
     with pdfplumber.open(pdf_file) as pdf:
@@ -136,8 +137,13 @@ def parse_interfood_pdf(pdf_file):
                     next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
                     m_match = re.search(MONEY_PAT, next_t)
                     if m_match: 
+                        # Az 1-es csoportban van a (mínusz jel) + összeg + Ft
                         money_val = m_match.group(1).strip()
+                        # Ez a teljes találat (törléshez, ha kell)
                         raw_money_text = m_match.group(0)
+                    else:
+                        money_val = "0 Ft"
+                        raw_money_text = ""
 
                 # Rendelések
                 raw_orders = re.findall(ORDER_PAT, text_ws)

@@ -17,7 +17,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\+?\d{1,2}[/\s-]?)?(\d{2}[/\s-]?)?\d{3}[/\s-]?\d{4}'
 ORDER_PAT = r'\d+-[A-Z][A-Z0-9*+]*'
-
+MONEY_PAT = r'([-\u2013\u2014\u2212]?\s?\d[\d\s]*\s*Ft)'
 
 def register_fonts():
     try:
@@ -81,8 +81,6 @@ def parse_interfood_pdf(pdf_file):
     # Kiegészített regexek
     ORDER_PAT = r'(\d+-[A-Z][A-Z0-9*+]*)'
     PHONE_PAT = r'(\d{2}/\d{6,7})'
-    # Ez felismeri a sima -, a hosszú – és a matematikai − jelet is
-    MONEY_PAT = r'([-\u2013\u2014\u2212]?\s?\d[\d\s]*\s*Ft)'
 
     with pdfplumber.open(pdf_file) as pdf:
         if pdf.pages:

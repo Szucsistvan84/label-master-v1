@@ -189,7 +189,8 @@ def parse_interfood_pdf(pdf_file):
                     rows.append(new_entry)
                     last_row = new_entry  # Ebbe a változóba mentjük az aktuális ügyfelet    return rows, metadata
     
-        def merge_data(raw_rows, p_map, sz_map):
+    def merge_data(raw_rows, p_map, sz_map):
+    
     if not raw_rows: return pd.DataFrame()
     
     import pandas as pd

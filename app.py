@@ -129,32 +129,33 @@ def parse_interfood_pdf(pdf_file):
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
 
-                # --- ADATGYŰJTÉS ÉS PÉNZ KERESÉSE (ÚJ, BŐVÍTETT VERZIÓ) ---
+                # --- ADATGYŰJTÉS ÉS PÉNZ KERESÉSE (JAVÍTVA: ELVÁLASZTÓ JEL ÉS TISZTÍTÁS) ---
                 money_val = "0 Ft"
                 raw_money_text = ""
-                all_relevant_text = text_ws # Ebbe gyűjtjük az összes szöveget a megjegyzéshez
+                all_relevant_text_parts = [text_ws] # Listába gyűjtjük a részeket az elválasztáshoz
                 
                 for offset in range(1, 4):
                     if i + offset < len(sorted_y):
                         next_line_words = sorted(lines[sorted_y[i + offset]], key=lambda x: x['x0'])
                         next_t_ws = " ".join([w['text'] for w in next_line_words])
                         
-                        # Ha új ügyfél jön, megállunk
                         if re.search(r'([HKSCPZ]-[0-9]{5,7})', next_t_ws):
                             break
                         
-                        # Hozzáadjuk a sor tartalmát a gyűjtőhöz
-                        all_relevant_text += " " + next_t_ws
+                        # Elmentjük a sor szövegét a listába
+                        all_relevant_text_parts.append(next_t_ws)
                         
-                        # Pénz keresése (mint eddig)
                         raw_next_line = "".join([w['text'] for w in next_line_words])
                         m_match = re.search(MONEY_PAT, raw_next_line) or re.search(MONEY_PAT, next_t_ws)
                         if m_match and money_val == "0 Ft":
                             money_val = m_match.group(1).strip()
                             raw_money_text = m_match.group(0)
 
-                # Rendelések
-                raw_orders = re.findall(ORDER_PAT, text_ws)
+                # Összefűzzük a részeket a kért elválasztóval
+                all_relevant_text = " | ".join(all_relevant_text_parts)
+
+                # Rendelések kigyűjtése (mint eddig)
+                raw_orders = re.findall(ORDER_PAT, all_relevant_text)
                 unique_orders, total_q = [], 0
                 for o in raw_orders:
                     try:
@@ -164,43 +165,43 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (MAGAS SZINTŰ TAKARÍTÁS) ---
+                # --- A SZOBRÁSZ-LOGIKA (DRASZTIKUSABB TAKARÍTÁS) ---
                 rem = all_relevant_text
                 
-                # 1. Alapadatok kivágása (amiket már biztosan ismerünk)
+                # 1. Alapadatok törlése
                 rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
                 
-                # 2. A "0 Ft" vagy "-1585 Ft" pontos kivágása (ha megtaláltuk korábban)
+                # 2. A PÉNZ ÖSSZEG TÖRLÉSE (Ezt kérted)
+                # Először a konkrétan megtalált raw_money_text-et töröljük
                 if raw_money_text:
                     rem = rem.replace(raw_money_text, "")
+                
+                # Biztonsági tartalék: ha maradt még benne "0 Ft" vagy hasonló, azt is levadásszuk
+                rem = re.sub(MONEY_PAT, "", rem)
 
-                # 3. SPECIFIKUS TAKARÍTÁS (Sorszám, darabszám, szemetek)
-                # Kivágjuk a magányos darabszámot (ami a sor végén vagy elején maradt)
+                # 3. EXTRA SALLANGOK (Darabszám és sorszám)
                 if total_q > 0:
-                    # Olyan számot keresünk, ami körül szóköz van, és megegyezik az összmennyiséggel
+                    # Csak akkor töröljük a számot, ha az a darabszám (szóközök között)
                     rem = re.sub(rf'(?<!\d){total_q}(?!\d)', '', rem)
-
-                # Kivágjuk a perjeleket, amik a nevek/cégek után maradtak
-                rem = rem.replace("/", " ")
                 
-                # Kivágjuk a sorszámot (ha a sor elején maradt egy magányos szám)
-                # Ez a regex a sor eleji 1-3 jegyű számokat vadássza le
-                rem = re.sub(r'^\s*\d{1,3}\s+', ' ', rem)
+                # Sor eleji sorszám (pl. "1 ") törlése a csövek után is
+                rem = re.sub(r'\|\s*\d{1,3}\s+', '| ', rem) # Cső utáni sorszám
+                rem = re.sub(r'^\s*\d{1,3}\s+', '', rem)    # Sor legeleji sorszám
 
-                # 4. ÁLTALÁNOS TAKARÍTÁS (Vesszők, szóközök)
-                # Sorozatos vesszők és pontok eltüntetése
-                rem = re.sub(r'[,.\s]{2,}', ' ', rem)
+                # 4. KOZMETIKA
+                rem = rem.replace("/", " ") # Perjelek takarítása
+                rem = re.sub(r'[,.]{2,}', ' ', rem) # Dupla írásjelek
                 
-                # Dupla szóközök egységesítése
+                # Takarítjuk a felesleges csöveket (ha üres sor maradt volna köztük)
+                rem = re.sub(r'\|\s*\|', '|', rem)
+                
                 megj = re.sub(r'\s+', ' ', rem).strip()
+                megj = megj.strip(" |,. /") # A szélekről is leszedjük a maradékot
                 
-                # A legvégén maradt sallangok (vessző, pont, szóköz az elejéről/végéről)
-                megj = megj.strip(" ,.-")
-
                 if unique_orders:
                     rows.append({
                         "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": clean_name,

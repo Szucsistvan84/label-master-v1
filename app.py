@@ -172,8 +172,8 @@ def parse_interfood_pdf(pdf_file):
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
 
-for o in raw_orders:
-    rem = rem.replace(o, "")                
+                for o in raw_orders:
+                    rem = rem.replace(o, "")                
                 # Tisztítás a végén
                 megj = rem.replace("|", " ") # Sor elválasztók eltüntetése
                 megj = re.sub(r'\s+', ' ', megj).strip()

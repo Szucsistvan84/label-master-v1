@@ -80,11 +80,10 @@ def parse_interfood_pdf(pdf_file):
     
     ORDER_PAT = r'(\d+-[A-Z][A-Z0-9*+]*)'
     PHONE_PAT = r'(\d{2}/\d{6,7})'
-    # Kibővített pénz regex, ami bírja a szóközöket és a különleges negatív jeleket
+    # Ez a regex most már mindent is megfog, ami pénz (negatívat is)
     MONEY_PAT = r'((?:[-\u2013\u2014\u2212]\s*)?\d[\d\s]*\s*Ft)'
 
     with pdfplumber.open(pdf_file) as pdf:
-        # Metaadatok (Év, Hét, Nap) kinyerése marad a régi stabil módon
         if pdf.pages:
             first_page_text = pdf.pages[0].extract_text()
             if first_page_text:
@@ -110,68 +109,86 @@ def parse_interfood_pdf(pdf_file):
 
             sorted_y = sorted(lines.keys())
             
-            # Először gyűjtsük össze az összes sor nyers szövegét
-            all_line_texts = []
-            for y in sorted_y:
-                line_words = sorted(lines[y], key=lambda x: x['x0'])
-                all_line_texts.append(" ".join([w['text'] for w in line_words]))
+            # --- 1. LÉPÉS: BLOKKOKRA BONTÁS ---
+            # Megkeressük melyik sorban kezdődik új ügyfél
+            customer_blocks = []
+            for i, y in enumerate(sorted_y):
+                line_text = " ".join([w['text'] for w in sorted(lines[y], key=lambda x: x['x0'])])
+                u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', line_text)
+                if u_code_m:
+                    customer_blocks.append({'start_index': i, 'u_code_match': u_code_m})
 
-            for i, current_text in enumerate(all_line_texts):
-                u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', current_text)
-                if not u_code_m: continue
-
-                full_id_match = u_code_m.group(0)
+            # --- 2. LÉPÉS: ADATKINYERÉS A BLOKKOKBÓL ---
+            for idx, block in enumerate(customer_blocks):
+                start_i = block['start_index']
+                # A blokk vége a következő ügyfél kezdete, vagy az oldal alja
+                end_i = customer_blocks[idx+1]['start_index'] if idx+1 < len(customer_blocks) else len(sorted_y)
+                
+                # Összegyűjtjük a blokk összes szövegét
+                block_lines = []
+                for i in range(start_i, end_i):
+                    block_lines.append(" ".join([w['text'] for w in sorted(lines[sorted_y[i]], key=lambda x: x['x0'])]))
+                
+                full_block_text = " | ".join(block_lines) # | jel segít elválasztani a sorokat
+                first_line_text = block_lines[0]
+                
+                # Alapadatok az első sorból
+                u_code_match = block['u_code_match']
+                full_id_match = u_code_match.group(0)
                 prefix = full_id_match.split('-')[0]
                 u_id = full_id_match.split('-')[-1]
 
-                # Koordináták alapú kinyerés (Név, Cím)
-                line_words = sorted(lines[sorted_y[i]], key=lambda x: x['x0'])
-                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
-                b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
+                # Név és Cím (marad a koordináta alapú, mert az a legbiztosabb)
+                first_line_words = sorted(lines[sorted_y[start_i]], key=lambda x: x['x0'])
+                b3 = " ".join([w['text'] for w in first_line_words if 150 <= w['x0'] < 355])
+                b4 = " ".join([w['text'] for w in first_line_words if 355 <= w['x0'] < 490])
                 
                 clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
-                tel_m = re.search(PHONE_PAT, current_text.replace(" ", ""))
-
-                # PÉNZ KERESÉSE - Több sorban is nézzük, tisztítás NÉLKÜL
+                
+                # Telefon és Rendelés (a teljes blokkból!)
+                tel_m = re.search(PHONE_PAT, full_block_text.replace(" ", ""))
+                raw_orders = re.findall(ORDER_PAT, full_block_text)
+                
+                # PÉNZ (A teljes blokkból keressük!)
                 money_val = "0 Ft"
                 found_money_raw = ""
-                
-                # 1. Megnézzük az aktuális sorban
-                m_match = re.search(MONEY_PAT, current_text)
+                m_match = re.search(MONEY_PAT, full_block_text)
                 if m_match:
                     money_val = m_match.group(1).strip()
                     found_money_raw = m_match.group(0)
-                # 2. Ha ott nincs, megnézzük a következő sorban (gyakori a PDF-ben)
-                elif i + 1 < len(all_line_texts):
-                    m_match_next = re.search(MONEY_PAT, all_line_texts[i+1])
-                    if m_match_next:
-                        money_val = m_match_next.group(1).strip()
-                        found_money_raw = m_match_next.group(0)
 
-                # RENDELÉSEK
-                raw_orders = re.findall(ORDER_PAT, current_text)
-                unique_orders, total_q = [], 0
-                for o in raw_orders:
-                    try:
-                        q_part = o.split('-')[0]
-                        q = int(re.sub(r'\D', '', q_part)[-1]) if re.sub(r'\D', '', q_part) else 1
-                        unique_orders.append(f"{q}-{o.split('-')[1]}")
-                        total_q += q
-                    except: continue
-
-                # --- A SZOBRÁSZAT ALAPJA (Mindent kiveszünk, ami már megvan) ---
-                rem = current_text
+                # --- 3. LÉPÉS: A SZOBRÁSZAT (KIVONÁS) ---
+                # A teljes blokk szövegéből faragunk
+                rem = full_block_text
                 rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
-                for o in raw_orders: rem = rem.replace(o, "")
                 if found_money_raw: rem = rem.replace(found_money_raw, "")
+                for o in raw_orders: rem = rem.replace(o, "")
+                
+                # Tisztítás a végén
+                megj = rem.replace("|", " ") # Sor elválasztók eltüntetése
+                megj = re.sub(r'\s+', ' ', megj).strip()
+                
+                # Most jöhet a sorszám és összesítő lefaragása a szélekről
+                megj = re.sub(r'^\d+\s+', '', megj)
+                megj = re.sub(r'\s+\d+$', '', megj)
+                megj = megj.strip(" ,.-")
 
-                # Itt még NEM vágjuk le a sorszámot és összesítőt, csak a felesleges szóközöket
-                megj = re.sub(r'\s+', ' ', rem).strip(" ,.-")
+                # Rendelések összesítése
+                unique_orders, total_q = [], 0
+                seen_o = set()
+                for o in raw_orders:
+                    if o not in seen_o:
+                        try:
+                            q = int(re.sub(r'\D', '', o.split('-')[0])[-1]) if '-' in o else 1
+                            unique_orders.append(f"{q}-{o.split('-')[1]}")
+                            total_q += q
+                            seen_o.add(o)
+                        except: continue
 
                 if unique_orders:
                     rows.append({
@@ -183,7 +200,6 @@ def parse_interfood_pdf(pdf_file):
                         "Hétvégi": False,
                         "Sorrend": st.session_state.weights.get(str(u_id), 999)
                     })
-
     return rows, metadata
     
 def merge_data(raw_rows, p_map, sz_map):

@@ -165,42 +165,55 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (DRASZTIKUSABB TAKARÍTÁS) ---
+                # --- A SZOBRÁSZ-LOGIKA (FINOMHANGOLT TAKARÍTÁS) ---
                 rem = all_relevant_text
                 
-                # 1. Alapadatok törlése
+                # 1. Ismert adatok törlése
                 rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
                 
-                # 2. A PÉNZ ÖSSZEG TÖRLÉSE (Ezt kérted)
-                # Először a konkrétan megtalált raw_money_text-et töröljük
+                # 2. Pénz törlése (csak ha pontos egyezés vagy money minta)
                 if raw_money_text:
                     rem = rem.replace(raw_money_text, "")
-                
-                # Biztonsági tartalék: ha maradt még benne "0 Ft" vagy hasonló, azt is levadásszuk
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 3. EXTRA SALLANGOK (Darabszám és sorszám)
-                if total_q > 0:
-                    # Csak akkor töröljük a számot, ha az a darabszám (szóközök között)
-                    rem = re.sub(rf'(?<!\d){total_q}(?!\d)', '', rem)
-                
-                # Sor eleji sorszám (pl. "1 ") törlése a csövek után is
-                rem = re.sub(r'\|\s*\d{1,3}\s+', '| ', rem) # Cső utáni sorszám
-                rem = re.sub(r'^\s*\d{1,3}\s+', '', rem)    # Sor legeleji sorszám
+                # 3. LÁBLÉC ÉS ÖSSZESÍTŐK TILTÁSA (Zajszűrés)
+                stop_phrases = [
+                    "Csillagozott betűnél", "kiegészítő is van", 
+                    "Összesítés:", "Összesen:", "oldal", "Nyomtatva:"
+                ]
+                for phrase in stop_phrases:
+                    if phrase in rem:
+                        rem = rem.split(phrase)[0] # Ami ezen kifejezések után van, az kuka
 
-                # 4. KOZMETIKA
-                rem = rem.replace("/", " ") # Perjelek takarítása
-                rem = re.sub(r'[,.]{2,}', ' ', rem) # Dupla írásjelek
+                # 4. SZÁMOK TÖRLÉSE - CSAK HA ÖNÁLLÓAK! (Ez menti meg az 5k4476-ot)
+                if total_q > 0:
+                    # \b jelentése: szóhatár. Így az '5' törlődik, de az '5k...' nem!
+                    rem = re.sub(rf'\b{total_q}\b', '', rem)
                 
-                # Takarítjuk a felesleges csöveket (ha üres sor maradt volna köztük)
+                # Cső utáni sorszámok (pl. "| 1 ")
+                rem = re.sub(r'\|\s*\d{1,3}\b', '|', rem)
+                # Sor eleji sorszámok
+                rem = re.sub(r'^\s*\d{1,3}\b', '', rem)
+
+                # 5. ÍRÁSJEL ÉS SZÓKÖZ KOZMETIKA
+                # Minden perjelet és felesleges írásjelet szóközre cserélünk, hogy ne tapadjanak a szavak
+                rem = rem.replace("/", " ")
+                # A vesszőket és pontokat csak akkor bántjuk, ha halmozva vannak
+                rem = re.sub(r'[,.]{2,}', ' ', rem) 
+                
+                # Takarítjuk a felesleges csöveket
                 rem = re.sub(r'\|\s*\|', '|', rem)
                 
+                # Végső tisztítás: dupla szóközök ki, szélekről szemét le
                 megj = re.sub(r'\s+', ' ', rem).strip()
-                megj = megj.strip(" |,. /") # A szélekről is leszedjük a maradékot
+                megj = megj.strip(" |,. /") 
+                
+                # Ha a végén csak egy árva vessző vagy cső maradna, azt is eldobjuk
+                if megj in [",", "|", "."]: megj = ""
                 
                 if unique_orders:
                     rows.append({

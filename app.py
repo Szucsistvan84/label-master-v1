@@ -18,7 +18,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 PHONE_PAT = r'(\+?\d{1,2}[/\s-]?)?(\d{2}[/\s-]?)?\d{3}[/\s-]?\d{4}'
 ORDER_PAT = r'\d+-[A-Z][A-Z0-9*+]*'
 # Frissített, "szóköz-toleráns" regex
-MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d[\d\s]*\s*Ft)'
+MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
 def register_fonts():
     try:

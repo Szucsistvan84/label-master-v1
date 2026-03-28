@@ -80,7 +80,7 @@ def parse_interfood_pdf(pdf_file):
     ORDER_PAT = r'(\d+-[A-Z][A-Z0-9*+]*)'
     PHONE_PAT = r'(\d{2}/\d{6,7})'
     # Ez a regex most már mindent is megfog, ami pénz (negatívat is)
-    MONEY_PAT = r'((?:[-\u2013\u2014\u2212]\s*)?\d[\d\s]*\s*Ft)'
+    MONEY_PAT = r'([–\-\u2212]?\s*[\d\s\xa0]+)\s*Ft'
 
     with pdfplumber.open(pdf_file) as pdf:
         if pdf.pages:

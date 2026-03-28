@@ -81,8 +81,8 @@ def parse_interfood_pdf(pdf_file):
     # Kiegészített regexek
     ORDER_PAT = r'(\d+-[A-Z][A-Z0-9*+]*)'
     PHONE_PAT = r'(\d{2}/\d{6,7})'
-    MONEY_PAT = r'([-\u2013\u2014\u2212]?\s?\d[\d\s]*\s*Ft)'
-
+    MONEY_PAT = r'((?:[-\u2013\u2014\u2212]\s*)?\d[\d\s]*\s*Ft)'
+    
     with pdfplumber.open(pdf_file) as pdf:
         if pdf.pages:
             first_page_text = pdf.pages[0].extract_text()
@@ -139,9 +139,13 @@ def parse_interfood_pdf(pdf_file):
                 address = b3[addr_m.start():].strip() if addr_m else b3
 
                 # Pénz és rendelések kinyerése (marad az eredeti logikád)
-                money_val = "0 Ft"
-                raw_money_text = ""
-                if i + 1 < len(sorted_y):
+                # Előbb megnézzük az aktuális sorban (gyakori a negatívnál)
+                m_match_curr = re.search(MONEY_PAT, text_ws)
+                if m_match_curr:
+                    money_val = m_match_curr.group(1).strip()
+                    raw_money_text = m_match_curr.group(0)
+                # Ha ott nincs, nézzük a következő sorban (ahogy eddig)
+                elif i + 1 < len(sorted_y):
                     next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
                     m_match = re.search(MONEY_PAT, next_t)
                     if m_match: 
@@ -158,19 +162,19 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # Szobrász-logika
+                # --- A SZOBRÁSZ-LOGIKA (KIVONÁS) ---
                 rem = text_ws
                 rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
-                if raw_money_text: rem = rem.replace(raw_money_text, "")
-
-                megj = re.sub(r'\s+', ' ', rem).strip()
-                megj = re.sub(r'^\d+\s+', '', megj)
-                megj = re.sub(r'\s+\d+$', '', megj)
-                megj = megj.strip(" ,.-")
+                
+                # Pénz kivonása (ha az aktuális sorban volt)
+                if raw_money_text and raw_money_text in rem:
+                    rem = rem.replace(raw_money_text, "")
+                # Biztonsági takarítás: ha maradt magányos negatív összeg Ft nélkül
+                rem = re.sub(r'[-\u2013\u2014\u2212]\s*\d[\d\s]*', '', rem)
 
                 if unique_orders:
                     new_entry = {

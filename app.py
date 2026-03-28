@@ -78,12 +78,13 @@ def parse_interfood_pdf(pdf_file):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None}
     
-    # Kiegészített regexek
     ORDER_PAT = r'(\d+-[A-Z][A-Z0-9*+]*)'
     PHONE_PAT = r'(\d{2}/\d{6,7})'
+    # Stabil pénz regex
     MONEY_PAT = r'((?:[-\u2013\u2014\u2212]\s*)?\d[\d\s]*\s*Ft)'
-    
+
     with pdfplumber.open(pdf_file) as pdf:
+        # Metaadatok kinyerése (marad a régi)
         if pdf.pages:
             first_page_text = pdf.pages[0].extract_text()
             if first_page_text:
@@ -105,92 +106,103 @@ def parse_interfood_pdf(pdf_file):
                         lines[ey].append(w)
                         found = True
                         break
-                if not found:
-                    lines[y] = [w]
+                if not found: lines[y] = [w]
 
             sorted_y = sorted(lines.keys())
-            
-            last_row = None
+            last_entry = None
+
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
-                raw_line_text = " ".join([w['text'] for w in line_words])
+                text_ws = " ".join([w['text'] for w in line_words])
                 
-                u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', raw_line_text)
-                
-                # --- 1. HA NINCS ÜGYFÉLKÓD (Ragasztás vagy Pénzkeresés lemaradva) ---
-                if not u_code_m:
-                    if last_row:
-                        # Megnézzük, nincs-e itt egy eltévedt PÉNZ (pl. negatív alul)
-                        m_match = re.search(MONEY_PAT, raw_line_text)
-                        if m_match and (last_row["Pénz"] == "0 Ft" or last_row["Pénz"] == ""):
-                            last_row["Pénz"] = m_match.group(1).strip()
-                            raw_line_text = raw_line_text.replace(m_match.group(0), "")
+                u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
+
+                # --- 1. LÉPÉS: HA VAN ÜGYFÉLKÓD, LÉTREHOZZUK AZ ALAPOT ---
+                if u_code_m:
+                    full_id_match = u_code_m.group(0)
+                    prefix = full_id_match.split('-')[0]
+                    u_id = full_id_match.split('-')[-1]
+
+                    # Név (B4 zóna)
+                    b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
+                    clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
+                    
+                    # Cím (B3 zóna)
+                    b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
+                    addr_m = re.search(r'(\d{4})', b3)
+                    address = b3[addr_m.start():].strip() if addr_m else b3
+                    
+                    # Telefon
+                    tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
+
+                    # PÉNZ (Úgy keressük, ahogy régen: a sorban VAGY a következő sorban)
+                    money_val = "0 Ft"
+                    raw_money_text = ""
+                    m_curr = re.search(MONEY_PAT, text_ws)
+                    if m_curr:
+                        money_val = m_curr.group(1).strip()
+                        raw_money_text = m_curr.group(0)
+                    elif i + 1 < len(sorted_y):
+                        next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
+                        m_next = re.search(MONEY_PAT, next_t)
+                        if m_next:
+                            money_val = m_next.group(1).strip()
+                            raw_money_text = m_next.group(0)
+
+                    # Rendelések
+                    raw_orders = re.findall(ORDER_PAT, text_ws)
+                    unique_orders, total_q = [], 0
+                    for o in raw_orders:
+                        try:
+                            q_part = o.split('-')[0]
+                            q = int(re.sub(r'\D', '', q_part)[-1]) if re.sub(r'\D', '', q_part) else 1
+                            unique_orders.append(f"{q}-{o.split('-')[1]}")
+                            total_q += q
+                        except: continue
+
+                    # Szobrász-logika a megjegyzéshez (csak az aktuális sorból)
+                    rem = text_ws
+                    rem = rem.replace(full_id_match, "")
+                    if clean_name: rem = rem.replace(clean_name, "")
+                    if address: rem = rem.replace(address, "")
+                    if tel_m: rem = rem.replace(tel_m.group(0), "")
+                    for o in raw_orders: rem = rem.replace(o, "")
+                    if raw_money_text and raw_money_text in rem: rem = rem.replace(raw_money_text, "")
+
+                    megj = re.sub(r'\s+', ' ', rem).strip()
+                    megj = re.sub(r'^\d+\s+|\s+\d+$', '', megj).strip(" ,.-")
+
+                    if unique_orders:
+                        last_entry = {
+                            "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": clean_name,
+                            "Cím": address, "Telefon": tel_m.group(0) if tel_m else "",
+                            "Pénz": money_val, "Rendelés": ", ".join(unique_orders),
+                            "Megjegyzés": megj, "Összesen": total_q, "temp_id": u_id,
+                            "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
+                            "Hétvégi": False,
+                            "Sorrend": st.session_state.weights.get(str(u_id), 999)
+                        }
+                        rows.append(last_entry)
+
+                # --- 2. LÉPÉS: HA NINCS ÜGYFÉLKÓD, ÉS VAN ELŐZŐ ÜGYFÉL (Ragasztás) ---
+                else:
+                    if last_entry and len(text_ws.strip()) > 2:
+                        # Kivonjuk a pénzt a ragasztott sorból is, ha az aktuális ügyfélnek még nincs (0 Ft)
+                        m_extra = re.search(MONEY_PAT, text_ws)
+                        clean_extra = text_ws
+                        if m_extra:
+                            if last_entry["Pénz"] == "0 Ft" or last_entry["Pénz"] == "":
+                                last_entry["Pénz"] = m_extra.group(1).strip()
+                            # Mindig kivonjuk, hogy ne legyen benne a megjegyzésben
+                            clean_extra = clean_extra.replace(m_extra.group(0), "")
+
+                        # Egyéb takarítás (számok a széléről)
+                        clean_extra = re.sub(r'^\d+\s+|\s+\d+$', '', clean_extra).strip()
                         
-                        # Ragasztás a megjegyzéshez
-                        clean_extra = re.sub(r'^\d+\s+|\s+\d+$', '', raw_line_text).strip()
                         if clean_extra:
-                            old_m = last_row.get("Megjegyzés", "")
-                            last_row["Megjegyzés"] = (old_m + " " + clean_extra).strip(" ,.-")
-                    continue
+                            old_m = last_entry.get("Megjegyzés", "")
+                            last_entry["Megjegyzés"] = (old_m + " " + clean_extra).strip(" ,.-")
 
-                # --- 2. ÚJ ÜGYFÉL INDUL (Itt biztosan definiálunk mindent) ---
-                full_id_match = u_code_m.group(0)
-                prefix = full_id_match.split('-')[0]
-                u_id = full_id_match.split('-')[-1]
-
-                # Név kinyerése
-                b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
-                clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
-                
-                # Cím és Telefon
-                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
-                tel_m = re.search(PHONE_PAT, raw_line_text.replace(" ", ""))
-                addr_m = re.search(r'(\d{4})', b3)
-                address = b3[addr_m.start():].strip() if addr_m else b3
-
-                # Pénz az aktuális sorban
-                money_val = "0 Ft"
-                raw_money_in_main = ""
-                m_curr = re.search(MONEY_PAT, raw_line_text)
-                if m_curr:
-                    money_val = m_curr.group(1).strip()
-                    raw_money_in_main = m_curr.group(0)
-
-                # Rendelések
-                raw_orders = re.findall(ORDER_PAT, raw_line_text)
-                unique_orders, total_q = [], 0
-                for o in raw_orders:
-                    try:
-                        q_part = o.split('-')[0]
-                        q = int(re.sub(r'\D', '', q_part)[-1]) if re.sub(r'\D', '', q_part) else 1
-                        unique_orders.append(f"{q}-{o.split('-')[1]}")
-                        total_q += q
-                    except: continue
-
-                # --- 3. TAKARÍTÁS (Hogy mi maradjon megjegyzésnek) ---
-                rem = raw_line_text
-                rem = rem.replace(full_id_match, "")
-                if clean_name: rem = rem.replace(clean_name, "")
-                if address: rem = rem.replace(address, "")
-                if tel_m: rem = rem.replace(tel_m.group(0), "")
-                for o in raw_orders: rem = rem.replace(o, "")
-                if raw_money_in_main: rem = rem.replace(raw_money_in_main, "")
-
-                megj = re.sub(r'\s+', ' ', rem).strip()
-                megj = re.sub(r'^\d+\s+|\s+\d+$', '', megj).strip(" ,.-")
-
-                if unique_orders:
-                    new_entry = {
-                        "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": clean_name,
-                        "Cím": address, "Telefon": tel_m.group(0) if tel_m else "",
-                        "Pénz": money_val, "Rendelés": ", ".join(unique_orders),
-                        "Megjegyzés": megj, "Összesen": total_q, "temp_id": u_id,
-                        "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
-                        "Hétvégi": False,
-                        "Sorrend": st.session_state.weights.get(str(u_id), 999)
-                    }
-                    rows.append(new_entry)
-                    last_row = new_entry
     return rows, metadata
     
 def merge_data(raw_rows, p_map, sz_map):

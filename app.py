@@ -109,48 +109,36 @@ def parse_interfood_pdf(pdf_file):
                 if not found: lines[y] = [w]
 
             sorted_y = sorted(lines.keys())
+            
             last_entry = None
-
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
-                text_ws = " ".join([w['text'] for w in line_words])
+                raw_line_text = " ".join([w['text'] for w in line_words])
                 
-                u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
+                u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', raw_line_text)
 
-                # --- 1. LÉPÉS: HA VAN ÜGYFÉLKÓD, LÉTREHOZZUK AZ ALAPOT ---
                 if u_code_m:
+                    # --- ÚJ ÜGYFÉL LÉTREHOZÁSA ---
                     full_id_match = u_code_m.group(0)
                     prefix = full_id_match.split('-')[0]
                     u_id = full_id_match.split('-')[-1]
 
-                    # Név (B4 zóna)
+                    # Alapadatok (zónák alapján, ez stabil)
+                    b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
                     b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
                     clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
-                    
-                    # Cím (B3 zóna)
-                    b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
                     addr_m = re.search(r'(\d{4})', b3)
                     address = b3[addr_m.start():].strip() if addr_m else b3
-                    
-                    # Telefon
-                    tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
+                    tel_m = re.search(PHONE_PAT, raw_line_text.replace(" ", ""))
 
-                    # PÉNZ (Úgy keressük, ahogy régen: a sorban VAGY a következő sorban)
+                    # PÉNZ KERESÉSE (Csak a nyers szövegből!)
                     money_val = "0 Ft"
-                    raw_money_text = ""
-                    m_curr = re.search(MONEY_PAT, text_ws)
+                    m_curr = re.search(MONEY_PAT, raw_line_text)
                     if m_curr:
                         money_val = m_curr.group(1).strip()
-                        raw_money_text = m_curr.group(0)
-                    elif i + 1 < len(sorted_y):
-                        next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
-                        m_next = re.search(MONEY_PAT, next_t)
-                        if m_next:
-                            money_val = m_next.group(1).strip()
-                            raw_money_text = m_next.group(0)
 
-                    # Rendelések
-                    raw_orders = re.findall(ORDER_PAT, text_ws)
+                    # RENDELÉSEK
+                    raw_orders = re.findall(ORDER_PAT, raw_line_text)
                     unique_orders, total_q = [], 0
                     for o in raw_orders:
                         try:
@@ -160,17 +148,18 @@ def parse_interfood_pdf(pdf_file):
                             total_q += q
                         except: continue
 
-                    # Szobrász-logika a megjegyzéshez (csak az aktuális sorból)
-                    rem = text_ws
+                    # MEGJEGYZÉS KEZDETI "SZOBRÁSZATA"
+                    # Fontos: Előbb kimentjük a pénzt, és csak utána takarítunk!
+                    rem = raw_line_text
+                    if m_curr: rem = rem.replace(m_curr.group(0), "")
                     rem = rem.replace(full_id_match, "")
                     if clean_name: rem = rem.replace(clean_name, "")
                     if address: rem = rem.replace(address, "")
                     if tel_m: rem = rem.replace(tel_m.group(0), "")
                     for o in raw_orders: rem = rem.replace(o, "")
-                    if raw_money_text and raw_money_text in rem: rem = rem.replace(raw_money_text, "")
-
-                    megj = re.sub(r'\s+', ' ', rem).strip()
-                    megj = re.sub(r'^\d+\s+|\s+\d+$', '', megj).strip(" ,.-")
+                    
+                    # Csak a legszükségesebb takarítás, nem bántjuk a számokat a sor végén még!
+                    megj = re.sub(r'\s+', ' ', rem).strip(" ,.-")
 
                     if unique_orders:
                         last_entry = {
@@ -184,25 +173,33 @@ def parse_interfood_pdf(pdf_file):
                         }
                         rows.append(last_entry)
 
-                # --- 2. LÉPÉS: HA NINCS ÜGYFÉLKÓD, ÉS VAN ELŐZŐ ÜGYFÉL (Ragasztás) ---
                 else:
-                    if last_entry and len(text_ws.strip()) > 2:
-                        # Kivonjuk a pénzt a ragasztott sorból is, ha az aktuális ügyfélnek még nincs (0 Ft)
-                        m_extra = re.search(MONEY_PAT, text_ws)
-                        clean_extra = text_ws
-                        if m_extra:
-                            if last_entry["Pénz"] == "0 Ft" or last_entry["Pénz"] == "":
-                                last_entry["Pénz"] = m_extra.group(1).strip()
-                            # Mindig kivonjuk, hogy ne legyen benne a megjegyzésben
-                            clean_extra = clean_extra.replace(m_extra.group(0), "")
-
-                        # Egyéb takarítás (számok a széléről)
-                        clean_extra = re.sub(r'^\d+\s+|\s+\d+$', '', clean_extra).strip()
+                    # --- RAGASZTÓ LOGIKA (Ha nincs kód) ---
+                    if last_entry:
+                        # 1. Megnézzük, van-e ebben a sorban pénz?
+                        m_extra = re.search(MONEY_PAT, raw_line_text)
+                        clean_extra = raw_line_text
                         
-                        if clean_extra:
+                        if m_extra:
+                            # Ha az előző sorban nem volt pénz, ez lesz az
+                            if last_entry["Pénz"] == "0 Ft" or not last_entry["Pénz"]:
+                                last_entry["Pénz"] = m_extra.group(1).strip()
+                            # A pénzt mindenképp kivesszük a szövegből, ne legyen megjegyzés
+                            clean_extra = clean_extra.replace(m_extra.group(0), "")
+                        
+                        # 2. Rendelések kivonása (ha átlógtak)
+                        ex_orders = re.findall(ORDER_PAT, clean_extra)
+                        for eo in ex_orders: clean_extra = clean_extra.replace(eo, "")
+
+                        # 3. Maradék ragasztása
+                        clean_extra = clean_extra.strip(" ,.-")
+                        if len(clean_extra) > 1:
+                            # Itt is vigyázunk: ne vágjuk le a fontos számokat (pl. emelet/ajtó)
+                            # Csak a sor végi magányos összesítő számot vágjuk le, ha van
+                            clean_extra = re.sub(r'\s+\d+$', '', clean_extra).strip()
+                            
                             old_m = last_entry.get("Megjegyzés", "")
                             last_entry["Megjegyzés"] = (old_m + " " + clean_extra).strip(" ,.-")
-
     return rows, metadata
     
 def merge_data(raw_rows, p_map, sz_map):

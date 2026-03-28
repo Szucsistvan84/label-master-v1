@@ -156,57 +156,49 @@ def parse_interfood_pdf(pdf_file):
                 tel_m = re.search(PHONE_PAT, full_block_text.replace(" ", ""))
                 raw_orders = re.findall(ORDER_PAT, full_block_text)
                 
-                # PÉNZ (A teljes blokkból keressük!)
+                # PÉNZ KINYERÉSE - Nyers szövegként, érintetlenül!
                 money_val = "0 Ft"
-                found_money_raw = ""
                 m_match = re.search(MONEY_PAT, full_block_text)
                 if m_match:
-                    raw_m = m_match.group(1).strip()
-                    # Mindenféle kötőjelet cseréljünk le sima - jelre
-                    money_val = re.sub(r'[\u2013\u2014\u2212]', '-', raw_m)
+                    # Itt nem tisztítunk, nem int-elünk, csak elmentjük a szöveget
+                    money_val = m_match.group(1).strip()
 
                 # --- 3. LÉPÉS: A SZOBRÁSZAT (KIVONÁS) ---
                 rem = full_block_text
-                
-                # A pénzt REGEX-szel vágjuk ki, hogy ne függjünk a szóközök számától
-                rem = re.sub(MONEY_PAT, "", rem)
-                
-                # A többit maradhat replace, de a biztonság kedvéért a neveket és címeket is érdemes re.escape-elni
-                if full_id_match: rem = rem.replace(full_id_match, "")
+                # Kivonjuk az ismert adatokat a blokkból, hogy csak a megjegyzés maradjon
+                rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
-
-                for o in raw_orders:
-                    rem = rem.replace(o, "")                
-                # Tisztítás a végén
-                megj = rem.replace("|", " ") # Sor elválasztók eltüntetése
-                megj = re.sub(r'\s+', ' ', megj).strip()
                 
-                # Most jöhet a sorszám és összesítő lefaragása a szélekről
-                megj = re.sub(r'^\d+\s+', '', megj)
-                megj = re.sub(r'\s+\d+$', '', megj)
+                # A pénzt is kivonjuk a megjegyzésből, de az eredeti formájában
+                if m_match:
+                    rem = rem.replace(m_match.group(0), "")
+                
+                for o in raw_orders:
+                    rem = rem.replace(o, "")
+                
+                # Megjegyzés tisztítása
+                megj = rem.replace("|", " ")
+                megj = re.sub(r'\s+', ' ', megj).strip()
+                megj = re.sub(r'^\d+\s+', '', megj) # Sorszám lecsípése
                 megj = megj.strip(" ,.-")
 
-                # Rendelések összesítése
-                unique_orders, total_q = [], 0
-                seen_o = set()
-                for o in raw_orders:
-                    if o not in seen_o:
-                        try:
-                            q = int(re.sub(r'\D', '', o.split('-')[0])[-1]) if '-' in o else 1
-                            unique_orders.append(f"{q}-{o.split('-')[1]}")
-                            total_q += q
-                            seen_o.add(o)
-                        except: continue
-
+                # Adatok mentése a táblázatba
                 if unique_orders:
                     rows.append({
-                        "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": clean_name,
-                        "Cím": address, "Telefon": tel_m.group(0) if tel_m else "",
-                        "Pénz": money_val, "Rendelés": ", ".join(unique_orders),
-                        "Megjegyzés": megj, "Összesen": total_q, "temp_id": u_id,
-                        "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
+                        "Prefix": prefix, 
+                        "ID": f"P-{u_id}", 
+                        "Ügyintéző": clean_name,
+                        "Cím": address, 
+                        "Telefon": tel_m.group(0) if tel_m else "",
+                        "Pénz": money_val,  # <--- EZ MOST MÁR SZÖVEG MARAD
+                        "Rendelés": ", ".join(unique_orders),
+                        "Megjegyzés": megj, 
+                        "Összesen": total_q, 
+                        "temp_id": u_id,
+                        "Raklista_Ertek": 0, 
+                        "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
                         "Hétvégi": False,
                         "Sorrend": st.session_state.weights.get(str(u_id), 999)
                     })

@@ -109,12 +109,21 @@ def parse_interfood_pdf(pdf_file):
                     lines[y] = [w]
 
             sorted_y = sorted(lines.keys())
+            last_row = None
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
                 
                 u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
-                if not u_code_m: continue
+                
+                # HA NINCS ÜGYFÉLKÓD, de az előző sorhoz tartozhat (pl. Szürke csarnok)
+                if not u_code_m:
+                    if last_row and len(text_ws.strip()) > 3:
+                        # Hozzáadjuk a megjegyzéshez, ha nem csak egy sorszám vagy üres
+                        clean_extra = re.sub(r'^\d+\s+|\s+\d+$', '', text_ws).strip()
+                        if clean_extra:
+                            last_row["Megjegyzés"] = (last_row["Megjegyzés"] + " " + clean_extra).strip()
+                    continue
 
                 full_id_match = u_code_m.group(0)
                 prefix = full_id_match.split('-')[0]
@@ -129,7 +138,7 @@ def parse_interfood_pdf(pdf_file):
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
 
-                # Pénz keresése
+                # Pénz és rendelések kinyerése (marad az eredeti logikád)
                 money_val = "0 Ft"
                 raw_money_text = ""
                 if i + 1 < len(sorted_y):
@@ -139,7 +148,6 @@ def parse_interfood_pdf(pdf_file):
                         money_val = m_match.group(1).strip()
                         raw_money_text = m_match.group(0)
 
-                # Rendelések
                 raw_orders = re.findall(ORDER_PAT, text_ws)
                 unique_orders, total_q = [], 0
                 for o in raw_orders:
@@ -150,7 +158,7 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (KIVONÁS) ---
+                # Szobrász-logika
                 rem = text_ws
                 rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
@@ -159,14 +167,13 @@ def parse_interfood_pdf(pdf_file):
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
 
-                # Takarítás
                 megj = re.sub(r'\s+', ' ', rem).strip()
-                megj = re.sub(r'^\d+\s+', '', megj) # Sor eleji sorszám
-                megj = re.sub(r'\s+\d+$', '', megj) # Sor végi összesítő
+                megj = re.sub(r'^\d+\s+', '', megj)
+                megj = re.sub(r'\s+\d+$', '', megj)
                 megj = megj.strip(" ,.-")
 
                 if unique_orders:
-                    rows.append({
+                    new_entry = {
                         "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": clean_name,
                         "Cím": address, "Telefon": tel_m.group(0) if tel_m else "",
                         "Pénz": money_val, "Rendelés": ", ".join(unique_orders),
@@ -174,7 +181,9 @@ def parse_interfood_pdf(pdf_file):
                         "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
                         "Hétvégi": False,
                         "Sorrend": st.session_state.weights.get(str(u_id), 999)
-                    })
+                    }
+                    rows.append(new_entry)
+                    last_row = new_entry # Elmentjük, hogy a következő "üres" sort ide ragaszthassuk
     return rows, metadata
     
 def merge_data(raw_rows, p_map, sz_map):

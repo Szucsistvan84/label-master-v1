@@ -14,20 +14,10 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 
-# --- ALAPBEÁLLÍTÁSOK (Regex Minták) ---
-
-# 1. PÉNZ: Mindent felismerő verzió (mínusz jelekkel)
-MONEY_PAT = r'([-\u2013\u2014\u2212]?\s?\d[\d\s]*\s*Ft)'
-
-# 2. RENDELÉS: Zárójel nélküli, tiszta minta
+# --- ALAPBEÁLLÍTÁSOK ---
+PHONE_PAT = r'(\+?\d{1,2}[/\s-]?)?(\d{2}[/\s-]?)?\d{3}[/\s-]?\d{4}'
 ORDER_PAT = r'\d+-[A-Z][A-Z0-9*+]*'
 
-# 3. TELEFON - KERESÉSHEZ: Szigorú minta (00/0000000), ezt használjuk az azonosításhoz
-PHONE_PAT = r'\d{2}/\d{6,7}'
-
-# 4. TELEFON - TÖRLÉSHEZ (SZOBRÁSZHOZ): Rugalmas minta, ami a szóközös verziót is megtalálja
-# Ez azért kell, hogy a megjegyzésből ki tudja vágni akkor is, ha ott máshogy néz ki
-PHONE_PAT_RAW = r'\d{2}[\s/]+\d[\d\s]{5,8}'
 
 def register_fonts():
     try:
@@ -87,21 +77,25 @@ def get_etlap_dict(year, week, target_day=None):
 def parse_interfood_pdf(pdf_file):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None}
+    
+    # Kiegészített regexek
+    ORDER_PAT = r'(\d+-[A-Z][A-Z0-9*+]*)'
+    PHONE_PAT = r'(\d{2}/\d{6,7})'
+    MONEY_PAT = r'([-\u2013\u2014\u2212]?\s?\d[\d\s]*\s*Ft)'
 
     with pdfplumber.open(pdf_file) as pdf:
-        # Metaadatok (Változatlan)
-        first_page_text = pdf.pages[0].extract_text()
-        if first_page_text:
-            y_m = re.search(r'Év:\s*(\d{4})', first_page_text)
-            w_m = re.search(r'Hét:\s*(\d{1,2})', first_page_text)
-            d_m = re.search(r'Nap:\s*([a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ]+)', first_page_text)
-            if y_m: metadata['year'] = y_m.group(1)
-            if w_m: metadata['week'] = w_m.group(1)
-            if d_m: metadata['day'] = d_m.group(1)
+        if pdf.pages:
+            first_page_text = pdf.pages[0].extract_text()
+            if first_page_text:
+                y_m = re.search(r'Év:\s*(\d{4})', first_page_text)
+                w_m = re.search(r'Hét:\s*(\d{1,2})', first_page_text)
+                d_m = re.search(r'Nap:\s*([a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ]+)', first_page_text)
+                if y_m: metadata['year'] = y_m.group(1)
+                if w_m: metadata['week'] = w_m.group(1)
+                if d_m: metadata['day'] = d_m.group(1)
 
         for page in pdf.pages:
             words = page.extract_words()
-            # Csoportosítsuk a szavakat sorokba, de tartsuk meg a koordinátákat
             lines = {}
             for w in words:
                 y = round(w['top'], 1)
@@ -111,128 +105,78 @@ def parse_interfood_pdf(pdf_file):
                         lines[ey].append(w)
                         found = True
                         break
-                if not found: lines[y] = [w]
+                if not found:
+                    lines[y] = [w]
 
             sorted_y = sorted(lines.keys())
-            
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
                 
-                # 1. ÜGYFÉLKÓD KERESÉSE
                 u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
                 if not u_code_m: continue
-                
-                full_id = u_code_m.group(0)
-                u_id = full_id.split('-')[-1]
 
-                # 2. KÖRNYEZET BEGYŰJTÉSE (Ablak: jelenlegi sor + következő 2 sor)
-                # Ez azért kell, mert a pénz és telefon gyakran lejjebb van
-                context_words = []
-                for next_y in sorted_y[i:i+3]: # Megnézzük ezt a sort és a következő kettőt
-                    context_words.extend(lines[next_y])
-                
-                context_text = " ".join([w['text'] for w in sorted(context_words, key=lambda x: (x['top'], x['x0']))])
+                full_id_match = u_code_m.group(0)
+                prefix = full_id_match.split('-')[0]
+                u_id = full_id_match.split('-')[-1]
 
-                # 3. ADATOK KINYERÉSE AZ ABLAKBÓL
-                # PÉNZ
+                # Koordináták: B3 (Cím), B4 (Név)
+                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
+                b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
+                clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
+                
+                tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
+                addr_m = re.search(r'(\d{4})', b3)
+                address = b3[addr_m.start():].strip() if addr_m else b3
+
+                # Pénz keresése
                 money_val = "0 Ft"
-                m_match = re.search(MONEY_PAT, context_text)
-                if m_match:
-                    money_val = m_match.group(1).strip()
+                raw_money_text = ""
+                if i + 1 < len(sorted_y):
+                    next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
+                    m_match = re.search(MONEY_PAT, next_t)
+                    if m_match: 
+                        money_val = m_match.group(1).strip()
+                        raw_money_text = m_match.group(0)
 
-                # TELEFON
-                tel_m = re.search(PHONE_PAT_RAW, context_text)
-                phone = tel_m.group(0).strip() if tel_m else ""
-
-                # RENDELÉSEK (csak ebből a konkrét sorból, hogy ne gyűjtsük be a szomszédét)
+                # Rendelések
                 raw_orders = re.findall(ORDER_PAT, text_ws)
-
-                # 4. NÉV ÉS CÍM (Koordináta alapú, de stabilabb)
-                # Cím: Bal oldal (50-330 x0)
-                # Név: Közép-Jobb (330-500 x0)
-                addr_part = " ".join([w['text'] for w in line_words if 50 <= w['x0'] < 330])
-                name_part = " ".join([w['text'] for w in line_words if 330 <= w['x0'] < 550])
-
-                clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', name_part).strip()
-                addr_m = re.search(r'(\d{4})', addr_part)
-                address = addr_part[addr_m.start():].strip() if addr_m else addr_part
-                
-                # 5. SZOBRÁSZAT (A takarítás)
-                # Itt a lakatolt adatokat vesszük ki a NYERS sorból
-                megj = text_ws
-                items_to_kill = [full_id, phone, money_val, address, clean_name]
-                for o in raw_orders: items_to_kill.append(o)
-                
-                for item in items_to_kill:
-                    if item and len(item) > 2: # Csak értelmes hosszú dolgokat törlünk
-                        megj = megj.replace(item, "")
-
-                # Végső csiszolás
-                megj = re.sub(r'\s+', ' ', megj).strip()
-                megj = re.sub(r'^\d+\s+', '', megj) # Sorszám le
-                megj = re.sub(r'\s+\d+$', '', megj) # Összesítő le
-
-                # RENDELÉS FORMÁZÁS (Változatlan)
                 unique_orders, total_q = [], 0
                 for o in raw_orders:
                     try:
-                        q = int(re.sub(r'\D', '', o.split('-')[0])[-1]) if '-' in o else 1
+                        q_part = o.split('-')[0]
+                        q = int(re.sub(r'\D', '', q_part)[-1]) if re.sub(r'\D', '', q_part) else 1
                         unique_orders.append(f"{q}-{o.split('-')[1]}")
                         total_q += q
                     except: continue
 
+                # --- A SZOBRÁSZ-LOGIKA (KIVONÁS) ---
+                rem = text_ws
+                rem = rem.replace(full_id_match, "")
+                if clean_name: rem = rem.replace(clean_name, "")
+                if address: rem = rem.replace(address, "")
+                if tel_m: rem = rem.replace(tel_m.group(0), "")
+                for o in raw_orders: rem = rem.replace(o, "")
+                if raw_money_text: rem = rem.replace(raw_money_text, "")
+
+                # Takarítás
+                megj = re.sub(r'\s+', ' ', rem).strip()
+                megj = re.sub(r'^\d+\s+', '', megj) # Sor eleji sorszám
+                megj = re.sub(r'\s+\d+$', '', megj) # Sor végi összesítő
+                megj = megj.strip(" ,.-")
+
                 if unique_orders:
                     rows.append({
-                        "Prefix": full_id.split('-')[0],
-                        "ID": f"P-{u_id}",
-                        "Ügyintéző": clean_name if clean_name else "Ismeretlen",
-                        "Cím": address,
-                        "Telefon": phone,
-                        "Pénz": money_val,
-                        "Rendelés": ", ".join(unique_orders),
-                        "Megjegyzés": megj.strip(" ,."),
-                        "Összesen": total_q,
-                        "temp_id": u_id,
-                        "Raklista_Ertek": 0,
-                        "Rendelés_Full": f"{full_id.split('-')[0]}: {', '.join(unique_orders)}",
+                        "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": clean_name,
+                        "Cím": address, "Telefon": tel_m.group(0) if tel_m else "",
+                        "Pénz": money_val, "Rendelés": ", ".join(unique_orders),
+                        "Megjegyzés": megj, "Összesen": total_q, "temp_id": u_id,
+                        "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
                         "Hétvégi": False,
                         "Sorrend": st.session_state.weights.get(str(u_id), 999)
                     })
     return rows, metadata
-
-def generate_clean_comment(raw_line_text, locked_data):
-    """
-    Ez a függvény 'olvasásra' kapja meg a biztos adatokat.
-    Csak a maradék szöveggel (megjegyzés) dolgozik.
-    """
-    rem = raw_line_text
     
-    # Kivonjuk a 'Lakatolt' adatokat a nyers szövegből
-    # Csak akkor vonunk ki, ha az adat nem üres
-    to_remove = [
-        locked_data.get('full_id', ''),
-        locked_data.get('name', ''),
-        locked_data.get('address', ''),
-        locked_data.get('raw_tel', '')
-    ]
-    
-    # A rendeléseket is kivonjuk
-    for o in locked_data.get('raw_orders', []):
-        rem = rem.replace(o, "")
-        
-    for item in to_remove:
-        if item:
-            rem = rem.replace(item, "")
-            
-    # Tisztítás (Itt már nem tudja elrontani a pénzt, mert az nincs benne a 'rem'-ben!)
-    megj = re.sub(r'\s+', ' ', rem).strip()
-    megj = re.sub(r'^\d+\s+', '', megj) # Sor eleji sorszám
-    megj = re.sub(r'\s+\d+$', '', megj) # Sor végi összesítő
-    
-    # A kötőjelet (mínuszt) NEM strip-eljük, hogy megmaradjon, ha a szöveg része
-    return megj.strip(" ,.")
-
 def merge_data(raw_rows, p_map, sz_map):
     if not raw_rows: return pd.DataFrame()
     

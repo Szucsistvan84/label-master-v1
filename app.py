@@ -165,7 +165,7 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (SORSZÁM-VÉDETT VERZIÓ) ---
+                # --- A SZOBRÁSZ-LOGIKA (PONTOSÍTOTT VERZIÓ) ---
                 rem = all_relevant_text
                 
                 # 1. Alapadatok törlése
@@ -180,36 +180,39 @@ def parse_interfood_pdf(pdf_file):
                     rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 3. LÁBLÉC ÉS ÖSSZESÍTŐK TILTÁSA
-                stop_phrases = ["Csillagozott betűnél", "kiegészítő is van", "Összesítés:", "Összesen:", "oldal", "Nyomtatva:"]
+                # 3. LÁBLÉC ÉS ÖSSZESÍTŐK TILTÁSA - OKOSABB SZŰRÉS
+                # Csak akkor vágjuk le, ha az "oldal" sorszámot jelöl, nem pedig irányt
+                stop_phrases = ["Csillagozott betűnél", "kiegészítő is van", "Összesítés:", "Összesen:", "Nyomtatva:"]
                 for phrase in stop_phrases:
                     if phrase in rem: rem = rem.split(phrase)[0]
-
-                # 4. SORSZÁMOK TÖRLÉSE (A TE JAVASLATOD ALAPJÁN)
-                # Regex magyarázat: 
-                # ^\s*\d{1,3} -> sor eleji 1-3 számjegy
-                # (?!\s*#)    -> negatív lookahead: NE legyen utána # (akkor sem, ha van közte szóköz)
-                # \s+         -> de LEGYEN utána legalább egy szóköz
-                rem = re.sub(r'^\s*\d{1,3}(?!\s*#)\s+', '', rem)
                 
-                # Ha a "cső" után maradt sorszám, azt is hasonlóan kezeljük
+                # Külön szabály az "oldal" szóra: csak ha magában áll (pl. 1. oldal)
+                rem = re.sub(r'\b\d+\.\s*oldal\b.*', '', rem, flags=re.IGNORECASE)
+
+                # 4. SORSZÁMOK TÖRLÉSE (Védett kapukódokkal)
+                # Sor eleji sorszám: csak ha szóköz követi és nem #
+                rem = re.sub(r'^\s*\d{1,3}(?!\s*#)\s+', '', rem)
+                # Cső utáni sorszám: ugyanígy
                 rem = re.sub(r'\|\s*\d{1,3}(?!\s*#)\s+', '| ', rem)
 
-                # 5. DARABSZÁM (total_q) TÖRLÉSE - EXTRÉM BIZTONSÁGOSAN
-                # Csak ha teljesen magányos és nincs mellette se #, se betű
+                # 5. DARABSZÁM (total_q) TÖRLÉSE
                 if total_q > 0:
                     rem = re.sub(rf'(?<![#\w\d]){total_q}(?![#\w\d])', '', rem)
 
-                # 6. ÍRÁSJEL ÉS SZEMÉT TAKARÍTÁS (Vessző-tenger ellen)
+                # 6. ELVÁLASZTÓK ÉS SZÖVEG TAKARÍTÁSA
                 rem = rem.replace("/", " ")
-                # A lényeg: ha két vagy több írásjel/szóköz van egymás mellett, egy szóköz lesz belőle
+                
+                # Dupla vagy több cső (| |) összevonása egyre
+                rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
+                
+                # Vessző-tenger és felesleges szóközök irtása
                 rem = re.sub(r'[,.\s]{2,}', ' ', rem) 
                 
                 # 7. VÉGSŐ KOZMETIKA
                 megj = re.sub(r'\s+', ' ', rem).strip()
                 megj = megj.strip(" |,. /") 
                 
-                # Ha a végére csak egy "2"-es maradt (mint Harangi Csillánál), és nem kapukód, akkor kuka
+                # Ha csak egy árva szám maradt, ami nem kapukód, töröljük
                 if re.match(r'^\d+$', megj) and "#" not in megj:
                     megj = ""
                 

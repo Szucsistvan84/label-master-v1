@@ -112,7 +112,7 @@ def parse_interfood_pdf(pdf_file):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
                 
-                # Keressük az ügyfélkódot (ez a sor eleje)
+                # 1. ÜGYFÉLKÓD ÉS PREFIX (A sor alapja)
                 u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
                 if not u_code_m: continue
 
@@ -120,25 +120,31 @@ def parse_interfood_pdf(pdf_file):
                 prefix = full_id_match.split('-')[0]
                 u_id = full_id_match.split('-')[-1]
 
-                # Név és cím kinyerése fix koordináták alapján (ahogy nálad bevált)
+                # 2. CÍM ÉS ÜGYINTÉZŐ (NÉV) - Koordináták alapján
                 b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
                 b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
                 clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                 
-                tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
 
-                # --- PÉNZ: MINDIG A KÖVETKEZŐ SORBAN ---
+                # 3. TELEFON - Regexszel a sorból
+                tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
+                raw_tel = ""
+                if tel_m:
+                    # Megkeressük az eredeti, szóközös verziót a sorban a törléshez
+                    raw_tel_match = re.search(r'\d{2}/\d[\d\s]*\d', text_ws)
+                    raw_tel = raw_tel_match.group(0) if raw_tel_match else tel_m.group(0)
+
+                # 4. PÉNZ - MINDIG A KÖVETKEZŐ SORBAN
                 money_val = "0 Ft"
                 if i + 1 < len(sorted_y):
-                    next_line_words = sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])
-                    next_t = " ".join([w['text'] for w in next_line_words])
+                    next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
                     m_match = re.search(MONEY_PAT, next_t)
                     if m_match: 
-                        money_val = m_match.group(1).strip()
+                        money_val = m_match.group(1).strip() # Megmarad a mínusz és a szóköz
 
-                # Rendelések az aktuális sorból
+                # 5. RENDELÉS - Regexszel az aktuális sorból
                 raw_orders = re.findall(ORDER_PAT, text_ws)
                 unique_orders, total_q = [], 0
                 for o in raw_orders:
@@ -149,31 +155,31 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- SZOBRÁSZAT (Csak az aktuális sorból vonunk ki!) ---
+                # 6. MEGJEGYZÉS (A "MARADÉK" FELDOLGOZÁSA)
+                # Kiindulunk az eredeti sorból, és mindent kiveszünk, ami már megvan
                 rem = text_ws
                 rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
                 if address: rem = rem.replace(address, "")
-                if tel_m: 
-                    # A telefonszámot eredeti formájában (szóközökkel) keressük a sorban
-                    raw_tel = tel_m.group(0)
-                    rem = rem.replace(raw_tel, "")
-                for o in raw_orders: 
-                    rem = rem.replace(o, "")
+                if raw_tel: rem = rem.replace(raw_tel, "")
+                for o in raw_orders: rem = rem.replace(o, "")
 
-                # Megjegyzés tisztítása
+                # Ami maradt, az a megjegyzés. Csak a felesleges szóközöket és 
+                # a sor eleji/végi technikai számokat (sorszám, összesítő) pucoljuk le.
                 megj = re.sub(r'\s+', ' ', rem).strip()
-                megj = re.sub(r'^\d+\s+', '', megj) # Sor eleji sorszám
-                megj = re.sub(r'\s+\d+$', '', megj) # Sor végi összesítő
-                megj = megj.strip(" ,.-")
+                megj = re.sub(r'^\d+\s+', '', megj) # Sorszám le
+                megj = re.sub(r'\s+\d+$', '', megj) # Összesítő le
+                megj = megj.strip(" ,.") # A kötőjelet NEM bántjuk, hátha a megjegyzés része!
 
+                # 7. MENTÉS
                 if unique_orders:
                     rows.append({
                         "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": clean_name,
                         "Cím": address, "Telefon": tel_m.group(0) if tel_m else "",
-                        "Pénz": money_val, # Garantáltan érintetlen nyers szöveg a következő sorból
+                        "Pénz": money_val, # Érintetlen, következő sorból jött
                         "Rendelés": ", ".join(unique_orders),
-                        "Megjegyzés": megj, "Összesen": total_q, "temp_id": u_id,
+                        "Megjegyzés": megj, 
+                        "Összesen": total_q, "temp_id": u_id,
                         "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
                         "Hétvégi": False,
                         "Sorrend": st.session_state.weights.get(str(u_id), 999)

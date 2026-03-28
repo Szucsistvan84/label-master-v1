@@ -156,19 +156,24 @@ def parse_interfood_pdf(pdf_file):
                 found_money_raw = ""
                 m_match = re.search(MONEY_PAT, full_block_text)
                 if m_match:
-                    money_val = m_match.group(1).strip()
-                    found_money_raw = m_match.group(0)
+                    raw_m = m_match.group(1).strip()
+                    # Mindenféle kötőjelet cseréljünk le sima - jelre
+                    money_val = re.sub(r'[\u2013\u2014\u2212]', '-', raw_m)
 
                 # --- 3. LÉPÉS: A SZOBRÁSZAT (KIVONÁS) ---
-                # A teljes blokk szövegéből faragunk
                 rem = full_block_text
-                rem = rem.replace(full_id_match, "")
+                
+                # A pénzt REGEX-szel vágjuk ki, hogy ne függjünk a szóközök számától
+                rem = re.sub(MONEY_PAT, "", rem)
+                
+                # A többit maradhat replace, de a biztonság kedvéért a neveket és címeket is érdemes re.escape-elni
+                if full_id_match: rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
-                if found_money_raw: rem = rem.replace(found_money_raw, "")
-                for o in raw_orders: rem = rem.replace(o, "")
-                
+
+for o in raw_orders:
+    rem = rem.replace(o, "")                
                 # Tisztítás a végén
                 megj = rem.replace("|", " ") # Sor elválasztók eltüntetése
                 megj = re.sub(r'\s+', ' ', megj).strip()

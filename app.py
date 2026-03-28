@@ -129,36 +129,29 @@ def parse_interfood_pdf(pdf_file):
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
 
-                # --- PÉNZ KERESÉSE (Előretekintő verzió) ---
+                # --- ADATGYŰJTÉS ÉS PÉNZ KERESÉSE (ÚJ, BŐVÍTETT VERZIÓ) ---
                 money_val = "0 Ft"
-                raw_money_text = ""  # Ezt kötelező üresre állítani, nehogy elszálljon a kód lejjebb!
+                raw_money_text = ""
+                all_relevant_text = text_ws # Ebbe gyűjtjük az összes szöveget a megjegyzéshez
                 
-                # Összegyűjtjük az aktuális, és a következő max 3 sort keresésre
-                lines_to_check = [
-                    text_ws, # Jelenlegi sor szóközösen
-                    "".join([w['text'] for w in line_words]) # Jelenlegi sor összevonva
-                ]
-                
-                for offset in range(1, 4): # Nézzük az i+1, i+2, i+3 sorokat
+                for offset in range(1, 4):
                     if i + offset < len(sorted_y):
                         next_line_words = sorted(lines[sorted_y[i + offset]], key=lambda x: x['x0'])
                         next_t_ws = " ".join([w['text'] for w in next_line_words])
                         
-                        # Ha a következő sorban már egy ÚJ ügyfélkód van, megállunk (ne vegyük el más pénzét!)
+                        # Ha új ügyfél jön, megállunk
                         if re.search(r'([HKSCPZ]-[0-9]{5,7})', next_t_ws):
                             break
-                            
+                        
+                        # Hozzáadjuk a sor tartalmát a gyűjtőhöz
+                        all_relevant_text += " " + next_t_ws
+                        
+                        # Pénz keresése (mint eddig)
                         raw_next_line = "".join([w['text'] for w in next_line_words])
-                        lines_to_check.append(raw_next_line) # Összevonva a negatív jel miatt
-                        lines_to_check.append(next_t_ws)     # Szóközösen a biztonság kedvéért
-                
-                # Végigmegyünk a kigyűjtött sorokon, és az első találatot kimentjük
-                for text_variant in lines_to_check:
-                    m_match = re.search(MONEY_PAT, text_variant)
-                    if m_match:
-                        money_val = m_match.group(1).strip()
-                        raw_money_text = m_match.group(0)
-                        break
+                        m_match = re.search(MONEY_PAT, raw_next_line) or re.search(MONEY_PAT, next_t_ws)
+                        if m_match and money_val == "0 Ft":
+                            money_val = m_match.group(1).strip()
+                            raw_money_text = m_match.group(0)
 
                 # Rendelések
                 raw_orders = re.findall(ORDER_PAT, text_ws)
@@ -171,17 +164,18 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (KIVONÁS) ---
-                rem = text_ws
+                # --- A SZOBRÁSZ-LOGIKA (MÁR AZ ÖSSZES SZÖVEGBŐL DOLGOZIK) ---
+                rem = all_relevant_text
                 rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
-
-                # Takarítás
+                
+                # Takarítás (maradék szűrők)
                 megj = re.sub(r'\s+', ' ', rem).strip()
+                # ... (többi regex takarítás marad)
                 megj = re.sub(r'^\d+\s+', '', megj) # Sor eleji sorszám
                 megj = re.sub(r'\s+\d+$', '', megj) # Sor végi összesítő
                 megj = megj.strip(" ,.-")

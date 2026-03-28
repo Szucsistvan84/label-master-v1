@@ -165,55 +165,53 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (FINOMHANGOLT TAKARÍTÁS) ---
+                # --- A SZOBRÁSZ-LOGIKA (SORSZÁM-VÉDETT VERZIÓ) ---
                 rem = all_relevant_text
                 
-                # 1. Ismert adatok törlése
+                # 1. Alapadatok törlése
                 rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
                 
-                # 2. Pénz törlése (csak ha pontos egyezés vagy money minta)
+                # 2. Pénz törlése
                 if raw_money_text:
                     rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 3. LÁBLÉC ÉS ÖSSZESÍTŐK TILTÁSA (Zajszűrés)
-                stop_phrases = [
-                    "Csillagozott betűnél", "kiegészítő is van", 
-                    "Összesítés:", "Összesen:", "oldal", "Nyomtatva:"
-                ]
+                # 3. LÁBLÉC ÉS ÖSSZESÍTŐK TILTÁSA
+                stop_phrases = ["Csillagozott betűnél", "kiegészítő is van", "Összesítés:", "Összesen:", "oldal", "Nyomtatva:"]
                 for phrase in stop_phrases:
-                    if phrase in rem:
-                        rem = rem.split(phrase)[0] # Ami ezen kifejezések után van, az kuka
+                    if phrase in rem: rem = rem.split(phrase)[0]
 
-                # 4. SZÁMOK TÖRLÉSE - CSAK HA ÖNÁLLÓAK! (Ez menti meg az 5k4476-ot)
+                # 4. SORSZÁMOK TÖRLÉSE (A TE JAVASLATOD ALAPJÁN)
+                # Regex magyarázat: 
+                # ^\s*\d{1,3} -> sor eleji 1-3 számjegy
+                # (?!\s*#)    -> negatív lookahead: NE legyen utána # (akkor sem, ha van közte szóköz)
+                # \s+         -> de LEGYEN utána legalább egy szóköz
+                rem = re.sub(r'^\s*\d{1,3}(?!\s*#)\s+', '', rem)
+                
+                # Ha a "cső" után maradt sorszám, azt is hasonlóan kezeljük
+                rem = re.sub(r'\|\s*\d{1,3}(?!\s*#)\s+', '| ', rem)
+
+                # 5. DARABSZÁM (total_q) TÖRLÉSE - EXTRÉM BIZTONSÁGOSAN
+                # Csak ha teljesen magányos és nincs mellette se #, se betű
                 if total_q > 0:
-                    # \b jelentése: szóhatár. Így az '5' törlődik, de az '5k...' nem!
-                    rem = re.sub(rf'\b{total_q}\b', '', rem)
-                
-                # Cső utáni sorszámok (pl. "| 1 ")
-                rem = re.sub(r'\|\s*\d{1,3}\b', '|', rem)
-                # Sor eleji sorszámok
-                rem = re.sub(r'^\s*\d{1,3}\b', '', rem)
+                    rem = re.sub(rf'(?<![#\w\d]){total_q}(?![#\w\d])', '', rem)
 
-                # 5. ÍRÁSJEL ÉS SZÓKÖZ KOZMETIKA
-                # Minden perjelet és felesleges írásjelet szóközre cserélünk, hogy ne tapadjanak a szavak
+                # 6. ÍRÁSJEL ÉS SZEMÉT TAKARÍTÁS (Vessző-tenger ellen)
                 rem = rem.replace("/", " ")
-                # A vesszőket és pontokat csak akkor bántjuk, ha halmozva vannak
-                rem = re.sub(r'[,.]{2,}', ' ', rem) 
+                # A lényeg: ha két vagy több írásjel/szóköz van egymás mellett, egy szóköz lesz belőle
+                rem = re.sub(r'[,.\s]{2,}', ' ', rem) 
                 
-                # Takarítjuk a felesleges csöveket
-                rem = re.sub(r'\|\s*\|', '|', rem)
-                
-                # Végső tisztítás: dupla szóközök ki, szélekről szemét le
+                # 7. VÉGSŐ KOZMETIKA
                 megj = re.sub(r'\s+', ' ', rem).strip()
                 megj = megj.strip(" |,. /") 
                 
-                # Ha a végén csak egy árva vessző vagy cső maradna, azt is eldobjuk
-                if megj in [",", "|", "."]: megj = ""
+                # Ha a végére csak egy "2"-es maradt (mint Harangi Csillánál), és nem kapukód, akkor kuka
+                if re.match(r'^\d+$', megj) and "#" not in megj:
+                    megj = ""
                 
                 if unique_orders:
                     rows.append({

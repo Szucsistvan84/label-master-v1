@@ -14,9 +14,20 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 
-# --- ALAPBEÁLLÍTÁSOK ---
-PHONE_PAT = r'(\+?\d{1,2}[/\s-]?)?(\d{2}[/\s-]?)?\d{3}[/\s-]?\d{4}'
+# --- ALAPBEÁLLÍTÁSOK (Regex Minták) ---
+
+# 1. PÉNZ: Mindent felismerő verzió (mínusz jelekkel)
+MONEY_PAT = r'([-\u2013\u2014\u2212]?\s?\d[\d\s]*\s*Ft)'
+
+# 2. RENDELÉS: Zárójel nélküli, tiszta minta
 ORDER_PAT = r'\d+-[A-Z][A-Z0-9*+]*'
+
+# 3. TELEFON - KERESÉSHEZ: Szigorú minta (00/0000000), ezt használjuk az azonosításhoz
+PHONE_PAT = r'\d{2}/\d{6,7}'
+
+# 4. TELEFON - TÖRLÉSHEZ (SZOBRÁSZHOZ): Rugalmas minta, ami a szóközös verziót is megtalálja
+# Ez azért kell, hogy a megjegyzésből ki tudja vágni akkor is, ha ott máshogy néz ki
+PHONE_PAT_RAW = r'\d{2}[\s/]+\d[\d\s]{5,8}'
 
 def register_fonts():
     try:
@@ -77,11 +88,6 @@ def parse_interfood_pdf(pdf_file):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None}
     
-    ORDER_PAT = r'(\d+-[A-Z][A-Z0-9*+]*)'
-    PHONE_PAT = r'(\d{2}/\d{6,7})'
-    # A te jól bevált, mindenevő pénz-regexed
-    MONEY_PAT = r'([-\u2013\u2014\u2212]?\s?\d[\d\s]*\s*Ft)'
-
     with pdfplumber.open(pdf_file) as pdf:
         if pdf.pages:
             first_page_text = pdf.pages[0].extract_text()

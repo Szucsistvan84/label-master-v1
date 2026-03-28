@@ -112,80 +112,106 @@ def parse_interfood_pdf(pdf_file):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
                 
-                # 1. ÜGYFÉLKÓD ÉS PREFIX (A sor alapja)
                 u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
                 if not u_code_m: continue
 
-                full_id_match = u_code_m.group(0)
-                prefix = full_id_match.split('-')[0]
-                u_id = full_id_match.split('-')[-1]
+                # --- LAKATOLT ADATOK ÖSSZEGYŰJTÉSE ---
+                locked = {
+                    'full_id': u_code_m.group(0),
+                    'prefix': u_code_m.group(0).split('-')[0],
+                    'u_id': u_code_m.group(0).split('-')[-1],
+                    'raw_orders': re.findall(ORDER_PAT, text_ws)
+                }
 
-                # 2. CÍM ÉS ÜGYINTÉZŐ (NÉV) - Koordináták alapján
+                # Név és cím (Koordináta alapján)
                 b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
                 b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
-                clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
+                locked['name'] = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                 
                 addr_m = re.search(r'(\d{4})', b3)
-                address = b3[addr_m.start():].strip() if addr_m else b3
+                locked['address'] = b3[addr_m.start():].strip() if addr_m else b3
 
-                # 3. TELEFON - Regexszel a sorból
+                # Telefon
                 tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
-                raw_tel = ""
+                locked['phone'] = tel_m.group(0) if tel_m else ""
+                locked['raw_tel'] = "" # A pontos szöveges egyezéshez a törlésnél
                 if tel_m:
-                    # Megkeressük az eredeti, szóközös verziót a sorban a törléshez
                     raw_tel_match = re.search(r'\d{2}/\d[\d\s]*\d', text_ws)
-                    raw_tel = raw_tel_match.group(0) if raw_tel_match else tel_m.group(0)
+                    locked['raw_tel'] = raw_tel_match.group(0) if raw_tel_match else tel_m.group(0)
 
-                # 4. PÉNZ - MINDIG A KÖVETKEZŐ SORBAN
+                # --- PÉNZ: EZ MÁR ITT "ÍRÁSVÉDETT" ---
                 money_val = "0 Ft"
                 if i + 1 < len(sorted_y):
                     next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
                     m_match = re.search(MONEY_PAT, next_t)
                     if m_match: 
-                        money_val = m_match.group(1).strip() # Megmarad a mínusz és a szóköz
+                        money_val = m_match.group(1).strip()
 
-                # 5. RENDELÉS - Regexszel az aktuális sorból
-                raw_orders = re.findall(ORDER_PAT, text_ws)
-                unique_orders, total_q = [], 0
-                for o in raw_orders:
+                # --- SZOBRÁSZAT (Külön folyamat, nem bántja a lakatolt adatokat) ---
+                megj = generate_clean_comment(text_ws, locked)
+
+                # --- TÁBLÁZATBA ÍRÁS ---
+                # Itt látod: a 'money_val' és a 'locked' adatok mennek be, a 'megj' csak egy plusz adalék
+                unique_orders = []
+                total_q = 0
+                for o in locked['raw_orders']:
                     try:
-                        q_part = o.split('-')[0]
-                        q = int(re.sub(r'\D', '', q_part)[-1]) if re.sub(r'\D', '', q_part) else 1
+                        q = int(re.sub(r'\D', '', o.split('-')[0])[-1]) if '-' in o else 1
                         unique_orders.append(f"{q}-{o.split('-')[1]}")
                         total_q += q
                     except: continue
 
-                # 6. MEGJEGYZÉS (A "MARADÉK" FELDOLGOZÁSA)
-                # Kiindulunk az eredeti sorból, és mindent kiveszünk, ami már megvan
-                rem = text_ws
-                rem = rem.replace(full_id_match, "")
-                if clean_name: rem = rem.replace(clean_name, "")
-                if address: rem = rem.replace(address, "")
-                if raw_tel: rem = rem.replace(raw_tel, "")
-                for o in raw_orders: rem = rem.replace(o, "")
-
-                # Ami maradt, az a megjegyzés. Csak a felesleges szóközöket és 
-                # a sor eleji/végi technikai számokat (sorszám, összesítő) pucoljuk le.
-                megj = re.sub(r'\s+', ' ', rem).strip()
-                megj = re.sub(r'^\d+\s+', '', megj) # Sorszám le
-                megj = re.sub(r'\s+\d+$', '', megj) # Összesítő le
-                megj = megj.strip(" ,.") # A kötőjelet NEM bántjuk, hátha a megjegyzés része!
-
-                # 7. MENTÉS
                 if unique_orders:
                     rows.append({
-                        "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": clean_name,
-                        "Cím": address, "Telefon": tel_m.group(0) if tel_m else "",
-                        "Pénz": money_val, # Érintetlen, következő sorból jött
+                        "Prefix": locked['prefix'], 
+                        "ID": f"P-{locked['u_id']}", 
+                        "Ügyintéző": locked['name'],
+                        "Cím": locked['address'], 
+                        "Telefon": locked['phone'],
+                        "Pénz": money_val, # Érintetlen!
                         "Rendelés": ", ".join(unique_orders),
                         "Megjegyzés": megj, 
-                        "Összesen": total_q, "temp_id": u_id,
-                        "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
+                        "Összesen": total_q, 
+                        "temp_id": locked['u_id'],
+                        "Raklista_Ertek": 0, 
+                        "Rendelés_Full": f"{locked['prefix']}: {', '.join(unique_orders)}",
                         "Hétvégi": False,
-                        "Sorrend": st.session_state.weights.get(str(u_id), 999)
+                        "Sorrend": st.session_state.weights.get(str(locked['u_id']), 999)
                     })
     return rows, metadata
+
+def generate_clean_comment(raw_line_text, locked_data):
+    """
+    Ez a függvény 'olvasásra' kapja meg a biztos adatokat.
+    Csak a maradék szöveggel (megjegyzés) dolgozik.
+    """
+    rem = raw_line_text
     
+    # Kivonjuk a 'Lakatolt' adatokat a nyers szövegből
+    # Csak akkor vonunk ki, ha az adat nem üres
+    to_remove = [
+        locked_data.get('full_id', ''),
+        locked_data.get('name', ''),
+        locked_data.get('address', ''),
+        locked_data.get('raw_tel', '')
+    ]
+    
+    # A rendeléseket is kivonjuk
+    for o in locked_data.get('raw_orders', []):
+        rem = rem.replace(o, "")
+        
+    for item in to_remove:
+        if item:
+            rem = rem.replace(item, "")
+            
+    # Tisztítás (Itt már nem tudja elrontani a pénzt, mert az nincs benne a 'rem'-ben!)
+    megj = re.sub(r'\s+', ' ', rem).strip()
+    megj = re.sub(r'^\d+\s+', '', megj) # Sor eleji sorszám
+    megj = re.sub(r'\s+\d+$', '', megj) # Sor végi összesítő
+    
+    # A kötőjelet (mínuszt) NEM strip-eljük, hogy megmaradjon, ha a szöveg része
+    return megj.strip(" ,.")
+
 def merge_data(raw_rows, p_map, sz_map):
     if not raw_rows: return pd.DataFrame()
     

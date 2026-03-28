@@ -217,24 +217,27 @@ def merge_data(raw_rows, p_map, sz_map):
         base = group.iloc[0].copy().to_dict()
         u_id = str(tid)
 
-        # --- 1. PÉNZ KEZELÉSE (MAXIMUM SZABÁLY - CSAK PDF-BŐL) ---
+# --- 1. PÉNZ KEZELÉSE (JAVÍTVA: MEGTARTJA A NEGATÍVOKAT) ---
         pdf_payment_val = 0
-        has_negative = False
         
         for _, row in group.iterrows():
             m_str = str(row.get('Pénz', '0'))
-            digits = "".join(re.findall(r'[-\d]', m_str))
             
-            if "-" in digits:
-                has_negative = True
-                break
-            else:
-                pure_val = int(re.sub(r'\D', '', digits)) if re.sub(r'\D', '', digits) else 0
-                if pure_val > pdf_payment_val:
-                    pdf_payment_val = pure_val
+            # 1. Kivesszük az összes szóközt és betűt, csak a számok és a kötőjelek maradnak
+            clean_str = re.sub(r'[^\d\-\u2013\u2014\u2212]', '', m_str)
+            # 2. A speciális PDF-es gondolatjeleket sima mínuszra cseréljük
+            clean_str = re.sub(r'[\u2013\u2014\u2212]', '-', clean_str)
+            
+            if clean_str:
+                try:
+                    val = int(clean_str)
+                    # Ha találunk egy nem nulla értéket (legyen az pozitív vagy negatív), azt kimentjük
+                    if val != 0:
+                        pdf_payment_val = val
+                except ValueError:
+                    pass
 
-        total_payment = 0 if has_negative else pdf_payment_val
-        base['Pénz'] = f"{total_payment} Ft"
+        base['Pénz'] = f"{pdf_payment_val} Ft"
 
         # --- 2. RENDELÉSEK ÖSSZEVONÁSA (PDF + EXCEL) ---
         o_p, has_weekend = [], False

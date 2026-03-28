@@ -128,20 +128,20 @@ def parse_interfood_pdf(pdf_file):
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
 
-                # Pénz keresése
+                # --- PÉNZ KERESÉSE (Javított, mínusz-jel barát verzió) ---
                 money_val = "0 Ft"
                 raw_money_text = ""
+                
                 if i + 1 < len(sorted_y):
+                    # Következő sor szövegének összerakása
                     next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
+                    
                     m_match = re.search(MONEY_PAT, next_t)
                     if m_match: 
-                        # Az 1-es csoportban van a (mínusz jel) + összeg + Ft
+                        # Itt történik a varázslat: a group(1) viszi át a mínusz jelet
                         money_val = m_match.group(1).strip()
-                        # Ez a teljes találat (törléshez, ha kell)
                         raw_money_text = m_match.group(0)
-                    else:
-                        money_val = "0 Ft"
-                        raw_money_text = ""
+                    # Nincs szükség külön else ágra itt belül, mert felül alapból "0 Ft"-ot adtunk meg
 
                 # Rendelések
                 raw_orders = re.findall(ORDER_PAT, text_ws)

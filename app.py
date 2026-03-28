@@ -147,12 +147,16 @@ def parse_interfood_pdf(pdf_file):
                 address = b3[addr_m.start():].strip() if addr_m else b3
 
                 # Pénz keresése - Keresés az aktuális sorban IS a negatívok miatt
+                # --- 1. PÉNZ KERESÉSE (Minden más előtt!) ---
                 money_val = "0 Ft"
                 raw_money_text = ""
+                
+                # Megnézzük az aktuális sorban (text_ws)
                 m_match_curr = re.search(MONEY_PAT, text_ws)
                 if m_match_curr:
                     money_val = m_match_curr.group(1).strip()
                     raw_money_text = m_match_curr.group(0)
+                # Ha itt nincs, nézzük a következő sorban
                 elif i + 1 < len(sorted_y):
                     next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
                     m_match = re.search(MONEY_PAT, next_t)
@@ -160,7 +164,7 @@ def parse_interfood_pdf(pdf_file):
                         money_val = m_match.group(1).strip()
                         raw_money_text = m_match.group(0)
 
-                # Rendelések
+                # --- 2. RENDELÉSEK KINYERÉSE ---
                 raw_orders = re.findall(ORDER_PAT, text_ws)
                 unique_orders, total_q = [], 0
                 for o in raw_orders:
@@ -171,16 +175,20 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- 3. A SZOBRÁSZ-LOGIKA (KIVONÁS) ---
+                # --- 3. A SZOBRÁSZ-LOGIKA (KIVONÁS/TAKARÍTÁS) ---
+                # Csak most kezdjük el bántani a text_ws-t!
                 rem = text_ws
                 rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
-                if raw_money_text: rem = rem.replace(raw_money_text, "")
+                
+                # Itt vonjuk ki a pénzt a megjegyzésből, ha megtaláltuk
+                if raw_money_text:
+                    rem = rem.replace(raw_money_text, "")
 
-                # Megjegyzés véglegesítése
+                # Megjegyzés végső tisztítása
                 megj = re.sub(r'\s+', ' ', rem).strip()
                 megj = re.sub(r'^\d+\s+', '', megj)
                 megj = re.sub(r'\s+\d+$', '', megj)

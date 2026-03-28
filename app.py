@@ -164,20 +164,41 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (MÁR AZ ÖSSZES SZÖVEGBŐL DOLGOZIK) ---
+                # --- A SZOBRÁSZ-LOGIKA (MAGAS SZINTŰ TAKARÍTÁS) ---
                 rem = all_relevant_text
+                
+                # 1. Alapadatok kivágása (amiket már biztosan ismerünk)
                 rem = rem.replace(full_id_match, "")
                 if clean_name: rem = rem.replace(clean_name, "")
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
-                if raw_money_text: rem = rem.replace(raw_money_text, "")
                 
-                # Takarítás (maradék szűrők)
+                # 2. A "0 Ft" vagy "-1585 Ft" pontos kivágása (ha megtaláltuk korábban)
+                if raw_money_text:
+                    rem = rem.replace(raw_money_text, "")
+
+                # 3. SPECIFIKUS TAKARÍTÁS (Sorszám, darabszám, szemetek)
+                # Kivágjuk a magányos darabszámot (ami a sor végén vagy elején maradt)
+                if total_q > 0:
+                    # Olyan számot keresünk, ami körül szóköz van, és megegyezik az összmennyiséggel
+                    rem = re.sub(rf'(?<!\d){total_q}(?!\d)', '', rem)
+
+                # Kivágjuk a perjeleket, amik a nevek/cégek után maradtak
+                rem = rem.replace("/", " ")
+                
+                # Kivágjuk a sorszámot (ha a sor elején maradt egy magányos szám)
+                # Ez a regex a sor eleji 1-3 jegyű számokat vadássza le
+                rem = re.sub(r'^\s*\d{1,3}\s+', ' ', rem)
+
+                # 4. ÁLTALÁNOS TAKARÍTÁS (Vesszők, szóközök)
+                # Sorozatos vesszők és pontok eltüntetése
+                rem = re.sub(r'[,.\s]{2,}', ' ', rem)
+                
+                # Dupla szóközök egységesítése
                 megj = re.sub(r'\s+', ' ', rem).strip()
-                # ... (többi regex takarítás marad)
-                megj = re.sub(r'^\d+\s+', '', megj) # Sor eleji sorszám
-                megj = re.sub(r'\s+\d+$', '', megj) # Sor végi összesítő
+                
+                # A legvégén maradt sallangok (vessző, pont, szóköz az elejéről/végéről)
                 megj = megj.strip(" ,.-")
 
                 if unique_orders:
@@ -211,7 +232,7 @@ def merge_data(raw_rows, p_map, sz_map):
         base = group.iloc[0].copy().to_dict()
         u_id = str(tid)
 
-# --- 1. PÉNZ KEZELÉSE (JAVÍTVA: MEGTARTJA A NEGATÍVOKAT) ---
+        # --- 1. PÉNZ KEZELÉSE (JAVÍTVA: MEGTARTJA A NEGATÍVOKAT) ---
         pdf_payment_val = 0
         
         for _, row in group.iterrows():
@@ -235,7 +256,7 @@ def merge_data(raw_rows, p_map, sz_map):
 
         # --- 2. RENDELÉSEK ÖSSZEVONÁSA (PDF + EXCEL) ---
         o_p, has_weekend = [], False
-        for pfix in ['H', 'K', 'S', 'C', 'P']:
+        for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
             day_rows = group[group['Prefix'] == pfix]
             if not day_rows.empty:
                 items = day_rows['Rendelés'].astype(str).tolist()

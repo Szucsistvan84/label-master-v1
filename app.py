@@ -17,7 +17,8 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\+?\d{1,2}[/\s-]?)?(\d{2}[/\s-]?)?\d{3}[/\s-]?\d{4}'
 ORDER_PAT = r'\d+-[A-Z][A-Z0-9*+]*'
-MONEY_PAT = r'([-\u2013\u2014\u2212]?\s?\d[\d\s]*\s*Ft)'
+# Frissített, "szóköz-toleráns" regex
+MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d[\d\s]*\s*Ft)'
 
 def register_fonts():
     try:
@@ -128,17 +129,21 @@ def parse_interfood_pdf(pdf_file):
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
 
-                # --- PÉNZ KERESÉSE (Javított, mínusz-jel barát verzió) ---
+                # --- PÉNZ KERESÉSE (Sziklaszilárd verzió) ---
                 money_val = "0 Ft"
-                raw_money_text = ""
-                
                 if i + 1 < len(sorted_y):
-                    # Következő sor szövegének összerakása
-                    next_t = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
+                    # Itt a titok: összevonjuk a karaktereket, hogy a jel ne szakadjon le a számról
+                    raw_next_line = "".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
+                    # De a kereséshez egy szóközös verziót is nézünk, ha az előző nem jönne be
+                    next_t_ws = " ".join([w['text'] for w in sorted(lines[sorted_y[i + 1]], key=lambda x: x['x0'])])
                     
-                    m_match = re.search(MONEY_PAT, next_t)
+                    # Előbb keressük az összevontban (itt lesz meg a negatív!)
+                    m_match = re.search(MONEY_PAT, raw_next_line)
+                    if not m_match:
+                        # Ha ott nincs, megnézzük a szóközösben is
+                        m_match = re.search(MONEY_PAT, next_t_ws)
+                    
                     if m_match: 
-                        # Itt történik a varázslat: a group(1) viszi át a mínusz jelet
                         money_val = m_match.group(1).strip()
                         raw_money_text = m_match.group(0)
                     # Nincs szükség külön else ágra itt belül, mert felül alapból "0 Ft"-ot adtunk meg

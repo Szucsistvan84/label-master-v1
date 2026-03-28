@@ -165,54 +165,70 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (PONTOSÍTOTT VERZIÓ) ---
+                # --- A SZOBRÁSZ-LOGIKA (RADIKÁLIS TISZTÍTÁS) ---
                 rem = all_relevant_text
                 
-                # 1. Alapadatok törlése
+                # 1. ID ÉS KÓDOK TÖRLÉSE (A -F és egyéb végződésekkel együtt)
+                # Regex: Betű-számok-esetleges kötőjel és betű a végén
+                rem = re.sub(r'[A-Z]-\d+[-A-Z]*', '', rem)
                 rem = rem.replace(full_id_match, "")
-                if clean_name: rem = rem.replace(clean_name, "")
+
+                # 2. NEVEK AGGRESSZÍV TÖRLÉSE (Hajós- és Dr. ügyek ellen)
+                # Összeállítunk egy listát mindenről, ami név lehet
+                name_targets = []
+                if clean_name: name_targets.append(clean_name)
+                if row['Ügyintéző']: 
+                    u_nev = str(row['Ügyintéző']).strip()
+                    name_targets.append(u_nev)
+                    # Ha kötőjeles a név (pl. Hajós-Szabó), a részeit is töröljük
+                    if "-" in u_nev:
+                        for part in u_nev.split("-"):
+                            if len(part.strip()) > 2:
+                                name_targets.append(part.strip() + "-")
+                                name_targets.append("-" + part.strip())
+                                name_targets.append(part.strip())
+
+                # Minden név-variációt törlünk, akárhányszor szerepel (duplázódás ellen)
+                # A leghosszabb nevektől haladunk a rövidebbek felé
+                for target in sorted(list(set(name_targets)), key=len, reverse=True):
+                    if len(target) > 2:
+                        rem = re.sub(re.escape(target), "", rem, flags=re.IGNORECASE)
+
+                # 3. ALAPADATOK (Cím, Telefon, Rendelés)
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
-                
-                # 2. Pénz törlése
-                if raw_money_text:
-                    rem = rem.replace(raw_money_text, "")
+                if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 3. LÁBLÉC ÉS ÖSSZESÍTŐK TILTÁSA - OKOSABB SZŰRÉS
-                # Csak akkor vágjuk le, ha az "oldal" sorszámot jelöl, nem pedig irányt
+                # 4. KCS ÉS A "MAGÁNYOS K" ELTÜNTETÉSE
+                # Töröljük a KCS-t és a magányos K-t, ha sorszám vagy kapukód (#) előtt áll
+                rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
+                rem = re.sub(r'^\s*K\s*(?=[#\d])', '', rem)
+                rem = re.sub(r'\|\s*K\s*(?=[#\d])', '| ', rem)
+
+                # 5. LÁBLÉC ÉS OLDALSZÁM
                 stop_phrases = ["Csillagozott betűnél", "kiegészítő is van", "Összesítés:", "Összesen:", "Nyomtatva:"]
                 for phrase in stop_phrases:
                     if phrase in rem: rem = rem.split(phrase)[0]
-                
-                # Külön szabály az "oldal" szóra: csak ha magában áll (pl. 1. oldal)
                 rem = re.sub(r'\b\d+\.\s*oldal\b.*', '', rem, flags=re.IGNORECASE)
 
-                # 4. SORSZÁMOK TÖRLÉSE (Védett kapukódokkal)
-                # Sor eleji sorszám: csak ha szóköz követi és nem #
+                # 6. SORSZÁMOK (Csak ha szóköz követi, nem #)
                 rem = re.sub(r'^\s*\d{1,3}(?!\s*#)\s+', '', rem)
-                # Cső utáni sorszám: ugyanígy
                 rem = re.sub(r'\|\s*\d{1,3}(?!\s*#)\s+', '| ', rem)
 
-                # 5. DARABSZÁM (total_q) TÖRLÉSE
+                # 7. DARABSZÁM (total_q)
                 if total_q > 0:
                     rem = re.sub(rf'(?<![#\w\d]){total_q}(?![#\w\d])', '', rem)
 
-                # 6. ELVÁLASZTÓK ÉS SZÖVEG TAKARÍTÁSA
+                # 8. ÍRÁSJEL KOZMETIKA (A dupla csövek és vessző-tengerek ellen)
                 rem = rem.replace("/", " ")
-                
-                # Dupla vagy több cső (| |) összevonása egyre
                 rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
-                
-                # Vessző-tenger és felesleges szóközök irtása
                 rem = re.sub(r'[,.\s]{2,}', ' ', rem) 
                 
-                # 7. VÉGSŐ KOZMETIKA
                 megj = re.sub(r'\s+', ' ', rem).strip()
                 megj = megj.strip(" |,. /") 
                 
-                # Ha csak egy árva szám maradt, ami nem kapukód, töröljük
                 if re.match(r'^\d+$', megj) and "#" not in megj:
                     megj = ""
                 

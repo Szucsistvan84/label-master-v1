@@ -109,23 +109,12 @@ def parse_interfood_pdf(pdf_file):
                     lines[y] = [w]
 
             sorted_y = sorted(lines.keys())
-            last_row = None
             for i, y in enumerate(sorted_y):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
                 
                 u_code_m = re.search(r'([HKSCPZ]-[0-9]{5,7})', text_ws)
-                
-                # HA NINCS ÜGYFÉLKÓD, de az előző sorhoz tartozhat (pl. Szürke csarnok vagy kapukód)
-                if not u_code_m:
-                    if last_row and len(text_ws.strip()) > 2:
-                        # Megtisztítjuk a sor eleji/végi maradék számoktól (pl. sorszám)
-                        clean_extra = re.sub(r'^\d+\s+|\s+\d+$', '', text_ws).strip()
-                        if clean_extra:
-                            # Hozzáfűzzük a megjegyzéshez
-                            old_megj = last_row.get("Megjegyzés", "")
-                            last_row["Megjegyzés"] = (old_megj + " " + clean_extra).strip()
-                    continue
+                if not u_code_m: continue
 
                 full_id_match = u_code_m.group(0)
                 prefix = full_id_match.split('-')[0]
@@ -172,12 +161,12 @@ def parse_interfood_pdf(pdf_file):
 
                 # Takarítás
                 megj = re.sub(r'\s+', ' ', rem).strip()
-                megj = re.sub(r'^\d+\s+', '', megj)
-                megj = re.sub(r'\s+\d+$', '', megj)
+                megj = re.sub(r'^\d+\s+', '', megj) # Sor eleji sorszám
+                megj = re.sub(r'\s+\d+$', '', megj) # Sor végi összesítő
                 megj = megj.strip(" ,.-")
 
                 if unique_orders:
-                    new_entry = {
+                    rows.append({
                         "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": clean_name,
                         "Cím": address, "Telefon": tel_m.group(0) if tel_m else "",
                         "Pénz": money_val, "Rendelés": ", ".join(unique_orders),
@@ -185,92 +174,90 @@ def parse_interfood_pdf(pdf_file):
                         "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
                         "Hétvégi": False,
                         "Sorrend": st.session_state.weights.get(str(u_id), 999)
-                    }
-                    rows.append(new_entry)
-                    last_row = new_entry  # Ebbe a változóba mentjük az aktuális ügyfelet    return rows, metadata
+                    })
+    return rows, metadata
     
-    def merge_data(raw_rows, p_map, sz_map):
+def merge_data(raw_rows, p_map, sz_map):
+    if not raw_rows: return pd.DataFrame()
     
-        if not raw_rows: return pd.DataFrame()
+    import pandas as pd
+    import re
+
+    L_DAYS = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
+    df = pd.DataFrame(raw_rows)
+    
+    # Biztonságos temp_id: csak a számokat tartjuk meg az ID-ból (pl. P-468296 -> 468296)
+    df['temp_id'] = df['ID'].astype(str).str.replace(r'\D', '', regex=True)
+
+    merged = []
+    # Ügyfélkód (tid) szerint csoportosítunk
+    for tid, group in df.groupby("temp_id", sort=False):
+        # Alapadatokat az első sorból vesszük
+        base = group.iloc[0].copy().to_dict()
+        u_id = str(tid)
+
+        # --- 1. PÉNZ KEZELÉSE (MAXIMUM SZABÁLY - CSAK PDF-BŐL) ---
+        pdf_payment_val = 0
+        has_negative = False
         
-        import pandas as pd
-        import re
-    
-        L_DAYS = {'H': 'Hé', 'K': 'Ke', 'S': 'Sze', 'C': 'Csü', 'P': 'Pé', 'Z': 'Szo'}
-        df = pd.DataFrame(raw_rows)
+        for _, row in group.iterrows():
+            m_str = str(row.get('Pénz', '0'))
+            digits = "".join(re.findall(r'[-\d]', m_str))
+            
+            if "-" in digits:
+                has_negative = True
+                break
+            else:
+                pure_val = int(re.sub(r'\D', '', digits)) if re.sub(r'\D', '', digits) else 0
+                if pure_val > pdf_payment_val:
+                    pdf_payment_val = pure_val
+
+        total_payment = 0 if has_negative else pdf_payment_val
+        base['Pénz'] = f"{total_payment} Ft"
+
+        # --- 2. RENDELÉSEK ÖSSZEVONÁSA (PDF + EXCEL) ---
+        o_p, has_weekend = [], False
+        for pfix in ['H', 'K', 'S', 'C', 'P']:
+            day_rows = group[group['Prefix'] == pfix]
+            if not day_rows.empty:
+                items = day_rows['Rendelés'].astype(str).tolist()
+                clean_items = [i for i in items if i != 'nan' and i.strip() != '']
+                if clean_items:
+                    o_p.append(f"{L_DAYS.get(pfix, pfix)}: {', '.join(clean_items)}")
+
+        # Excel pótlások hozzáadása
+        p_extra_order = p_map.get(u_id, {}).get('rendeles', "")
+        sz_extra_order = sz_map.get(u_id, {}).get('rendeles', "")
+
+        if p_extra_order:
+            o_p.append(f"Pé(Ex): {p_extra_order}")
+            has_weekend = True
+        if sz_extra_order:
+            o_p.append(f"Szo(Ex): {sz_extra_order}")
+            has_weekend = True
+
+        base['Rendelés_Full'] = " | ".join(o_p)
+        base['Összesen'] = pd.to_numeric(group['Összesen'], errors='coerce').sum()
+        base['Hétvégi'] = has_weekend
+        base['ID'] = f"P-{tid}"
+        base['temp_id'] = tid
         
-        # Biztonságos temp_id: csak a számokat tartjuk meg az ID-ból (pl. P-468296 -> 468296)
-        df['temp_id'] = df['ID'].astype(str).str.replace(r'\D', '', regex=True)
-    
-        merged = []
-        # Ügyfélkód (tid) szerint csoportosítunk
-        for tid, group in df.groupby("temp_id", sort=False):
-            # Alapadatokat az első sorból vesszük
-            base = group.iloc[0].copy().to_dict()
-            u_id = str(tid)
-    
-            # --- 1. PÉNZ KEZELÉSE (MAXIMUM SZABÁLY - CSAK PDF-BŐL) ---
-            pdf_payment_val = 0
-            has_negative = False
-            
-            for _, row in group.iterrows():
-                m_str = str(row.get('Pénz', '0'))
-                digits = "".join(re.findall(r'[-\d]', m_str))
-                
-                if "-" in digits:
-                    has_negative = True
-                    break
-                else:
-                    pure_val = int(re.sub(r'\D', '', digits)) if re.sub(r'\D', '', digits) else 0
-                    if pure_val > pdf_payment_val:
-                        pdf_payment_val = pure_val
-    
-            total_payment = 0 if has_negative else pdf_payment_val
-            base['Pénz'] = f"{total_payment} Ft"
-    
-            # --- 2. RENDELÉSEK ÖSSZEVONÁSA (PDF + EXCEL) ---
-            o_p, has_weekend = [], False
-            for pfix in ['H', 'K', 'S', 'C', 'P']:
-                day_rows = group[group['Prefix'] == pfix]
-                if not day_rows.empty:
-                    items = day_rows['Rendelés'].astype(str).tolist()
-                    clean_items = [i for i in items if i != 'nan' and i.strip() != '']
-                    if clean_items:
-                        o_p.append(f"{L_DAYS.get(pfix, pfix)}: {', '.join(clean_items)}")
-    
-            # Excel pótlások hozzáadása
-            p_extra_order = p_map.get(u_id, {}).get('rendeles', "")
-            sz_extra_order = sz_map.get(u_id, {}).get('rendeles', "")
-    
-            if p_extra_order:
-                o_p.append(f"Pé(Ex): {p_extra_order}")
-                has_weekend = True
-            if sz_extra_order:
-                o_p.append(f"Szo(Ex): {sz_extra_order}")
-                has_weekend = True
-    
-            base['Rendelés_Full'] = " | ".join(o_p)
-            base['Összesen'] = pd.to_numeric(group['Összesen'], errors='coerce').sum()
-            base['Hétvégi'] = has_weekend
-            base['ID'] = f"P-{tid}"
-            base['temp_id'] = tid
-            
-            # Sorrend visszatöltése (Fontos: a weights-ből a P-123456 formátumot keressük)
-            base['Sorrend'] = st.session_state.get('weights', {}).get(f"P-{tid}", 999)
-            
-            merged.append(base)
-    
-        # --- 3. VÉGLEGES TÁBLÁZAT LÉTREHOZÁSA ÉS RENDEZÉSE ---
-        res = pd.DataFrame(merged)
+        # Sorrend visszatöltése (Fontos: a weights-ből a P-123456 formátumot keressük)
+        base['Sorrend'] = st.session_state.get('weights', {}).get(f"P-{tid}", 999)
         
-        if not res.empty:
-            if 'Sorrend' not in res.columns:
-                res['Sorrend'] = range(1, len(res) + 1)
-            
-            res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce').fillna(999)
-            res = res.sort_values(by='Sorrend').reset_index(drop=True)
+        merged.append(base)
+
+    # --- 3. VÉGLEGES TÁBLÁZAT LÉTREHOZÁSA ÉS RENDEZÉSE ---
+    res = pd.DataFrame(merged)
     
-        return res
+    if not res.empty:
+        if 'Sorrend' not in res.columns:
+            res['Sorrend'] = range(1, len(res) + 1)
+        
+        res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce').fillna(999)
+        res = res.sort_values(by='Sorrend').reset_index(drop=True)
+
+    return res
 
 def create_label_pdf(df, fn, ft):
     """Etikett generálás biztonsági ellenőrzésekkel és hibajavítással"""

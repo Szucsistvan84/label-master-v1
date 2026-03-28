@@ -150,35 +150,49 @@ def parse_interfood_pdf(pdf_file):
                 tel_m = re.search(PHONE_PAT, full_block_text.replace(" ", ""))
                 # --- RENDELÉSEK ÉS MENNYISÉG KINYERÉSE ---
                 raw_orders = re.findall(ORDER_PAT, full_block_text)
-                unique_orders = list(set(raw_orders)) # EZ HIÁNYZOTT!
+                unique_orders = list(set(raw_orders))
                 
-                # Összes darabszám kiszámítása (pl. 2-L1K -> 2 db)
                 total_q = 0
                 for o in raw_orders:
                     try:
                         q_match = re.match(r'(\d+)-', o)
-                        if q_match:
-                            total_q += int(q_match.group(1))
-                        else:
-                            total_q += 1
+                        total_q += int(q_match.group(1)) if q_match else 1
                     except:
                         total_q += 1
 
-                # PÉNZ KINYERÉSE - Nyers szöveg, érintetlenül!
+                # PÉNZ ÉS MEGJEGYZÉS KINYERÉSE
                 money_val = "0 Ft"
+                megj = "" # Alapértelmezett érték, hogy ne legyen NameError
+                
                 m_match = re.search(MONEY_PAT, full_block_text)
                 if m_match:
                     money_val = m_match.group(1).strip()
+                
+                # SZOBRÁSZAT (Megjegyzés kinyerése a blokkból)
+                rem = full_block_text
+                rem = rem.replace(full_id_match, "")
+                if clean_name: rem = rem.replace(clean_name, "")
+                if address: rem = rem.replace(address, "")
+                if tel_m: rem = rem.replace(tel_m.group(0), "")
+                if m_match: rem = rem.replace(m_match.group(0), "")
+                
+                for o in raw_orders:
+                    rem = rem.replace(o, "")
+                
+                megj = rem.replace("|", " ")
+                megj = re.sub(r'\s+', ' ', megj).strip()
+                megj = re.sub(r'^\d+\s+', '', megj)
+                megj = megj.strip(" ,.-")
 
-                # --- ADATOK MENTÉSE ---
-                if unique_orders: # Most már nem lesz NameError
+                # ADATOK MENTÉSE
+                if unique_orders:
                     rows.append({
                         "Prefix": prefix, 
                         "ID": f"P-{u_id}", 
                         "Ügyintéző": clean_name,
                         "Cím": address, 
                         "Telefon": tel_m.group(0) if tel_m else "",
-                        "Pénz": money_val, # Sehol egy int() vagy clean_money()!
+                        "Pénz": money_val, # Nyers szöveg, negatív előjellel együtt
                         "Rendelés": ", ".join(unique_orders),
                         "Megjegyzés": megj, 
                         "Összesen": total_q, 

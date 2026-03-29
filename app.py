@@ -782,7 +782,27 @@ def main():
                     if rows:
                         all_rows.extend(rows)
                     if meta:
-                        all_meta.extend(meta
+                        all_meta.extend(meta)
+
+            if all_rows:
+                st.session_state.meta_data = all_meta
+                y, w = '2026', '13' 
+
+                if all_meta:
+                    try:
+                        y = all_meta[0].get('year', y)
+                        w = all_meta[0].get('week', w)
+                    except:
+                        pass
+                
+                p_map = get_etlap_dict(y, w, 5)
+                sz_map = get_etlap_dict(y, w, 6)
+                
+                # Itt fut le az összefésülés és a tisztítás
+                st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
+                
+                st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
+                st.rerun()
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None:

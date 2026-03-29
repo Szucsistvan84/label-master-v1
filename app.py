@@ -12,7 +12,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame
 
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\d{2}/\d{6,7})'
@@ -337,93 +337,80 @@ def create_label_pdf(df, courier_name, courier_phone):
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
     
-    # A rács marad 3x7, a lap széléig kifuttatva
+    # Fix 3x7-es rács, lap széléig kifuttatva
     cols = 3
     rows = 7
     label_width = width / cols
     label_height = height / rows
     
-    # BELSŐ MARGÓ: 5mm minden oldalon a cellán belül
+    # SÉRTHETETLEN BELSŐ MARGÓ: 5mm minden oldalon
     padding = 5 * mm
     
-    # Betűtípusok regisztrálása
     f_reg, f_bold = register_fonts()
 
     for i, (_, row) in enumerate(df.iterrows()):
         col_idx = i % cols
         row_idx = (i // cols) % rows
         
-        # Cellák koordinátái (bal alsó sarok)
+        # Cella koordinátái
         x = col_idx * label_width
         y = height - ((row_idx + 1) * label_height)
         
-        # --- BELSŐ KERET (FRAME) LÉTREHOZÁSA ---
-        # Ez a keret kényszeríti az 5mm belső margót minden oldalon
-        f = Frame(
-            x + padding, 
-            y + padding, 
-            label_width - (2 * padding), 
-            label_height - (2 * padding),
-            showBoundary=0  # 1-re állítva láthatod a belső margó vonalát teszteléskor
-        )
+        # --- BELSŐ KERET (FRAME) ---
+        # A keret x és y pontját eltoljuk a paddinggel, a méretét pedig csökkentjük vele
+        inner_frame_x = x + padding
+        inner_frame_y = y + padding
+        inner_frame_w = label_width - (2 * padding)
+        inner_frame_h = label_height - (2 * padding)
 
-        # Stílusok definiálása
-        style_normal = ParagraphStyle(
-            'Normal', fontName=f_reg, fontSize=8, leading=10, alignment=0 # Balra zárt
-        )
-        style_bold = ParagraphStyle(
-            'Bold', fontName=f_bold, fontSize=10, leading=12, alignment=0
-        )
-        style_marketing = ParagraphStyle(
-            'Marketing', fontName=f_reg, fontSize=7, leading=8, alignment=1 # Középre zárt
-        )
+        f = Frame(inner_frame_x, inner_frame_y, inner_frame_w, inner_frame_h, showBoundary=0)
 
-        # Tartalom összeállítása (Story)
+        # Stílusok (kisebb betűméret, hogy a margó miatt beférjen)
+        s_normal = ParagraphStyle('Normal', fontName=f_reg, fontSize=7.5, leading=9)
+        s_bold = ParagraphStyle('Bold', fontName=f_bold, fontSize=9, leading=10)
+        s_marketing = ParagraphStyle('Mkt', fontName=f_reg, fontSize=6.5, leading=7.5, alignment=1)
+
         story = []
         
-        # Sorszám és Név
-        story.append(Paragraph(f"<b>#{row.get('Sorrend', i+1)}</b> {row.get('Ügyintéző', '')}", style_bold))
+        # 1. Fejléc: Sorszám és Név
+        story.append(Paragraph(f"<b>#{row.get('Sorrend', i+1)}</b> {row.get('Ügyintéző', '')}", s_bold))
         
-        # ID és Telefon egy sorba
-        story.append(Paragraph(f"ID: {row.get('ID', '')} | {row.get('Telefon', '')}", style_normal))
+        # 2. Elérhetőség
+        story.append(Paragraph(f"ID: {row.get('ID', '')} | {row.get('Telefon', '')}", s_normal))
         
-        # Cím (tördelve, ha nem fér el)
-        story.append(Paragraph(f"🏠 {row.get('Cím', '')}", style_normal))
+        # 3. Cím (Automatikusan több sorba törik, ha hosszú)
+        story.append(Paragraph(f"🏠 {row.get('Cím', '')}", s_normal))
         
-        # Rendelés
-        story.append(Spacer(1, 2*mm))
-        story.append(Paragraph(f"🛒 <b>{row.get('Rendelés', '')}</b>", style_normal))
+        # 4. Rendelés (Kiemelve)
+        story.append(Spacer(1, 1*mm))
+        story.append(Paragraph(f"🛒 <b>{row.get('Rendelés', '')}</b>", s_normal))
         
-        # Megjegyzés (ha van)
-        if str(row.get('Megjegyzés', '')).strip():
-            story.append(Paragraph(f"💬 <i>{row['Megjegyzés']}</i>", style_normal))
+        # 5. Megjegyzés
+        megj = str(row.get('Megjegyzés', '')).strip()
+        if megj and megj not in ["0", "nan", "None", ""]:
+            story.append(Paragraph(f"💬 <i>{megj}</i>", s_normal))
 
-        # Pénz és Összesen darab
-        story.append(Spacer(1, 2*mm))
-        story.append(Paragraph(f"💰 {row.get('Pénz', '0 Ft')} | 📦 {row.get('Összesen', 0)} db", style_bold))
+        # 6. Pénz és darabszám
+        story.append(Spacer(1, 1*mm))
+        story.append(Paragraph(f"💰 {row.get('Pénz', '0 Ft')} | 📦 {row.get('Összesen', 0)} db", s_bold))
 
-        # --- MARKETING ÉS FUTÁR ADATOK (A keret aljára) ---
-        # Mivel a Frame fentről lefelé tölt, a maradék helyet Spacer-rel tölthetjük ki, 
-        # vagy fixen a keret aljára pozicionáljuk a marketinget.
-        
-        marketing_text = (
-            f"<br/><br/><font color='blue'>Futár: {courier_name} | {courier_phone}</font><br/>"
-            f"<b>15% kedvezmény* 3 hétig Új Ügyfeleink részére!</b><br/>"
-            f"Rendelés leadás: {courier_name}, tel: {courier_phone}<br/>"
-            f"<font size='6'>* a kedvezmény telefonon leadott rendelésekre érvényesíthető területi képviselőnk által</font>"
+        # 7. MARKETING (Sérthetetlen tartalom a cella legalján)
+        # Spacer(1, 0) segít, hogy ha van hely, lejjebb tolja
+        marketing_html = (
+            f"<br/><font color='blue' size='7'>Futár: {courier_name} | {courier_phone}</font><br/>"
+            f"<b>15% kedvezmény* 3 hétig Új Ügyfeleinknek!</b><br/>"
+            f"Rendelés: {courier_name}, tel: {courier_phone}<br/>"
+            f"<font size='5'>* telefonos rendelés esetén, területi képviselőnknél</font>"
         )
-        story.append(Paragraph(marketing_text, style_marketing))
+        story.append(Paragraph(marketing_html, s_marketing))
 
-        # A Story "belepréselése" a keretbe
-        # Ha nem férne el, a ReportLab automatikusan kisebbnek próbálja venni, 
-        # vagy ha nagyon sok, egyszerűen levágja (de a margót nem sérti meg).
+        # Belehelyezzük a tartalmat a keretbe
         f.addFromList(story, c)
 
-        # Opcionális: Halvány segédvonal a cellák között a vágáshoz
-        c.setDash(1, 2)
+        # Halvány segédvonal a vágáshoz (elhagyható)
         c.setStrokeColor(colors.lightgrey)
+        c.setLineWidth(0.1)
         c.rect(x, y, label_width, label_height)
-        c.setDash([]) # Visszaállítjuk sima vonalra
 
     c.save()
     buffer.seek(0)

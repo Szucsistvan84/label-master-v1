@@ -865,15 +865,17 @@ def main():
 
         st.divider()
 
-        # 3. PDF LETÖLTÉS
-        # Beolvassuk a session_state-ből a kinyert adatokat
-        meta = st.session_state.meta_data if 'meta_data' in st.session_state else {}
+        # 3. PDF LETÖLTÉS - Végleges, stabil verzió
         
-        # Járatszámok összefűzése a listából
+        # Biztosítjuk, hogy a meta egy szótár legyen
+        meta = st.session_state.meta_data if isinstance(st.session_state.meta_data, dict) else {}
+        
+        # Kiszámoljuk a járatszámokat az új struktúrából
         jaratok_listaja = meta.get('jaratok', [])
         aktualis_jaratok = ", ".join(jaratok_listaja) if jaratok_listaja else "N/A"
 
-        st.write(f"**Észlelt járatok:** {aktualis_jaratok}") # Ellenőrzésnek kiírjuk
+        # KITEHETÜNK EGY VISSZAJELZÉST A GOMBOK FÖLÉ:
+        st.info(f"Észlelt járatok a PDF-ekből: **{aktualis_jaratok}** | Időpont: **{meta.get('ev', '')}. {meta.get('het', '')}. hét**")
 
         c1, c2, c3 = st.columns(3)
         

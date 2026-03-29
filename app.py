@@ -82,6 +82,8 @@ def parse_interfood_pdf(pdf_file):
     # Kiegészített regexek
     ORDER_PAT = r'(\d+-[A-Z][A-Z0-9*+]*)'
     PHONE_PAT = r'(\d{2}/\d{6,7})'
+    # Ez a regex a pénzösszeghez kell a stop-feltételhez
+    MONEY_PAT_LOCAL = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
     with pdfplumber.open(pdf_file) as pdf:
         if pdf.pages:
@@ -124,14 +126,10 @@ def parse_interfood_pdf(pdf_file):
                 b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 370])
                 b4 = " ".join([w['text'] for w in line_words if 370 <= w['x0'] < 490])
                 
-                # Név tisztítása: Levágjuk a végéről a maradék kódokat (pl. -F, -P, -Z)
                 clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
-                clean_name = re.sub(r'\s*-[A-Z]$', '', clean_name) # Levágja a "-F" típusú végeket
+                clean_name = re.sub(r'\s*-[A-Z]$', '', clean_name)
 
-                # --- TELEFONSZÁM FIX (Golyóálló regex) ---
                 raw_tel_text = text_ws.replace(" ", "")
-                # Kifejezetten a magyar formátumokat keressük:
-                # 52/ + PONTOSAN 6 számjegy VAGY 20/30/70/ + PONTOSAN 7 számjegy
                 tel_m = re.search(r'(52/\d{6}|[237]0/\d{7})', raw_tel_text)
                 clean_tel = ""
                 if tel_m:
@@ -140,32 +138,42 @@ def parse_interfood_pdf(pdf_file):
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
 
-                # --- ADATGYŰJTÉS ÉS PÉNZ KERESÉSE (JAVÍTVA: ELVÁLASZTÓ JEL ÉS TISZTÍTÁS) ---
+                # --- ADATGYŰJTÉS ÉS PÉNZ KERESÉSE (STOP-LOGIKÁVAL) ---
                 money_val = "0 Ft"
                 raw_money_text = ""
-                all_relevant_text_parts = [text_ws] # Listába gyűjtjük a részeket az elválasztáshoz
+                all_relevant_text_parts = [text_ws]
                 
-                for offset in range(1, 4):
+                # Kulcsszavak, amiknél MEG KELL ÁLLNI az adatgyűjtéssel (Harangi Csilla-fix)
+                stop_keywords = ["Összesen:", "Étel kód", "InterFood", "Nyomtatta:", "Összesítés"]
+
+                for offset in range(1, 6): # Megnövelve 6 sorra a biztonság kedvéért
                     if i + offset < len(sorted_y):
                         next_line_words = sorted(lines[sorted_y[i + offset]], key=lambda x: x['x0'])
                         next_t_ws = " ".join([w['text'] for w in next_line_words])
                         
+                        # Ha jön a következő ügyfél, megállunk
                         if re.search(r'([HKSCPZ]-[0-9]{5,7})', next_t_ws):
                             break
                         
-                        # Elmentjük a sor szövegét a listába
+                        # --- ÚJ: Ha belefutunk a láblécbe, azonnal megszakítjuk az adatgyűjtést ---
+                        if any(stop in next_t_ws for stop in stop_keywords):
+                            break
+                        
+                        # --- ÚJ: Biztonsági fék (ha egy sorban túl sok ételkód van sorszám nélkül, az már az összesítő) ---
+                        if len(re.findall(ORDER_PAT, next_t_ws)) > 10:
+                            break
+
                         all_relevant_text_parts.append(next_t_ws)
                         
                         raw_next_line = "".join([w['text'] for w in next_line_words])
-                        m_match = re.search(MONEY_PAT, raw_next_line) or re.search(MONEY_PAT, next_t_ws)
+                        m_match = re.search(MONEY_PAT_LOCAL, raw_next_line) or re.search(MONEY_PAT_LOCAL, next_t_ws)
                         if m_match and money_val == "0 Ft":
                             money_val = m_match.group(1).strip()
                             raw_money_text = m_match.group(0)
 
-                # Összefűzzük a részeket a kért elválasztóval
                 all_relevant_text = " | ".join(all_relevant_text_parts)
 
-                # Rendelések kigyűjtése (mint eddig)
+                # --- A SZOBRÁSZ-LOGIKA (VÁLTOZATLAN) ---
                 raw_orders = re.findall(ORDER_PAT, all_relevant_text)
                 unique_orders, total_q = [], 0
                 for o in raw_orders:
@@ -176,26 +184,19 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (TÖKÉLETESÍTETT TISZTÍTÁS) ---
                 rem = all_relevant_text
-                
-                # 1. LÁBLÉC AZONNALI LEVÁGÁSA
+                # Itt a meglévő tisztítási lépéseid futnak tovább...
                 stop_words = ["Csillagozott", "kiegészítő is van", "Összesítés", "Összesen:", "Nyomtatva:"]
                 for sw in stop_words:
                     if sw in rem:
                         rem = rem.split(sw)[0]
 
-                # 2. ID ÉS KÓDOK TÖRLÉSE
                 rem = re.sub(r'[A-Z]-\d+[-A-Z]*', '', rem)
                 rem = rem.replace(full_id_match, "")
-
-                # 3. DR. ÉS NEVEK AGRESSZÍV TÖRLÉSE
-                # A Dr. minden formájának (Dr, dr, Dr., dr.) globális irtása a megjegyzésből!
                 rem = re.sub(r'(?i)\bdr\.?\s*', '', rem)
                 
                 name_targets = []
                 if clean_name: 
-                    # Névből is kivesszük a dr-t, hogy ne zavarjon
                     clean_name_no_dr = re.sub(r'(?i)\bdr\.?\s*', '', str(clean_name)).strip()
                     name_targets.append(clean_name_no_dr)
                     name_parts = re.split(r'[\s\-]', clean_name_no_dr)
@@ -206,37 +207,24 @@ def parse_interfood_pdf(pdf_file):
                 for target in sorted(list(set(name_targets)), key=len, reverse=True):
                     rem = re.compile(re.escape(target), re.IGNORECASE).sub("", rem)
 
-                # 4. TELEFONSZÁMOK ÉS ALAPADATOK
                 if address: rem = rem.replace(address, "")
                 if clean_tel: rem = rem.replace(clean_tel, "")
-                # Makacs szóközös telefonszámok (52 511000)
                 rem = re.sub(r'52\s\d{6}', '', rem)
-                
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
-                rem = re.sub(MONEY_PAT, "", rem)
+                rem = re.sub(MONEY_PAT_LOCAL, "", rem)
 
-                # 5. SORSZÁMOK, DARABSZÁMOK ÉS PREFIXEK (KCS és magányos K irtása)
                 if total_q:
                     tq_str = str(total_q)
                     rem = re.sub(rf'^\s*{tq_str}\s*\|?', '', rem)
                     rem = re.sub(rf'\|\s*{tq_str}(\s*\||\s+)', ' | ', rem)
                     rem = re.sub(rf'\s+{tq_str}\s*\|', ' |', rem)
 
-                # --- KCS ÉS KAPUCSENGŐ IRTÓ (Ponttal, szóközzel, bárhogy) ---
-                # Ez kiszedi: KCS, KCS., Kcs:, kcs, Kapucsengő - minden variációt
                 rem = re.sub(r'(?i)\bkcs[\s.:]*', '', rem)
                 rem = re.sub(r'(?i)\bkapucsengő[\s.:]*', '', rem)
-
-                # --- MAGÁNYOS PREFIX ÉS CSŐ TÖRLÉSE ---
-                # Ha maradna egy magányos K, H, S stb. betű, ami után szóköz vagy | van
                 rem = re.sub(r'\b[HKSCPZ]\b\s*[|:]*', '', rem)
-
-                # Minden maradék sorszám és elválasztó cső eltüntetése a sor elejéről
-                # Pl. ha a megjegyzés így kezdődne: "1 | " vagy "84 | "
                 rem = re.sub(r'^\s*[\d\s]+\|?\s*', '', rem)
 
-                # 6. KOZMETIKA
                 rem = rem.replace(" - |", " | ")
                 rem = rem.replace("/", " ").replace("*", " ")
                 rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)

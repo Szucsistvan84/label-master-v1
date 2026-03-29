@@ -801,6 +801,20 @@ def main():
                 # Itt fut le az összefésülés és a tisztítás
                 st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
                 
+                p_map = get_etlap_dict(y, w, 5)
+                sz_map = get_etlap_dict(y, w, 6)
+                
+                # Itt történik az adatok összefésülése
+                df_temp = merge_data(all_rows, p_map, sz_map)
+                
+                if not df_temp.empty:
+                    # ÚJ: Itt osztunk ki alapból sorszámokat 1-től kezdve
+                    # Ez biztosítja, hogy ne 999 legyen mindenhol
+                    df_temp['Sorrend'] = range(1, len(df_temp) + 1)
+                
+                # Mentés a session state-be
+                st.session_state.mdf = df_temp
+                
                 st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
                 st.rerun()
 

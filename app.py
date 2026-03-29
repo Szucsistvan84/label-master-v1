@@ -488,7 +488,8 @@ def create_manifest_pdf(df, fn, meta_dict):
     if df is None or df.empty: 
         return None
 
-    # 1. Okos csoportosítás előkészítése (ahogy beszéltük)
+    # --- 1. ELŐKÉSZÍTÉS ---
+    # Cím tisztítása a csoportosításhoz
     df['clean_address'] = df['Cím'].astype(str).str.replace('.', '', regex=False).str.strip().str.lower()
     
     def get_group_id(row):
@@ -503,7 +504,7 @@ def create_manifest_pdf(df, fn, meta_dict):
     f_reg, f_bold = register_fonts()  
     buf = BytesIO()
 
-    # --- ITT DEFINIÁLJUK A STÍLUSOKAT (Ezt hiányolta a hibaüzenet) ---
+    # --- 2. STÍLUSOK ÉS ELEMEK INICIALIZÁLÁSA (Ez hiányzott!) ---
     from reportlab.lib.styles import ParagraphStyle
     styles = {
         'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
@@ -511,60 +512,63 @@ def create_manifest_pdf(df, fn, meta_dict):
         'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=8),
         'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12, alignment=1)
     }
-    
-    # (A header_footer és a stílusok maradnak a régiek...)
-    # ... [stílus definíciók] ...
 
-    # Oszlopszélességek és adatok építése
-    col_widths = [8*mm, 92*mm, 7*mm, 18*mm, 25*mm, 40*mm, 10*mm]
-    table_data = [["#", "NÉV / CÍM / INFÓ", "☐", "PÉNZ", "TEL", "RENDELÉS", "DB"]]
+    # Ez a sor hozza létre az 'elements' listát, amit a hiba hiányolt
+    elements = [] 
+
+    # Fejléc szöveg összeállítása
+    ev = meta_dict.get('ev', '')
+    het = meta_dict.get('het', '')
+    nap = meta_dict.get('nap', '')
+    jaratok = ", ".join(meta_dict.get('jaratok', []))
+    fejlec_szov = f"MENETTERV - Járat(ok): {jaratok} | {ev}. év, {het}. hét | {nap}"
     
+    elements.append(Paragraph(fejlec_szov, styles['Header']))
+    elements.append(Spacer(1, 4 * mm))
+
+    # --- 3. TÁBLÁZAT ÉPÍTÉSE ---
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=5*mm, leftMargin=5*mm, topMargin=10*mm, bottomMargin=10*mm)
+    
+    table_data = [["#", "NÉV / CÍM / INFÓ", "PÉNZ", "TEL", "RENDELÉS", "DB"]]
+    
+    # Táblázat stílusának alapjai
     table_styles = [
-        ('FONTNAME', (0, 0), (-1, 0), f_bold),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (2, 0), (2, -1), 'CENTER'),
-        ('ALIGN', (6, 0), (6, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('FONTNAME', (0,0), (-1,0), f_bold),
+        ('FONTSIZE', (0,0), (-1,-1), 8),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
     ]
 
-    current_row_idx = 1
-    # Most a group_id alapján csoportosítunk!
-    grouped = df.groupby('group_id', sort=False)
-    
-    for gid, group in grouped:
-        is_group = len(group) > 1
-        group_start_idx = current_row_idx
+    # Sorok feldolgozása
+    for i, row in df.iterrows():
+        # Sorrend (tizedesek nélkül, ha egész)
+        idx_val = f"{row['Sorrend']:.1f}" if row['Sorrend'] % 1 != 0 else f"{int(row['Sorrend'])}"
         
-        for i, (_, row) in enumerate(group.iterrows()):
-            p_val = str(row['Pénz']).replace(" 0 Ft", "").replace("0 Ft", "").strip()
-            penz_disp = f"<b>{p_val}</b>" if p_val and p_val != "nan" else ""
-            megj = f"<br/><font color='red'><i>{row['Megjegyzés']}</i></font>" if pd.notna(row['Megjegyzés']) and str(row['Megjegyzés']).lower() != 'nan' else ""
-            
-            # Kék nyíl csak akkor, ha tényleg csoport (több tétel)
-            group_tag = "<font color='blue'>▲ </font>" if is_group else ""
-            
-            table_data.append([
-                str(int(row['Sorrend'])),
-                Paragraph(f"{group_tag}<b>{row['Ügyintéző']}</b><br/>{row['Cím']}{megj}", styles['Normal']),
-                MyCheckbox(10),
-                Paragraph(penz_disp, styles['Small']),
-                Paragraph(str(row['Telefon']), styles['Small']),
-                Paragraph(str(row['Rendelés_Full']), styles['Normal']),
-                str(int(row['Összesen']))
-            ])
-            current_row_idx += 1
-            
-        if is_group:
-            group_end_idx = current_row_idx - 1
-            table_styles.append(('BACKGROUND', (0, group_start_idx), (-1, group_end_idx), colors.Color(0.94, 0.94, 0.94)))
-            table_styles.append(('OUTLINE', (0, group_start_idx), (-1, group_end_idx), 1.5, colors.black))
+        # Csoportosítás jelzése (ha van)
+        group_tag = f"<b>[{row['Csoport']}]</b> " if str(row.get('Csoport', '')).strip() else ""
+        
+        megj = f"<br/><i>{row['Infó']}</i>" if row['Infó'] else ""
+        
+        table_data.append([
+            idx_val,
+            Paragraph(f"{group_tag}<b>{row['Ügyintéző']}</b><br/>{row['Cím']}{megj}", styles['Normal']),
+            str(row['Pénz']),
+            str(row['Tel']),
+            Paragraph(str(row['Rendelés']), styles['Small']),
+            str(row['DB'])
+        ])
 
+    # Táblázat létrehozása és hozzáadása az elemekhez
+    col_widths = [10*mm, 85*mm, 20*mm, 25*mm, 50*mm, 8*mm]
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle(table_styles))
-    elements.append(t)
+    
+    elements.append(t) # Most már létezik az 'elements', nem lesz hiba!
 
-    doc.build(elements, onFirstPage=header_footer, onLaterPages=header_footer)
+    # PDF generálása
+    doc.build(elements)
+    buf.seek(0)
     return buf.getvalue()
     
 def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dict

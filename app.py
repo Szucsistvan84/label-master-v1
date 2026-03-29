@@ -471,6 +471,10 @@ def create_label_pdf(df, fn, ft):
 # --- 3. RÉSZ: PDF GENERÁLÓK ÉS ADATSZERKESZTŐ ---
 
 def create_manifest_pdf(df, fn, meta_dict):
+    # Biztonsági mentés: ha üres a DF, ne csináljon semmit
+    if df.empty:
+        return None
+        
     df = df.sort_values('Sorrend')
     f_reg, f_bold = register_fonts()  
     buf = BytesIO()
@@ -484,7 +488,7 @@ def create_manifest_pdf(df, fn, meta_dict):
         bottomMargin=15 * mm
     )
 
-    # Metaadatok
+    # Metaadatok biztonságos kinyerése
     ev = meta_dict.get('ev', '')
     het = meta_dict.get('het', '')
     nap = meta_dict.get('nap', '')
@@ -508,37 +512,51 @@ def create_manifest_pdf(df, fn, meta_dict):
     data = [header]
 
     # --- CSOPORTOSÍTÁS LOGIKA (Cím alapján) ---
-    grouped = df.groupby('Cím', sort=False)
+    # Megnézzük, létezik-e 'Cím' oszlop, ha nem, sorszám szerint megyünk
+    group_col = 'Cím' if 'Cím' in df.columns else df.columns[1] 
+    grouped = df.groupby(group_col, sort=False)
     
     for _, group in grouped:
-        # Az első sor adatait vesszük alapul a fejléchez
         first_row = group.iloc[0]
         
-        # Összeállítjuk a NÉV / CÍM / INFÓ blokkot
-        # Kiszűrjük az egyedi neveket a csoportban
-        nevek = " / ".join(group['Név'].unique())
-        cim = first_row['Cím']
-        # Megjegyzéseket (Infó) is begyűjtjük, ha vannak
-        infok = " | ".join([str(i) for i in group['Infó'].unique() if i and str(i).strip() and str(i) != 'nan'])
+        # --- HIBAÁLLÓ ADATKINYERÉS (itt volt a hiba) ---
+        # Ha nincs 'Név' oszlop, keressük 'Ügyfél' néven, vagy legyen üres
+        def get_val(row_or_group, col_name, default=""):
+            if col_name in df.columns:
+                if isinstance(row_or_group, pd.Series):
+                    val = row_or_group[col_name]
+                else:
+                    val = " / ".join(row_or_group[col_name].dropna().unique().astype(str))
+                return str(val) if pd.notna(val) else default
+            return default
+
+        nevek = get_val(group, 'Név')
+        if not nevek: nevek = get_val(group, 'Ügyfél') # Tartalék, ha 'Ügyfél' a neve
         
+        cim = get_val(first_row, 'Cím')
+        infok = get_val(group, 'Infó')
+        
+        # Szöveges blokk összeállítása
         nev_cim_info = f"<b>{nevek}</b><br/>{cim}"
-        if infok:
+        if infok and infok.strip():
             nev_cim_info += f"<br/><i>{infok}</i>"
 
-        # Rendelések és pénz összesítése a csoporton belül
-        rendelesek_szoveg = "<br/>".join(group['Rendelés'].astype(str))
-        osszes_penz = group['Pénz'].astype(str).iloc[0] # Általában a címen egy összeg van
-        osszes_db = str(int(group['Db'].sum()))
-        telefonszamok = " / ".join(group['Tel'].unique())
+        rendelesek_szoveg = "<br/>".join(group['Rendelés'].astype(str)) if 'Rendelés' in df.columns else ""
+        
+        # Pénz, Tel, Db kinyerése
+        penz = get_val(first_row, 'Pénz')
+        tels = get_val(group, 'Tel')
+        db_sum = str(int(group['Db'].sum())) if 'Db' in df.columns else "0"
+        sorrend = str(int(first_row['Sorrend'])) if 'Sorrend' in df.columns else "?"
 
         data.append([
-            str(int(first_row['Sorrend'])), # Egész számként a sorszám
+            sorrend,
             Paragraph(nev_cim_info, styles['Normal']),
             "", 
-            Paragraph(osszes_penz, styles['Small']),
-            Paragraph(telefonszamok, styles['Small']),
+            Paragraph(penz, styles['Small']),
+            Paragraph(tels, styles['Small']),
             Paragraph(rendelesek_szoveg, styles['Normal']),
-            osszes_db
+            db_sum
         ])
 
     table = Table(data, colWidths=col_widths, repeatRows=1)

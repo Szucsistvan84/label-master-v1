@@ -467,37 +467,24 @@ def create_label_pdf(df, fn, ft):
     
 # --- 3. RÉSZ: PDF GENERÁLÓK ÉS ADATSZERKESZTŐ ---
 
-def create_manifest_pdf(df, fn, meta_list):
+def create_manifest_pdf(df, fn, meta_dict): # meta_list helyett meta_dict
     """Menetterv készítése csoportosítással, oldalszámozással és DejaVu fontokkal"""
     df = df.sort_values('Sorrend')
-    f_reg, f_bold = register_fonts()  # Itt már a DejaVu-t fogja adni
+    f_reg, f_bold = register_fonts()  
     buf = BytesIO()
 
-    # Alsó margót kicsit megnöveljük az oldalszámnak (20mm)
-    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=10 * mm, leftMargin=10 * mm, topMargin=20 * mm,
-                            bottomMargin=20 * mm)
-
-    # Címek kigyűjtése a csoportosítás ellenőrzéséhez
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=10 * mm, leftMargin=10 * mm, topMargin=20 * mm, bottomMargin=20 * mm)
     all_addresses = df['Cím'].tolist()
-
-    # --- ÚJ RÉSZ: Halmaz a már kiírt pénzösszegek követésére ---
     mar_kiirt_osszegek = set()
-    # ---------------------------------------------------------
 
-    # BIZTONSÁGOS ADATLEKÉRÉS (A 4003-AS PDF MIATT)
-    ev, het, nap, jaratok = "", "", "", ""
-    if meta_list and len(meta_list) > 0:
-        # Megkeressük az első érvényes adatcsomagot
-        first_m = next((m for m in meta_list if isinstance(m, dict)), None)
-        if first_m:
-            ev = first_m.get('year', '')
-            het = first_m.get('week', '')
-            nap = first_m.get('day', '') # Most már ez is biztonságos
-        
-        # Járatszámok összefűzése biztonságosan
-        j_list = [str(m.get('jarat', '')) for m in meta_list if isinstance(m, dict) and m.get('jarat')]
-        jaratok = ", ".join(sorted(list(set(j_list))))
-    fejlec_text = f"MENETTERV - Járat: {jaratok} | {ev}. év, {het}. hét | {nap}"
+    # --- JAVÍTOTT ADATLEKÉRÉS AZ ÚJ DICT-BŐL ---
+    ev = meta_dict.get('ev', '')
+    het = meta_dict.get('het', '')
+    nap = meta_dict.get('nap', '')
+    jaratok = ", ".join(meta_dict.get('jaratok', []))
+    
+    fejlec_text = f"MENETTERV - Járat(ok): {jaratok} | {ev}. év, {het}. hét | {nap}"
+    # -----------------------------------------
 
     elements = []
 
@@ -582,28 +569,22 @@ def create_manifest_pdf(df, fn, meta_list):
     return buf
     
     
-def create_raklista_pdf(df, jarat_info, meta_list):
+def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dict
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
-    # Margók minimalizálása az oldalszéleken is
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=7 * mm, bottomMargin=12 * mm, leftMargin=8 * mm,
-                            rightMargin=8 * mm)
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=7 * mm, bottomMargin=12 * mm, leftMargin=8 * mm, rightMargin=8 * mm)
     etlap = st.session_state.get('etlap', {})
 
-    # BIZTONSÁGOS ADATLEKÉRÉS (A 4003-AS PDF MIATT)
-    ev, het, napok = "", "", ""
-    if meta_list and len(meta_list) > 0:
-        # Megkeressük az első érvényes adatcsomagot (dict), amiből kiolvasható az év/hét
-        first_m = next((m for m in meta_list if isinstance(m, dict)), None)
-        if first_m:
-            ev = first_m.get('year', '')
-            het = first_m.get('week', '')
-            napok = first_m.get('days', '') # Vagy 'day', attól függően mi van a PDF-ben
+    # --- JAVÍTOTT ADATLEKÉRÉS AZ ÚJ DICT-BŐL ---
+    ev = meta_dict.get('ev', '')
+    het = meta_dict.get('het', '')
+    napok = meta_dict.get('nap', '') 
     
     dates_str = f"{ev}. {het}. hét ({napok})"
+    # -----------------------------------------
 
-    # 1. Adatgyűjtés
     counts = {}
+    # ... (a függvény többi része marad változatlanul)
     for _, r in df.iterrows():
         order_str = str(r.get('Rendelés_Full', ''))
         day_parts = order_str.split('|')

@@ -715,10 +715,9 @@ def create_raklista_pdf(df, jarat_info, meta_list):
             column_config={
                 "Sorrend": st.column_config.NumberColumn(
                     "Sorrend",
-                    help="Tizedesekhez használj pontot! (pl. 1.5)",
-                    min_value=0,
-                    step=0.1,  # Ez engedi a tizedeseket
-                    format="%.1f", # Így fog megjelenni
+                    help="Tizedesekkel (pl. 1.5) beszúrhatsz címeket.",
+                    format="%.1f",  # Ezt írd át %d-ről, hogy lásd mit írtál be!
+                    step=0.1,
                 ),
                 "ID": st.column_config.TextColumn("Azonosító", disabled=True),
             }

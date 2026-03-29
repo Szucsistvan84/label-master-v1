@@ -169,18 +169,15 @@ def parse_interfood_pdf(pdf_file):
                 rem = all_relevant_text
                 
                 # 1. ID ÉS KÓDOK TÖRLÉSE (A -F és egyéb végződésekkel együtt)
-                # Regex: Betű-számok-esetleges kötőjel és betű a végén
                 rem = re.sub(r'[A-Z]-\d+[-A-Z]*', '', rem)
                 rem = rem.replace(full_id_match, "")
 
-                # 2. NEVEK AGGRESSZÍV TÖRLÉSE (Hajós- és Dr. ügyek ellen)
-                # Összeállítunk egy listát mindenről, ami név lehet
+                # 2. NEVEK AGGRESSZÍV TÖRLÉSE
                 name_targets = []
-                if clean_name: name_targets.append(clean_name)
-                if row['Ügyintéző']: 
-                    u_nev = str(row['Ügyintéző']).strip()
+                # JAVÍTÁS: row['Ügyintéző'] helyett clean_name-et használunk, mert az már létezik
+                if clean_name: 
+                    u_nev = str(clean_name).strip()
                     name_targets.append(u_nev)
-                    # Ha kötőjeles a név (pl. Hajós-Szabó), a részeit is töröljük
                     if "-" in u_nev:
                         for part in u_nev.split("-"):
                             if len(part.strip()) > 2:
@@ -188,8 +185,6 @@ def parse_interfood_pdf(pdf_file):
                                 name_targets.append("-" + part.strip())
                                 name_targets.append(part.strip())
 
-                # Minden név-variációt törlünk, akárhányszor szerepel (duplázódás ellen)
-                # A leghosszabb nevektől haladunk a rövidebbek felé
                 for target in sorted(list(set(name_targets)), key=len, reverse=True):
                     if len(target) > 2:
                         rem = re.sub(re.escape(target), "", rem, flags=re.IGNORECASE)
@@ -202,7 +197,6 @@ def parse_interfood_pdf(pdf_file):
                 rem = re.sub(MONEY_PAT, "", rem)
 
                 # 4. KCS ÉS A "MAGÁNYOS K" ELTÜNTETÉSE
-                # Töröljük a KCS-t és a magányos K-t, ha sorszám vagy kapukód (#) előtt áll
                 rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
                 rem = re.sub(r'^\s*K\s*(?=[#\d])', '', rem)
                 rem = re.sub(r'\|\s*K\s*(?=[#\d])', '| ', rem)
@@ -213,7 +207,7 @@ def parse_interfood_pdf(pdf_file):
                     if phrase in rem: rem = rem.split(phrase)[0]
                 rem = re.sub(r'\b\d+\.\s*oldal\b.*', '', rem, flags=re.IGNORECASE)
 
-                # 6. SORSZÁMOK (Csak ha szóköz követi, nem #)
+                # 6. SORSZÁMOK
                 rem = re.sub(r'^\s*\d{1,3}(?!\s*#)\s+', '', rem)
                 rem = re.sub(r'\|\s*\d{1,3}(?!\s*#)\s+', '| ', rem)
 
@@ -221,7 +215,7 @@ def parse_interfood_pdf(pdf_file):
                 if total_q > 0:
                     rem = re.sub(rf'(?<![#\w\d]){total_q}(?![#\w\d])', '', rem)
 
-                # 8. ÍRÁSJEL KOZMETIKA (A dupla csövek és vessző-tengerek ellen)
+                # 8. ÍRÁSJEL KOZMETIKA
                 rem = rem.replace("/", " ")
                 rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
                 rem = re.sub(r'[,.\s]{2,}', ' ', rem) 

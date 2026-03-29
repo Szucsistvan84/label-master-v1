@@ -468,29 +468,21 @@ def create_label_pdf(df, fn, ft):
     buf.seek(0)
     return buf
     
-# --- 3. RÉSZ: PDF GENERÁLÓK ÉS ADATSZERKESZTŐ ---
-
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.units import mm
-
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.units import mm
-
 # --- ÚJ OSZTÁLY A RAJZOLT NÉGYZETHEZ ---
 class MyCheckbox(Flowable):
     def __init__(self, size=10):
         Flowable.__init__(self)
         self.size = size
+        # Megadjuk a szélességet és magasságot, hogy a táblázat tudja igazítani
+        self.width = size
+        self.height = size
 
     def draw(self):
+        # Elmozdítjuk a rajzot, hogy a cella függőleges közepéhez is igazodjon
         self.canv.setLineWidth(0.5)
         self.canv.setStrokeColor(colors.black)
-        # Négyzet rajzolása: x, y, szélesség, magasság
-        self.canv.rect(0, -2, self.size, self.size, stroke=1, fill=0)
+        # x=0, y=0-nál rajzolunk, a táblázat ALIGN 'CENTER' fogja vízszintesen helyre tenni
+        self.canv.rect(0, 0, self.size, self.size, stroke=1, fill=0)
 
 def create_manifest_pdf(df, fn, meta_dict):
     if df is None or df.empty: 
@@ -562,7 +554,7 @@ def create_manifest_pdf(df, fn, meta_dict):
             table_data.append([
                 str(int(row['Sorrend'])),
                 Paragraph(nev_cim_info, styles['Normal']),
-                MyCheckbox(10), # <--- ITT HASZNÁLJUK A RAJZOLT NÉGYZETET
+                MyCheckbox(10), # Itt marad a hívás, de az osztály már tudja a méretét
                 Paragraph(penz_disp, styles['Small']),
                 Paragraph(str(row['Telefon']), styles['Small']),
                 Paragraph(str(row['Rendelés_Full']), styles['Normal']),

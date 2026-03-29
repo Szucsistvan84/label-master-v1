@@ -223,6 +223,8 @@ def parse_interfood_pdf(pdf_file):
                 
                 # 8. UTOLSÓ SIMÍTÁSOK
                 rem = re.sub(r'(\s*\|\s*)+', ' | ', rem) # Dupla csövek ellen
+                rem = re.sub(r'\s*-\s*\|\s*', ' | ', rem)
+                rem = re.sub(r'\s*\|\s*-\s*', ' | ', rem)
                 rem = re.sub(r'\s+', ' ', rem).strip()
                 
                 # Pucoljuk le a széleket az írásjelektől (vessző, pont, cső, szóköz)
@@ -230,6 +232,29 @@ def parse_interfood_pdf(pdf_file):
                 
                 if re.match(r'^\d+$', megj) and "#" not in megj:
                     megj = ""
+
+                # --- IDE ILLESZD BE: NÉV-MÁGNES LOGIKA (FINOMÍTVA) ---
+                name_parts = megj.split('|')
+                potential_name = name_parts[0].strip()
+                
+                # Szavak, amiket SOHA ne ragasszon vissza a névhez
+                blacklist = ["Porta", "Teherporta", "Kft", "Bt", "Iskola", "Gimnázium", "Kcs", "Kk", "Vevő"]
+                
+                # Feltételek: Nagybetűvel kezdődik, nincs benne szám, nem tiltólistás és rövid
+                if potential_name and potential_name[0].isupper() and not any(char.isdigit() for char in potential_name):
+                    is_blacklisted = any(bad.lower() in potential_name.lower() for bad in blacklist)
+                    
+                    # Ha 1 vagy 2 szóból áll (pl. "Gabriella" vagy "Ivett")
+                    if 2 < len(potential_name) < 25 and len(potential_name.split()) <= 2 and not is_blacklisted:
+                        # VISSZARAGASZTÁS az ügyintézőhöz (b4)
+                        b4 = f"{b4} {potential_name}".strip()
+                        
+                        # Törlés a megjegyzésből
+                        if len(name_parts) > 1:
+                            megj = "|".join(name_parts[1:]).strip(" |")
+                        else:
+                            megj = ""
+                # --- NÉV-MÁGNES VÉGE ---
                 
                 if unique_orders:
                     rows.append({

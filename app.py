@@ -165,22 +165,27 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (KÓD-PAJZS VERZIÓ) ---
+                # --- A SZOBRÁSZ-LOGIKA (VÉGLEGES KOZMETIKA) ---
                 rem = all_relevant_text
                 
-                # 1. VALÓDI ÉTELKÓDOK TÖRLÉSE (Csak ha van benne szám vagy kötőjel)
-                # Ez megvédi a GOLD, KCS, Porta, stb. szavakat
-                rem = re.sub(r'\b\d+-[A-Z][A-Z0-9*+]*\b', '', rem) # pl. 1-L2K
-                rem = re.sub(r'\b[A-Z]-\d+[-A-Z]*\b', '', rem)     # pl. P-415994
+                # 1. ÉTELKÓDOK ÉS MARADVÁNYAI (Védi a GOLD-ot és KCS-t)
+                # Töröljük a kódokat a csillaggal együtt is
+                rem = re.sub(r'\b\d+-[A-Z][A-Z0-9*+]*\b', '', rem)
+                rem = re.sub(r'\b[A-Z]-\d+[-A-Z]*\b', '', rem)
                 rem = rem.replace(full_id_match, "")
 
-                # 2. NEVEK AGGRESSZÍV TÖRLÉSE (Ügyintéző darabolva is)
+                # 2. NEVEK ÉS DR. ELŐTAG (Ponttal is!)
                 name_targets = []
-                if clean_name: name_targets.append(clean_name)
+                if clean_name: 
+                    name_targets.append(clean_name)
+                    # Ha van Dr a névben, adjuk hozzá a pontost és a pont nélkülit is a listához
+                    if "dr" in clean_name.lower():
+                        name_targets.append("Dr.")
+                        name_targets.append("dr.")
+
                 if b4: 
                     u_nev = str(b4).strip()
                     name_targets.append(u_nev)
-                    # Névtöredékek (pl. Ferenczi, Fábián)
                     parts = re.split(r'[-\s]+', u_nev)
                     for part in parts:
                         if len(part) > 3: name_targets.append(part)
@@ -195,10 +200,8 @@ def parse_interfood_pdf(pdf_file):
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 4. A "REJTÉLYES K" ÉS EGYÉB MARADVÁNYOK TISZTÍTÁSA
-                # Csak akkor törlünk magányos betűt, ha határoló karakterek mellett van
-                rem = re.sub(r'^\s*[A-Z]\s*\|\s*', '', rem) # Sor eleji "K |"
-                rem = re.sub(r'\|\s*[A-Z]\s*\|', '|', rem)  # Köztes "| K |"
+                # 4. A "REJTÉLYES K" ÉS EGYÉB MARADVÁNYOK
+                rem = re.sub(r'^\s*[A-Z]\s*\|\s*', '', rem)
                 
                 # 5. LÁBLÉC ÉS OLDALSZÁM
                 stop_phrases = ["Csillagozott betűnél", "kiegészítő is van", "Összesítés:", "Összesen:", "Nyomtatva:"]
@@ -206,20 +209,25 @@ def parse_interfood_pdf(pdf_file):
                     if phrase in rem: rem = rem.split(phrase)[0]
                 rem = re.sub(r'\b\d+\.\s*oldal\b.*', '', rem, flags=re.IGNORECASE)
 
-                # 6. SORSZÁMOK ÉS DARABSZÁMOK (Szigorúbb illesztés)
+                # 6. SORSZÁMOK ÉS DARABSZÁMOK
                 rem = re.sub(r'^\s*\d{1,3}\s+', '', rem)
                 rem = re.sub(r'\|\s*\d{1,3}\s+', '| ', rem)
                 if total_q > 0:
                     rem = re.sub(rf'(?<![#\w\d]){total_q}(?![#\w\d])', '', rem)
 
-                # 7. ÍRÁSJEL KOZMETIKA
+                # 7. --- SPECIÁLIS TÖRMELÉK-ELTÁVOLÍTÁS (Vesszők, csillagok) ---
+                # Minden magányos csillagot és vesszőt kiveszünk
+                rem = rem.replace("*", " ")
+                rem = rem.replace(",", " ")
                 rem = rem.replace("/", " ")
-                rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
+                
+                # 8. UTOLSÓ SIMÍTÁSOK
+                rem = re.sub(r'(\s*\|\s*)+', ' | ', rem) # Dupla csövek ellen
                 rem = re.sub(r'\s+', ' ', rem).strip()
                 
-                megj = rem.strip(" |,. /")
+                # Pucoljuk le a széleket az írásjelektől (vessző, pont, cső, szóköz)
+                megj = rem.strip(" |,. /*") 
                 
-                # Ha csak egy magányos szám maradt (és nem # kapukód), akkor kuka
                 if re.match(r'^\d+$', megj) and "#" not in megj:
                     megj = ""
                 

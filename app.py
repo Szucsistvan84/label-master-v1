@@ -165,62 +165,71 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (JAVÍTOTT, AGGRESSZÍV TISZTÍTÁS) ---
+                # --- A SZOBRÁSZ-LOGIKA (DR. ÉS SZÓ-ALAPÚ TISZTÍTÁS) ---
                 rem = all_relevant_text
                 
                 # 1. ID ÉS KÓDOK TÖRLÉSE
                 rem = re.sub(r'[A-Z]-\d+[-A-Z]*', '', rem)
                 rem = rem.replace(full_id_match, "")
 
-                # 2. NEVEK ÉS DUPLÁZÓDÁSOK TÖRLÉSE (Dr. és Ismétlődések ellen)
+                # 2. NEVEK ÉS DR. VARIÁCIÓK TÖRLÉSE SZAVANKÉNT
                 name_targets = []
                 if clean_name: 
-                    u_nev = str(clean_name).strip()
-                    name_targets.append(u_nev)
-                    # Dr. kezelése: ha benne van, töröljük az előtagot is, és a névvariációkat is
-                    if "dr" in u_nev.lower():
-                        name_targets.extend(["Dr.", "dr.", "Dr", "dr"])
-                        name_targets.append(re.sub(r'^[Dd]r\.?\s+', '', u_nev).strip())
+                    full_name = str(clean_name).strip()
+                    name_targets.append(full_name)
                     
-                    if "-" in u_nev:
-                        for part in u_nev.split("-"):
-                            if len(part.strip()) > 2: name_targets.append(part.strip())
+                    # Dr. speciális kezelése: ha bármilyen formában benne van, 
+                    # adjuk hozzá az összes variációt a törlendők listájához
+                    if "dr" in full_name.lower():
+                        name_targets.extend(["Dr.", "dr.", "Dr", "dr"])
+                    
+                    # Név szétbontása szavakra
+                    name_parts = re.split(r'[\s\-]', full_name)
+                    for part in name_parts:
+                        clean_part = part.strip("., ")
+                        # Csak a 2 karakternél hosszabb szavakat bántjuk (kivéve a Dr-t, amit fentebb már adtunk hozzá)
+                        if len(clean_part) > 2:
+                            name_targets.append(clean_part)
 
-                # A leghosszabb nevektől haladunk a rövidebbek felé, és amíg találunk ilyet, töröljük (duplázódás fix)
+                # Minden név-elemet és Dr-t törlünk (duplázódás ellen is véd)
                 for target in sorted(list(set(name_targets)), key=len, reverse=True):
-                    if len(target) > 2:
-                        pattern = re.compile(re.escape(target), re.IGNORECASE)
-                        while pattern.search(rem):
-                            rem = pattern.sub("", rem)
+                    pattern = re.compile(re.escape(target), re.IGNORECASE)
+                    while pattern.search(rem):
+                        rem = pattern.sub("", rem)
 
-                # 3. ALAPADATOK ÉS EXTRA SZÁMOK TÖRLÉSE
+                # 3. ALAPADATOK ÉS EXTRA SZÁMOK (Vezetékes számok is)
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
-                # Extra: 52 511000 típusú szóközös számok irtása
                 rem = re.sub(r'\d{2}\s\d{6,7}', '', rem)
                 
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 4. SORSZÁMOK ÉS PREFIX MARADVÁNYOK (pl. 1 | vagy K |)
-                rem = re.sub(r'^\s*[HKSCPZ]\s*\|', '', rem)
-                rem = re.sub(r'\|\s*[HKSCPZ]\s*\|', '|', rem)
-                # Sor eleji sorszám: "1 | " -> ""
-                rem = re.sub(r'^\s*\d{1,3}\s*\|\s*', '', rem)
-                rem = re.sub(r'\|\s*\d{1,3}\s*\|', '|', rem)
+                # 4. SORSZÁMOK ÉS ÖSSZESÍTŐK TÖRLÉSE
+                # Sor eleji prefixek és sorszámok: "1 |", "84 1 |", "K |"
+                rem = re.sub(r'^\s*[\d\s]*[HKSCPZ]?\s*\|', '', rem)
+                rem = re.sub(r'\|\s*[\d\s]*[HKSCPZ]?\s*\|', '|', rem)
+                
+                # Magányos sorszámok a sor elején
+                rem = re.sub(r'^\s*\d{1,3}\s+', '', rem)
 
-                # 5. LÁBLÉC ÉS ÍRÁSJELEK
+                # Rendelés összesítő darabszám (pl. a magányos "2")
+                if total_q > 0:
+                    rem = re.sub(rf'(?<![#\w\d]){total_q}(?![#\w\d])', '', rem)
+
+                # 5. LÁBLÉC ÉS KOZMETIKA
                 stop_phrases = ["Csillagozott betűnél", "kiegészítő is van", "Összesítés:", "Összesen:", "Nyomtatva:"]
                 for phrase in stop_phrases:
                     if phrase in rem: rem = rem.split(phrase)[0]
-                
+
                 rem = rem.replace("/", " ").replace("*", " ")
                 rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
                 rem = re.sub(r'[,.\s]{2,}', ' ', rem) 
                 
                 megj = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 
+                # Ha csak egy magányos szám maradt (nem kapukód), töröljük
                 if re.match(r'^\d+$', megj) and "#" not in megj:
                     megj = ""
                 

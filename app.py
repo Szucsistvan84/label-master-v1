@@ -470,6 +470,11 @@ def create_label_pdf(df, fn, ft):
     
 # --- 3. RÉSZ: PDF GENERÁLÓK ÉS ADATSZERKESZTŐ ---
 
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.units import mm
+
 def create_manifest_pdf(df, fn, meta_dict):
     if df is None or df.empty: 
         return None
@@ -478,7 +483,15 @@ def create_manifest_pdf(df, fn, meta_dict):
     f_reg, f_bold = register_fonts()  
     buf = BytesIO()
 
-    # Vékony margók a jobb helykihasználásért
+    # Oldalszámozás és fejléc lábléc funkció
+    def header_footer(canvas, doc):
+        canvas.saveState()
+        # Oldalszám (Jobb alsó sarok)
+        page_num = canvas.getPageNumber()
+        canvas.setFont(f_reg, 8)
+        canvas.drawRightString(200*mm, 10*mm, f"{page_num}. oldal")
+        canvas.restoreState()
+
     doc = SimpleDocTemplate(
         buf, 
         pagesize=A4, 
@@ -488,96 +501,84 @@ def create_manifest_pdf(df, fn, meta_dict):
         bottomMargin=15 * mm
     )
 
-    # Metaadatok kinyerése
+    # Metaadatok a fejlécbe
     ev = meta_dict.get('ev', '')
     het = meta_dict.get('het', '')
     nap = meta_dict.get('nap', '')
     jaratok = ", ".join(meta_dict.get('jaratok', []))
-    fejlec_text = f"MENETTERV - Járat(ok): {jaratok} | {ev}. év, {het}. hét | {nap}"
+    fejlec_szov = f"MENETTERV - Járat(ok): {jaratok} | {ev}. év, {het}. hét | {nap}"
     
-    elements = []
     styles = {
         'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
         'Bold': ParagraphStyle('Bold', fontName=f_bold, fontSize=8, leading=10),
-        'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=8), # Kisebb betű a Pénz/Tel oszlopnak
+        'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=8),
         'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12)
     }
 
-    elements.append(Paragraph(fejlec_text, styles['Header']))
-    elements.append(Spacer(1, 4 * mm))
+    elements = [Paragraph(fejlec_szov, styles['Header']), Spacer(1, 4 * mm)]
 
-    # Oszlopszélességek (A NÉV / CÍM / INFÓ a legszélesebb)
+    # Fejléc és oszlopszélességek
     col_widths = [8*mm, 92*mm, 7*mm, 18*mm, 25*mm, 40*mm, 10*mm]
     header = ["#", "NÉV / CÍM / INFÓ", "☐", "PÉNZ", "TEL", "RENDELÉS", "DB"]
-    data = [header]
-
-    # --- CSOPORTOSÍTÁS CÍM ALAPJÁN ---
-    grouped = df.groupby('Cím', sort=False)
+    table_data = [header]
     
-    for cim, group in grouped:
-        first_row = group.iloc[0]
-        
-        # 1. Nevek összevonása
-        nevek_list = group['Ügyintéző'].dropna().unique().tolist()
-        nevek_str = " / ".join([str(n) for n in nevek_list if str(n).strip()])
-        
-        # 2. Megjegyzések összevonása
-        megj_list = group['Megjegyzés'].dropna().unique().tolist()
-        megj_str = " | ".join([str(m) for m in megj_list if str(m).strip() and str(m).lower() != 'nan'])
-        
-        # 3. Telefonszámok összevonása
-        tel_list = group['Telefon'].dropna().unique().tolist()
-        tel_str = " / ".join([str(t) for t in tel_list if str(t).strip()])
-        
-        # 4. Rendelések összevonása
-        rendelesek_szoveg = "<br/>".join(group['Rendelés_Full'].astype(str).tolist())
-        
-        # 5. Pénz kezelése (0 Ft elrejtése)
-        penz_list = group['Pénz'].dropna().unique().tolist()
-        valid_penz = [str(p) for p in penz_list if str(p).replace(" ", "") not in ["0", "0Ft", "nan", ""]]
-        penz_str = " / ".join(valid_penz)
-
-        # 6. Darab összesítése
-        db_sum = str(int(pd.to_numeric(group['Összesen'], errors='coerce').sum()))
-
-        # Szöveges blokk összeállítása (Ha csoport, kap kék háromszöget)
-        group_tag = "<b><font color='blue'>▲ CSOPORT </font></b>" if len(group) > 1 or len(nevek_list) > 1 else ""
-        nev_cim_info = f"{group_tag}<b>{nevek_str}</b><br/>{cim}"
-        if megj_str:
-            nev_cim_info += f"<br/><font color='red'><i>{megj_str}</i></font>"
-
-        sorrend = str(int(first_row['Sorrend']))
-
-        # Sor hozzáadása a táblázathoz
-        data.append([
-            sorrend,
-            Paragraph(nev_cim_info, styles['Normal']),
-            "", 
-            Paragraph(f"<b>{penz_str}</b>", styles['Small']),
-            Paragraph(tel_str, styles['Small']),
-            Paragraph(rendelesek_szoveg, styles['Normal']),
-            db_sum
-        ])
-
-    table = Table(data, colWidths=col_widths, repeatRows=1)
-    table.setStyle(TableStyle([
+    # Stílus alapbeállítások
+    table_styles = [
         ('FONTNAME', (0, 0), (-1, 0), f_bold),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('GRID', (0, 0), (-1, 0), 0.5, colors.black), # Csak a fejlécnek alap keret
+        ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (2, 0), (2, -1), 'CENTER'),
+        ('ALIGN', (6, 0), (6, -1), 'CENTER'),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('ALIGN', (2, 0), (2, -1), 'CENTER'), # Checkbox középre
-        ('ALIGN', (6, 0), (6, -1), 'CENTER'), # DB középre
-        
-        # Keskeny belső margók a sűrűbb megjelenésért
         ('LEFTPADDING', (0, 0), (-1, -1), 2),
         ('RIGHTPADDING', (0, 0), (-1, -1), 2),
-        ('TOPPADDING', (0, 0), (-1, -1), 3),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]
+
+    # Csoportosítás és sorok építése
+    current_row_idx = 1
+    grouped = df.groupby('Cím', sort=False)
+
+    for cim, group in grouped:
+        is_group = len(group) > 1
+        group_start_idx = current_row_idx
         
-        ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
-    ]))
-    
-    elements.append(table)
-    doc.build(elements)
+        for i, (_, row) in enumerate(group.iterrows()):
+            # Adatok tisztítása
+            penz = str(row['Pénz']).replace(" 0 Ft", "").replace("0 Ft", "").strip()
+            # Megjegyzés pirossal, ha van
+            megj = f"<br/><font color='red'><i>{row['Megjegyzés']}</i></font>" if pd.notna(row['Megjegyzés']) and str(row['Megjegyzés']).lower() != 'nan' else ""
+            
+            nev_cim_info = f"<b>{row['Ügyintéző']}</b><br/>{row['Cím']}{megj}"
+            
+            table_data.append([
+                str(int(row['Sorrend'])),
+                Paragraph(nev_cim_info, styles['Normal']),
+                "☐", # Most már minden sorban ott a négyzet
+                Paragraph(f"<b>{penz}</b>", styles['Small']),
+                Paragraph(str(row['Telefon']), styles['Small']),
+                Paragraph(str(row['Rendelés_Full']), styles['Normal']),
+                str(int(row['Összesen']))
+            ])
+            
+            # Minden sor kap egy alap vékony elválasztót
+            table_styles.append(('LINEBELOW', (0, current_row_idx), (-1, current_row_idx), 0.2, colors.grey))
+            current_row_idx += 1
+            
+        # Ha csoport (több tétel ugyanazon a címen), akkor extra kiemelés
+        if is_group:
+            group_end_idx = current_row_idx - 1
+            # Szürke háttér a csoportnak
+            table_styles.append(('BACKGROUND', (0, group_start_idx), (-1, group_end_idx), colors.Color(0.92, 0.92, 0.92)))
+            # Vastagabb keret a csoport köré
+            table_styles.append(('OUTLINE', (0, group_start_idx), (-1, group_end_idx), 1.2, colors.black))
+
+    # Táblázat létrehozása
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
+    t.setStyle(TableStyle(table_styles))
+    elements.append(t)
+
+    # PDF összeállítása az oldalszámozással
+    doc.build(elements, onFirstPage=header_footer, onLaterPages=header_footer)
     return buf.getvalue()
     
 def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dict

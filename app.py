@@ -475,88 +475,87 @@ def create_manifest_pdf(df, fn, meta_dict):
     f_reg, f_bold = register_fonts()  
     buf = BytesIO()
 
-    # Oldalbeállítások
     doc = SimpleDocTemplate(
         buf, 
         pagesize=A4, 
-        rightMargin=5 * mm,  # Kicsit csökkentettem a margót is a több helyért
+        rightMargin=5 * mm, 
         leftMargin=5 * mm, 
         topMargin=15 * mm, 
         bottomMargin=15 * mm
     )
 
-    # Metaadatok lekérése
+    # Metaadatok
     ev = meta_dict.get('ev', '')
     het = meta_dict.get('het', '')
     nap = meta_dict.get('nap', '')
     jaratok = ", ".join(meta_dict.get('jaratok', []))
-    
-    # 1. KISEBB BETŰMÉRET A FEJLÉCBEN (10-esről 9-esre)
     fejlec_text = f"MENETTERV - Járat(ok): {jaratok} | {ev}. év, {het}. hét | {nap}"
     
     elements = []
     styles = {
         'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
         'Bold': ParagraphStyle('Bold', fontName=f_bold, fontSize=8, leading=10),
-        'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=8), # Kisebb betű a pénznek/tel-nek
-        'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=9, leading=11)
+        'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=8),
+        'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12)
     }
 
     elements.append(Paragraph(fejlec_text, styles['Header']))
     elements.append(Spacer(1, 4 * mm))
 
-    # --- TÁBLÁZAT OSZLOPSZÉLESSÉGEK ÚJRATERVEZÉSE ---
-    # Teljes szélesség kb 200mm (A4 - margók)
-    col_widths = [
-        8 * mm,   # # (Sorszám)
-        95 * mm,  # NÉV / CÍM / INFÓ (JELENTŐSEN MEGNÖVELVE)
-        7 * mm,   # Checkbox (LECSÖKKENTVE)
-        18 * mm,  # PÉNZ (CSÖKKENTVE)
-        23 * mm,  # TEL (CSÖKKENTVE)
-        35 * mm,  # RENDELÉS
-        8 * mm    # DB
-    ]
-
+    # Oszlopszélességek (Összesen 200mm)
+    col_widths = [8*mm, 92*mm, 7*mm, 18*mm, 25*mm, 40*mm, 10*mm]
     header = ["#", "NÉV / CÍM / INFÓ", "☐", "PÉNZ", "TEL", "RENDELÉS", "DB"]
     data = [header]
 
-    for idx, row in df.iterrows():
+    # --- CSOPORTOSÍTÁS LOGIKA (Cím alapján) ---
+    grouped = df.groupby('Cím', sort=False)
+    
+    for _, group in grouped:
+        # Az első sor adatait vesszük alapul a fejléchez
+        first_row = group.iloc[0]
+        
+        # Összeállítjuk a NÉV / CÍM / INFÓ blokkot
+        # Kiszűrjük az egyedi neveket a csoportban
+        nevek = " / ".join(group['Név'].unique())
+        cim = first_row['Cím']
+        # Megjegyzéseket (Infó) is begyűjtjük, ha vannak
+        infok = " | ".join([str(i) for i in group['Infó'].unique() if i and str(i).strip() and str(i) != 'nan'])
+        
+        nev_cim_info = f"<b>{nevek}</b><br/>{cim}"
+        if infok:
+            nev_cim_info += f"<br/><i>{infok}</i>"
+
+        # Rendelések és pénz összesítése a csoporton belül
+        rendelesek_szoveg = "<br/>".join(group['Rendelés'].astype(str))
+        osszes_penz = group['Pénz'].astype(str).iloc[0] # Általában a címen egy összeg van
+        osszes_db = str(int(group['Db'].sum()))
+        telefonszamok = " / ".join(group['Tel'].unique())
+
         data.append([
-            str(row.get('Sorrend', '')),
-            Paragraph(str(row.get('Cím', '')).replace('\n', '<br/>'), styles['Normal']),
-            "", # Checkbox helye
-            Paragraph(str(row.get('Pénz', '')), styles['Small']), # Kisebb betű
-            Paragraph(str(row.get('Tel', '')), styles['Small']),  # Kisebb betű
-            Paragraph(str(row.get('Rendelés', '')), styles['Normal']),
-            str(row.get('Db', ''))
+            str(int(first_row['Sorrend'])), # Egész számként a sorszám
+            Paragraph(nev_cim_info, styles['Normal']),
+            "", 
+            Paragraph(osszes_penz, styles['Small']),
+            Paragraph(telefonszamok, styles['Small']),
+            Paragraph(rendelesek_szoveg, styles['Normal']),
+            osszes_db
         ])
 
     table = Table(data, colWidths=col_widths, repeatRows=1)
-
-    style = TableStyle([
+    table.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, 0), f_bold),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        
-        # 2. CHECKBOX KÖZÉPRE IGAZÍTÁSA
         ('ALIGN', (2, 0), (2, -1), 'CENTER'),
-        
-        # 3. PADDINGOK CSÖKKENTÉSE (hogy több szöveg férjen el)
-        ('LEFTPADDING', (0, 0), (-1, -1), 2),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
-        ('TOPPADDING', (0, 0), (-1, -1), 3),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-        
-        # Speciális padding a checkboxnak és a keskeny oszlopoknak
-        ('LEFTPADDING', (2, 0), (4, -1), 1), 
-        ('RIGHTPADDING', (2, 0), (4, -1), 1),
-
+        ('ALIGN', (6, 0), (6, -1), 'CENTER'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 3),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
         ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
-    ])
-    table.setStyle(style)
+    ]))
+    
     elements.append(table)
-
     doc.build(elements)
     return buf.getvalue()
     

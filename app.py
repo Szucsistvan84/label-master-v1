@@ -488,25 +488,30 @@ def create_manifest_pdf(df, fn, meta_dict):
     if df is None or df.empty: 
         return None
 
-    # --- OKOS CSOPORTOSÍTÁS LOGIKA ---
-    # 1. Tisztított cím (pontok és felesleges szóközök nélkül)
+    # 1. Okos csoportosítás előkészítése (ahogy beszéltük)
     df['clean_address'] = df['Cím'].astype(str).str.replace('.', '', regex=False).str.strip().str.lower()
     
-    # 2. Csoportosító azonosító generálása
     def get_group_id(row):
-        # Megnézzük, írtál-e valamit a "Csoport" oszlopba
         manual = str(row.get('Csoport', '')).strip()
         if manual and manual.lower() != 'nan' and manual != "":
-            return f"manual_{manual}" # Ha igen, ez lesz az erősebb
-        return f"addr_{row['clean_address']}" # Ha nem, marad a tisztított cím
+            return f"manual_{manual}"
+        return f"addr_{row['clean_address']}"
 
     df['group_id'] = df.apply(get_group_id, axis=1)
-    
-    # Fontos, hogy a Sorrend megmaradjon!
     df = df.sort_values('Sorrend')
+    
     f_reg, f_bold = register_fonts()  
     buf = BytesIO()
 
+    # --- ITT DEFINIÁLJUK A STÍLUSOKAT (Ezt hiányolta a hibaüzenet) ---
+    from reportlab.lib.styles import ParagraphStyle
+    styles = {
+        'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
+        'Bold': ParagraphStyle('Bold', fontName=f_bold, fontSize=8, leading=10),
+        'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=8),
+        'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12, alignment=1)
+    }
+    
     # (A header_footer és a stílusok maradnak a régiek...)
     # ... [stílus definíciók] ...
 

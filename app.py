@@ -15,7 +15,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 
 # --- ALAPBEÁLLÍTÁSOK ---
-PHONE_PAT = r'(\+?\d{1,2}[/\s-]?)?(\d{2}[/\s-]?)?\d{3}[/\s-]?\d{4}'
+PHONE_PAT = r'(\d{2}/\d{6,7})'
 ORDER_PAT = r'\d+-[A-Z][A-Z0-9*+]*'
 # Frissített, "szóköz-toleráns" regex
 MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
@@ -127,6 +127,17 @@ def parse_interfood_pdf(pdf_file):
                 clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                 
                 tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
+                if tel_m:
+                    clean_tel = tel_m.group(0)
+                    # Ha debreceni vezetékes, akkor fix 9 karakter (pl. 52/511000)
+                    if clean_tel.startswith("52/") and len(clean_tel) > 9:
+                        clean_tel = clean_tel[:9]
+                    # Ha mobil, akkor fix 10 karakter (pl. 30/1234567)
+                    elif len(clean_tel) > 10:
+                        clean_tel = clean_tel[:10]
+                else:
+                    clean_tel = ""
+
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
 

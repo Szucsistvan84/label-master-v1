@@ -165,7 +165,7 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (ULTRA-TISZTÍTÁS: SORSZÁM ÉS K-FIX) ---
+                # --- A SZOBRÁSZ-LOGIKA (MAGÁNYOS SZÁMOK ÉS DARABSZÁM-STOP) ---
                 rem = all_relevant_text
                 
                 # 1. ID ÉS KÓDOK TÖRLÉSE
@@ -191,32 +191,39 @@ def parse_interfood_pdf(pdf_file):
                     while pattern.search(rem):
                         rem = pattern.sub("", rem)
 
-                # 3. ALAPADATOK ÉS A SZÓKÖZÖS TELEFONSZÁMOK (pl. 52 511000)
+                # 3. ALAPADATOK ÉS TELEFONSZÁMOK
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
-                # Bármilyen 2 szám - szóköz - 6 vagy 7 szám formátum törlése
                 rem = re.sub(r'\d{2}\s\d{6,7}', '', rem)
                 
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 4. SORSZÁMOK, PREFIXEK ÉS KCS (A "makacs" maradványok)
-                # Törli: "1 |", "K |", "14#", "84 1 |"
-                rem = re.sub(r'^\s*[\d\s]*[HKSCPZ]?\s*\|', '', rem)
-                rem = re.sub(r'\|\s*[\d\s]*[HKSCPZ]?\s*\|', '|', rem)
+                # 4. SORSZÁMOK ÉS RENDELÉS ÖSSZESÍTŐK (A legújabb javítás)
+                # Töröljük a prefixeket (H, K, S...)
+                rem = re.sub(r'^\s*[HKSCPZ]\s*\|', '', rem)
+                rem = re.sub(r'\|\s*[HKSCPZ]\s*\|', '|', rem)
                 
-                # Külön vadászat a magányos K-ra és sorszámokra a sor elején vagy cső után
-                rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
-                rem = re.sub(r'^\s*[K]\s*(?=[#\d])', '', rem) # Magányos K ha szám követi
-                rem = re.sub(r'\|\s*[K]\s*(?=[#\d])', '| ', rem)
+                # RADIKÁLIS DARABSZÁM TÖRLÉS:
+                # Ha a total_q (pl. 1, 2, 3) magában áll a sor elején, a végén, vagy | mellett
+                if total_q:
+                    tq_str = str(total_q)
+                    # Sor elején: "1 |" vagy "1 "
+                    rem = re.sub(rf'^\s*{tq_str}\s*\|?', '', rem)
+                    # Sor közben csövek mentén: "| 1 |" vagy "| 1 "
+                    rem = re.sub(rf'\|\s*{tq_str}\s*\|', '|', rem)
+                    rem = re.sub(rf'\|\s*{tq_str}\s+', '| ', rem)
+                    # Szavak utáni magányos darabszám: "Kft - 1 |" -> "Kft - |"
+                    rem = re.sub(rf'\s+-\s+{tq_str}\s*\|', ' |', rem)
+                    rem = re.sub(rf'\s+{tq_str}\s*\|', ' |', rem)
 
-                # Sorszámok takarítása: "14#1724" -> "#1724" (ha a 14 csak sorszám volt)
-                rem = re.sub(r'^\s*\d{1,3}(?=#)', '', rem)
-                rem = re.sub(r'\|\s*\d{1,3}(?=#)', '|', rem)
+                # Minden egyéb magányos 1-3 jegyű szám a sor elején (sorszámok)
+                rem = re.sub(r'^\s*\d{1,3}\s*\|?\s*', '', rem)
                 
-                # Általános sorszám a sor elején: "1 "
-                rem = re.sub(r'^\s*\d{1,3}\s+', '', rem)
+                # KCS és maradék K betűk
+                rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
+                rem = re.sub(r'^\s*[K]\s*(?=[#\d])', '', rem)
 
                 # 5. KOZMETIKA
                 stop_phrases = ["Csillagozott betűnél", "kiegészítő is van", "Összesítés:", "Összesen:", "Nyomtatva:"]
@@ -229,6 +236,7 @@ def parse_interfood_pdf(pdf_file):
                 
                 megj = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 
+                # Végső ellenőrzés: ha csak sorszám maradt
                 if re.match(r'^\d+$', megj) and "#" not in megj:
                     megj = ""
                 

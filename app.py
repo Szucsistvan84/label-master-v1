@@ -471,14 +471,14 @@ def create_label_pdf(df, fn, ft):
 # --- 3. RÉSZ: PDF GENERÁLÓK ÉS ADATSZERKESZTŐ ---
 
 def create_manifest_pdf(df, fn, meta_dict):
-    # Biztonsági mentés: ha üres a DF, ne csináljon semmit
-    if df.empty:
+    if df is None or df.empty: 
         return None
         
     df = df.sort_values('Sorrend')
     f_reg, f_bold = register_fonts()  
     buf = BytesIO()
 
+    # Vékony margók a jobb helykihasználásért
     doc = SimpleDocTemplate(
         buf, 
         pagesize=A4, 
@@ -488,7 +488,7 @@ def create_manifest_pdf(df, fn, meta_dict):
         bottomMargin=15 * mm
     )
 
-    # Metaadatok biztonságos kinyerése
+    # Metaadatok kinyerése
     ev = meta_dict.get('ev', '')
     het = meta_dict.get('het', '')
     nap = meta_dict.get('nap', '')
@@ -499,62 +499,62 @@ def create_manifest_pdf(df, fn, meta_dict):
     styles = {
         'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
         'Bold': ParagraphStyle('Bold', fontName=f_bold, fontSize=8, leading=10),
-        'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=8),
+        'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=8), # Kisebb betű a Pénz/Tel oszlopnak
         'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12)
     }
 
     elements.append(Paragraph(fejlec_text, styles['Header']))
     elements.append(Spacer(1, 4 * mm))
 
-    # Oszlopszélességek (Összesen 200mm)
+    # Oszlopszélességek (A NÉV / CÍM / INFÓ a legszélesebb)
     col_widths = [8*mm, 92*mm, 7*mm, 18*mm, 25*mm, 40*mm, 10*mm]
     header = ["#", "NÉV / CÍM / INFÓ", "☐", "PÉNZ", "TEL", "RENDELÉS", "DB"]
     data = [header]
 
-    # --- CSOPORTOSÍTÁS LOGIKA (Cím alapján) ---
-    # Megnézzük, létezik-e 'Cím' oszlop, ha nem, sorszám szerint megyünk
-    group_col = 'Cím' if 'Cím' in df.columns else df.columns[1] 
-    grouped = df.groupby(group_col, sort=False)
+    # --- CSOPORTOSÍTÁS CÍM ALAPJÁN ---
+    grouped = df.groupby('Cím', sort=False)
     
-    for _, group in grouped:
+    for cim, group in grouped:
         first_row = group.iloc[0]
         
-        # --- HIBAÁLLÓ ADATKINYERÉS (itt volt a hiba) ---
-        # Ha nincs 'Név' oszlop, keressük 'Ügyfél' néven, vagy legyen üres
-        def get_val(row_or_group, col_name, default=""):
-            if col_name in df.columns:
-                if isinstance(row_or_group, pd.Series):
-                    val = row_or_group[col_name]
-                else:
-                    val = " / ".join(row_or_group[col_name].dropna().unique().astype(str))
-                return str(val) if pd.notna(val) else default
-            return default
-
-        nevek = get_val(group, 'Név')
-        if not nevek: nevek = get_val(group, 'Ügyfél') # Tartalék, ha 'Ügyfél' a neve
+        # 1. Nevek összevonása
+        nevek_list = group['Ügyintéző'].dropna().unique().tolist()
+        nevek_str = " / ".join([str(n) for n in nevek_list if str(n).strip()])
         
-        cim = get_val(first_row, 'Cím')
-        infok = get_val(group, 'Infó')
+        # 2. Megjegyzések összevonása
+        megj_list = group['Megjegyzés'].dropna().unique().tolist()
+        megj_str = " | ".join([str(m) for m in megj_list if str(m).strip() and str(m).lower() != 'nan'])
         
-        # Szöveges blokk összeállítása
-        nev_cim_info = f"<b>{nevek}</b><br/>{cim}"
-        if infok and infok.strip():
-            nev_cim_info += f"<br/><i>{infok}</i>"
-
-        rendelesek_szoveg = "<br/>".join(group['Rendelés'].astype(str)) if 'Rendelés' in df.columns else ""
+        # 3. Telefonszámok összevonása
+        tel_list = group['Telefon'].dropna().unique().tolist()
+        tel_str = " / ".join([str(t) for t in tel_list if str(t).strip()])
         
-        # Pénz, Tel, Db kinyerése
-        penz = get_val(first_row, 'Pénz')
-        tels = get_val(group, 'Tel')
-        db_sum = str(int(group['Db'].sum())) if 'Db' in df.columns else "0"
-        sorrend = str(int(first_row['Sorrend'])) if 'Sorrend' in df.columns else "?"
+        # 4. Rendelések összevonása
+        rendelesek_szoveg = "<br/>".join(group['Rendelés_Full'].astype(str).tolist())
+        
+        # 5. Pénz kezelése (0 Ft elrejtése)
+        penz_list = group['Pénz'].dropna().unique().tolist()
+        valid_penz = [str(p) for p in penz_list if str(p).replace(" ", "") not in ["0", "0Ft", "nan", ""]]
+        penz_str = " / ".join(valid_penz)
 
+        # 6. Darab összesítése
+        db_sum = str(int(pd.to_numeric(group['Összesen'], errors='coerce').sum()))
+
+        # Szöveges blokk összeállítása (Ha csoport, kap kék háromszöget)
+        group_tag = "<b><font color='blue'>▲ CSOPORT </font></b>" if len(group) > 1 or len(nevek_list) > 1 else ""
+        nev_cim_info = f"{group_tag}<b>{nevek_str}</b><br/>{cim}"
+        if megj_str:
+            nev_cim_info += f"<br/><font color='red'><i>{megj_str}</i></font>"
+
+        sorrend = str(int(first_row['Sorrend']))
+
+        # Sor hozzáadása a táblázathoz
         data.append([
             sorrend,
             Paragraph(nev_cim_info, styles['Normal']),
             "", 
-            Paragraph(penz, styles['Small']),
-            Paragraph(tels, styles['Small']),
+            Paragraph(f"<b>{penz_str}</b>", styles['Small']),
+            Paragraph(tel_str, styles['Small']),
             Paragraph(rendelesek_szoveg, styles['Normal']),
             db_sum
         ])
@@ -564,19 +564,21 @@ def create_manifest_pdf(df, fn, meta_dict):
         ('FONTNAME', (0, 0), (-1, 0), f_bold),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('ALIGN', (2, 0), (2, -1), 'CENTER'),
-        ('ALIGN', (6, 0), (6, -1), 'CENTER'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 3),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 3),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('ALIGN', (2, 0), (2, -1), 'CENTER'), # Checkbox középre
+        ('ALIGN', (6, 0), (6, -1), 'CENTER'), # DB középre
+        
+        # Keskeny belső margók a sűrűbb megjelenésért
+        ('LEFTPADDING', (0, 0), (-1, -1), 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        
         ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
     ]))
     
     elements.append(table)
     doc.build(elements)
     return buf.getvalue()
-    
     
 def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dict
     f_reg, f_bold = register_fonts()

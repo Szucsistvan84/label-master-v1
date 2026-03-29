@@ -165,25 +165,23 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (VÉGLEGES KOZMETIKA) ---
+                # --- A SZOBRÁSZ-LOGIKA (TISZTÍTÁS ÉS NÉV-MÁGNES EGYÜTT) ---
                 rem = all_relevant_text
                 
-                # 1. ÉTELKÓDOK ÉS MARADVÁNYAI (Védi a GOLD-ot és KCS-t)
-                # Töröljük a kódokat a csillaggal együtt is
+                # 1. ÉTELKÓDOK ÉS MARADVÁNYAI
                 rem = re.sub(r'\b\d+-[A-Z][A-Z0-9*+]*\b', '', rem)
                 rem = re.sub(r'\b[A-Z]-\d+[-A-Z]*\b', '', rem)
                 rem = rem.replace(full_id_match, "")
 
-                # 2. NEVEK ÉS DR. ELŐTAG (Ponttal is!)
+                # 2. ISMERT NEVEK TÖRLÉSE (Dr. is)
                 name_targets = []
                 if clean_name: 
                     name_targets.append(clean_name)
-                    # Ha van Dr a névben, adjuk hozzá a pontost és a pont nélkülit is a listához
                     if "dr" in clean_name.lower():
                         name_targets.append("Dr.")
                         name_targets.append("dr.")
-
-                if b4: 
+                
+                if b4:
                     u_nev = str(b4).strip()
                     name_targets.append(u_nev)
                     parts = re.split(r'[-\s]+', u_nev)
@@ -193,79 +191,65 @@ def parse_interfood_pdf(pdf_file):
                 for target in sorted(list(set(name_targets)), key=len, reverse=True):
                     rem = re.sub(re.escape(target), "", rem, flags=re.IGNORECASE)
 
-                # 3. ALAPADATOK
+                # 3. ALAPADATOK (Cím, Tel, Pénz)
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 4. A "REJTÉLYES K" ÉS EGYÉB MARADVÁNYOK
+                # 4. LÁBLÉC ÉS SORSZÁMOK
                 rem = re.sub(r'^\s*[A-Z]\s*\|\s*', '', rem)
-                
-                # 5. LÁBLÉC ÉS OLDALSZÁM
                 stop_phrases = ["Csillagozott betűnél", "kiegészítő is van", "Összesítés:", "Összesen:", "Nyomtatva:"]
                 for phrase in stop_phrases:
                     if phrase in rem: rem = rem.split(phrase)[0]
                 rem = re.sub(r'\b\d+\.\s*oldal\b.*', '', rem, flags=re.IGNORECASE)
-
-                # 6. SORSZÁMOK ÉS DARABSZÁMOK
                 rem = re.sub(r'^\s*\d{1,3}\s+', '', rem)
                 rem = re.sub(r'\|\s*\d{1,3}\s+', '| ', rem)
-                if total_q > 0:
-                    rem = re.sub(rf'(?<![#\w\d]){total_q}(?![#\w\d])', '', rem)
 
-                # 7. --- SPECIÁLIS TÖRMELÉK-ELTÁVOLÍTÁS (Vesszők, csillagok) ---
-                # Minden magányos csillagot és vesszőt kiveszünk
-                rem = rem.replace("*", " ")
-                rem = rem.replace(",", " ")
-                rem = rem.replace("/", " ")
-                
-                # 8. UTOLSÓ SIMÍTÁSOK
-                rem = re.sub(r'(\s*\|\s*)+', ' | ', rem) # Dupla csövek ellen
+                # 5. TÖRMELÉK- ÉS ESZTÉTIKAI TISZTÍTÁS
+                rem = rem.replace("*", " ").replace(",", " ").replace("/", " ")
                 rem = re.sub(r'\s*-\s*\|\s*', ' | ', rem)
                 rem = re.sub(r'\s*\|\s*-\s*', ' | ', rem)
+                rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
                 rem = re.sub(r'\s+', ' ', rem).strip()
                 
-                # Pucoljuk le a széleket az írásjelektől (vessző, pont, cső, szóköz)
-                megj = rem.strip(" |,. /*") 
-                
+                megj = rem.strip(" |,. /*")
                 if re.match(r'^\d+$', megj) and "#" not in megj:
                     megj = ""
 
-                # --- IDE ILLESZD BE: NÉV-MÁGNES LOGIKA (FINOMÍTVA) ---
+                # --- NÉV-MÁGNES: ITT RAGASZTJUK ÁT AZ ÜGYINTÉZŐHÖZ ---
+                final_ugyintezo = str(b4).strip()
                 name_parts = megj.split('|')
                 potential_name = name_parts[0].strip()
                 
-                # Szavak, amiket SOHA ne ragasszon vissza a névhez
                 blacklist = ["Porta", "Teherporta", "Kft", "Bt", "Iskola", "Gimnázium", "Kcs", "Kk", "Vevő"]
                 
-                # Feltételek: Nagybetűvel kezdődik, nincs benne szám, nem tiltólistás és rövid
                 if potential_name and potential_name[0].isupper() and not any(char.isdigit() for char in potential_name):
                     is_blacklisted = any(bad.lower() in potential_name.lower() for bad in blacklist)
                     
-                    # Ha 1 vagy 2 szóból áll (pl. "Gabriella" vagy "Ivett")
                     if 2 < len(potential_name) < 25 and len(potential_name.split()) <= 2 and not is_blacklisted:
-                        # VISSZARAGASZTÁS az ügyintézőhöz (b4)
-                        b4 = f"{b4} {potential_name}".strip()
+                        # Áthelyezés: a b4 helyett a final_ugyintezo-t frissítjük
+                        final_ugyintezo = f"{final_ugyintezo} {potential_name}".strip()
                         
-                        # Törlés a megjegyzésből
+                        # Megjegyzésből levágjuk a nevet
                         if len(name_parts) > 1:
                             megj = "|".join(name_parts[1:]).strip(" |")
                         else:
                             megj = ""
-                # --- NÉV-MÁGNES VÉGE ---
-                
-                if unique_orders:
-                    rows.append({
-                        "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": clean_name,
-                        "Cím": address, "Telefon": tel_m.group(0) if tel_m else "",
-                        "Pénz": money_val, "Rendelés": ", ".join(unique_orders),
-                        "Megjegyzés": megj, "Összesen": total_q, "temp_id": u_id,
-                        "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
-                        "Hétvégi": False,
-                        "Sorrend": st.session_state.weights.get(str(u_id), 999)
-                    })
+
+                # --- MENTÉS: ITT HASZNÁLJUK A final_ugyintezo-t ---
+                rows.append({
+                    'Prefix': prefix,
+                    'Ügyintéző': final_ugyintezo, # Fontos: az új változót mentjük!
+                    'Cím': address,
+                    'Telefon': phone_val,
+                    'Pénz': money_val,
+                    'Rendelés': order_val,
+                    'Megjegyzés': megj,
+                    'Összesen': total_q,
+                    'temp_id': full_id_match if full_id_match else ""
+                })
     return rows, metadata
     
 def merge_data(raw_rows, p_map, sz_map):

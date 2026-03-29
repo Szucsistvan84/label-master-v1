@@ -12,7 +12,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame, Flowable
 
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\d{2}/\d{6,7})'
@@ -480,6 +480,18 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.units import mm
 
+# --- ÚJ OSZTÁLY A RAJZOLT NÉGYZETHEZ ---
+class MyCheckbox(Flowable):
+    def __init__(self, size=10):
+        Flowable.__init__(self)
+        self.size = size
+
+    def draw(self):
+        self.canv.setLineWidth(0.5)
+        self.canv.setStrokeColor(colors.black)
+        # Négyzet rajzolása: x, y, szélesség, magasság
+        self.canv.rect(0, -2, self.size, self.size, stroke=1, fill=0)
+
 def create_manifest_pdf(df, fn, meta_dict):
     if df is None or df.empty: 
         return None
@@ -488,12 +500,10 @@ def create_manifest_pdf(df, fn, meta_dict):
     f_reg, f_bold = register_fonts()  
     buf = BytesIO()
 
-    # Oldalszámozás középre igazítva a láblécben
     def header_footer(canvas, doc):
         canvas.saveState()
         page_num = canvas.getPageNumber()
         canvas.setFont(f_reg, 8)
-        # A4 szélessége 210mm, a fele 105mm
         canvas.drawCentredString(105*mm, 10*mm, f"{page_num}. oldal")
         canvas.restoreState()
 
@@ -506,32 +516,26 @@ def create_manifest_pdf(df, fn, meta_dict):
         bottomMargin=15 * mm
     )
 
-    # Metaadatok és stílusok
-    ev = meta_dict.get('ev', '')
-    het = meta_dict.get('het', '')
-    nap = meta_dict.get('nap', '')
+    ev, het, nap = meta_dict.get('ev', ''), meta_dict.get('het', ''), meta_dict.get('nap', '')
     jaratok = ", ".join(meta_dict.get('jaratok', []))
     fejlec_szov = f"MENETTERV - Járat(ok): {jaratok} | {ev}. év, {het}. hét | {nap}"
     
     styles = {
         'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
-        'Bold': ParagraphStyle('Bold', fontName=f_bold, fontSize=8, leading=10),
         'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=8),
-        # Középre igazított fejléc stílus
         'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12, alignment=1) 
     }
 
     elements = [Paragraph(fejlec_szov, styles['Header']), Spacer(1, 4 * mm)]
 
-    # Oszlopszélességek és fejléc
     col_widths = [8*mm, 92*mm, 7*mm, 18*mm, 25*mm, 40*mm, 10*mm]
+    # A fejlécbe marad a karakter, ott általában jól jelenik meg, de a sorokba rajzolunk
     header = ["#", "NÉV / CÍM / INFÓ", "☐", "PÉNZ", "TEL", "RENDELÉS", "DB"]
     table_data = [header]
     
-    # Alap táblázat stílus (mindenhol rácsvonallal)
     table_styles = [
         ('FONTNAME', (0, 0), (-1, 0), f_bold),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.black), # Minden cellának van rácsvonala
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
         ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (2, 0), (2, -1), 'CENTER'),
         ('ALIGN', (6, 0), (6, -1), 'CENTER'),
@@ -548,14 +552,9 @@ def create_manifest_pdf(df, fn, meta_dict):
         group_start_idx = current_row_idx
         
         for i, (_, row) in enumerate(group.iterrows()):
-            # Pénz szűrése (0 Ft eltüntetése)
             p_val = str(row['Pénz']).replace(" 0 Ft", "").replace("0 Ft", "").strip()
             penz_disp = f"<b>{p_val}</b>" if p_val and p_val != "nan" else ""
-            
-            # Megjegyzés pirossal
             megj = f"<br/><font color='red'><i>{row['Megjegyzés']}</i></font>" if pd.notna(row['Megjegyzés']) and str(row['Megjegyzés']).lower() != 'nan' else ""
-            
-            # Csoportosított jelölő (felfelé mutató kék nyíl) visszatétele
             group_tag = "<font color='blue'>▲ </font>" if is_group else ""
             
             nev_cim_info = f"{group_tag}<b>{row['Ügyintéző']}</b><br/>{row['Cím']}{megj}"
@@ -563,7 +562,7 @@ def create_manifest_pdf(df, fn, meta_dict):
             table_data.append([
                 str(int(row['Sorrend'])),
                 Paragraph(nev_cim_info, styles['Normal']),
-                "☐", 
+                MyCheckbox(10), # <--- ITT HASZNÁLJUK A RAJZOLT NÉGYZETET
                 Paragraph(penz_disp, styles['Small']),
                 Paragraph(str(row['Telefon']), styles['Small']),
                 Paragraph(str(row['Rendelés_Full']), styles['Normal']),
@@ -571,7 +570,6 @@ def create_manifest_pdf(df, fn, meta_dict):
             ])
             current_row_idx += 1
             
-        # Csoportosított blokk kiemelése (szürke háttér és vastag keret)
         if is_group:
             group_end_idx = current_row_idx - 1
             table_styles.append(('BACKGROUND', (0, group_start_idx), (-1, group_end_idx), colors.Color(0.94, 0.94, 0.94)))

@@ -176,14 +176,14 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (ULTRA-PRECÍZ TISZTÍTÁS) ---
+                # --- A SZOBRÁSZ-LOGIKA (JAVÍTOTT KIADÁS) ---
                 rem = all_relevant_text
                 
                 # 1. ID ÉS KÓDOK TÖRLÉSE
                 rem = re.sub(r'[A-Z]-\d+[-A-Z]*', '', rem)
                 rem = rem.replace(full_id_match, "")
 
-                # 2. NEVEK ÉS DR. VARIÁCIÓK TÖRLÉSE SZAVANKÉNT
+                # 2. NEVEK TÖRLÉSE (Szavanként is)
                 name_targets = []
                 if clean_name: 
                     full_name = str(clean_name).strip()
@@ -199,49 +199,43 @@ def parse_interfood_pdf(pdf_file):
                     pattern = re.compile(re.escape(target), re.IGNORECASE)
                     while pattern.search(rem): rem = pattern.sub("", rem)
 
-                # 3. ALAPADATOK ÉS A MAKACS TELEFONSZÁMOK (52 511000)
+                # 3. ALAPADATOK ÉS TELEFONSZÁM SZEMÉT (52 511000)
                 if address: rem = rem.replace(address, "")
-                if tel_m: rem = rem.replace(tel_m.group(0), "")
-                # Tisztítjuk a szóközös telefonszám-maradványokat (pl. 52 511000)
-                rem = re.sub(r'\d{2}\s\d{6,8}', '', rem)
+                if clean_tel: rem = rem.replace(clean_tel, "")
+                rem = re.sub(r'52\s\d{6}', '', rem)
                 
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 4. SORSZÁMOK, RENDELÉS ÖSSZESÍTŐK ÉS "K" BETŰK
+                # 4. PREFIXEK, K-BETŰK ÉS KÖTŐJELEK (A legújabb kérések)
                 # Kereszt-tisztítás: " - |" cseréje " | "-re
-                rem = rem.replace(" - |", " |")
+                rem = rem.replace(" - |", " | ")
                 
-                # Radikális darabszám törlés (total_q)
+                # Szigorúbb K betű vadászat (ha a megjegyzés elején vagy | után van)
+                rem = re.sub(r'^\s*K\s*\|', '', rem)
+                rem = re.sub(r'\|\s*K\s*\|', '|', rem)
+                rem = re.sub(r'^\s*K\s+(?=[#\d])', '', rem)
+                rem = re.sub(r'\|\s*K\s+(?=[#\d])', '| ', rem)
+                # Általános KCS tisztítás
+                rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
+
+                # Darabszám törlés (total_q)
                 if total_q:
                     tq_str = str(total_q)
                     rem = re.sub(rf'^\s*{tq_str}\s*\|?', '', rem)
                     rem = re.sub(rf'\|\s*{tq_str}\s*\|', '|', rem)
-                    rem = re.sub(rf'\|\s*{tq_str}\s+', '| ', rem)
                     rem = re.sub(rf'\s+{tq_str}\s*\|', ' |', rem)
 
-                # A magányos "K" betű törlése, ami a rendelési kódból ragadt ott (pl. "K |")
-                rem = re.sub(r'^\s*K\s*\|', '', rem)
-                rem = re.sub(r'\|\s*K\s*\|', '|', rem)
-                rem = re.sub(r'^\s*K\s+', '', rem)
-
-                # Minden egyéb magányos sorszám a sor elején (pl. "1 4 |")
-                rem = re.sub(r'^\s*[\d\s]+\|', '', rem)
-                rem = re.sub(r'^\s*\d{1,3}\s+', '', rem)
-
-                # 5. KOZMETIKA ÉS LÁBLÉC
-                stop_phrases = ["Csillagozott betűnél", "kiegészítő is van", "Összesítés:", "Összesen:", "Nyomtatva:"]
-                for phrase in stop_phrases:
-                    if phrase in rem: rem = rem.split(phrase)[0]
-
+                # 5. KOZMETIKA
                 rem = rem.replace("/", " ").replace("*", " ")
                 rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
                 rem = re.sub(r'[,.\s]{2,}', ' ', rem) 
                 
                 megj = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 
-                if re.match(r'^\d+$', megj) and "#" not in megj:
+                # Ha csak egy magányos kötőjel vagy szám maradt, töröljük
+                if megj in ["-", "|"] or (re.match(r'^\d+$', megj) and "#" not in megj):
                     megj = ""
                 
                 if unique_orders:

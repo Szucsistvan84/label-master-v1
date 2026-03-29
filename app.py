@@ -216,21 +216,25 @@ def parse_interfood_pdf(pdf_file):
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 5. SORSZÁMOK, DARABSZÁMOK ÉS K PREFIXEK
-                # Darabszám (total_q) törlése elsőként
+                # 5. SORSZÁMOK, DARABSZÁMOK ÉS PREFIXEK (KCS és magányos K irtása)
                 if total_q:
                     tq_str = str(total_q)
                     rem = re.sub(rf'^\s*{tq_str}\s*\|?', '', rem)
                     rem = re.sub(rf'\|\s*{tq_str}(\s*\||\s+)', ' | ', rem)
                     rem = re.sub(rf'\s+{tq_str}\s*\|', ' |', rem)
 
-                # Minden sorszám és cső eltüntetése a sor elejéről (pl. "84 |")
+                # --- KCS ÉS KAPUCSENGŐ IRTÓ (Ponttal, szóközzel, bárhogy) ---
+                # Ez kiszedi: KCS, KCS., Kcs:, kcs, Kapucsengő - minden variációt
+                rem = re.sub(r'(?i)\bkcs[\s.:]*', '', rem)
+                rem = re.sub(r'(?i)\bkapucsengő[\s.:]*', '', rem)
+
+                # --- MAGÁNYOS PREFIX ÉS CSŐ TÖRLÉSE ---
+                # Ha maradna egy magányos K, H, S stb. betű, ami után szóköz vagy | van
+                rem = re.sub(r'\b[HKSCPZ]\b\s*[|:]*', '', rem)
+
+                # Minden maradék sorszám és elválasztó cső eltüntetése a sor elejéről
+                # Pl. ha a megjegyzés így kezdődne: "1 | " vagy "84 | "
                 rem = re.sub(r'^\s*[\d\s]+\|?\s*', '', rem)
-                
-                # PREFIXEK (K, H, S stb.) és KCS makacs törlése BÁRHOL a szövegben
-                rem = re.sub(r'\b[HKSCPZ]\s*\|', '', rem)
-                rem = re.sub(r'^\s*[HKSCPZ]\s+', '', rem)
-                rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
 
                 # 6. KOZMETIKA
                 rem = rem.replace(" - |", " | ")

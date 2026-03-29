@@ -695,40 +695,41 @@ def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dic
     # --- FŐ PROGRAMFUTÁS JAVÍTVA ---
     
     if st.session_state.mdf is not None:
-    st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
-    
-    # --- ÚJ RÉSZ: CSOPORT OSZLOP LÉTREHOZÁSA (Ha még nincs) ---
-    if 'Csoport' not in st.session_state.mdf.columns:
-        st.session_state.mdf['Csoport'] = ""
-    # --------------------------------------------------------
+        st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
+        
+        # --- CSOPORT OSZLOP LÉTREHOZÁSA ÉS INICIALIZÁLÁSA ---
+        if 'Csoport' not in st.session_state.mdf.columns:
+            st.session_state.mdf['Csoport'] = ""
+            # Ez a sor fontos az if után, hogy ne legyen üres a blokk!
+            st.session_state.mdf['Csoport'] = st.session_state.mdf['Csoport'].astype(str)
 
-    # 1. KULCS INICIALIZÁLÁSA (Ha még nem létezne)
-    if 'editor_key' not in st.session_state:
-        st.session_state.editor_key = 0
+        # 1. KULCS INICIALIZÁLÁSA (Ha még nem létezne)
+        if 'editor_key' not in st.session_state:
+            st.session_state.editor_key = 0
 
-    # 2. ADATSZERKESZTŐ
-    edited_df = st.data_editor(
-        st.session_state.mdf,
-        key=f"editor_v_{st.session_state.editor_key}", 
-        hide_index=True,
-        use_container_width=True,
-        num_rows="dynamic",
-        column_config={
-            "Csoport": st.column_config.TextColumn(
-                "Csoport",
-                help="Írj ide azonos jelet (pl. '1' vagy 'A') az összetartozó címekhez.",
-                width="small",
-                placeholder="Pl. 1"
-            ),
-            "Sorrend": st.column_config.NumberColumn(
-                "Sorrend",
-                help="Tizedesekkel (pl. 1.5) beszúrhatsz címeket.",
-                format="%.1f",
-                step=0.1,
-            ),
-            "ID": st.column_config.TextColumn("Azonosító", disabled=True),
-        }
-    )
+        # 2. ADATSZERKESZTŐ
+        edited_df = st.data_editor(
+            st.session_state.mdf,
+            key=f"editor_v_{st.session_state.editor_key}", 
+            hide_index=True,
+            use_container_width=True,
+            num_rows="dynamic",
+            column_config={
+                "Csoport": st.column_config.TextColumn(
+                    "Csoport",
+                    help="Írj ide azonos jelet (pl. '1') az összetartozó címekhez.",
+                    width="small",
+                    placeholder="Pl. 1"
+                ),
+                "Sorrend": st.column_config.NumberColumn(
+                    "Sorrend",
+                    help="Tizedesekkel (pl. 1.5) beszúrhatsz címeket.",
+                    format="%.1f",
+                    step=0.1,
+                ),
+                "ID": st.column_config.TextColumn("Azonosító", disabled=True),
+            }
+        )
 
 def main():
     st.set_page_config(page_title="Interfood Label Master", layout="wide")

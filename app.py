@@ -245,29 +245,31 @@ def merge_data(raw_rows, p_map, sz_map):
     
     df = pd.DataFrame(raw_rows)
     
-    # --- BIZTONSÁGI ELLENŐRZÉS: ID mező kezelése ---
-    # Ha véletlenül 'ID' néven jött be a parse-olásból, akkor azt használjuk, 
-    # ha 'temp_id' néven, akkor azt.
-    if 'ID' not in df.columns and 'temp_id' in df.columns:
-        df['ID'] = df['temp_id']
-    elif 'ID' not in df.columns:
-        df['ID'] = "" # Vészmegoldás, ha egyik sincs meg
+    # --- BIZTONSÁGI ELLENŐRZÉS: ID KEZELÉSE ---
+    # Megnézzük, milyen néven jöttek az azonosítók, és egységesítjük
+    if 'ID' not in df.columns:
+        if 'temp_id' in df.columns:
+            df['ID'] = df['temp_id']
+        else:
+            df['ID'] = ""
 
-    # Csak a számokat tartjuk meg az azonosítóból (pl. P-468296 -> 468296)
-    df['temp_id'] = df['ID'].astype(str).str.replace(r'\D', '', regex=True)
+    # Tisztított azonosító a csoportosításhoz (csak számok)
+    df['clean_id'] = df['ID'].astype(str).str.replace(r'\D', '', regex=True)
 
     merged = []
-    # Ügyfélkód (temp_id) szerint csoportosítunk
-    for tid, group in df.groupby("temp_id", sort=False):
-        # Alapadatokat az első sorból vesszük
+    # Csoportosítás a tisztított ügyfélkód alapján
+    for tid, group in df.groupby("clean_id", sort=False):
+        if not tid: continue
+        
+        # Alapadatok az első sorból
         base = group.iloc[0].copy().to_dict()
         u_id = str(tid)
 
-        # --- 1. PÉNZ KEZELÉSE (Megtartja a negatívokat/hátralékot) ---
+        # --- 1. PÉNZ ÖSSZEGZÉSE ---
         pdf_payment_val = 0
         for _, row in group.iterrows():
             m_str = str(row.get('Pénz', '0'))
-            # Csak számok és mínusz jelek maradnak
+            # Csak számok és mínusz jel marad
             clean_str = re.sub(r'[^\d\-\u2013\u2014\u2212]', '', m_str)
             clean_str = re.sub(r'[\u2013\u2014\u2212]', '-', clean_str)
             
@@ -278,10 +280,9 @@ def merge_data(raw_rows, p_map, sz_map):
                         pdf_payment_val = val
                 except ValueError:
                     pass
-
         base['Pénz'] = f"{pdf_payment_val} Ft"
 
-        # --- 2. RENDELÉSEK ÖÖSZEVONÁSA ---
+        # --- 2. RENDELÉSEK ÖSSZEVONÁSA ---
         o_p, has_weekend = [], False
         for pfix in ['H', 'K', 'S', 'C', 'P', 'Z']:
             day_rows = group[group['Prefix'] == pfix]
@@ -291,7 +292,7 @@ def merge_data(raw_rows, p_map, sz_map):
                 if clean_items:
                     o_p.append(f"{L_DAYS.get(pfix, pfix)}: {', '.join(clean_items)}")
 
-        # Excel pótlások hozzáadása (ha van a map-ben ilyen ID)
+        # Excel pótlások (Péntek/Szombat)
         p_extra = p_map.get(u_id, {}).get('rendeles', "")
         sz_extra = sz_map.get(u_id, {}).get('rendeles', "")
 
@@ -305,25 +306,25 @@ def merge_data(raw_rows, p_map, sz_map):
         base['Rendelés_Full'] = " | ".join(o_p)
         base['Összesen'] = pd.to_numeric(group['Összesen'], errors='coerce').sum()
         base['Hétvégi'] = has_weekend
-        base['ID'] = f"P-{tid}"
-        base['temp_id'] = tid
         
-        # Sorrend visszatöltése a session_state-ből
+        # Egységesített ID formátum a táblázathoz
+        base['ID'] = f"P-{tid}"
+        
+        # Sorrend visszatöltése a mentett állapotból
         base['Sorrend'] = st.session_state.get('weights', {}).get(f"P-{tid}", 999)
         
         merged.append(base)
 
-    # --- 3. VÉGLEGES TÁBLÁZAT RENDEZÉSE ---
+    # --- 3. VÉGLEGES TÁBLÁZAT ÉS RENDEZÉS ---
     res = pd.DataFrame(merged)
     
     if not res.empty:
-        # Ha nincs sorrend, kap egy alapértelmezettet
         if 'Sorrend' not in res.columns:
             res['Sorrend'] = 999
         
-        res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce').fillna(999)
-        # Sorszám szerinti rendezés, majd index reset
-        res = res.sort_values(by=['Sorrend', 'temp_id']).reset_index(drop=True)
+        res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce').fillna(999).astype(int)
+        # Rendezés a manuális sorrend, majd az ID alapján
+        res = res.sort_values(by=['Sorrend', 'ID']).reset_index(drop=True)
 
     return res
 

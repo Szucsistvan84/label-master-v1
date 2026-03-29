@@ -332,104 +332,102 @@ def merge_data(raw_rows, p_map, sz_map):
 
     return res
 
-def create_label_pdf(df, fn, ft):
-    """Etikett generálás biztonsági ellenőrzésekkel és hibajavítással"""
-    # --- BIZTONSÁGI MENTÉS ÉS ELLENŐRZÉS ---
-    if df is None or df.empty:
-        return None
-
-    # Ha nincs Sorrend oszlop (ami a KeyError-t okozta), pótoljuk
-    if 'Sorrend' not in df.columns:
-        df['Sorrend'] = range(1, len(df) + 1)
-
-    # Sorrend szerinti rendezés biztonságosan
-    df = df.sort_values('Sorrend')
-
+def create_label_pdf(df, courier_name, courier_phone):
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    
+    # A rács marad 3x7, a lap széléig kifuttatva
+    cols = 3
+    rows = 7
+    label_width = width / cols
+    label_height = height / rows
+    
+    # BELSŐ MARGÓ: 5mm minden oldalon a cellán belül
+    padding = 5 * mm
+    
+    # Betűtípusok regisztrálása
     f_reg, f_bold = register_fonts()
-    buf = BytesIO()
-    p = canvas.Canvas(buf, pagesize=A4)
-    lw, lh = 70 * mm, 42.42 * mm
-    inner_m = 5.5 * mm
 
-    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=8, leading=9, encoding='utf-8')
-    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1, encoding='utf-8')
+    for i, (_, row) in enumerate(df.iterrows()):
+        col_idx = i % cols
+        row_idx = (i // cols) % rows
+        
+        # Cellák koordinátái (bal alsó sarok)
+        x = col_idx * label_width
+        y = height - ((row_idx + 1) * label_height)
+        
+        # --- BELSŐ KERET (FRAME) LÉTREHOZÁSA ---
+        # Ez a keret kényszeríti az 5mm belső margót minden oldalon
+        f = Frame(
+            x + padding, 
+            y + padding, 
+            label_width - (2 * padding), 
+            label_height - (2 * padding),
+            showBoundary=0  # 1-re állítva láthatod a belső margó vonalát teszteléskor
+        )
 
-    total_slots = math.ceil(len(df) / 21) * 21
+        # Stílusok definiálása
+        style_normal = ParagraphStyle(
+            'Normal', fontName=f_reg, fontSize=8, leading=10, alignment=0 # Balra zárt
+        )
+        style_bold = ParagraphStyle(
+            'Bold', fontName=f_bold, fontSize=10, leading=12, alignment=0
+        )
+        style_marketing = ParagraphStyle(
+            'Marketing', fontName=f_reg, fontSize=7, leading=8, alignment=1 # Középre zárt
+        )
 
-    for i in range(total_slots):
-        idx = i % 21
-        if idx == 0 and i > 0: p.showPage()
-        col, row_i = idx % 3, 6 - (idx // 3)
-        x, y = col * lw, row_i * lh
+        # Tartalom összeállítása (Story)
+        story = []
+        
+        # Sorszám és Név
+        story.append(Paragraph(f"<b>#{row.get('Sorrend', i+1)}</b> {row.get('Ügyintéző', '')}", style_bold))
+        
+        # ID és Telefon egy sorba
+        story.append(Paragraph(f"ID: {row.get('ID', '')} | {row.get('Telefon', '')}", style_normal))
+        
+        # Cím (tördelve, ha nem fér el)
+        story.append(Paragraph(f"🏠 {row.get('Cím', '')}", style_normal))
+        
+        # Rendelés
+        story.append(Spacer(1, 2*mm))
+        story.append(Paragraph(f"🛒 <b>{row.get('Rendelés', '')}</b>", style_normal))
+        
+        # Megjegyzés (ha van)
+        if str(row.get('Megjegyzés', '')).strip():
+            story.append(Paragraph(f"💬 <i>{row['Megjegyzés']}</i>", style_normal))
 
-        if i < len(df):
-            r = df.iloc[i]
-            top_y = y + lh - inner_m
+        # Pénz és Összesen darab
+        story.append(Spacer(1, 2*mm))
+        story.append(Paragraph(f"💰 {row.get('Pénz', '0 Ft')} | 📦 {row.get('Összesen', 0)} db", style_bold))
 
-            # Hétvégi jelölés (szürke sáv az ügyintéző alatt)
-            if r.get('Hétvégi'):
-                p.saveState()
-                p.setFillColor(colors.lightgrey)
-                p.rect(x + 1 * mm, top_y - 8.5 * mm, lw - 2 * mm, 4.5 * mm, fill=1, stroke=0)
-                p.restoreState()
+        # --- MARKETING ÉS FUTÁR ADATOK (A keret aljára) ---
+        # Mivel a Frame fentről lefelé tölt, a maradék helyet Spacer-rel tölthetjük ki, 
+        # vagy fixen a keret aljára pozicionáljuk a marketinget.
+        
+        marketing_text = (
+            f"<br/><br/><font color='blue'>Futár: {courier_name} | {courier_phone}</font><br/>"
+            f"<b>15% kedvezmény* 3 hétig Új Ügyfeleink részére!</b><br/>"
+            f"Rendelés leadás: {courier_name}, tel: {courier_phone}<br/>"
+            f"<font size='6'>* a kedvezmény telefonon leadott rendelésekre érvényesíthető területi képviselőnk által</font>"
+        )
+        story.append(Paragraph(marketing_text, style_marketing))
 
-            # 1. SOR: Sorszám és ID
-            sorrend_val = int(r['Sorrend']) if pd.notnull(r['Sorrend']) else (i + 1)
-            p.setFont(f_bold, 10);
-            p.drawString(x + inner_m, top_y - 3 * mm, f"#{sorrend_val}")
-            p.setFont(f_reg, 8);
-            p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {r.get('ID', 'N/A')}")
+        # A Story "belepréselése" a keretbe
+        # Ha nem férne el, a ReportLab automatikusan kisebbnek próbálja venni, 
+        # vagy ha nagyon sok, egyszerűen levágja (de a margót nem sérti meg).
+        f.addFromList(story, c)
 
-            # 2. SOR: Ügyintéző és Telefon
-            p.setFont(f_bold, 9);
-            p.drawString(x + inner_m, top_y - 8 * mm, str(r.get('Ügyintéző', ''))[:28])
-            p.setFont(f_reg, 8);
-            p.drawRightString(x + lw - inner_m, top_y - 8 * mm, str(r.get('Telefon', '')))
+        # Opcionális: Halvány segédvonal a cellák között a vágáshoz
+        c.setDash(1, 2)
+        c.setStrokeColor(colors.lightgrey)
+        c.rect(x, y, label_width, label_height)
+        c.setDash([]) # Visszaállítjuk sima vonalra
 
-            # 3. SOR: Cím
-            p.setFont(f_reg, 7.5);
-            p.drawString(x + inner_m, top_y - 12 * mm, str(r.get('Cím', ''))[:45])
-
-            # 4. KÖZÉPSŐ RÉSZ: Rendelések összevonva
-            rendeles_text = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
-            para = Paragraph(rendeles_text, order_s)
-            para.wrap(lw - 2 * inner_m, 12 * mm)
-            para.drawOn(p, x + inner_m, y + inner_m + 7 * mm)  # Kicsit feljebb toltam a pénznek
-
-            # --- PÉNZ ÉS DARABSZÁM (Az etikett alja) ---
-            # Megjelenítjük a pénzt, ha van "Ft" benne (PDF-ből jött), egyébként üresen hagyjuk
-            penz_megjelenites = str(r.get('Pénz', ''))
-            if "Ft" not in penz_megjelenites: penz_megjelenites = ""
-
-            p.setFont(f_bold, 10);
-            p.drawString(x + inner_m, y + inner_m + 1 * mm, penz_megjelenites)
-            p.setFont(f_bold, 9);
-            p.drawRightString(x + lw - inner_m, y + inner_m + 1 * mm, f"{int(r.get('Összesen', 0))} db")
-
-            # Vonal és Futár adatok
-            p.setDash(1, 0)
-            p.setLineWidth(0.2)
-            p.line(x + 5 * mm, y + 4.5 * mm, x + lw - 5 * mm, y + 4.5 * mm)
-            p.setFont(f_reg, 6);
-            p.drawCentredString(x + lw / 2, y + 2 * mm, f"Futár: {fn} | {ft}")
-
-        else:
-            # Marketing etikett változatlanul
-            p.setDash(1, 0)
-            m_text = (
-                f"<font size='10.5' name='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
-                f"Új Ügyfeleink részére!<br/><br/>"
-                f"<b>Rendelés leadás:</b><br/>"
-                f"<b>{fn}</b>, tel: <b>{ft}</b><br/><br/>"
-                f"<font size='5.5'><b>* a kedvezmény telefonon leadott rendelésekre érvényesíthető<br/>területi képviselőnk által</b></font>"
-            )
-            para = Paragraph(m_text, promo_s)
-            pw, ph = para.wrap(lw - 6 * mm, lh - 6 * mm)
-            para.drawOn(p, x + (lw - pw) / 2, y + (lh - ph) / 2)
-
-    p.save();
-    buf.seek(0);
-    return buf
+    c.save()
+    buffer.seek(0)
+    return buffer
     
 # --- 3. RÉSZ: PDF GENERÁLÓK ÉS ADATSZERKESZTŐ ---
 

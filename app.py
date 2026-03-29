@@ -88,8 +88,8 @@ def parse_interfood_pdf(file_obj):
             current_prefix = "H"
             
             for line in lines:
-                # 1. Prefix keresése (H, K, S, C, P, Z)
-                p_match = re.match(r'^([HKS-CPZ])\s*\|', line)
+                # 1. Prefix keresése - JAVÍTVA: [HKSCPZ]
+                p_match = re.match(r'^([HKSCPZ])\s*\|', line)
                 if p_match:
                     current_prefix = p_match.group(1)
                 
@@ -100,37 +100,30 @@ def parse_interfood_pdf(file_obj):
                 full_id_match = id_match.group(0)
                 prefix = current_prefix
                 
-                # 3. Alapadatok kinyerése a fix pozíciók alapján
-                # Ügyintéző (név) - az első 35 karakter, de levágjuk a felesleget
+                # 3. Alapadatok kinyerése
                 b4 = line[0:35].strip()
                 
-                # Telefonszám keresése
                 tel_m = re.search(PHONE_PAT, line)
                 phone_val = tel_m.group(0) if tel_m else ""
                 
-                # Pénzösszeg keresése
                 money_m = re.search(MONEY_PAT, line)
                 money_val = money_m.group(0) if money_m else "0 Ft"
                 
-                # Cím keresése (40-es karaktertől a telefonszámig vagy a végéig)
                 address = line[35:100].strip()
                 if phone_val and phone_val in address:
                     address = address.split(phone_val)[0].strip()
                 address = address.strip(" |,-")
 
-                # Rendelések kigyűjtése
                 raw_orders = re.findall(ORDER_PAT, line)
                 order_val = ", ".join(raw_orders) if raw_orders else ""
                 
-                # Mennyiség (Összesen)
                 total_q = 1
                 q_match = re.search(r'(\d+)\s+P-\d+', line)
                 if q_match:
-                    total_q = q_match.group(1)
+                    total_q = int(q_match.group(1))
 
-                # --- TISZTÍTÁS (A SZOBRÁSZ-LOGIKA STABIL VERZIÓJA) ---
+                # --- TISZTÍTÁS ---
                 rem = line
-                # Töröljük a már kimentett adatokat a sorból, hogy csak a megjegyzés maradjon
                 if b4: rem = rem.replace(b4, "")
                 if phone_val: rem = rem.replace(phone_val, "")
                 if full_id_match: rem = rem.replace(full_id_match, "")
@@ -138,16 +131,13 @@ def parse_interfood_pdf(file_obj):
                 for o in raw_orders: rem = rem.replace(o, "")
                 rem = re.sub(MONEY_PAT, "", rem)
                 
-                # Sorszámok és egyéb sallangok törlése
                 rem = re.sub(r'^\s*[A-Z]\s*\|', '', rem)
                 rem = re.sub(r'\b\d+\s+P-', ' P-', rem)
                 
-                # Esztétikai finomítások
                 rem = rem.replace("*", " ").replace(",", " ")
                 rem = re.sub(r'\s+', ' ', rem)
                 megj = rem.strip(" |,-/")
 
-                # Ha a megjegyzés csak egy magányos szám maradt, töröljük
                 if re.match(r'^\d+$', megj):
                     megj = ""
 

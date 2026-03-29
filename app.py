@@ -794,28 +794,23 @@ def main():
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
         if up_files and st.button("🚀 FELDOLGOZÁS"):
-            # --- EZ AZ ÚJ RÉSZ: META ADATOK KINYERÉSE ---
-            st.session_state.meta_data = extract_all_meta(up_files)
-            # --------------------------------------------
+            # 1. Kinyerjük az összes metaadatot
+            meta_auto = extract_all_meta(up_files)
+            # Elmentjük a session_state-be, hogy a gombok is lássák
+            st.session_state.meta_data = meta_auto 
 
             all_rows = []
-            all_meta = [] # Ez maradhat, ha a parse_interfood is használja
-            
             with st.spinner("PDF-ek beolvasása..."):
                 for f in up_files:
-                    # Fontos: a seek(0), mert az extract_all_meta már beleolvasott!
-                    f.seek(0) 
-                    rows, meta = parse_interfood_pdf(f)
+                    f.seek(0) # Visszatekerés az elejére!
+                    rows, _ = parse_interfood_pdf(f) # A parse_interfood meta-ját most kihagyjuk
                     if rows:
                         all_rows.extend(rows)
-                    if meta:
-                        all_meta.extend(meta)
 
             if all_rows:
-                # A dátumot (év/hét) vehetjük az automatikusan kinyert meta-ból
-                meta_auto = st.session_state.meta_data
-                y = meta_auto.get('ev', '2026')
-                w = meta_auto.get('het', '13')
+                # Az étlaphoz kellenek a dátumok
+                y = meta_auto.get('ev') or '2026'
+                w = meta_auto.get('het') or '13'
                 
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
@@ -889,12 +884,15 @@ def main():
 
         st.divider()
 
-        # 3. PDF LETÖLTÉS - Végleges, stabil verzió
-        meta = st.session_state.meta_data if st.session_state.meta_data else []
+        # 3. PDF LETÖLTÉS
+        # Beolvassuk a session_state-ből a kinyert adatokat
+        meta = st.session_state.meta_data if 'meta_data' in st.session_state else {}
         
-        # Kiszámoljuk a járatszámokat itt is, hogy minden gomb lássa
-        j_list = [str(m.get('jarat', '')) for m in meta if isinstance(m, dict) and m.get('jarat')]
-        aktualis_jaratok = ", ".join(sorted(list(set(j_list))))
+        # Járatszámok összefűzése a listából
+        jaratok_listaja = meta.get('jaratok', [])
+        aktualis_jaratok = ", ".join(jaratok_listaja) if jaratok_listaja else "N/A"
+
+        st.write(f"**Észlelt járatok:** {aktualis_jaratok}") # Ellenőrzésnek kiírjuk
 
         c1, c2, c3 = st.columns(3)
         

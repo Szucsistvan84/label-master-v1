@@ -333,104 +333,97 @@ def merge_data(raw_rows, p_map, sz_map):
     return res
 
 def create_label_pdf(df, fn, ft):
-    if df is None or df.empty:
-        return None
-
-    if 'Sorrend' not in df.columns:
-        df['Sorrend'] = range(1, len(df) + 1)
-
+    if df is None or df.empty: return None
+    if 'Sorrend' not in df.columns: df['Sorrend'] = range(1, len(df) + 1)
     df = df.sort_values('Sorrend')
+    
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     p = canvas.Canvas(buf, pagesize=A4)
-    
-    # A4: 210x297mm -> 3x7 rács
     lw, lh = 70 * mm, 42.42 * mm
-    # Szigorú 5.5mm belső védelmi sáv
     inner_m = 5.5 * mm 
     usable_w = lw - (2 * inner_m)
 
-    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.5, leading=8.5, encoding='utf-8')
-    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1, encoding='utf-8')
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.5, leading=8.5)
+    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1)
 
     total_slots = math.ceil(len(df) / 21) * 21
 
     for i in range(total_slots):
         idx = i % 21
         if idx == 0 and i > 0: p.showPage()
+        
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = col * lw, row_i * lh
 
+        # --- LENTI CELLÁK EXTRA EMELÉSE ---
+        # A legalsó sorban (row_i=0) megemeljük a tartalom alját, 
+        # hogy a nyomtató ne vágja le.
+        lift = 4.5 * mm if row_i == 0 else 0
+        
+        # A tartalom bázispontjai az emeléssel korrigálva
+        y_eff = y + lift 
+
         if i < len(df):
             r = df.iloc[i]
-            top_y = y + lh - inner_m
-            
-            # --- 1. HÉTVÉGI KIEMELÉS (SZÜRKE HÁTTÉR) ---
-            # Ha a 'Hétvégi' oszlop True, vagy a Rendelésben benne van a "Szo:" szó
+            top_y = y + lh - inner_m # A teteje marad fix, hogy ne csússzon össze
+
+            # 1. Hétvégi kiemelés (Szombat/Vasárnap esetén)
             is_weekend = r.get('Hétvégi') == True or "Szo:" in str(r.get('Rendelés_Full', ''))
-            
             if is_weekend:
                 p.saveState()
                 p.setFillColor(colors.lightgrey)
-                # Az ügyintéző neve alatti sávot színezzük (8.5mm magasságban)
                 p.rect(x + inner_m - 1*mm, top_y - 9 * mm, usable_w + 2*mm, 5 * mm, fill=1, stroke=0)
                 p.restoreState()
 
-            # --- 2. ADATOK KIÍRÁSA (FENTRŐL LEFELÉ) ---
-            # Sorszám és ID
+            # 2. Fejléc adatok
             p.setFont(f_bold, 10)
             p.drawString(x + inner_m, top_y - 3 * mm, f"#{int(r['Sorrend'])}")
             p.setFont(f_reg, 8)
             p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {r.get('ID', 'N/A')}")
 
-            # Ügyintéző és Telefon
             p.setFont(f_bold, 9)
             p.drawString(x + inner_m, top_y - 8 * mm, str(r.get('Ügyintéző', ''))[:25])
             p.setFont(f_reg, 8)
             p.drawRightString(x + lw - inner_m, top_y - 8 * mm, str(r.get('Telefon', '')))
 
-            # Cím
             p.setFont(f_reg, 7)
             p.drawString(x + inner_m, top_y - 12 * mm, str(r.get('Cím', ''))[:45])
 
-            # Rendelés (Középen)
+            # 3. Rendelés (kicsit szűkebb helyen)
             rendeles_text = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
             para = Paragraph(f"<b>{rendeles_text}</b>", order_s)
-            pw, ph = para.wrap(usable_w, 14 * mm)
-            para.drawOn(p, x + inner_m, y + inner_m + 8 * mm)
+            # Itt a magasságot limitáljuk, hogy ne lógjon rá a pénzre
+            pw, ph = para.wrap(usable_w, 12 * mm)
+            para.drawOn(p, x + inner_m, y_eff + inner_m + 8 * mm)
 
-            # --- 3. DINAMIKUS PÉNZ ÉS DARAB (ALUL) ---
+            # 4. Pénz és Darab (Már az emelt y_eff-hez képest!)
             penz = str(r.get('Pénz', '0 Ft')).replace(" ", "")
-            # Csak akkor írjuk ki a pénzt, ha NEM 0 Ft és NEM üres
-            if penz != "0Ft" and penz != "" and penz != "0":
+            if penz not in ["0Ft", "", "0"]:
                 p.setFont(f_bold, 10)
-                p.drawString(x + inner_m, y + inner_m + 3 * mm, str(r.get('Pénz', '')))
+                p.drawString(x + inner_m, y_eff + inner_m + 3 * mm, str(r.get('Pénz', '')))
             
             p.setFont(f_bold, 9)
-            p.drawRightString(x + lw - inner_m, y + inner_m + 3 * mm, f"{int(r.get('Összesen', 0))} db")
+            p.drawRightString(x + lw - inner_m, y_eff + inner_m + 3 * mm, f"{int(r.get('Összesen', 0))} db")
 
-            # --- 4. FUTÁR ADATOK (EMELT POZÍCIÓ A MARGÓ MIATT) ---
-            # Itt a trükk: a vonal és a szöveg is az inner_m (5.5mm) FELETT van
+            # 5. Futár sáv (Fixen az emelt zóna alján)
             p.setDash(1, 1)
             p.setStrokeColor(colors.grey)
-            p.setLineWidth(0.1)
-            p.line(x + inner_m, y + 5 * mm, x + lw - inner_m, y + 5 * mm)
-            
+            p.line(x + inner_m, y_eff + 5 * mm, x + lw - inner_m, y_eff + 5 * mm)
             p.setFont(f_reg, 6)
-            p.drawCentredString(x + lw / 2, y + 2.5 * mm, f"Futár: {fn} | {ft}")
+            p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
 
         else:
-            # Marketing etikett
+            # Marketing etikett emelt pozícióval
             m_text = (
                 f"<font size='10' name='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
                 f"Új Ügyfeleink részére!<br/><br/>"
-                f"<b>Rendelés leadás:</b><br/>"
-                f"<b>{fn}</b>, tel: <b>{ft}</b><br/><br/>"
-                f"<font size='5.5'><b>* a kedvezmény telefonon leadott rendelésekre érvényesíthető</b></font>"
+                f"<b>Rendelés leadás: {fn}</b><br/>"
+                f"tel: <b>{ft}</b>"
             )
             para = Paragraph(m_text, promo_s)
-            pw, ph = para.wrap(usable_w, lh - (2 * inner_m))
-            para.drawOn(p, x + (lw - pw) / 2, y + (lh - ph) / 2)
+            pw, ph = para.wrap(usable_w, lh - (2 * inner_m) - lift)
+            para.drawOn(p, x + (lw - pw) / 2, y_eff + (lh - ph) / 2)
 
     p.save()
     buf.seek(0)

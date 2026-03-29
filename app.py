@@ -805,59 +805,65 @@ def main():
                 st.rerun()
 
     # 3. FŐABLAK MEGJELENÍTÉSE
-    if st.session_state.mdf is not None:
-        df = st.session_state.mdf.copy()
+    if st.session_state.mdf is not None and not st.session_state.mdf.empty:
+        # Először előkészítjük az adatokat
+        df_to_edit = st.session_state.mdf.copy()
         
-        if 'Sorrend' not in df.columns:
-            df['Sorrend'] = 999
-            
-        df['Sorrend'] = df['ID'].astype(str).map(st.session_state.weights).fillna(df['Sorrend'])
-        df = df.sort_values(by=['Sorrend'], ascending=[True])
-
+        # Ha nincs Sorrend oszlop, létrehozzuk
+        if 'Sorrend' not in df_to_edit.columns:
+            df_to_edit['Sorrend'] = 999
+        
+        # Rendezés a meglévő sorrend alapján
+        df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999)
+        df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
+    
         st.subheader("Szállítási lista")
         
-        # Oszlopok sorrendjének meghatározása (Sorrend az első)
-        all_cols = edited_df.columns.tolist()
+        # Oszlopok sorrendjének meghatározása (A df_to_edit-et használjuk hivatkozásnak)
+        all_cols = df_to_edit.columns.tolist()
         if 'Sorrend' in all_cols:
             all_cols.remove('Sorrend')
             new_column_order = ['Sorrend'] + all_cols
         else:
             new_column_order = all_cols
         
-        # Táblázat szerkesztő beállítása
+        # TÁBLÁZAT SZERKESZTŐ
+        # Az eredményt az 'edited_df' változóba mentjük
         edited_df = st.data_editor(
-            edited_df,
+            df_to_edit,
             column_order=new_column_order,
             column_config={
                 "Sorrend": st.column_config.NumberColumn(
                     "Sorrend",
-                    help="Ide írhatsz tizedeseket is (pl. 1.5), ha két megálló közé akarsz szúrni egyet.",
-                    format="%.1f", # Egy tizedesjegy megjelenítése
+                    help="Tizedesekkel (pl. 1.5) beszúrhatsz címeket két megálló közé.",
+                    format="%d", # A felületen egésznek látszik, de engedi a tizedest
                     step=0.1,
                 ),
-                "Pénz": st.column_config.TextColumn("Pénz", disabled=False), # Ne nyúljon hozzá a rendszer
+                "Pénz": st.column_config.TextColumn("Pénz", disabled=False),
             },
             num_rows="dynamic",
             key=st.session_state.editor_key,
             use_container_width=True
         )
-
-        if st.button("💾 SORREND MENTÉSE ÉS ÚJRARANKEZÉS"):
-            # 1. Tizedes számokká alakítás (hogy a sorrended érvényesüljön)
+    
+        # MENTÉS ÉS ÚJRARANKEZÉS GOMB
+        if st.button("💾 SORREND VÉGLEGESÍTÉSE (Újraszámozás)"):
+            # Itt már az edited_df-et használjuk, mert a fenti editor már létrehozta
             temp_df = edited_df.copy()
+            
+            # 1. Számmá alakítás (hogy a tizedesek alapján rendezni tudjunk)
             temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999)
             
-            # 2. Sorba rendezés a tizedesek alapján
+            # 2. Fizikai sorbarendezés
             temp_df.sort_values('Sorrend', inplace=True)
             
-            # 3. ÚJRARANKEZÉS: Itt történik a varázslat. 
-            # Az összes sort újra sorszámozzuk 1-től kezdve, egész számokkal.
+            # 3. Újrasorszámozás egész számokkal (1, 2, 3...)
             temp_df['Sorrend'] = range(1, len(temp_df) + 1)
             
-            # 4. Állapot mentése
+            # 4. Mentés a session-be és frissítés
             st.session_state.mdf = temp_df
-            st.session_state.editor_key += 1  # Ez kényszeríti a táblázatot a frissítésre
-            st.success("Sorrend véglegesítve és újraszámozva!")
+            st.session_state.editor_key += 1 
+            st.success("Sorrend véglegesítve, a lista újra lett sorszámozva!")
             st.rerun()
 
         st.divider()

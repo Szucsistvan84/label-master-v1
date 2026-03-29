@@ -23,34 +23,37 @@ MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 def extract_all_meta(pdf_files):
     all_meta = {'jaratok': [], 'ev': '', 'het': '', 'nap': ''}
     
-    # Járatszám minta: keresünk 4 számjegyet, ami után pont és "járat" van, 
-    # VAGY a "Nyomtatta: 4002" formátumot
+    # Járatszám minta: 4 számjegy + pont + járat VAGY Nyomtatta: 4 számjegy
     jarat_re = re.compile(r'(\d{4})\.\s*járat|Nyomtatta:\s*(\d{4})')
     
     for uploaded_file in pdf_files:
         uploaded_file.seek(0) 
         with pdfplumber.open(uploaded_file) as pdf:
-            # Az első oldal szövege
             text = pdf.pages[0].extract_text() or ""
             
-            # Járatszám keresése
-            jarat_match = jarat_re.search(text)
-            if jarat_match:
-                # Az első vagy a második csoportban lesz a szám
-                j_num = jarat_match.group(1) or jarat_match.group(2)
+            # 1. Járatszámok gyűjtése
+            for match in jarat_re.finditer(text):
+                j_num = match.group(1) or match.group(2)
                 if j_num and j_num not in all_meta['jaratok']:
                     all_meta['jaratok'].append(j_num)
             
-            # Dátum infók (Év, Hét, Nap)
+            # 2. Dátum infók - Csak ha még üresek
             if not all_meta['ev']:
                 ev_m = re.search(r'Év:\s*(\d{4})', text)
-                het_m = re.search(r'Hét:\s*(\d{1,2})', text)
-                # A napnál megállunk a sor végén vagy az InterFood szónál
-                nap_m = re.search(r'Nap:\s*([^,\n\r|]+)', text)
-                
                 if ev_m: all_meta['ev'] = ev_m.group(1)
+
+            if not all_meta['het']:
+                het_m = re.search(r'Hét:\s*(\d{1,2})', text)
                 if het_m: all_meta['het'] = het_m.group(1)
-                if nap_m: all_meta['nap'] = nap_m.group(1).split('InterFood')[0].strip()
+
+            # 3. A NAPOK kinyerése (Péntek, Szombat stb.)
+            if not all_meta['nap']:
+                # Keressük a 'Nap:' utáni részt az 'InterFood' szóig
+                nap_m = re.search(r'Nap:\s*(.*?)(?=InterFood|$)', text, re.DOTALL)
+                if nap_m:
+                    # Tisztítjuk: leszedjük a felesleges vesszőket a végéről és a szóközöket
+                    nap_raw = nap_m.group(1).strip()
+                    all_meta['nap'] = nap_raw.rstrip(',')
     
     all_meta['jaratok'].sort()
     return all_meta

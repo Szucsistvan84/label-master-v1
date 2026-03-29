@@ -120,9 +120,10 @@ def parse_interfood_pdf(pdf_file):
                 prefix = full_id_match.split('-')[0]
                 u_id = full_id_match.split('-')[-1]
 
-                # Koordináták: B3 (Cím), B4 (Név)
-                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 355])
-                b4 = " ".join([w['text'] for w in line_words if 355 <= w['x0'] < 490])
+                # Koordináták: B3 (Cím - tágítva), B4 (Név)
+                # 355 helyett 370-ig nézzük a címet, hogy az "fsz 1." vagy "01" beleférjen
+                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 370])
+                b4 = " ".join([w['text'] for w in line_words if 370 <= w['x0'] < 490])
                 clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                 
                 tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
@@ -165,7 +166,7 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (MAGÁNYOS SZÁMOK ÉS DARABSZÁM-STOP) ---
+                # --- A SZOBRÁSZ-LOGIKA (ULTRA-PRECÍZ TISZTÍTÁS) ---
                 rem = all_relevant_text
                 
                 # 1. ID ÉS KÓDOK TÖRLÉSE
@@ -179,53 +180,47 @@ def parse_interfood_pdf(pdf_file):
                     name_targets.append(full_name)
                     if "dr" in full_name.lower():
                         name_targets.extend(["Dr.", "dr.", "Dr", "dr"])
-                    
                     name_parts = re.split(r'[\s\-]', full_name)
                     for part in name_parts:
                         clean_part = part.strip("., ")
-                        if len(clean_part) > 2:
-                            name_targets.append(clean_part)
+                        if len(clean_part) > 2: name_targets.append(clean_part)
 
                 for target in sorted(list(set(name_targets)), key=len, reverse=True):
                     pattern = re.compile(re.escape(target), re.IGNORECASE)
-                    while pattern.search(rem):
-                        rem = pattern.sub("", rem)
+                    while pattern.search(rem): rem = pattern.sub("", rem)
 
-                # 3. ALAPADATOK ÉS TELEFONSZÁMOK
+                # 3. ALAPADATOK ÉS A MAKACS TELEFONSZÁMOK (52 511000)
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
-                rem = re.sub(r'\d{2}\s\d{6,7}', '', rem)
+                # Tisztítjuk a szóközös telefonszám-maradványokat (pl. 52 511000)
+                rem = re.sub(r'\d{2}\s\d{6,8}', '', rem)
                 
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 4. SORSZÁMOK ÉS RENDELÉS ÖSSZESÍTŐK (A legújabb javítás)
-                # Töröljük a prefixeket (H, K, S...)
-                rem = re.sub(r'^\s*[HKSCPZ]\s*\|', '', rem)
-                rem = re.sub(r'\|\s*[HKSCPZ]\s*\|', '|', rem)
+                # 4. SORSZÁMOK, RENDELÉS ÖSSZESÍTŐK ÉS "K" BETŰK
+                # Kereszt-tisztítás: " - |" cseréje " | "-re
+                rem = rem.replace(" - |", " |")
                 
-                # RADIKÁLIS DARABSZÁM TÖRLÉS:
-                # Ha a total_q (pl. 1, 2, 3) magában áll a sor elején, a végén, vagy | mellett
+                # Radikális darabszám törlés (total_q)
                 if total_q:
                     tq_str = str(total_q)
-                    # Sor elején: "1 |" vagy "1 "
                     rem = re.sub(rf'^\s*{tq_str}\s*\|?', '', rem)
-                    # Sor közben csövek mentén: "| 1 |" vagy "| 1 "
                     rem = re.sub(rf'\|\s*{tq_str}\s*\|', '|', rem)
                     rem = re.sub(rf'\|\s*{tq_str}\s+', '| ', rem)
-                    # Szavak utáni magányos darabszám: "Kft - 1 |" -> "Kft - |"
-                    rem = re.sub(rf'\s+-\s+{tq_str}\s*\|', ' |', rem)
                     rem = re.sub(rf'\s+{tq_str}\s*\|', ' |', rem)
 
-                # Minden egyéb magányos 1-3 jegyű szám a sor elején (sorszámok)
-                rem = re.sub(r'^\s*\d{1,3}\s*\|?\s*', '', rem)
-                
-                # KCS és maradék K betűk
-                rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
-                rem = re.sub(r'^\s*[K]\s*(?=[#\d])', '', rem)
+                # A magányos "K" betű törlése, ami a rendelési kódból ragadt ott (pl. "K |")
+                rem = re.sub(r'^\s*K\s*\|', '', rem)
+                rem = re.sub(r'\|\s*K\s*\|', '|', rem)
+                rem = re.sub(r'^\s*K\s+', '', rem)
 
-                # 5. KOZMETIKA
+                # Minden egyéb magányos sorszám a sor elején (pl. "1 4 |")
+                rem = re.sub(r'^\s*[\d\s]+\|', '', rem)
+                rem = re.sub(r'^\s*\d{1,3}\s+', '', rem)
+
+                # 5. KOZMETIKA ÉS LÁBLÉC
                 stop_phrases = ["Csillagozott betűnél", "kiegészítő is van", "Összesítés:", "Összesen:", "Nyomtatva:"]
                 for phrase in stop_phrases:
                     if phrase in rem: rem = rem.split(phrase)[0]
@@ -236,7 +231,6 @@ def parse_interfood_pdf(pdf_file):
                 
                 megj = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 
-                # Végső ellenőrzés: ha csak sorszám maradt
                 if re.match(r'^\d+$', megj) and "#" not in megj:
                     megj = ""
                 

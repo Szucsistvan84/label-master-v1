@@ -133,9 +133,12 @@ def parse_interfood_pdf(pdf_file):
                 clean_tel = ""
                 if tel_m:
                     clean_tel = tel_m.group(0)
-                    # FIX: Ha debreceni vezetékes, SOHA nem lehet hosszabb 9 karakternél (52/511000)
+                    # FIX: Debreceni vezetékes (52/...) SOHA nem több 9 karakternél
                     if clean_tel.startswith("52/") and len(clean_tel) > 9:
                         clean_tel = clean_tel[:9]
+                    # Mobil (20/, 30/, 70/...) SOHA nem több 10 karakternél
+                    elif "/" in clean_tel and len(clean_tel) > 10:
+                        clean_tel = clean_tel[:10]
 
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
@@ -176,7 +179,7 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (JAVÍTOTT KIADÁS) ---
+                # --- A SZOBRÁSZ-LOGIKA (STABILIZÁLT VERZIÓ) ---
                 rem = all_relevant_text
                 
                 # 1. ID ÉS KÓDOK TÖRLÉSE
@@ -199,7 +202,7 @@ def parse_interfood_pdf(pdf_file):
                     pattern = re.compile(re.escape(target), re.IGNORECASE)
                     while pattern.search(rem): rem = pattern.sub("", rem)
 
-                # 3. ALAPADATOK ÉS TELEFONSZÁM SZEMÉT (52 511000)
+                # 3. ALAPADATOK ÉS TELEFONSZÁM SZEMÉT
                 if address: rem = rem.replace(address, "")
                 if clean_tel: rem = rem.replace(clean_tel, "")
                 rem = re.sub(r'52\s\d{6}', '', rem)
@@ -208,18 +211,10 @@ def parse_interfood_pdf(pdf_file):
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 4. PREFIXEK, K-BETŰK ÉS KÖTŐJELEK (A legújabb kérések)
-                # Kereszt-tisztítás: " - |" cseréje " | "-re
-                rem = rem.replace(" - |", " | ")
+                # 4. SORSZÁMOK ÉS DARABSZÁMOK (Agresszív takarítás)
+                # Sor eleji sorszámok, akár van cső, akár nincs (pl. "80 ", "84 | ")
+                rem = re.sub(r'^\s*\d{1,3}\s*\|?\s*', '', rem)
                 
-                # Szigorúbb K betű vadászat (ha a megjegyzés elején vagy | után van)
-                rem = re.sub(r'^\s*K\s*\|', '', rem)
-                rem = re.sub(r'\|\s*K\s*\|', '|', rem)
-                rem = re.sub(r'^\s*K\s+(?=[#\d])', '', rem)
-                rem = re.sub(r'\|\s*K\s+(?=[#\d])', '| ', rem)
-                # Általános KCS tisztítás
-                rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
-
                 # Darabszám törlés (total_q)
                 if total_q:
                     tq_str = str(total_q)
@@ -227,14 +222,20 @@ def parse_interfood_pdf(pdf_file):
                     rem = re.sub(rf'\|\s*{tq_str}\s*\|', '|', rem)
                     rem = re.sub(rf'\s+{tq_str}\s*\|', ' |', rem)
 
+                # Makacs "K" betűk és prefixek
+                rem = re.sub(r'^\s*[HKSCPZ]\s*\|', '', rem)
+                rem = re.sub(r'\|\s*[HKSCPZ]\s*\|', '|', rem)
+                rem = re.sub(r'^\s*K\s+(?=[#\d])', '', rem)
+                rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
+
                 # 5. KOZMETIKA
+                rem = rem.replace(" - |", " | ")
                 rem = rem.replace("/", " ").replace("*", " ")
                 rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
                 rem = re.sub(r'[,.\s]{2,}', ' ', rem) 
                 
                 megj = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 
-                # Ha csak egy magányos kötőjel vagy szám maradt, töröljük
                 if megj in ["-", "|"] or (re.match(r'^\d+$', megj) and "#" not in megj):
                     megj = ""
                 

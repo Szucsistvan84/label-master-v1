@@ -545,19 +545,25 @@ def create_manifest_pdf(df, fn, meta_dict):
         # Sorrend (tizedesek nélkül, ha egész)
         idx_val = f"{row['Sorrend']:.1f}" if row['Sorrend'] % 1 != 0 else f"{int(row['Sorrend'])}"
         
-        # Csoportosítás jelzése (ha van)
-        group_tag = f"<b>[{row['Csoport']}]</b> " if str(row.get('Csoport', '')).strip() else ""
+        # Csoportosítás jelzése (ha van a "Csoport" oszlopban érték)
+        manual_group = str(row.get('Csoport', '')).strip()
+        group_tag = f"<b>[{manual_group}]</b> " if manual_group and manual_group.lower() != 'nan' else ""
         
-        # Az 'Infó' helyett a 'Megjegyzés' kulcsot használjuk, mert a parser így menti el
-        megj = f"<br/><i>{row['Megjegyzés']}</i>" if str(row.get('Megjegyzés', '')).strip() else ""
+        # Megjegyzés kezelése (biztonságos lekéréssel)
+        megj_szoveg = str(row.get('Megjegyzés', '')).strip()
+        megj = f"<br/><font color='red'><i>{megj_szoveg}</i></font>" if megj_szoveg and megj_szoveg.lower() != 'nan' else ""
         
+        # Pénz formázása (0 Ft elrejtése)
+        p_val = str(row.get('Pénz', '')).replace(" 0 Ft", "").replace("0 Ft", "").strip()
+        penz_disp = f"<b>{p_val}</b>" if p_val and p_val != "nan" else ""
+
         table_data.append([
             idx_val,
             Paragraph(f"{group_tag}<b>{row['Ügyintéző']}</b><br/>{row['Cím']}{megj}", styles['Normal']),
-            str(row['Pénz']),
-            str(row['Tel']),
-            Paragraph(str(row['Rendelés']), styles['Small']),
-            str(row['DB'])
+            Paragraph(penz_disp, styles['Small']),
+            Paragraph(str(row.get('Telefon', '')), styles['Small']), # 'Tel' helyett 'Telefon'
+            Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']), # 'Rendelés' helyett 'Rendelés_Full'
+            str(int(row.get('Összesen', 0))) # 'DB' helyett 'Összesen'
         ])
 
     # Táblázat létrehozása és hozzáadása az elemekhez

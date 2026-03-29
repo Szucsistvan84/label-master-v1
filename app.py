@@ -23,28 +23,34 @@ MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 def extract_all_meta(pdf_files):
     all_meta = {'jaratok': [], 'ev': '', 'het': '', 'nap': ''}
     
+    # Járatszám minta: keresünk 4 számjegyet, ami után pont és "járat" van, 
+    # VAGY a "Nyomtatta: 4002" formátumot
+    jarat_re = re.compile(r'(\d{4})\.\s*járat|Nyomtatta:\s*(\d{4})')
+    
     for uploaded_file in pdf_files:
-        # Fontos: a seek(0) biztosítja, hogy a pdfplumber az elejétől olvassa
         uploaded_file.seek(0) 
         with pdfplumber.open(uploaded_file) as pdf:
+            # Az első oldal szövege
             text = pdf.pages[0].extract_text() or ""
             
-            # Járatszám (pl. 4002 vagy Nyomtatta: 4002)
-            jarat_match = re.search(r'(\d{4})\.\s*járat|Nyomtatta:\s*(\d{4})', text)
+            # Járatszám keresése
+            jarat_match = jarat_re.search(text)
             if jarat_match:
+                # Az első vagy a második csoportban lesz a szám
                 j_num = jarat_match.group(1) or jarat_match.group(2)
-                if j_num not in all_meta['jaratok']:
+                if j_num and j_num not in all_meta['jaratok']:
                     all_meta['jaratok'].append(j_num)
             
-            # Dátum infók (csak az első fájlból, ha még üresek)
+            # Dátum infók (Év, Hét, Nap)
             if not all_meta['ev']:
                 ev_m = re.search(r'Év:\s*(\d{4})', text)
                 het_m = re.search(r'Hét:\s*(\d{1,2})', text)
-                nap_m = re.search(r'Nap:\s*([^,\n\r]+)', text)
+                # A napnál megállunk a sor végén vagy az InterFood szónál
+                nap_m = re.search(r'Nap:\s*([^,\n\r|]+)', text)
                 
                 if ev_m: all_meta['ev'] = ev_m.group(1)
                 if het_m: all_meta['het'] = het_m.group(1)
-                if nap_m: all_meta['nap'] = nap_m.group(1).strip()
+                if nap_m: all_meta['nap'] = nap_m.group(1).split('InterFood')[0].strip()
     
     all_meta['jaratok'].sort()
     return all_meta

@@ -128,20 +128,14 @@ def parse_interfood_pdf(pdf_file):
                 clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                 clean_name = re.sub(r'\s*-[A-Z]$', '', clean_name) # Levágja a "-F" típusú végeket
 
-                # Telefon kinyerése - Szigorú limit a debreceni 52/511000 formátumra
-                # --- TELEFONSZÁM FIX (Szigorú limit) ---
-                # Először kiszedünk minden szóközt, hogy ne zavarjon
+                # --- TELEFONSZÁM FIX (Golyóálló regex) ---
                 raw_tel_text = text_ws.replace(" ", "")
-                tel_m = re.search(r'(\d{2}/\d{6,8})', raw_tel_text)
+                # Kifejezetten a magyar formátumokat keressük:
+                # 52/ + PONTOSAN 6 számjegy VAGY 20/30/70/ + PONTOSAN 7 számjegy
+                tel_m = re.search(r'(52/\d{6}|[237]0/\d{7})', raw_tel_text)
                 clean_tel = ""
                 if tel_m:
-                    full_match = tel_m.group(0)
-                    # Debreceni vezetékes: 52/511000 -> 9 karakter (perjellel)
-                    if full_match.startswith("52/"):
-                        clean_tel = full_match[:9]
-                    # Mobil: 30/1234567 -> 10 karakter (perjellel)
-                    else:
-                        clean_tel = full_match[:10]
+                    clean_tel = tel_m.group(1)
 
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
@@ -182,11 +176,10 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (LÁBLÉC ÉS SORSZÁM STOP) ---
+                # --- A SZOBRÁSZ-LOGIKA (TÖKÉLETESÍTETT TISZTÍTÁS) ---
                 rem = all_relevant_text
                 
-                # 1. LÁBLÉC AZONNALI LEVÁGÁSA (Mielőtt bármi mást csinálnánk)
-                # Ha bármelyik stop-phrase benne van, mindent dobunk, ami utána jön
+                # 1. LÁBLÉC AZONNALI LEVÁGÁSA
                 stop_words = ["Csillagozott", "kiegészítő is van", "Összesítés", "Összesen:", "Nyomtatva:"]
                 for sw in stop_words:
                     if sw in rem:
@@ -196,40 +189,48 @@ def parse_interfood_pdf(pdf_file):
                 rem = re.sub(r'[A-Z]-\d+[-A-Z]*', '', rem)
                 rem = rem.replace(full_id_match, "")
 
-                # 3. NEVEK TÖRLÉSE
+                # 3. DR. ÉS NEVEK AGRESSZÍV TÖRLÉSE
+                # A Dr. minden formájának (Dr, dr, Dr., dr.) globális irtása a megjegyzésből!
+                rem = re.sub(r'(?i)\bdr\.?\s*', '', rem)
+                
                 name_targets = []
                 if clean_name: 
-                    name_targets.append(str(clean_name).strip())
-                    name_parts = re.split(r'[\s\-]', str(clean_name))
+                    # Névből is kivesszük a dr-t, hogy ne zavarjon
+                    clean_name_no_dr = re.sub(r'(?i)\bdr\.?\s*', '', str(clean_name)).strip()
+                    name_targets.append(clean_name_no_dr)
+                    name_parts = re.split(r'[\s\-]', clean_name_no_dr)
                     for part in name_parts:
-                        if len(part.strip("., ")) > 2: name_targets.append(part.strip("., "))
+                        if len(part.strip("., ")) > 2: 
+                            name_targets.append(part.strip("., "))
+                            
                 for target in sorted(list(set(name_targets)), key=len, reverse=True):
                     rem = re.compile(re.escape(target), re.IGNORECASE).sub("", rem)
 
-                # 4. ALAPADATOK ÉS TELEFONSZÁM MARADVÁNYOK
+                # 4. TELEFONSZÁMOK ÉS ALAPADATOK
                 if address: rem = rem.replace(address, "")
                 if clean_tel: rem = rem.replace(clean_tel, "")
-                # Szóközös telefonszám-maradékok (pl. 52 511000)
+                # Makacs szóközös telefonszámok (52 511000)
                 rem = re.sub(r'52\s\d{6}', '', rem)
                 
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 5. SORSZÁMOK ÉS DARABSZÁMOK (A legagresszívabb szűrés)
-                # Törli a sor eleji magányos számokat és csöveket: "1 |", "2 ", "84 |"
-                rem = re.sub(r'^\s*[\d\s]+\|?\s*', '', rem)
-                
-                # Darabszám (total_q) pontos törlése
+                # 5. SORSZÁMOK, DARABSZÁMOK ÉS K PREFIXEK
+                # Darabszám (total_q) törlése elsőként
                 if total_q:
                     tq_str = str(total_q)
                     rem = re.sub(rf'^\s*{tq_str}\s*\|?', '', rem)
                     rem = re.sub(rf'\|\s*{tq_str}(\s*\||\s+)', ' | ', rem)
                     rem = re.sub(rf'\s+{tq_str}\s*\|', ' |', rem)
 
-                # Maradék K betűk és prefixek
-                rem = re.sub(r'^\s*[HKSCPZ]\s*\|', '', rem)
-                rem = re.sub(r'\|\s*[HKSCPZ]\s*\|', '|', rem)
+                # Minden sorszám és cső eltüntetése a sor elejéről (pl. "84 |")
+                rem = re.sub(r'^\s*[\d\s]+\|?\s*', '', rem)
+                
+                # PREFIXEK (K, H, S stb.) és KCS makacs törlése BÁRHOL a szövegben
+                rem = re.sub(r'\b[HKSCPZ]\s*\|', '', rem)
+                rem = re.sub(r'^\s*[HKSCPZ]\s+', '', rem)
+                rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
 
                 # 6. KOZMETIKA
                 rem = rem.replace(" - |", " | ")
@@ -239,7 +240,6 @@ def parse_interfood_pdf(pdf_file):
                 
                 megj = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 
-                # Ha csak egy magányos szám maradt (ami nem kapukód #), akkor kuka
                 if (re.match(r'^\d+$', megj) and "#" not in megj) or megj in ["-", "|"]:
                     megj = ""
                 

@@ -129,16 +129,19 @@ def parse_interfood_pdf(pdf_file):
                 clean_name = re.sub(r'\s*-[A-Z]$', '', clean_name) # Levágja a "-F" típusú végeket
 
                 # Telefon kinyerése - Szigorú limit a debreceni 52/511000 formátumra
-                tel_m = re.search(r'(\d{2}/\d{6,7})', text_ws.replace(" ", ""))
+                # --- TELEFONSZÁM FIX (Szigorú limit) ---
+                # Először kiszedünk minden szóközt, hogy ne zavarjon
+                raw_tel_text = text_ws.replace(" ", "")
+                tel_m = re.search(r'(\d{2}/\d{6,8})', raw_tel_text)
                 clean_tel = ""
                 if tel_m:
-                    clean_tel = tel_m.group(0)
-                    # FIX: Debreceni vezetékes (52/...) SOHA nem több 9 karakternél
-                    if clean_tel.startswith("52/") and len(clean_tel) > 9:
-                        clean_tel = clean_tel[:9]
-                    # Mobil (20/, 30/, 70/...) SOHA nem több 10 karakternél
-                    elif "/" in clean_tel and len(clean_tel) > 10:
-                        clean_tel = clean_tel[:10]
+                    full_match = tel_m.group(0)
+                    # Debreceni vezetékes: 52/511000 -> 9 karakter (perjellel)
+                    if full_match.startswith("52/"):
+                        clean_tel = full_match[:9]
+                    # Mobil: 30/1234567 -> 10 karakter (perjellel)
+                    else:
+                        clean_tel = full_match[:10]
 
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3
@@ -179,56 +182,56 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (STABILIZÁLT VERZIÓ) ---
+                # --- A SZOBRÁSZ-LOGIKA (LÁBLÉC ÉS SORSZÁM STOP) ---
                 rem = all_relevant_text
                 
-                # 1. ID ÉS KÓDOK TÖRLÉSE
+                # 1. LÁBLÉC AZONNALI LEVÁGÁSA (Mielőtt bármi mást csinálnánk)
+                # Ha bármelyik stop-phrase benne van, mindent dobunk, ami utána jön
+                stop_words = ["Csillagozott", "kiegészítő is van", "Összesítés", "Összesen:", "Nyomtatva:"]
+                for sw in stop_words:
+                    if sw in rem:
+                        rem = rem.split(sw)[0]
+
+                # 2. ID ÉS KÓDOK TÖRLÉSE
                 rem = re.sub(r'[A-Z]-\d+[-A-Z]*', '', rem)
                 rem = rem.replace(full_id_match, "")
 
-                # 2. NEVEK TÖRLÉSE (Szavanként is)
+                # 3. NEVEK TÖRLÉSE
                 name_targets = []
                 if clean_name: 
-                    full_name = str(clean_name).strip()
-                    name_targets.append(full_name)
-                    if "dr" in full_name.lower():
-                        name_targets.extend(["Dr.", "dr.", "Dr", "dr"])
-                    name_parts = re.split(r'[\s\-]', full_name)
+                    name_targets.append(str(clean_name).strip())
+                    name_parts = re.split(r'[\s\-]', str(clean_name))
                     for part in name_parts:
-                        clean_part = part.strip("., ")
-                        if len(clean_part) > 2: name_targets.append(clean_part)
-
+                        if len(part.strip("., ")) > 2: name_targets.append(part.strip("., "))
                 for target in sorted(list(set(name_targets)), key=len, reverse=True):
-                    pattern = re.compile(re.escape(target), re.IGNORECASE)
-                    while pattern.search(rem): rem = pattern.sub("", rem)
+                    rem = re.compile(re.escape(target), re.IGNORECASE).sub("", rem)
 
-                # 3. ALAPADATOK ÉS TELEFONSZÁM SZEMÉT
+                # 4. ALAPADATOK ÉS TELEFONSZÁM MARADVÁNYOK
                 if address: rem = rem.replace(address, "")
                 if clean_tel: rem = rem.replace(clean_tel, "")
+                # Szóközös telefonszám-maradékok (pl. 52 511000)
                 rem = re.sub(r'52\s\d{6}', '', rem)
                 
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 4. SORSZÁMOK ÉS DARABSZÁMOK (Agresszív takarítás)
-                # Sor eleji sorszámok, akár van cső, akár nincs (pl. "80 ", "84 | ")
-                rem = re.sub(r'^\s*\d{1,3}\s*\|?\s*', '', rem)
+                # 5. SORSZÁMOK ÉS DARABSZÁMOK (A legagresszívabb szűrés)
+                # Törli a sor eleji magányos számokat és csöveket: "1 |", "2 ", "84 |"
+                rem = re.sub(r'^\s*[\d\s]+\|?\s*', '', rem)
                 
-                # Darabszám törlés (total_q)
+                # Darabszám (total_q) pontos törlése
                 if total_q:
                     tq_str = str(total_q)
                     rem = re.sub(rf'^\s*{tq_str}\s*\|?', '', rem)
-                    rem = re.sub(rf'\|\s*{tq_str}\s*\|', '|', rem)
+                    rem = re.sub(rf'\|\s*{tq_str}(\s*\||\s+)', ' | ', rem)
                     rem = re.sub(rf'\s+{tq_str}\s*\|', ' |', rem)
 
-                # Makacs "K" betűk és prefixek
+                # Maradék K betűk és prefixek
                 rem = re.sub(r'^\s*[HKSCPZ]\s*\|', '', rem)
                 rem = re.sub(r'\|\s*[HKSCPZ]\s*\|', '|', rem)
-                rem = re.sub(r'^\s*K\s+(?=[#\d])', '', rem)
-                rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
 
-                # 5. KOZMETIKA
+                # 6. KOZMETIKA
                 rem = rem.replace(" - |", " | ")
                 rem = rem.replace("/", " ").replace("*", " ")
                 rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
@@ -236,7 +239,8 @@ def parse_interfood_pdf(pdf_file):
                 
                 megj = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 
-                if megj in ["-", "|"] or (re.match(r'^\d+$', megj) and "#" not in megj):
+                # Ha csak egy magányos szám maradt (ami nem kapukód #), akkor kuka
+                if (re.match(r'^\d+$', megj) and "#" not in megj) or megj in ["-", "|"]:
                     megj = ""
                 
                 if unique_orders:

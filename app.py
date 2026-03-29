@@ -488,8 +488,8 @@ def create_manifest_pdf(df, fn, meta_dict):
     if df is None or df.empty: 
         return None
 
-    # --- 1. ELŐKÉSZÍTÉS ---
-    # Cím tisztítása a csoportosításhoz
+    # --- 1. OKOS CSOPORTOSÍTÁS ELŐKÉSZÍTÉSE ---
+    # Tisztítjuk a címeket az összevetéshez (pontok nélkül, kisbetűvel)
     df['clean_address'] = df['Cím'].astype(str).str.replace('.', '', regex=False).str.strip().str.lower()
     
     def get_group_id(row):
@@ -504,77 +504,84 @@ def create_manifest_pdf(df, fn, meta_dict):
     f_reg, f_bold = register_fonts()  
     buf = BytesIO()
 
-    # --- 2. STÍLUSOK ÉS ELEMEK INICIALIZÁLÁSA (Ez hiányzott!) ---
+    # --- 2. STÍLUSOK ---
     from reportlab.lib.styles import ParagraphStyle
     styles = {
         'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
-        'Bold': ParagraphStyle('Bold', fontName=f_bold, fontSize=8, leading=10),
-        'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=8),
+        'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=9),
         'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12, alignment=1)
     }
 
-    # Ez a sor hozza létre az 'elements' listát, amit a hiba hiányolt
-    elements = [] 
+    elements = []
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=5*mm, leftMargin=5*mm, topMargin=10*mm, bottomMargin=15*mm)
 
-    # Fejléc szöveg összeállítása
-    ev = meta_dict.get('ev', '')
-    het = meta_dict.get('het', '')
-    nap = meta_dict.get('nap', '')
+    # --- 3. OLDALSZÁMOZÁS ÉS FEJLÉC FÜGGVÉNY ---
+    def draw_footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont(f_reg, 8)
+        # Oldalszám középre alulra
+        page_num = f"{doc.page}. oldal"
+        canvas.drawCentredString(105*mm, 10*mm, page_num)
+        canvas.restoreState()
+
+    # Fejléc tartalom
     jaratok = ", ".join(meta_dict.get('jaratok', []))
-    fejlec_szov = f"MENETTERV - Járat(ok): {jaratok} | {ev}. év, {het}. hét | {nap}"
-    
+    fejlec_szov = f"MENETTERV - Járat(ok): {jaratok} | {meta_dict.get('ev')}. év, {meta_dict.get('het')}. hét | {meta_dict.get('nap')}"
     elements.append(Paragraph(fejlec_szov, styles['Header']))
     elements.append(Spacer(1, 4 * mm))
 
-    # --- 3. TÁBLÁZAT ÉPÍTÉSE ---
-    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=5*mm, leftMargin=5*mm, topMargin=10*mm, bottomMargin=10*mm)
-    
-    table_data = [["#", "NÉV / CÍM / INFÓ", "PÉNZ", "TEL", "RENDELÉS", "DB"]]
-    
-    # Táblázat stílusának alapjai
+    # --- 4. TÁBLÁZAT ADATOK ---
+    # Új oszloprend: #, Név/Cím, ☐, Pénz, Tel, Rendelés, DB
+    table_data = [["#", "NÉV / CÍM / INFÓ", "☐", "PÉNZ", "TEL", "RENDELÉS", "DB"]]
     table_styles = [
         ('FONTNAME', (0,0), (-1,0), f_bold),
-        ('FONTSIZE', (0,0), (-1,-1), 8),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('ALIGN', (2,0), (2,-1), 'CENTER'), # Checkbox középre
+        ('ALIGN', (6,0), (6,-1), 'CENTER'), # DB középre
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
     ]
 
-    # Sorok feldolgozása
-    for i, row in df.iterrows():
-        # Sorrend (tizedesek nélkül, ha egész)
-        idx_val = f"{row['Sorrend']:.1f}" if row['Sorrend'] % 1 != 0 else f"{int(row['Sorrend'])}"
-        
-        # Csoportosítás jelzése (ha van a "Csoport" oszlopban érték)
-        manual_group = str(row.get('Csoport', '')).strip()
-        group_tag = f"<b>[{manual_group}]</b> " if manual_group and manual_group.lower() != 'nan' else ""
-        
-        # Megjegyzés kezelése (biztonságos lekéréssel)
-        megj_szoveg = str(row.get('Megjegyzés', '')).strip()
-        megj = f"<br/><font color='red'><i>{megj_szoveg}</i></font>" if megj_szoveg and megj_szoveg.lower() != 'nan' else ""
-        
-        # Pénz formázása (0 Ft elrejtése)
-        p_val = str(row.get('Pénz', '')).replace(" 0 Ft", "").replace("0 Ft", "").strip()
-        penz_disp = f"<b>{p_val}</b>" if p_val and p_val != "nan" else ""
+    current_row_idx = 1
+    grouped = df.groupby('group_id', sort=False)
 
-        table_data.append([
-            idx_val,
-            Paragraph(f"{group_tag}<b>{row['Ügyintéző']}</b><br/>{row['Cím']}{megj}", styles['Normal']),
-            Paragraph(penz_disp, styles['Small']),
-            Paragraph(str(row.get('Telefon', '')), styles['Small']), # 'Tel' helyett 'Telefon'
-            Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']), # 'Rendelés' helyett 'Rendelés_Full'
-            str(int(row.get('Összesen', 0))) # 'DB' helyett 'Összesen'
-        ])
+    for gid, group in grouped:
+        is_group = len(group) > 1
+        start_idx = current_row_idx
+        
+        for i, (_, row) in enumerate(group.iterrows()):
+            # PÉNZ JAVÍTÁS: Csak akkor tüntetjük el, ha pontosan "0 Ft"
+            p_raw = str(row.get('Pénz', '')).strip()
+            penz_disp = "" if p_raw in ["0 Ft", "0", "nan", ""] else f"<b>{p_raw}</b>"
+            
+            megj_raw = str(row.get('Megjegyzés', '')).strip()
+            megj = f"<br/><font color='red'><i>{megj_raw}</i></font>" if megj_raw and megj_raw.lower() != 'nan' else ""
+            
+            group_tag = "<font color='blue'>▲ </font>" if is_group else ""
+            
+            table_data.append([
+                f"{row['Sorrend']:.1f}" if row['Sorrend'] % 1 != 0 else f"{int(row['Sorrend'])}",
+                Paragraph(f"{group_tag}<b>{row['Ügyintéző']}</b><br/>{row['Cím']}{megj}", styles['Normal']),
+                MyCheckbox(10),
+                Paragraph(penz_disp, styles['Small']),
+                Paragraph(str(row.get('Telefon', '')), styles['Small']),
+                Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']),
+                str(int(row.get('Összesen', 0)))
+            ])
+            current_row_idx += 1
+            
+        if is_group:
+            end_idx = current_row_idx - 1
+            table_styles.append(('BACKGROUND', (0, start_idx), (-1, end_idx), colors.Color(0.96, 0.96, 0.96)))
+            table_styles.append(('OUTLINE', (0, start_idx), (-1, end_idx), 1.2, colors.black))
 
-    # Táblázat létrehozása és hozzáadása az elemekhez
-    col_widths = [10*mm, 85*mm, 20*mm, 25*mm, 50*mm, 8*mm]
+    col_widths = [10*mm, 80*mm, 8*mm, 20*mm, 25*mm, 45*mm, 8*mm]
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle(table_styles))
-    
-    elements.append(t) # Most már létezik az 'elements', nem lesz hiba!
+    elements.append(t)
 
-    # PDF generálása
-    doc.build(elements)
+    # Build oldalszámozással
+    doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
     buf.seek(0)
     return buf.getvalue()
     
@@ -711,39 +718,29 @@ def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dic
     # --- FŐ PROGRAMFUTÁS JAVÍTVA ---
     
     if st.session_state.mdf is not None:
-        st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
-        
-        # --- CSOPORT OSZLOP LÉTREHOZÁSA ÉS INICIALIZÁLÁSA ---
+        # Biztosítjuk, hogy legyen Csoport oszlop
         if 'Csoport' not in st.session_state.mdf.columns:
             st.session_state.mdf['Csoport'] = ""
-            # Ez a sor fontos az if után, hogy ne legyen üres a blokk!
-            st.session_state.mdf['Csoport'] = st.session_state.mdf['Csoport'].astype(str)
 
-        # 1. KULCS INICIALIZÁLÁSA (Ha még nem létezne)
-        if 'editor_key' not in st.session_state:
-            st.session_state.editor_key = 0
-
-        # 2. ADATSZERKESZTŐ
+        st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
+        
         edited_df = st.data_editor(
             st.session_state.mdf,
-            key=f"editor_v_{st.session_state.editor_key}", 
+            key=f"editor_{st.session_state.get('editor_key', 0)}", 
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
             column_config={
                 "Csoport": st.column_config.TextColumn(
                     "Csoport",
-                    help="Írj ide azonos jelet (pl. '1') az összetartozó címekhez.",
-                    width="small",
-                    placeholder="Pl. 1"
+                    help="Azonos jel esetén (pl. '1') a PDF-ben egy keretbe kerülnek.",
+                    width="small"
                 ),
-                "Sorrend": st.column_config.NumberColumn(
-                    "Sorrend",
-                    help="Tizedesekkel (pl. 1.5) beszúrhatsz címeket.",
-                    format="%.1f",
-                    step=0.1,
-                ),
-                "ID": st.column_config.TextColumn("Azonosító", disabled=True),
+                "Sorrend": st.column_config.NumberColumn("Sor", format="%.1f", width="small"),
+                "Ügyintéző": "Név",
+                "Telefon": "Tel",
+                "Pénz": "Összeg",
+                "Megjegyzés": "Infó"
             }
         )
 

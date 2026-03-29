@@ -165,63 +165,61 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (RADIKÁLIS TISZTÍTÁS) ---
+                # --- A SZOBRÁSZ-LOGIKA (JAVÍTOTT, AGGRESSZÍV TISZTÍTÁS) ---
                 rem = all_relevant_text
                 
-                # 1. ID ÉS KÓDOK TÖRLÉSE (A -F és egyéb végződésekkel együtt)
+                # 1. ID ÉS KÓDOK TÖRLÉSE
                 rem = re.sub(r'[A-Z]-\d+[-A-Z]*', '', rem)
                 rem = rem.replace(full_id_match, "")
 
-                # 2. NEVEK AGGRESSZÍV TÖRLÉSE
+                # 2. NEVEK ÉS DUPLÁZÓDÁSOK TÖRLÉSE (Dr. és Ismétlődések ellen)
                 name_targets = []
-                # JAVÍTÁS: row['Ügyintéző'] helyett clean_name-et használunk, mert az már létezik
                 if clean_name: 
                     u_nev = str(clean_name).strip()
                     name_targets.append(u_nev)
+                    # Dr. kezelése: ha benne van, töröljük az előtagot is, és a névvariációkat is
+                    if "dr" in u_nev.lower():
+                        name_targets.extend(["Dr.", "dr.", "Dr", "dr"])
+                        name_targets.append(re.sub(r'^[Dd]r\.?\s+', '', u_nev).strip())
+                    
                     if "-" in u_nev:
                         for part in u_nev.split("-"):
-                            if len(part.strip()) > 2:
-                                name_targets.append(part.strip() + "-")
-                                name_targets.append("-" + part.strip())
-                                name_targets.append(part.strip())
+                            if len(part.strip()) > 2: name_targets.append(part.strip())
 
+                # A leghosszabb nevektől haladunk a rövidebbek felé, és amíg találunk ilyet, töröljük (duplázódás fix)
                 for target in sorted(list(set(name_targets)), key=len, reverse=True):
                     if len(target) > 2:
-                        rem = re.sub(re.escape(target), "", rem, flags=re.IGNORECASE)
+                        pattern = re.compile(re.escape(target), re.IGNORECASE)
+                        while pattern.search(rem):
+                            rem = pattern.sub("", rem)
 
-                # 3. ALAPADATOK (Cím, Telefon, Rendelés)
+                # 3. ALAPADATOK ÉS EXTRA SZÁMOK TÖRLÉSE
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
+                # Extra: 52 511000 típusú szóközös számok irtása
+                rem = re.sub(r'\d{2}\s\d{6,7}', '', rem)
+                
                 for o in raw_orders: rem = rem.replace(o, "")
                 if raw_money_text: rem = rem.replace(raw_money_text, "")
                 rem = re.sub(MONEY_PAT, "", rem)
 
-                # 4. KCS ÉS A "MAGÁNYOS K" ELTÜNTETÉSE
-                rem = re.sub(r'(?i)\bkcs\b[:.\s]*', '', rem)
-                rem = re.sub(r'^\s*K\s*(?=[#\d])', '', rem)
-                rem = re.sub(r'\|\s*K\s*(?=[#\d])', '| ', rem)
+                # 4. SORSZÁMOK ÉS PREFIX MARADVÁNYOK (pl. 1 | vagy K |)
+                rem = re.sub(r'^\s*[HKSCPZ]\s*\|', '', rem)
+                rem = re.sub(r'\|\s*[HKSCPZ]\s*\|', '|', rem)
+                # Sor eleji sorszám: "1 | " -> ""
+                rem = re.sub(r'^\s*\d{1,3}\s*\|\s*', '', rem)
+                rem = re.sub(r'\|\s*\d{1,3}\s*\|', '|', rem)
 
-                # 5. LÁBLÉC ÉS OLDALSZÁM
+                # 5. LÁBLÉC ÉS ÍRÁSJELEK
                 stop_phrases = ["Csillagozott betűnél", "kiegészítő is van", "Összesítés:", "Összesen:", "Nyomtatva:"]
                 for phrase in stop_phrases:
                     if phrase in rem: rem = rem.split(phrase)[0]
-                rem = re.sub(r'\b\d+\.\s*oldal\b.*', '', rem, flags=re.IGNORECASE)
-
-                # 6. SORSZÁMOK
-                rem = re.sub(r'^\s*\d{1,3}(?!\s*#)\s+', '', rem)
-                rem = re.sub(r'\|\s*\d{1,3}(?!\s*#)\s+', '| ', rem)
-
-                # 7. DARABSZÁM (total_q)
-                if total_q > 0:
-                    rem = re.sub(rf'(?<![#\w\d]){total_q}(?![#\w\d])', '', rem)
-
-                # 8. ÍRÁSJEL KOZMETIKA
-                rem = rem.replace("/", " ")
+                
+                rem = rem.replace("/", " ").replace("*", " ")
                 rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
                 rem = re.sub(r'[,.\s]{2,}', ' ', rem) 
                 
-                megj = re.sub(r'\s+', ' ', rem).strip()
-                megj = megj.strip(" |,. /") 
+                megj = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 
                 if re.match(r'^\d+$', megj) and "#" not in megj:
                     megj = ""

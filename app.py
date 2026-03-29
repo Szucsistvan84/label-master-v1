@@ -901,5 +901,31 @@ def main():
             "raklista.pdf", use_container_width=True
         )
 
+        st.divider()
+        st.write("### 💾 Táblázat mentése és exportálása")
+        
+        # Új sor a mentési gomboknak
+        save_col1, save_col2 = st.columns(2)
+
+        with save_col1:
+            # CSV EXPORT GOMB - Időbélyeggel
+            import datetime
+            now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+            # Az edited_df-et mentjük, mert abban vannak a legfrissebb módosításaid
+            csv_data = edited_df.to_csv(index=False, encoding='utf-8-sig')
+            
+            st.download_button(
+                label="📥 KÉSZ TÁBLÁZAT MENTÉSE (CSV)",
+                data=csv_data,
+                file_name=f"{now}_export.csv",
+                mime='text/csv',
+                use_container_width=True,
+                help="Ezt töltheted vissza másnap, hogy ne vesszen el a sorrend."
+            )
+
+        with save_col2:
+            # Itt egy kis emlékeztető vagy állapotjelző
+            st.info("A CSV mentése után ezt a fájlt használd a holnapi visszatöltéshez.")
+
 if __name__ == "__main__":
     main()

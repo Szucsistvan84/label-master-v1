@@ -418,8 +418,9 @@ def create_label_pdf(df, fn, ft):
             m_text = (
                 f"<font size='10' name='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
                 f"Új Ügyfeleink részére!<br/><br/>"
-                f"<b>Rendelés leadás: {fn}</b><br/>"
-                f"tel: <b>{ft}</b>"
+                f"<b>Rendelés leadás:</b><br/>"
+                f"<b>{fn}</b>, tel: <b>{ft}</b><br/><br/>"
+                f"<font size='5.5'><b>* a kedvezmény telefonon leadott rendelésekre érvényesíthető</b></font>"
             )
             para = Paragraph(m_text, promo_s)
             pw, ph = para.wrap(usable_w, lh - (2 * inner_m) - lift)

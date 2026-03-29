@@ -548,7 +548,8 @@ def create_manifest_pdf(df, fn, meta_dict):
         # Csoportosítás jelzése (ha van)
         group_tag = f"<b>[{row['Csoport']}]</b> " if str(row.get('Csoport', '')).strip() else ""
         
-        megj = f"<br/><i>{row['Infó']}</i>" if row['Infó'] else ""
+        # Az 'Infó' helyett a 'Megjegyzés' kulcsot használjuk, mert a parser így menti el
+        megj = f"<br/><i>{row['Megjegyzés']}</i>" if str(row.get('Megjegyzés', '')).strip() else ""
         
         table_data.append([
             idx_val,

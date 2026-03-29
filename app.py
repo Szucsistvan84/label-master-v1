@@ -819,20 +819,17 @@ def main():
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
-        # Először előkészítjük az adatokat
         df_to_edit = st.session_state.mdf.copy()
         
-        # Ha nincs Sorrend oszlop, létrehozzuk
-        if 'Sorrend' not in df_to_edit.columns:
-            df_to_edit['Sorrend'] = 999
+        # KRITIKUS: Kényszerítjük a 'float' (tizedes) típust, különben a 88.5-ből 88 lesz!
+        df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999).astype(float)
         
-        # Rendezés a meglévő sorrend alapján
-        df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999)
+        # Rendezés a táblázat megjelenítése előtt
         df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
     
         st.subheader("Szállítási lista")
         
-        # Oszlopok sorrendjének meghatározása (A df_to_edit-et használjuk hivatkozásnak)
+        # Oszloprend beállítása
         all_cols = df_to_edit.columns.tolist()
         if 'Sorrend' in all_cols:
             all_cols.remove('Sorrend')
@@ -840,16 +837,14 @@ def main():
         else:
             new_column_order = all_cols
         
-        # TÁBLÁZAT SZERKESZTŐ
-        # Az eredményt az 'edited_df' változóba mentjük
         edited_df = st.data_editor(
             df_to_edit,
             column_order=new_column_order,
             column_config={
                 "Sorrend": st.column_config.NumberColumn(
                     "Sorrend",
-                    help="Tizedesekkel (pl. 1.5) beszúrhatsz címeket két megálló közé.",
-                    format="%d", # A felületen egésznek látszik, de engedi a tizedest
+                    help="Írj be tizedest (pl. 88.5), majd nyomj a lenti gombra!",
+                    format="%.1f", # Ez mutatja a tizedest a táblázatban!
                     step=0.1,
                 ),
                 "Pénz": st.column_config.TextColumn("Pénz", disabled=False),

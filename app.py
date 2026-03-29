@@ -165,7 +165,12 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- A SZOBRÁSZ-LOGIKA (TISZTÍTÁS ÉS NÉV-MÁGNES EGYÜTT) ---
+                # --- ALAPÉRTÉKEK BEÁLLÍTÁSA (Hiba megelőzése) ---
+                phone_val = tel_m.group(0) if tel_m else ""
+                money_val = raw_money_text if raw_money_text else "0 Ft"
+                order_val = ", ".join(raw_orders) if raw_orders else ""
+
+                # --- A SZOBRÁSZ-LOGIKA ---
                 rem = all_relevant_text
                 
                 # 1. ÉTELKÓDOK ÉS MARADVÁNYAI
@@ -191,7 +196,7 @@ def parse_interfood_pdf(pdf_file):
                 for target in sorted(list(set(name_targets)), key=len, reverse=True):
                     rem = re.sub(re.escape(target), "", rem, flags=re.IGNORECASE)
 
-                # 3. ALAPADATOK (Cím, Tel, Pénz)
+                # 3. ALAPADATOK TÖRLÉSE (Cím, Tel, Pénz)
                 if address: rem = rem.replace(address, "")
                 if tel_m: rem = rem.replace(tel_m.group(0), "")
                 for o in raw_orders: rem = rem.replace(o, "")
@@ -218,30 +223,27 @@ def parse_interfood_pdf(pdf_file):
                 if re.match(r'^\d+$', megj) and "#" not in megj:
                     megj = ""
 
-                # --- NÉV-MÁGNES: ITT RAGASZTJUK ÁT AZ ÜGYINTÉZŐHÖZ ---
+                # --- NÉV-MÁGNES ---
                 final_ugyintezo = str(b4).strip()
                 name_parts = megj.split('|')
                 potential_name = name_parts[0].strip()
                 
-                blacklist = ["Porta", "Teherporta", "Kft", "Bt", "Iskola", "Gimnázium", "Kcs", "Kk", "Vevő"]
+                blacklist = ["Porta", "Teherporta", "Kft", "Bt", "Iskola", "Gimnázium", "Kcs", "Kk", "Vevő", "Vevő:", "Ügyfél"]
                 
                 if potential_name and potential_name[0].isupper() and not any(char.isdigit() for char in potential_name):
                     is_blacklisted = any(bad.lower() in potential_name.lower() for bad in blacklist)
                     
                     if 2 < len(potential_name) < 25 and len(potential_name.split()) <= 2 and not is_blacklisted:
-                        # Áthelyezés: a b4 helyett a final_ugyintezo-t frissítjük
                         final_ugyintezo = f"{final_ugyintezo} {potential_name}".strip()
-                        
-                        # Megjegyzésből levágjuk a nevet
                         if len(name_parts) > 1:
                             megj = "|".join(name_parts[1:]).strip(" |")
                         else:
                             megj = ""
 
-                # --- MENTÉS: ITT HASZNÁLJUK A final_ugyintezo-t ---
+                # --- MENTÉS (Most már minden változó létezik) ---
                 rows.append({
                     'Prefix': prefix,
-                    'Ügyintéző': final_ugyintezo, # Fontos: az új változót mentjük!
+                    'Ügyintéző': final_ugyintezo,
                     'Cím': address,
                     'Telefon': phone_val,
                     'Pénz': money_val,

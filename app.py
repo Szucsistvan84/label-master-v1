@@ -120,23 +120,22 @@ def parse_interfood_pdf(pdf_file):
                 prefix = full_id_match.split('-')[0]
                 u_id = full_id_match.split('-')[-1]
 
-                # Koordináták: B3 (Cím - tágítva), B4 (Név)
-                # 355 helyett 370-ig nézzük a címet, hogy az "fsz 1." vagy "01" beleférjen
+                # Koordináták finomhangolása
                 b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 370])
                 b4 = " ".join([w['text'] for w in line_words if 370 <= w['x0'] < 490])
-                clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
                 
-                tel_m = re.search(PHONE_PAT, text_ws.replace(" ", ""))
+                # Név tisztítása: Levágjuk a végéről a maradék kódokat (pl. -F, -P, -Z)
+                clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
+                clean_name = re.sub(r'\s*-[A-Z]$', '', clean_name) # Levágja a "-F" típusú végeket
+
+                # Telefon kinyerése - Szigorú limit a debreceni 52/511000 formátumra
+                tel_m = re.search(r'(\d{2}/\d{6,7})', text_ws.replace(" ", ""))
+                clean_tel = ""
                 if tel_m:
                     clean_tel = tel_m.group(0)
-                    # Ha debreceni vezetékes, akkor fix 9 karakter (pl. 52/511000)
+                    # FIX: Ha debreceni vezetékes, SOHA nem lehet hosszabb 9 karakternél (52/511000)
                     if clean_tel.startswith("52/") and len(clean_tel) > 9:
                         clean_tel = clean_tel[:9]
-                    # Ha mobil, akkor fix 10 karakter (pl. 30/1234567)
-                    elif len(clean_tel) > 10:
-                        clean_tel = clean_tel[:10]
-                else:
-                    clean_tel = ""
 
                 addr_m = re.search(r'(\d{4})', b3)
                 address = b3[addr_m.start():].strip() if addr_m else b3

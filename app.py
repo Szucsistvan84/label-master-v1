@@ -20,6 +20,35 @@ ORDER_PAT = r'\d+-[A-Z][A-Z0-9*+]*'
 # Frissített, "szóköz-toleráns" regex
 MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
+def extract_all_meta(pdf_files):
+    all_meta = {'jaratok': [], 'ev': '', 'het': '', 'nap': ''}
+    
+    for uploaded_file in pdf_files:
+        # Fontos: a seek(0) biztosítja, hogy a pdfplumber az elejétől olvassa
+        uploaded_file.seek(0) 
+        with pdfplumber.open(uploaded_file) as pdf:
+            text = pdf.pages[0].extract_text() or ""
+            
+            # Járatszám (pl. 4002 vagy Nyomtatta: 4002)
+            jarat_match = re.search(r'(\d{4})\.\s*járat|Nyomtatta:\s*(\d{4})', text)
+            if jarat_match:
+                j_num = jarat_match.group(1) or jarat_match.group(2)
+                if j_num not in all_meta['jaratok']:
+                    all_meta['jaratok'].append(j_num)
+            
+            # Dátum infók (csak az első fájlból, ha még üresek)
+            if not all_meta['ev']:
+                ev_m = re.search(r'Év:\s*(\d{4})', text)
+                het_m = re.search(r'Hét:\s*(\d{1,2})', text)
+                nap_m = re.search(r'Nap:\s*([^,\n\r]+)', text)
+                
+                if ev_m: all_meta['ev'] = ev_m.group(1)
+                if het_m: all_meta['het'] = het_m.group(1)
+                if nap_m: all_meta['nap'] = nap_m.group(1).strip()
+    
+    all_meta['jaratok'].sort()
+    return all_meta
+
 def register_fonts():
     try:
         pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
@@ -759,11 +788,17 @@ def main():
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
         if up_files and st.button("🚀 FELDOLGOZÁS"):
+            # --- EZ AZ ÚJ RÉSZ: META ADATOK KINYERÉSE ---
+            st.session_state.meta_data = extract_all_meta(up_files)
+            # --------------------------------------------
+
             all_rows = []
-            all_meta = []
+            all_meta = [] # Ez maradhat, ha a parse_interfood is használja
             
             with st.spinner("PDF-ek beolvasása..."):
                 for f in up_files:
+                    # Fontos: a seek(0), mert az extract_all_meta már beleolvasott!
+                    f.seek(0) 
                     rows, meta = parse_interfood_pdf(f)
                     if rows:
                         all_rows.extend(rows)
@@ -771,36 +806,21 @@ def main():
                         all_meta.extend(meta)
 
             if all_rows:
-                st.session_state.meta_data = all_meta
-                y, w = '2026', '13' 
-
-                if all_meta:
-                    try:
-                        y = all_meta[0].get('year', y)
-                        w = all_meta[0].get('week', w)
-                    except:
-                        pass
+                # A dátumot (év/hét) vehetjük az automatikusan kinyert meta-ból
+                meta_auto = st.session_state.meta_data
+                y = meta_auto.get('ev', '2026')
+                w = meta_auto.get('het', '13')
                 
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)
                 
-                # Itt fut le az összefésülés és a tisztítás
-                st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
-                
-                p_map = get_etlap_dict(y, w, 5)
-                sz_map = get_etlap_dict(y, w, 6)
-                
-                # Itt történik az adatok összefésülése
+                # Összefésülés
                 df_temp = merge_data(all_rows, p_map, sz_map)
                 
                 if not df_temp.empty:
-                    # ÚJ: Itt osztunk ki alapból sorszámokat 1-től kezdve
-                    # Ez biztosítja, hogy ne 999 legyen mindenhol
                     df_temp['Sorrend'] = range(1, len(df_temp) + 1)
                 
-                # Mentés a session state-be
                 st.session_state.mdf = df_temp
-                
                 st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
                 st.rerun()
 

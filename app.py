@@ -344,7 +344,8 @@ def create_label_pdf(df, fn, ft):
     inner_m = 5.5 * mm 
     usable_w = lw - (2 * inner_m)
 
-    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.5, leading=8.5)
+    # Kicsit tömörebb sorköz a rendeléseknek (leading: 8.5 -> 8.0)
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.5, leading=8.0)
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1)
 
     total_slots = math.ceil(len(df) / 21) * 21
@@ -356,65 +357,71 @@ def create_label_pdf(df, fn, ft):
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = col * lw, row_i * lh
 
-        # --- LENTI CELLÁK EXTRA EMELÉSE ---
-        # A legalsó sorban (row_i=0) megemeljük a tartalom alját, 
-        # hogy a nyomtató ne vágja le.
+        # Biztonsági emelés a lap alján (row_i=0 a legalsó sor)
         lift = 4.5 * mm if row_i == 0 else 0
-        
-        # A tartalom bázispontjai az emeléssel korrigálva
         y_eff = y + lift 
 
         if i < len(df):
             r = df.iloc[i]
-            top_y = y + lh - inner_m # A teteje marad fix, hogy ne csússzon össze
+            top_y = y + lh - inner_m
 
-            # 1. Hétvégi kiemelés (Szombat/Vasárnap esetén)
+            # 1. Hétvégi kiemelés
             is_weekend = r.get('Hétvégi') == True or "Szo:" in str(r.get('Rendelés_Full', ''))
             if is_weekend:
                 p.saveState()
                 p.setFillColor(colors.lightgrey)
-                p.rect(x + inner_m - 1*mm, top_y - 9 * mm, usable_w + 2*mm, 5 * mm, fill=1, stroke=0)
+                p.rect(x + inner_m - 1*mm, top_y - 9.5 * mm, usable_w + 2*mm, 5.5 * mm, fill=1, stroke=0)
                 p.restoreState()
 
-            # 2. Fejléc adatok
+            # 2. Fejléc adatok (Fix pozíciók)
             p.setFont(f_bold, 10)
             p.drawString(x + inner_m, top_y - 3 * mm, f"#{int(r['Sorrend'])}")
             p.setFont(f_reg, 8)
             p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {r.get('ID', 'N/A')}")
 
             p.setFont(f_bold, 9)
-            p.drawString(x + inner_m, top_y - 8 * mm, str(r.get('Ügyintéző', ''))[:25])
+            p.drawString(x + inner_m, top_y - 8.5 * mm, str(r.get('Ügyintéző', ''))[:25])
             p.setFont(f_reg, 8)
-            p.drawRightString(x + lw - inner_m, top_y - 8 * mm, str(r.get('Telefon', '')))
+            p.drawRightString(x + lw - inner_m, top_y - 8.5 * mm, str(r.get('Telefon', '')))
 
             p.setFont(f_reg, 7)
-            p.drawString(x + inner_m, top_y - 12 * mm, str(r.get('Cím', ''))[:45])
+            p.drawString(x + inner_m, top_y - 12.5 * mm, str(r.get('Cím', ''))[:45])
 
-            # 3. Rendelés (kicsit szűkebb helyen)
+            # 3. Rendelés (Lentebb tolva az ügyfél nevétől)
+            # A kezdőpont y_eff + inner_m + 7mm-re módosítva, hogy több hely legyen fent
             rendeles_text = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
             para = Paragraph(f"<b>{rendeles_text}</b>", order_s)
-            # Itt a magasságot limitáljuk, hogy ne lógjon rá a pénzre
-            pw, ph = para.wrap(usable_w, 12 * mm)
-            para.drawOn(p, x + inner_m, y_eff + inner_m + 8 * mm)
-
-            # 4. Pénz és Darab (Már az emelt y_eff-hez képest!)
-            penz = str(r.get('Pénz', '0 Ft')).replace(" ", "")
-            if penz not in ["0Ft", "", "0"]:
-                p.setFont(f_bold, 10)
-                p.drawString(x + inner_m, y_eff + inner_m + 3 * mm, str(r.get('Pénz', '')))
             
-            p.setFont(f_bold, 9)
-            p.drawRightString(x + lw - inner_m, y_eff + inner_m + 3 * mm, f"{int(r.get('Összesen', 0))} db")
+            # Kiszámoljuk mennyi hely van a felső adatok és az alsó pénz sor között
+            available_h = 16 * mm 
+            pw, ph = para.wrap(usable_w, available_h)
+            # A pozíciót úgy lőjük be, hogy a Cím alatt legyen 1-2mm-el
+            para.drawOn(p, x + inner_m, y_eff + inner_m + 6.5 * mm)
 
-            # 5. Futár sáv (Fixen az emelt zóna alján)
-            p.setDash(1, 1)
-            p.setStrokeColor(colors.grey)
+            # 4. Pénz és Darab (Kisebb betű, rátolva a vonalra)
+            penz = str(r.get('Pénz', '0 Ft')).replace(" ", "")
+            # Vonal pozíciója: y_eff + 5mm
+            # A szöveget közvetlenül a vonal fölé tesszük (y_eff + 5.5mm)
+            
+            if penz not in ["0Ft", "", "0"]:
+                p.setFont(f_bold, 9) # 10-ről 9-re csökkentve
+                p.drawString(x + inner_m, y_eff + 5.5 * mm, str(r.get('Pénz', '')))
+            
+            p.setFont(f_bold, 8) # 9-ről 8-ra csökkentve
+            p.drawRightString(x + lw - inner_m, y_eff + 5.5 * mm, f"{int(r.get('Összesen', 0))} db")
+
+            # 5. Folytonos elválasztó vonal
+            p.setDash(1, 0) # Folytonos vonal
+            p.setStrokeColor(colors.black)
+            p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 5 * mm, x + lw - inner_m, y_eff + 5 * mm)
+            
+            # Futár adatok legulul
             p.setFont(f_reg, 6)
             p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
 
         else:
-            # Marketing etikett emelt pozícióval
+            # Marketing etikett
             m_text = (
                 f"<font size='10' name='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
                 f"Új Ügyfeleink részére!<br/><br/>"

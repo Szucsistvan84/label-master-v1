@@ -745,11 +745,31 @@ def main():
     # 2. OLDALSÁV (SIDEBAR)
     with st.sidebar:
         st.header("⚙️ Kezelés")
-        # Közvetlenül a session_state-be írjuk az adatokat
         st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
         st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
         st.divider()
         
+        # --- KORÁBBI MENTÉS BETÖLTÉSE ---
+        st.subheader("📂 Korábbi mentés")
+        import_file = st.file_uploader("Exportált CSV visszatöltése", type=['csv'])
+        
+        if import_file is not None:
+            if st.button("📥 CSV BETÖLTÉSE"):
+                # Nyers betöltés, nem futtatunk rajta tisztító algoritmust!
+                df_imported = pd.read_csv(import_file)
+                
+                # Biztosítjuk, hogy a Sorrend oszlop szám formátumú legyen
+                if 'Sorrend' in df_imported.columns:
+                    df_imported['Sorrend'] = pd.to_numeric(df_imported['Sorrend'], errors='coerce').fillna(999)
+                
+                st.session_state.mdf = df_imported
+                st.success("Mentés sikeresen visszatöltve!")
+                st.rerun()
+
+        st.divider()
+
+        # --- ÚJ PDF-EK FELDOLGOZÁSA ---
+        st.subheader("📄 Új PDF-ek")
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
 
         if up_files and st.button("🚀 FELDOLGOZÁS"):
@@ -762,25 +782,7 @@ def main():
                     if rows:
                         all_rows.extend(rows)
                     if meta:
-                        all_meta.extend(meta)
-
-            if all_rows:
-                st.session_state.meta_data = all_meta
-                y, w = '2026', '13' 
-
-                if all_meta:
-                    try:
-                        y = all_meta[0].get('year', y)
-                        w = all_meta[0].get('week', w)
-                    except:
-                        pass
-                
-                p_map = get_etlap_dict(y, w, 5)
-                sz_map = get_etlap_dict(y, w, 6)
-                st.session_state.mdf = merge_data(all_rows, p_map, sz_map)
-                
-                st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
-                st.rerun()
+                        all_meta.extend(meta
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None:
@@ -794,26 +796,48 @@ def main():
 
         st.subheader("Szállítási lista")
         
+        # Oszlopok sorrendjének meghatározása (Sorrend az első)
+        all_cols = edited_df.columns.tolist()
+        if 'Sorrend' in all_cols:
+            all_cols.remove('Sorrend')
+            new_column_order = ['Sorrend'] + all_cols
+        else:
+            new_column_order = all_cols
+        
+        # Táblázat szerkesztő beállítása
         edited_df = st.data_editor(
-            df,
-            key=f"editor_{st.session_state.editor_key}",
-            num_rows="dynamic",
-            use_container_width=True,
-            hide_index=True,
+            edited_df,
+            column_order=new_column_order,
             column_config={
-                "Sorrend": st.column_config.NumberColumn("Sorrend", format="%d", width="small"),
-                "ID": None
-            }
+                "Sorrend": st.column_config.NumberColumn(
+                    "Sorrend",
+                    help="Ide írhatsz tizedeseket is (pl. 1.5), ha két megálló közé akarsz szúrni egyet.",
+                    format="%.1f", # Egy tizedesjegy megjelenítése
+                    step=0.1,
+                ),
+                "Pénz": st.column_config.TextColumn("Pénz", disabled=False), # Ne nyúljon hozzá a rendszer
+            },
+            num_rows="dynamic",
+            key=st.session_state.editor_key,
+            use_container_width=True
         )
 
-        if st.button("💾 SORREND MENTÉSE"):
+        if st.button("💾 SORREND MENTÉSE ÉS ÚJRARANKEZÉS"):
+            # 1. Tizedes számokká alakítás (hogy a sorrended érvényesüljön)
             temp_df = edited_df.copy()
-            temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999).astype(int)
+            temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999)
+            
+            # 2. Sorba rendezés a tizedesek alapján
             temp_df.sort_values('Sorrend', inplace=True)
+            
+            # 3. ÚJRARANKEZÉS: Itt történik a varázslat. 
+            # Az összes sort újra sorszámozzuk 1-től kezdve, egész számokkal.
+            temp_df['Sorrend'] = range(1, len(temp_df) + 1)
+            
+            # 4. Állapot mentése
             st.session_state.mdf = temp_df
-            st.session_state.weights = dict(zip(temp_df['ID'].astype(str), temp_df['Sorrend']))
-            st.session_state.editor_key += 1
-            st.success("Sorrend elmentve!")
+            st.session_state.editor_key += 1  # Ez kényszeríti a táblázatot a frissítésre
+            st.success("Sorrend véglegesítve és újraszámozva!")
             st.rerun()
 
         st.divider()

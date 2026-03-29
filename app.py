@@ -344,7 +344,7 @@ def create_label_pdf(df, fn, ft):
     inner_m = 5.5 * mm 
     usable_w = lw - (2 * inner_m)
 
-    # Kicsit tömörebb sorköz a rendeléseknek (leading: 8.5 -> 8.0)
+    # Tömörített sorköz a rendeléseknek
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.5, leading=8.0)
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1)
 
@@ -356,8 +356,6 @@ def create_label_pdf(df, fn, ft):
         
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = col * lw, row_i * lh
-
-        # Biztonsági emelés a lap alján (row_i=0 a legalsó sor)
         lift = 4.5 * mm if row_i == 0 else 0
         y_eff = y + lift 
 
@@ -373,7 +371,7 @@ def create_label_pdf(df, fn, ft):
                 p.rect(x + inner_m - 1*mm, top_y - 9.5 * mm, usable_w + 2*mm, 5.5 * mm, fill=1, stroke=0)
                 p.restoreState()
 
-            # 2. Fejléc adatok (Fix pozíciók)
+            # 2. Fejléc adatok
             p.setFont(f_bold, 10)
             p.drawString(x + inner_m, top_y - 3 * mm, f"#{int(r['Sorrend'])}")
             p.setFont(f_reg, 8)
@@ -387,36 +385,31 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_reg, 7)
             p.drawString(x + inner_m, top_y - 12.5 * mm, str(r.get('Cím', ''))[:45])
 
-            # 3. Rendelés (Lentebb tolva az ügyfél nevétől)
-            # A kezdőpont y_eff + inner_m + 7mm-re módosítva, hogy több hely legyen fent
+            # 3. Rendelés (Lentebb tolva az ügyfél nevétől, hogy ne érjenek össze)
             rendeles_text = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
             para = Paragraph(f"<b>{rendeles_text}</b>", order_s)
             
-            # Kiszámoljuk mennyi hely van a felső adatok és az alsó pénz sor között
-            available_h = 16 * mm 
-            pw, ph = para.wrap(usable_w, available_h)
-            # A pozíciót úgy lőjük be, hogy a Cím alatt legyen 1-2mm-el
-            para.drawOn(p, x + inner_m, y_eff + inner_m + 6.5 * mm)
+            # Maximális magasság, hogy ne lógjon rá az alsó adatokra
+            pw, ph = para.wrap(usable_w, 15 * mm)
+            para.drawOn(p, x + inner_m, y_eff + inner_m + 6.8 * mm)
 
-            # 4. Pénz és Darab (Kisebb betű, rátolva a vonalra)
+            # 4. Fizetendő és Darab (Kisebb betű, közvetlenül a vonalra tolva)
             penz = str(r.get('Pénz', '0 Ft')).replace(" ", "")
-            # Vonal pozíciója: y_eff + 5mm
-            # A szöveget közvetlenül a vonal fölé tesszük (y_eff + 5.5mm)
-            
             if penz not in ["0Ft", "", "0"]:
-                p.setFont(f_bold, 9) # 10-ről 9-re csökkentve
-                p.drawString(x + inner_m, y_eff + 5.5 * mm, str(r.get('Pénz', '')))
+                p.setFont(f_bold, 9)
+                # Itt a kért kiegészítés: "Fizet: "
+                p.drawString(x + inner_m, y_eff + 5.5 * mm, f"Fizet: {str(r.get('Pénz', ''))}")
             
-            p.setFont(f_bold, 8) # 9-ről 8-ra csökkentve
+            p.setFont(f_bold, 8)
             p.drawRightString(x + lw - inner_m, y_eff + 5.5 * mm, f"{int(r.get('Összesen', 0))} db")
 
             # 5. Folytonos elválasztó vonal
-            p.setDash(1, 0) # Folytonos vonal
+            p.setDash(1, 0) 
             p.setStrokeColor(colors.black)
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 5 * mm, x + lw - inner_m, y_eff + 5 * mm)
             
-            # Futár adatok legulul
+            # Futár adatok
             p.setFont(f_reg, 6)
             p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
 

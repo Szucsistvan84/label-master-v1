@@ -470,106 +470,95 @@ def create_label_pdf(df, fn, ft):
     
 # --- 3. RÉSZ: PDF GENERÁLÓK ÉS ADATSZERKESZTŐ ---
 
-def create_manifest_pdf(df, fn, meta_dict): # meta_list helyett meta_dict
-    """Menetterv készítése csoportosítással, oldalszámozással és DejaVu fontokkal"""
+def create_manifest_pdf(df, fn, meta_dict):
     df = df.sort_values('Sorrend')
     f_reg, f_bold = register_fonts()  
     buf = BytesIO()
 
-    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=10 * mm, leftMargin=10 * mm, topMargin=20 * mm, bottomMargin=20 * mm)
-    all_addresses = df['Cím'].tolist()
-    mar_kiirt_osszegek = set()
+    # Oldalbeállítások
+    doc = SimpleDocTemplate(
+        buf, 
+        pagesize=A4, 
+        rightMargin=5 * mm,  # Kicsit csökkentettem a margót is a több helyért
+        leftMargin=5 * mm, 
+        topMargin=15 * mm, 
+        bottomMargin=15 * mm
+    )
 
-    # --- JAVÍTOTT ADATLEKÉRÉS AZ ÚJ DICT-BŐL ---
+    # Metaadatok lekérése
     ev = meta_dict.get('ev', '')
     het = meta_dict.get('het', '')
     nap = meta_dict.get('nap', '')
     jaratok = ", ".join(meta_dict.get('jaratok', []))
     
+    # 1. KISEBB BETŰMÉRET A FEJLÉCBEN (10-esről 9-esre)
     fejlec_text = f"MENETTERV - Járat(ok): {jaratok} | {ev}. év, {het}. hét | {nap}"
-    # -----------------------------------------
-
+    
     elements = []
+    styles = {
+        'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
+        'Bold': ParagraphStyle('Bold', fontName=f_bold, fontSize=8, leading=10),
+        'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=8), # Kisebb betű a pénznek/tel-nek
+        'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=9, leading=11)
+    }
 
-    # Stílusok definiálása ékezet-kezeléssel
-    s_normal = ParagraphStyle('L', fontName=f_reg, fontSize=8, encoding='utf-8')
-    s_bold_center = ParagraphStyle('C', fontName=f_bold, fontSize=8, alignment=1, encoding='utf-8')
-    s_order = ParagraphStyle('O', fontName=f_reg, fontSize=7, encoding='utf-8')
+    elements.append(Paragraph(fejlec_text, styles['Header']))
+    elements.append(Spacer(1, 4 * mm))
 
-    data = [[
-        Paragraph("<b>#</b>", s_bold_center),
-        Paragraph("<b>NÉV / CÍM / INFÓ</b>", s_bold_center),
-        Paragraph("<b>[ ]</b>", s_bold_center),
-        Paragraph("<b>PÉNZ</b>", s_bold_center),
-        Paragraph("<b>TEL</b>", s_bold_center),
-        Paragraph("<b>RENDELÉS</b>", s_bold_center),
-        Paragraph("<b>DB</b>", s_bold_center)
-    ]]
-
-    t_style = [
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-        ('ALIGN', (0, 0), (0, -1), 'CENTER'),
-        ('ALIGN', (-1, 0), (-1, -1), 'CENTER'),
+    # --- TÁBLÁZAT OSZLOPSZÉLESSÉGEK ÚJRATERVEZÉSE ---
+    # Teljes szélesség kb 200mm (A4 - margók)
+    col_widths = [
+        8 * mm,   # # (Sorszám)
+        95 * mm,  # NÉV / CÍM / INFÓ (JELENTŐSEN MEGNÖVELVE)
+        7 * mm,   # Checkbox (LECSÖKKENTVE)
+        18 * mm,  # PÉNZ (CSÖKKENTVE)
+        23 * mm,  # TEL (CSÖKKENTVE)
+        35 * mm,  # RENDELÉS
+        8 * mm    # DB
     ]
 
-    for i, (_, r) in enumerate(df.iterrows()):
-        # CSOPORTOSÍTÁS: Megnézzük, hányszor szerepel a cím
-        is_group = all_addresses.count(r['Cím']) > 1
-        group_tag = "<b><font color='blue'>▲ CSOPORT </font></b>" if is_group else ""
+    header = ["#", "NÉV / CÍM / INFÓ", "☐", "PÉNZ", "TEL", "RENDELÉS", "DB"]
+    data = [header]
 
-        note = str(r.get('Megjegyzés', ''))
-        note_html = f"<br/><font color='red'><b>{note}</b></font>" if note and note.lower() != 'nan' and note.strip() != "" else ""
-
-        # --- MÓDOSÍTOTT RÉSZ: Duplikált pénz kezelése ---
-        nyers_penz = str(r['Pénz']).lower()
-        ugyfel_kulcs = r['Ügyintéző']  # Az azonosításhoz az ügyintéző nevét használjuk (vagy ha van ID, az még jobb)
-
-        if nyers_penz in ["0 ft", "0", "nan"] or ugyfel_kulcs in mar_kiirt_osszegek:
-            penz = ""
-        else:
-            penz = str(r['Pénz'])
-            mar_kiirt_osszegek.add(ugyfel_kulcs)  # Elmentjük, hogy ennél az ügyfélnél már kiírtuk a pénzt
-        # -----------------------------------------------
-
+    for idx, row in df.iterrows():
         data.append([
-            f"{int(r['Sorrend'])}",
-            Paragraph(f"{group_tag}<b>{r['Ügyintéző']}</b><br/><font size='7'>{r['Cím']}</font>{note_html}", s_normal),
-            "[ ]",
-            Paragraph(f"<b>{penz}</b>", s_bold_center),
-            str(r['Telefon']),
-            Paragraph(str(r['Rendelés_Full']), s_order),
-            f"{int(r['Összesen'])}"
+            str(row.get('Sorrend', '')),
+            Paragraph(str(row.get('Cím', '')).replace('\n', '<br/>'), styles['Normal']),
+            "", # Checkbox helye
+            Paragraph(str(row.get('Pénz', '')), styles['Small']), # Kisebb betű
+            Paragraph(str(row.get('Tel', '')), styles['Small']),  # Kisebb betű
+            Paragraph(str(row.get('Rendelés', '')), styles['Normal']),
+            str(row.get('Db', ''))
         ])
 
-        # Ha csoport, kap egy nagyon halvány háttérszínt a sor
-        if is_group:
-            t_style.append(('BACKGROUND', (0, i + 1), (-1, i + 1), colors.whitesmoke))
+    table = Table(data, colWidths=col_widths, repeatRows=1)
 
-    t = Table(data, colWidths=[10 * mm, 60 * mm, 10 * mm, 20 * mm, 25 * mm, 55 * mm, 10 * mm], repeatRows=1)
-    t.setStyle(TableStyle(t_style))
-    elements.append(t)
+    style = TableStyle([
+        ('FONTNAME', (0, 0), (-1, 0), f_bold),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        
+        # 2. CHECKBOX KÖZÉPRE IGAZÍTÁSA
+        ('ALIGN', (2, 0), (2, -1), 'CENTER'),
+        
+        # 3. PADDINGOK CSÖKKENTÉSE (hogy több szöveg férjen el)
+        ('LEFTPADDING', (0, 0), (-1, -1), 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        
+        # Speciális padding a checkboxnak és a keskeny oszlopoknak
+        ('LEFTPADDING', (2, 0), (4, -1), 1), 
+        ('RIGHTPADDING', (2, 0), (4, -1), 1),
 
-    # OLDALSZÁMOZÁS ÉS FEJLÉC FUNKCIÓ
-    def add_header_footer(canvas, doc):
-        canvas.saveState()
-        # Fejléc (minden oldalon)
-        canvas.setFont(f_bold, 11)
-        canvas.drawString(10 * mm, A4[1] - 12 * mm, fejlec_text)
-        canvas.setFont(f_reg, 9)
-        canvas.drawRightString(A4[0] - 10 * mm, A4[1] - 12 * mm, f"Futár: {fn}")
+        ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+    ])
+    table.setStyle(style)
+    elements.append(table)
 
-        # Oldalszám (minden oldalon alul középen)
-        page_num = f"{canvas.getPageNumber()}. oldal"
-        canvas.setFont(f_reg, 8)
-        canvas.drawCentredString(A4[0] / 2, 10 * mm, page_num)
-        canvas.restoreState()
-
-    # Build indítása a fejléc/lábléc funkcióval
-    doc.build(elements, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
-    buf.seek(0);
-    return buf
+    doc.build(elements)
+    return buf.getvalue()
     
     
 def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dict

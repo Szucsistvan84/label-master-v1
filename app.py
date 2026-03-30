@@ -432,8 +432,14 @@ def create_label_pdf(df, fn, ft):
             # 2. Fejléc adatok
             p.setFont(f_bold, 10)
             p.drawString(x + inner_m, top_y - 3 * mm, f"#{int(r['Sorrend'])}")
+            
+            # A prefix-es ID helyett a tiszta temp_id-t használjuk
+            # Biztosítjuk, hogy szöveg legyen, ha esetleg számként jönne
+            display_id = str(r.get('temp_id', 'N/A'))
+
             p.setFont(f_reg, 8)
-            p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {r.get('ID', 'N/A')}")
+            # Jobbra igazítva kiírjuk a tiszta kódot
+            p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {display_id}")
 
             p.setFont(f_bold, 9)
             p.drawString(x + inner_m, top_y - 8.5 * mm, str(r.get('Ügyintéző', ''))[:25])

@@ -535,15 +535,7 @@ def create_manifest_pdf(df, fn, meta_dict):
     styles = {
         'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
         'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=9),
-        'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12, alignment=1),
-        # Ez az új stílus a név + jobbra zárt ID-hoz:
-        'NameTabStyle': ParagraphStyle(
-            'NameTabStyle', 
-            fontName=f_bold, 
-            fontSize=9, 
-            leading=11, 
-            tabStops=[63*mm] # 63mm-nél lesz a jobb széle a szövegnek
-        )
+        'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12, alignment=1)
     }
 
     elements = []
@@ -584,43 +576,39 @@ def create_manifest_pdf(df, fn, meta_dict):
         start_idx = current_row_idx
         
     for i, row in df.iterrows():
-        # 1. PÉNZ FIX: Megtartjuk a teljes összeget (pl. a 0-t a végén), csak a 0 Ft-ot rejtjük el
+        # 1. PÉNZ JAVÍTÁS (hogy ne vágja le a nullát a végéről)
         p_raw = str(row.get('Pénz', '')).strip()
         if p_raw in ["0 Ft", "0", "nan", ""]:
             penz_disp = ""
         else:
             penz_disp = f"<b>{p_raw}</b>"
 
-# 2. NÉV ÉS ID ÖSSZEFŰZÉSE (A <tab/> parancs végzi a jobbra zárást)
-        u_name = str(row.get('Ügyintéző', ''))[:35] # Limitáljuk a nevet, hogy maradjon hely az ID-nak
+        # 2. NÉV ÉS ID ÖSSZEFŰZÉSE
+        u_name = str(row.get('Ügyintéző', ''))
         u_id_clean = str(row.get('temp_id', ''))
         
-        # A név után jön a <tab/>, ami „átlöki” az ID-t a jobb szélre
-        name_line = f"{u_name}<tab/> <font color='gray' size='8'>ID: {u_id_clean}</font>"
+        # Formázás: Név félkövérrel, ID szürkével mellette
+        name_line = f"<b>{u_name}</b> <font color='gray'>(ID: {u_id_clean})</font>"
         
         address = str(row.get('Cím', ''))
         note = str(row.get('Megjegyzés', ''))
         
-        # Itt jön a lényeg: a cella tartalmát listaként állítjuk össze
-        info_cell_content = [
-            Paragraph(name_line, styles['NameTabStyle']), # Ez kapja meg a tabulátoros stílust
-            Paragraph(address, styles['Normal'])          # A cím marad normál
-        ]
-        
-        # Ha van megjegyzés, azt is hozzáadjuk a listához
+        # Cella tartalmának összeállítása (Név+ID, alatta Cím, alatta Megjegyzés)
+        info_text = f"{name_line}<br/>{address}"
         if note and note.lower() != 'nan' and note.strip() != "":
-            info_cell_content.append(Paragraph(f"<i>{note}</i>", styles['Small']))
+            info_text += f"<br/><i>{note}</i>"
 
-        # --- SOR HOZZÁADÁSA ---
+        # 3. SOR HOZZÁADÁSA A TÁBLÁZATHOZ
         table_data.append([
             f"{int(row['Sorrend'])}",
-            info_cell_content, # Itt nem egy Paragraph-ot, hanem a listát adjuk át
-            "[ ]", 
-            Paragraph(penz_disp, styles['Normal']),
+            Paragraph(info_text, s_normal),
+            "[ ]", # Checkbox helye
+            Paragraph(penz_disp, s_normal),
             str(row.get('Telefon', '')),
-            Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']),
+            Paragraph(str(row.get('Rendelés_Full', '')), s_small),
             str(row.get('Összesen', ''))
-        ])            
+        ])
+            
         if is_group:
             end_idx = current_row_idx - 1
             table_styles.append(('BACKGROUND', (0, start_idx), (-1, end_idx), colors.Color(0.96, 0.96, 0.96)))

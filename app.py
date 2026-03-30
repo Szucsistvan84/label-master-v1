@@ -535,7 +535,15 @@ def create_manifest_pdf(df, fn, meta_dict):
     styles = {
         'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
         'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=9),
-        'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12, alignment=1)
+        'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12, alignment=1),
+        # Ez az új stílus a név + jobbra zárt ID-hoz:
+        'NameTabStyle': ParagraphStyle(
+            'NameTabStyle', 
+            fontName=f_bold, 
+            fontSize=9, 
+            leading=11, 
+            tabStops=[63*mm] # 63mm-nél lesz a jobb széle a szövegnek
+        )
     }
 
     elements = []
@@ -583,32 +591,36 @@ def create_manifest_pdf(df, fn, meta_dict):
         else:
             penz_disp = f"<b>{p_raw}</b>"
 
-        # 2. NÉV ÉS ID ÖSSZEFŰZÉSE (Név + szürke ID)
-        u_name = str(row.get('Ügyintéző', ''))
+# 2. NÉV ÉS ID ÖSSZEFŰZÉSE (A <tab/> parancs végzi a jobbra zárást)
+        u_name = str(row.get('Ügyintéző', ''))[:35] # Limitáljuk a nevet, hogy maradjon hely az ID-nak
         u_id_clean = str(row.get('temp_id', ''))
         
-        # Az ID-t zárójelbe tesszük a név mellé
-        name_line = f"<b>{u_name}</b> <font color='gray'>(ID: {u_id_clean})</font>"
+        # A név után jön a <tab/>, ami „átlöki” az ID-t a jobb szélre
+        name_line = f"{u_name}<tab/> <font color='gray' size='8'>ID: {u_id_clean}</font>"
         
         address = str(row.get('Cím', ''))
         note = str(row.get('Megjegyzés', ''))
         
-        # Cella tartalmának összeállítása
-        info_text = f"{name_line}<br/>{address}"
+        # Itt jön a lényeg: a cella tartalmát listaként állítjuk össze
+        info_cell_content = [
+            Paragraph(name_line, styles['NameTabStyle']), # Ez kapja meg a tabulátoros stílust
+            Paragraph(address, styles['Normal'])          # A cím marad normál
+        ]
+        
+        # Ha van megjegyzés, azt is hozzáadjuk a listához
         if note and note.lower() != 'nan' and note.strip() != "":
-            info_text += f"<br/><i>{note}</i>"
+            info_cell_content.append(Paragraph(f"<i>{note}</i>", styles['Small']))
 
-        # 3. SOR HOZZÁADÁSA (Javított stílus hivatkozásokkal)
+        # --- SOR HOZZÁADÁSA ---
         table_data.append([
             f"{int(row['Sorrend'])}",
-            Paragraph(info_text, styles['Normal']),
+            info_cell_content, # Itt nem egy Paragraph-ot, hanem a listát adjuk át
             "[ ]", 
             Paragraph(penz_disp, styles['Normal']),
             str(row.get('Telefon', '')),
             Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']),
             str(row.get('Összesen', ''))
-        ])
-            
+        ])            
         if is_group:
             end_idx = current_row_idx - 1
             table_styles.append(('BACKGROUND', (0, start_idx), (-1, end_idx), colors.Color(0.96, 0.96, 0.96)))

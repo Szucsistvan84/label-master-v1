@@ -367,8 +367,14 @@ def merge_data(raw_rows, p_map, sz_map):
         base['ID'] = f"{current_prefix}-{tid}"
         base['temp_id'] = tid
         
-        # Sorrend visszatöltése (Fontos: a weights-ből a P-123456 formátumot keressük)
-        base['Sorrend'] = st.session_state.get('weights', {}).get(f"P-{tid}", 999)
+        # Sorrend visszatöltése: Megpróbáljuk az aktuális prefixszel, 
+        # de ha nem találjuk, megnézzük a sima ID-t is.
+        current_id = f"{current_prefix}-{tid}"
+        weights = st.session_state.get('weights', {})
+        
+        # Először próbáljuk a teljes azonosítóval (pl. Hé-123456 vagy P-123456)
+        # Ha nincs meg, marad a 999 (lista vége)
+        base['Sorrend'] = weights.get(current_id, weights.get(f"P-{tid}", 999))
         
         merged.append(base)
 

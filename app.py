@@ -60,10 +60,18 @@ def extract_all_meta(pdf_files):
 
 def register_fonts():
     try:
+        # 1. Regisztráljuk a konkrét fájlokat
         pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
         pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
+        
+        # 2. Összefogjuk őket egy családba (ez oldja meg a ValueError-t)
+        from reportlab.lib.fonts import registerFontFamily
+        registerFontFamily('DejaVu', normal='DejaVu', bold='DejaVu-Bold', italic='DejaVu', boldItalic='DejaVu-Bold')
+        
+        # Visszaadjuk a neveket (a 'DejaVu' most már a család neve is)
         return 'DejaVu', 'DejaVu-Bold'
     except Exception as e:
+        # Ha bármi hiba van a fájlokkal, visszaváltunk az alapértelmezettre
         return 'Helvetica', 'Helvetica-Bold'
 
 
@@ -510,119 +518,104 @@ class MyCheckbox(Flowable):
         # x=0, y=0-nál rajzolunk, a táblázat ALIGN 'CENTER' fogja vízszintesen helyre tenni
         self.canv.rect(0, 0, self.size, self.size, stroke=1, fill=0)
 
-def create_manifest_pdf(df, fn, meta_dict):
-    if df is None or df.empty: 
-        return None
-
-    # --- 1. OKOS CSOPORTOSÍTÁS ELŐKÉSZÍTÉSE ---
-    # Tisztítjuk a címeket az összevetéshez (pontok nélkül, kisbetűvel)
-    df['clean_address'] = df['Cím'].astype(str).str.replace('.', '', regex=False).str.strip().str.lower()
+def create_manifest_pdf(df, c_n, meta):
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=10*mm, leftMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
     
-    def get_group_id(row):
-        manual = str(row.get('Csoport', '')).strip()
-        if manual and manual.lower() != 'nan' and manual != "":
-            return f"manual_{manual}"
-        return f"addr_{row['clean_address']}"
+# A függvény elején vedd át a neveket (ha még nincs így):
+    f_reg, f_bold = register_fonts()
 
-    df['group_id'] = df.apply(get_group_id, axis=1)
-    df = df.sort_values('Sorrend')
-    
-    f_reg, f_bold = register_fonts()  
-    buf = BytesIO()
-
-    # --- 2. STÍLUSOK ---
-    from reportlab.lib.styles import ParagraphStyle
     styles = {
         'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
         'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=9),
-        'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12, alignment=1)
+        'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12, alignment=1),
+        'NameTabStyle': ParagraphStyle(
+            'NameTabStyle', 
+            fontName=f_bold, # Itt a Bold-ot használjuk
+            fontSize=9, 
+            leading=11, 
+            tabStops=[63*mm]
+        )
     }
 
     elements = []
-    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=5*mm, leftMargin=5*mm, topMargin=10*mm, bottomMargin=15*mm)
+    
+    # Fejléc
+    j_str = ", ".join(meta.get('jaratok', []))
+    header_str = f"MENETTERV - Járat(ok): {j_str} | {meta.get('ev', '')}. év, {meta.get('het', '')}. hét | {meta.get('nap', '')}"
+    elements.append(Paragraph(header_str, styles['Header']))
+    elements.append(Spacer(1, 5*mm))
 
-    # --- 3. OLDALSZÁMOZÁS ÉS FEJLÉC FÜGGVÉNY ---
-    def draw_footer(canvas, doc):
-        canvas.saveState()
-        canvas.setFont(f_reg, 8)
-        # Oldalszám középre alulra
-        page_num = f"{doc.page}. oldal"
-        canvas.drawCentredString(105*mm, 10*mm, page_num)
-        canvas.restoreState()
-
-    # Fejléc tartalom
-    jaratok = ", ".join(meta_dict.get('jaratok', []))
-    fejlec_szov = f"MENETTERV - Járat(ok): {jaratok} | {meta_dict.get('ev')}. év, {meta_dict.get('het')}. hét | {meta_dict.get('nap')}"
-    elements.append(Paragraph(fejlec_szov, styles['Header']))
-    elements.append(Spacer(1, 4 * mm))
-
-    # --- 4. TÁBLÁZAT ADATOK ---
-    # Új oszloprend: #, Név/Cím, ☐, Pénz, Tel, Rendelés, DB
+    # Táblázat váz
     table_data = [["#", "NÉV / CÍM / INFÓ", "☐", "PÉNZ", "TEL", "RENDELÉS", "DB"]]
+    
     table_styles = [
         ('FONTNAME', (0,0), (-1,0), f_bold),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('ALIGN', (2,0), (2,-1), 'CENTER'), # Checkbox középre
-        ('ALIGN', (6,0), (6,-1), 'CENTER'), # DB középre
+        ('ALIGN', (2,0), (2,-1), 'CENTER'), # Checkbox oszlop középre
+        ('ALIGN', (6,0), (6,-1), 'CENTER'), # DB oszlop középre
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
     ]
 
-    current_row_idx = 1
-    grouped = df.groupby('group_id', sort=False)
+    # --- CSOPORTOSÍTÁS / KERETEZÉS LOGIKA ---
+    if 'Csoport' in df.columns:
+        df['Csoport'] = df['Csoport'].fillna('').astype(str)
+        start_idx = None
+        for i in range(len(df)):
+            curr_grp = df.iloc[i]['Csoport'].strip()
+            if curr_grp != "":
+                if start_idx is None: start_idx = i
+                if i == len(df) - 1 or df.iloc[i+1]['Csoport'].strip() != curr_grp:
+                    # Vastag keret a csoport köré
+                    table_styles.append(('BOX', (0, start_idx + 1), (-1, i + 1), 2, colors.black))
+                    # Sorszám oszlop beszürkítése a csoportnál
+                    table_styles.append(('BACKGROUND', (0, start_idx + 1), (0, i + 1), colors.lightgrey))
+                    start_idx = None
+            else:
+                start_idx = None
 
-    for gid, group in grouped:
-        is_group = len(group) > 1
-        start_idx = current_row_idx
-        
+    # --- ADATOK FELTÖLTÉSE ---
     for i, row in df.iterrows():
-        # 1. PÉNZ JAVÍTÁS (hogy ne vágja le a nullát a végéről)
+        # Pénz kezelése
         p_raw = str(row.get('Pénz', '')).strip()
-        if p_raw in ["0 Ft", "0", "nan", ""]:
-            penz_disp = ""
-        else:
-            penz_disp = f"<b>{p_raw}</b>"
+        penz_disp = "" if p_raw in ["0 Ft", "0", "nan", ""] else f"<b>{p_raw}</b>"
 
-        # 2. NÉV ÉS ID ÖSSZEFŰZÉSE
-        u_name = str(row.get('Ügyintéző', ''))
+        # Név és jobbra zárt ID (Tabulátorral)
+        u_name = str(row.get('Ügyintéző', ''))[:35]
         u_id_clean = str(row.get('temp_id', ''))
-        
-        # Formázás: Név félkövérrel, ID szürkével mellette
-        name_line = f"<b>{u_name}</b> <font color='gray'>(ID: {u_id_clean})</font>"
+        name_line = f"{u_name}<tab/> <font color='gray' size='8'>ID: {u_id_clean}</font>"
         
         address = str(row.get('Cím', ''))
         note = str(row.get('Megjegyzés', ''))
-        
-        # Cella tartalmának összeállítása (Név+ID, alatta Cím, alatta Megjegyzés)
-        info_text = f"{name_line}<br/>{address}"
-        if note and note.lower() != 'nan' and note.strip() != "":
-            info_text += f"<br/><i>{note}</i>"
 
-        # 3. SOR HOZZÁADÁSA A TÁBLÁZATHOZ
+        # Cella tartalom összeállítása
+        info_flow = [
+            Paragraph(name_line, styles['NameTabStyle']),
+            Paragraph(address, styles['Normal'])
+        ]
+        if note and note.lower() != 'nan' and note.strip() != "":
+            info_flow.append(Paragraph(f"<i>{note}</i>", styles['Small']))
+
+        # Sor hozzáadása - a 3. elem most már a rajzolt Checkbox()
         table_data.append([
             f"{int(row['Sorrend'])}",
-            Paragraph(info_text, s_normal),
-            "[ ]", # Checkbox helye
-            Paragraph(penz_disp, s_normal),
+            info_flow,
+            Checkbox(12), # Itt a tegnapi szép négyzetünk!
+            Paragraph(penz_disp, styles['Normal']),
             str(row.get('Telefon', '')),
-            Paragraph(str(row.get('Rendelés_Full', '')), s_small),
+            Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']),
             str(row.get('Összesen', ''))
         ])
-            
-        if is_group:
-            end_idx = current_row_idx - 1
-            table_styles.append(('BACKGROUND', (0, start_idx), (-1, end_idx), colors.Color(0.96, 0.96, 0.96)))
-            table_styles.append(('OUTLINE', (0, start_idx), (-1, end_idx), 1.2, colors.black))
 
-    col_widths = [10*mm, 80*mm, 8*mm, 20*mm, 25*mm, 45*mm, 8*mm]
-    t = Table(table_data, colWidths=col_widths, repeatRows=1)
+    # Táblázat generálása
+    t = Table(table_data, colWidths=[10*mm, 65*mm, 10*mm, 25*mm, 30*mm, 40*mm, 10*mm], repeatRows=1)
     t.setStyle(TableStyle(table_styles))
+    
     elements.append(t)
-
-    # Build oldalszámozással
-    doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
-    buf.seek(0)
-    return buf.getvalue()
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
     
 def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dict
     f_reg, f_bold = register_fonts()

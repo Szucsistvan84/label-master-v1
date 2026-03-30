@@ -945,20 +945,28 @@ def main():
         # Új sor a mentési gomboknak
         save_col1, save_col2 = st.columns(2)
 
-        with save_col1:
-            # CSV EXPORT GOMB - Időbélyeggel
+       with save_col1:
+            # Fájlnév összeállítása a meta adatokból
+            # Pl.: 4002_4003_jarat_2026_03_31.csv
+            
+            # Járatszámok összefűzése (ha több van, alulvonással)
+            jarat_str = "_".join(meta.get('jaratok', ['Ismeretlen']))
+            
+            # Aktuális dátum formázása
             import datetime
-            now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-            # Az edited_df-et mentjük, mert abban vannak a legfrissebb módosításaid
+            d_str = datetime.datetime.now().strftime("%Y-%m-%d")
+            
+            # Az általad kért szintaktika: Sorrendezés mentés-járatszám-év-hó-nap
+            beszedes_filenev = f"Sorrendezes_mentes-{jarat_str}-{d_str}.csv"
+            
             csv_data = edited_df.to_csv(index=False, encoding='utf-8-sig')
             
             st.download_button(
                 label="📥 KÉSZ TÁBLÁZAT MENTÉSE (CSV)",
                 data=csv_data,
-                file_name=f"{now}_export.csv",
+                file_name=beszedes_filenev,
                 mime='text/csv',
-                use_container_width=True,
-                help="Ezt töltheted vissza másnap, hogy ne vesszen el a sorrend."
+                use_container_width=True
             )
 
         with save_col2:

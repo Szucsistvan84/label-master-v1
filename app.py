@@ -60,18 +60,18 @@ def extract_all_meta(pdf_files):
 
 def register_fonts():
     try:
-        # 1. Regisztráljuk a konkrét fájlokat
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.lib.fonts import registerFontFamily
+        
         pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
         pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
         
-        # 2. Összefogjuk őket egy családba (ez oldja meg a ValueError-t)
-        from reportlab.lib.fonts import registerFontFamily
+        # Ez a sor köti össze a simát a félkövérrel, hogy ne legyen hiba a Paragraph-nál
         registerFontFamily('DejaVu', normal='DejaVu', bold='DejaVu-Bold', italic='DejaVu', boldItalic='DejaVu-Bold')
         
-        # Visszaadjuk a neveket (a 'DejaVu' most már a család neve is)
         return 'DejaVu', 'DejaVu-Bold'
     except Exception as e:
-        # Ha bármi hiba van a fájlokkal, visszaváltunk az alapértelmezettre
         return 'Helvetica', 'Helvetica-Bold'
 
 
@@ -503,27 +503,24 @@ def create_label_pdf(df, fn, ft):
     return buf
     
 # --- ÚJ OSZTÁLY A RAJZOLT NÉGYZETHEZ ---
-class MyCheckbox(Flowable):
-    def __init__(self, size=10):
+class Checkbox(Flowable):
+    def __init__(self, size=12):
         Flowable.__init__(self)
-        self.size = size
-        # Megadjuk a szélességet és magasságot, hogy a táblázat tudja igazítani
         self.width = size
         self.height = size
 
     def draw(self):
-        # Elmozdítjuk a rajzot, hogy a cella függőleges közepéhez is igazodjon
-        self.canv.setLineWidth(0.5)
+        self.canv.setLineWidth(1)
         self.canv.setStrokeColor(colors.black)
-        # x=0, y=0-nál rajzolunk, a táblázat ALIGN 'CENTER' fogja vízszintesen helyre tenni
-        self.canv.rect(0, 0, self.size, self.size, stroke=1, fill=0)
+        self.canv.setFillColor(colors.white)
+        self.canv.rect(0, 0, self.width, self.height, stroke=1, fill=1)
 
 def create_manifest_pdf(df, c_n, meta):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=10*mm, leftMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
     
 # A függvény elején vedd át a neveket (ha még nincs így):
-    f_reg, f_bold = register_fonts()
+f_reg, f_bold = register_fonts()
 
     styles = {
         'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
@@ -531,7 +528,7 @@ def create_manifest_pdf(df, c_n, meta):
         'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12, alignment=1),
         'NameTabStyle': ParagraphStyle(
             'NameTabStyle', 
-            fontName=f_bold, # Itt a Bold-ot használjuk
+            fontName=f_bold, 
             fontSize=9, 
             leading=11, 
             tabStops=[63*mm]

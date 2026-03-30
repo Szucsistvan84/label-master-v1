@@ -274,12 +274,22 @@ def parse_interfood_pdf(pdf_file):
                     megj = ""
                 
                 if unique_orders:
+                    # A prefixet (Hé, Pé, Szo) használjuk, nem egy beégetett P-t
+                    full_id = f"{prefix}-{u_id}" 
+                    
                     rows.append({
-                        "Prefix": prefix, "ID": f"P-{u_id}", "Ügyintéző": clean_name,
-                        "Cím": address, "Telefon": tel_m.group(0) if tel_m else "",
-                        "Pénz": money_val, "Rendelés": ", ".join(unique_orders),
-                        "Megjegyzés": megj, "Összesen": total_q, "temp_id": u_id,
-                        "Raklista_Ertek": 0, "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
+                        "Prefix": prefix, 
+                        "ID": full_id,  # Így a háttérben megmarad a nap szerinti elkülönítés
+                        "Ügyintéző": clean_name,
+                        "Cím": address, 
+                        "Telefon": tel_m.group(0) if tel_m else "",
+                        "Pénz": money_val, 
+                        "Rendelés": ", ".join(unique_orders),
+                        "Megjegyzés": megj, 
+                        "Összesen": total_q, 
+                        "temp_id": u_id,
+                        "Raklista_Ertek": 0, 
+                        "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
                         "Hétvégi": False,
                         "Sorrend": st.session_state.weights.get(str(u_id), 999)
                     })

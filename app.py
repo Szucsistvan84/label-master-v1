@@ -575,26 +575,39 @@ def create_manifest_pdf(df, fn, meta_dict):
         is_group = len(group) > 1
         start_idx = current_row_idx
         
-        for i, (_, row) in enumerate(group.iterrows()):
-            # PÉNZ JAVÍTÁS: Csak akkor tüntetjük el, ha pontosan "0 Ft"
-            p_raw = str(row.get('Pénz', '')).strip()
-            penz_disp = "" if p_raw in ["0 Ft", "0", "nan", ""] else f"<b>{p_raw}</b>"
-            
-            megj_raw = str(row.get('Megjegyzés', '')).strip()
-            megj = f"<br/><font color='red'><i>{megj_raw}</i></font>" if megj_raw and megj_raw.lower() != 'nan' else ""
-            
-            group_tag = "<font color='blue'>▲ </font>" if is_group else ""
-            
-            table_data.append([
-                f"{row['Sorrend']:.1f}" if row['Sorrend'] % 1 != 0 else f"{int(row['Sorrend'])}",
-                Paragraph(f"{group_tag}<b>{row['Ügyintéző']}</b><br/>{row['Cím']}{megj}", styles['Normal']),
-                MyCheckbox(10),
-                Paragraph(penz_disp, styles['Small']),
-                Paragraph(str(row.get('Telefon', '')), styles['Small']),
-                Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']),
-                str(int(row.get('Összesen', 0)))
-            ])
-            current_row_idx += 1
+    for i, row in df.iterrows():
+        # 1. PÉNZ JAVÍTÁS (hogy ne vágja le a nullát a végéről)
+        p_raw = str(row.get('Pénz', '')).strip()
+        if p_raw in ["0 Ft", "0", "nan", ""]:
+            penz_disp = ""
+        else:
+            penz_disp = f"<b>{p_raw}</b>"
+
+        # 2. NÉV ÉS ID ÖSSZEFŰZÉSE
+        u_name = str(row.get('Ügyintéző', ''))
+        u_id_clean = str(row.get('temp_id', ''))
+        
+        # Formázás: Név félkövérrel, ID szürkével mellette
+        name_line = f"<b>{u_name}</b> <font color='gray'>(ID: {u_id_clean})</font>"
+        
+        address = str(row.get('Cím', ''))
+        note = str(row.get('Megjegyzés', ''))
+        
+        # Cella tartalmának összeállítása (Név+ID, alatta Cím, alatta Megjegyzés)
+        info_text = f"{name_line}<br/>{address}"
+        if note and note.lower() != 'nan' and note.strip() != "":
+            info_text += f"<br/><i>{note}</i>"
+
+        # 3. SOR HOZZÁADÁSA A TÁBLÁZATHOZ
+        table_data.append([
+            f"{int(row['Sorrend'])}",
+            Paragraph(info_text, s_normal),
+            "[ ]", # Checkbox helye
+            Paragraph(penz_disp, s_normal),
+            str(row.get('Telefon', '')),
+            Paragraph(str(row.get('Rendelés_Full', '')), s_small),
+            str(row.get('Összesen', ''))
+        ])
             
         if is_group:
             end_idx = current_row_idx - 1

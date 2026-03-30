@@ -520,7 +520,7 @@ def create_manifest_pdf(df, c_n, meta):
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=10*mm, leftMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
     
 # A függvény elején vedd át a neveket (ha még nincs így):
-f_reg, f_bold = register_fonts()
+    f_reg, f_bold = register_fonts()
 
     styles = {
         'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),

@@ -576,36 +576,36 @@ def create_manifest_pdf(df, fn, meta_dict):
         start_idx = current_row_idx
         
     for i, row in df.iterrows():
-        # 1. PÉNZ JAVÍTÁS (hogy ne vágja le a nullát a végéről)
+        # 1. PÉNZ FIX: Megtartjuk a teljes összeget (pl. a 0-t a végén), csak a 0 Ft-ot rejtjük el
         p_raw = str(row.get('Pénz', '')).strip()
         if p_raw in ["0 Ft", "0", "nan", ""]:
             penz_disp = ""
         else:
             penz_disp = f"<b>{p_raw}</b>"
 
-        # 2. NÉV ÉS ID ÖSSZEFŰZÉSE
+        # 2. NÉV ÉS ID ÖSSZEFŰZÉSE (Név + szürke ID)
         u_name = str(row.get('Ügyintéző', ''))
         u_id_clean = str(row.get('temp_id', ''))
         
-        # Formázás: Név félkövérrel, ID szürkével mellette
+        # Az ID-t zárójelbe tesszük a név mellé
         name_line = f"<b>{u_name}</b> <font color='gray'>(ID: {u_id_clean})</font>"
         
         address = str(row.get('Cím', ''))
         note = str(row.get('Megjegyzés', ''))
         
-        # Cella tartalmának összeállítása (Név+ID, alatta Cím, alatta Megjegyzés)
+        # Cella tartalmának összeállítása
         info_text = f"{name_line}<br/>{address}"
         if note and note.lower() != 'nan' and note.strip() != "":
             info_text += f"<br/><i>{note}</i>"
 
-        # 3. SOR HOZZÁADÁSA A TÁBLÁZATHOZ
+        # 3. SOR HOZZÁADÁSA (Javított stílus hivatkozásokkal)
         table_data.append([
             f"{int(row['Sorrend'])}",
-            Paragraph(info_text, s_normal),
-            "[ ]", # Checkbox helye
-            Paragraph(penz_disp, s_normal),
+            Paragraph(info_text, styles['Normal']),
+            "[ ]", 
+            Paragraph(penz_disp, styles['Normal']),
             str(row.get('Telefon', '')),
-            Paragraph(str(row.get('Rendelés_Full', '')), s_small),
+            Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']),
             str(row.get('Összesen', ''))
         ])
             

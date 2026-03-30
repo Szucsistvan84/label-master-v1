@@ -357,10 +357,14 @@ def merge_data(raw_rows, p_map, sz_map):
             o_p.append(f"Szo(Ex): {sz_extra_order}")
             has_weekend = True
 
+        # Megkeressük az első érvényes prefixet a csoportban (Hé, Pé stb.)
+        current_prefix = group['Prefix'].iloc[0] if 'Prefix' in group.columns else "P"
+
         base['Rendelés_Full'] = " | ".join(o_p)
         base['Összesen'] = pd.to_numeric(group['Összesen'], errors='coerce').sum()
         base['Hétvégi'] = has_weekend
-        base['ID'] = f"P-{tid}"
+        # A beégetett P- helyett a valódi prefixet használjuk:
+        base['ID'] = f"{current_prefix}-{tid}"
         base['temp_id'] = tid
         
         # Sorrend visszatöltése (Fontos: a weights-ből a P-123456 formátumot keressük)

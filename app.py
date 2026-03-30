@@ -945,7 +945,7 @@ def main():
         # Új sor a mentési gomboknak
         save_col1, save_col2 = st.columns(2)
 
-       with save_col1:
+        with save_col1:
             # Fájlnév összeállítása a meta adatokból
             # Pl.: 4002_4003_jarat_2026_03_31.csv
             

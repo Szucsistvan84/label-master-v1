@@ -305,19 +305,33 @@ def merge_data(all_dfs):
     
     merged = []
     unique_ids = combined['temp_id'].unique()
+    
     for tid in unique_ids:
         subset = combined[combined['temp_id'] == tid]
         base = subset.iloc[0].to_dict()
+        
         if len(subset) > 1:
+            # Rendelések összefűzése (pl. Csü: 1-A | Pé: 1-B)
             all_orders = []
             for _, r in subset.iterrows():
-                all_orders.append(str(r.get('Rendelés_Full', '')))
-            base['Rendelés_Full'] = " | ".join(filter(None, all_orders))
+                o_str = str(r.get('Rendelés_Full', '')).strip()
+                if o_str: all_orders.append(o_str)
+            base['Rendelés_Full'] = " | ".join(all_orders)
             
-            # Összesen (DB) és Pénz összegzése
+            # DB (Összesen) összeadása - ez általában kell a rakodáshoz
             try:
                 base['Összesen'] = sum(pd.to_numeric(subset['Összesen'], errors='coerce').fillna(0))
             except: pass
+            
+            # PÉNZ: NEM adunk össze! Megtartjuk az első olyat, ami nem üres/nulla
+            p_val = ""
+            for _, r in subset.iterrows():
+                val = str(r.get('Pénz', '')).strip()
+                if val and val.lower() != 'nan' and any(c.isdigit() for c in val):
+                    p_val = val
+                    break
+            base['Pénz'] = p_val
+
         merged.append(base)
     
     res = pd.DataFrame(merged)
@@ -325,12 +339,13 @@ def merge_data(all_dfs):
         res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce')
         res = res.sort_values('Sorrend')
 
-    # --- CSOPORTOSÍTÁS JAVÍTÁSA ---
+    # --- CSOPORTOSÍTÁS A KERETEZÉSHEZ (Cím alapján) ---
+    # Ez csak a PDF-ben való megjelenítést segíti, az adatokat nem bántja
     res['Csoport'] = 0
     group_id = 1
     for i in range(1, len(res)):
-        # Tisztított címek: csak betűk és számok maradnak az összehasonlításhoz
         def clean_addr(s):
+            # Csak betűk/számok, hogy a "Híd u. 3" és "Híd u. 3." egyezzen
             return re.sub(r'\W+', '', str(s)).lower()
 
         addr_prev = clean_addr(res.iloc[i-1]['Cím'])
@@ -343,6 +358,7 @@ def merge_data(all_dfs):
                 group_id += 1
             else:
                 res.at[res.index[i], 'Csoport'] = res.iloc[i-1]['Csoport']
+                
     return res
 
 def create_label_pdf(df, fn, ft):

@@ -300,9 +300,21 @@ def parse_interfood_pdf(pdf_file):
     return rows, metadata
     
 def merge_data(all_rows):
-    if not all_rows: return pd.DataFrame()
-    combined = pd.concat(all_rows, ignore_index=True)
+    if not all_rows: 
+        return pd.DataFrame()
     
+    # --- HIBA JAVÍTÁSA ITT ---
+    # Ha az all_rows nem DataFrame-ek listája, hanem soroké, 
+    # akkor előbb csinálunk belőle egy nagy táblázatot.
+    if isinstance(all_rows, list) and len(all_rows) > 0:
+        if not isinstance(all_rows[0], pd.DataFrame):
+            combined = pd.DataFrame(all_rows)
+        else:
+            combined = pd.concat(all_rows, ignore_index=True)
+    else:
+        combined = all_rows
+    # -------------------------
+
     merged = []
     unique_ids = combined['temp_id'].unique()
     
@@ -311,19 +323,19 @@ def merge_data(all_rows):
         base = subset.iloc[0].to_dict()
         
         if len(subset) > 1:
-            # Rendelések összefűzése (pl. Csü: 1-A | Pé: 1-B)
+            # Rendelések összefűzése
             all_orders = []
             for _, r in subset.iterrows():
                 o_str = str(r.get('Rendelés_Full', '')).strip()
                 if o_str: all_orders.append(o_str)
             base['Rendelés_Full'] = " | ".join(all_orders)
             
-            # DB (Összesen) összeadása
+            # DB összeadása
             try:
                 base['Összesen'] = sum(pd.to_numeric(subset['Összesen'], errors='coerce').fillna(0))
             except: pass
             
-            # PÉNZ: NEM adunk össze! Az első érvényes összeget tartjuk meg.
+            # PÉNZ: Az első érvényes összeget tartjuk meg (nem adunk össze)
             p_val = ""
             for _, r in subset.iterrows():
                 val = str(r.get('Pénz', '')).strip()
@@ -335,17 +347,19 @@ def merge_data(all_rows):
         merged.append(base)
     
     res = pd.DataFrame(merged)
+    
+    # Sorrend fixálása
     if 'Sorrend' in res.columns:
         res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce')
         res = res.sort_values('Sorrend')
 
-    # --- CSOPORTOSÍTÁS (Cím alapján a keretezéshez) ---
+    # --- CSOPORTOSÍTÁS (Keretezéshez) ---
     res['Csoport'] = 0
     group_id = 1
     for i in range(1, len(res)):
         def clean_addr(s):
             return re.sub(r'\W+', '', str(s)).lower()
-
+        
         addr_prev = clean_addr(res.iloc[i-1]['Cím'])
         addr_curr = clean_addr(res.iloc[i]['Cím'])
         

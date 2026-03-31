@@ -300,7 +300,7 @@ def parse_interfood_pdf(pdf_file):
     return rows, metadata
     
 def merge_data(all_rows):
-    if not all_dfs: return pd.DataFrame()
+    if not all_rows: return pd.DataFrame()
     combined = pd.concat(all_dfs, ignore_index=True)
     
     merged = []

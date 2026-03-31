@@ -798,7 +798,7 @@ def main():
                 sz_map = get_etlap_dict(y, w, 6)
                 
                 # Összefésülés
-                df_temp = merge_data(all_dfs)
+                df_temp = merge_data(all_rows)
                 
                 if not df_temp.empty:
                     df_temp['Sorrend'] = range(1, len(df_temp) + 1)

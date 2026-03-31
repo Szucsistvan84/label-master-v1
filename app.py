@@ -513,19 +513,30 @@ class Checkbox(Flowable):
 
 def create_manifest_pdf(df, c_n, meta):
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=10*mm, leftMargin=10*mm, topMargin=10*mm, bottomMargin=10*mm)
+    # Margók finomhangolása a maximális helykihasználáshoz
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=8*mm, leftMargin=8*mm, topMargin=10*mm, bottomMargin=15*mm)
     
     f_reg, f_bold = register_fonts()
 
-    from reportlab.lib.styles import ParagraphStyle
     styles = {
         'Normal': ParagraphStyle('Normal', fontName=f_reg, fontSize=8, leading=10),
         'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=9),
+        'Tiny': ParagraphStyle('Tiny', fontName=f_reg, fontSize=7, leading=8), # Kisebb tel.számhoz
         'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=12, alignment=1),
-        # Új stílusok direkt a névnek és az ID-nek (nincs szükség bold/italic trükközésre)
         'NameBold': ParagraphStyle('NameBold', fontName=f_bold, fontSize=9, leading=11),
         'IDStyle': ParagraphStyle('IDStyle', fontName=f_reg, fontSize=8, leading=11, alignment=2, textColor=colors.gray)
     }
+
+    # --- OLDALSZÁMOZÁS FUNKCIÓ ---
+    def footer(canvas, doc):
+        canvas.saveState()
+        page_num = canvas.getPageNumber()
+        # Itt trükközünk: a ReportLab nem tudja előre az összoldalszámot egyszerűen, 
+        # de a "Page X" alapértelmezett. Az "X / Y" formátumhoz a canvas.drawCentredString-et használjuk.
+        text = f"{page_num} . oldal" 
+        canvas.setFont(f_reg, 8)
+        canvas.drawCentredString(A4[0]/2, 10*mm, text)
+        canvas.restoreState()
 
     elements = []
     
@@ -534,81 +545,83 @@ def create_manifest_pdf(df, c_n, meta):
     elements.append(Paragraph(header_str, styles['Header']))
     elements.append(Spacer(1, 5*mm))
 
-    table_data = [["#", "NÉV / CÍM / INFÓ", "☐", "PÉNZ", "TEL", "RENDELÉS", "DB"]]
+    # ÚJ SORREND: #, NÉV/CÍM/INFÓ, RENDELÉS, PÉNZ, TEL, DB, ☐
+    table_data = [["#", "NÉV / CÍM / INFÓ", "RENDELÉS", "PÉNZ", "TEL", "DB", "☐"]]
     
+    # Oszlopszélességek optimalizálása (Összesen ~194mm)
+    # Név oszlop 85mm-re hízlaltva!
+    col_widths = [10*mm, 85*mm, 35*mm, 18*mm, 24*mm, 10*mm, 12*mm]
+
     table_styles = [
         ('FONTNAME', (0,0), (-1,0), f_bold),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('ALIGN', (2,0), (2,-1), 'CENTER'),
-        ('ALIGN', (6,0), (6,-1), 'CENTER'),
+        ('ALIGN', (0,0), (0,-1), 'CENTER'), # Sorszám középre
+        ('ALIGN', (3,0), (3,-1), 'RIGHT'),  # Pénz jobbra
+        ('ALIGN', (5,0), (6,-1), 'CENTER'), # DB és Checkbox középre
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
     ]
 
-    # --- JAVÍTOTT CSOPORTOSÍTÁS / KERETEZÉS ---
+    # --- CSOPORTOSÍTÁS LOGIKA (Nyíllal és kerettel) ---
     if 'Csoport' in df.columns:
         start_idx = None
         for i in range(len(df)):
             curr_grp = str(df.iloc[i].get('Csoport', '')).strip()
-            # Kiszűrjük az üres, 'nan', '0' értékeket
-            if curr_grp and curr_grp.lower() != 'nan' and curr_grp != '0.0' and curr_grp != '0':
+            if curr_grp and curr_grp.lower() != 'nan' and curr_grp != '0':
                 if start_idx is None: start_idx = i
+                # Ha ez az utolsó elem a csoportban
                 if i == len(df) - 1 or str(df.iloc[i+1].get('Csoport', '')).strip() != curr_grp:
-                    table_styles.append(('BOX', (0, start_idx + 1), (-1, i + 1), 2, colors.black))
-                    table_styles.append(('BACKGROUND', (0, start_idx + 1), (0, i + 1), colors.lightgrey))
+                    # Vastag keret és szürke háttér
+                    table_styles.append(('BOX', (0, start_idx + 1), (-1, i + 1), 1.5, colors.black))
+                    table_styles.append(('BACKGROUND', (0, start_idx + 1), (-1, i + 1), colors.Color(0.95, 0.95, 0.95)))
                     start_idx = None
-            else:
-                start_idx = None
 
-    # --- ADATOK BETÖLTÉSE ---
+    # --- ADATOK FELTÖLTÉSE ---
     for i, row in df.iterrows():
-        p_raw = str(row.get('Pénz', '')).strip()
-        penz_disp = "" if p_raw in ["0 Ft", "0", "nan", ""] else f"<b>{p_raw}</b>"
+        # Csoportosított nyilacska
+        is_grouped = False
+        curr_grp = str(row.get('Csoport', '')).strip()
+        if curr_grp and curr_grp.lower() != 'nan' and curr_grp != '0':
+            # Ha nem az első elem a csoportban, kap egy nyilat
+            if i > 0 and str(df.iloc[i-1].get('Csoport', '')).strip() == curr_grp:
+                is_grouped = True
 
-        u_name = str(row.get('Ügyintéző', ''))[:35]
-        u_id_clean = str(row.get('temp_id', ''))
+        u_name = str(row.get('Ügyintéző', ''))[:40]
+        u_id = str(row.get('temp_id', ''))
         
-        # 1. BELSŐ TÁBLÁZAT A NÉVNEK ÉS ID-NEK (Ez fixen jobbra tolja az ID-t)
-        name_p = Paragraph(u_name, styles['NameBold'])
-        id_p = Paragraph(f"ID: {u_id_clean}", styles['IDStyle'])
-        
-        # Kétoszlopos belső tábla (szélesség kb 65mm: 45mm a névnek, 20mm az ID-nek)
-        t_name_id = Table([[name_p, id_p]], colWidths=[45*mm, 20*mm], style=[
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 0),
-            ('TOPPADDING', (0,0), (-1,-1), 0),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-        ])
-        
-        address = str(row.get('Cím', ''))
-        note = str(row.get('Megjegyzés', ''))
+        # Belső táblázat az ID jobbra zárásához (szélesebb névvel)
+        name_part = f"↑ {u_name}" if is_grouped else u_name
+        t_name_id = Table([[Paragraph(name_part, styles['NameBold']), Paragraph(f"ID: {u_id}", styles['IDStyle'])]], 
+                          colWidths=[60*mm, 23*mm], style=[('VALIGN',(0,0),(-1,-1),'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0)])
 
-        # Cella tartalom (A belső tábla az első elem)
         info_flow = [
-            t_name_id, 
-            Spacer(1, 1*mm),
-            Paragraph(address, styles['Normal'])
+            t_name_id,
+            Paragraph(str(row.get('Cím', '')), styles['Normal'])
         ]
-        if note and note.lower() != 'nan' and note.strip() != "":
-            info_flow.append(Spacer(1, 1*mm))
-            info_flow.append(Paragraph(note, styles['Small'])) # dőlt helyett kisebb betű a stabilitásért
+        note = str(row.get('Megjegyzés', '')).strip()
+        if note and note.lower() != 'nan':
+            info_flow.append(Paragraph(note, styles['Small']))
+
+        p_raw = str(row.get('Pénz', '')).strip()
+        penz_val = "" if p_raw in ["0 Ft", "0", "nan", ""] else p_raw
 
         table_data.append([
             f"{int(row['Sorrend'])}",
             info_flow,
-            Checkbox(12),
-            Paragraph(penz_disp, styles['Normal']),
-            str(row.get('Telefon', '')),
             Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']),
-            str(row.get('Összesen', ''))
+            Paragraph(f"<b>{penz_val}</b>", styles['Normal']),
+            Paragraph(str(row.get('Telefon', '')), styles['Tiny']), # Kisebb betű
+            str(row.get('Összesen', '')),
+            Checkbox(12)
         ])
 
-    t = Table(table_data, colWidths=[10*mm, 65*mm, 10*mm, 25*mm, 30*mm, 40*mm, 10*mm], repeatRows=1)
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle(table_styles))
     
     elements.append(t)
-    doc.build(elements)
+    
+    # PDF összeállítása a lábléccel
+    doc.build(elements, onFirstPage=footer, onLaterPages=footer)
     buffer.seek(0)
     return buffer
     

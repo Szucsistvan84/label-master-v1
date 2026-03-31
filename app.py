@@ -301,66 +301,40 @@ def parse_interfood_pdf(pdf_file):
     
 def merge_data(all_dfs):
     if not all_dfs: return pd.DataFrame()
-    
-    # Az összes beolvasott PDF adata egyben
     combined = pd.concat(all_dfs, ignore_index=True)
     
     merged = []
-    # Azonos ügyfél-ID alapján csoportosítunk (ez kezeli a Péntek+Szombat összevonást is)
     unique_ids = combined['temp_id'].unique()
-    
     for tid in unique_ids:
         subset = combined[combined['temp_id'] == tid]
-        
-        # Alapadatok az első sorból
         base = subset.iloc[0].to_dict()
-        
         if len(subset) > 1:
-            # Ha több sor van (pl. Péntek és Szombat), összefűzzük a rendeléseket
-            # "Rendelés_Full" tartalmazza a napot is (pl. "Pé: 1-A")
             all_orders = []
-            total_db = 0
-            
             for _, r in subset.iterrows():
                 all_orders.append(str(r.get('Rendelés_Full', '')))
-                # Megpróbáljuk összeadni a darabszámokat
-                try:
-                    val = str(r.get('Összesen', '0')).strip()
-                    total_db += int(float(val))
-                except:
-                    pass
-            
             base['Rendelés_Full'] = " | ".join(filter(None, all_orders))
-            base['Összesen'] = total_db
             
-            # Pénz összeadása (ha van benne szám)
-            total_money = 0
-            for _, r in subset.iterrows():
-                m_str = str(r.get('Pénz', '0')).replace('Ft', '').replace(' ', '').strip()
-                if m_str.isdigit():
-                    total_money += int(m_str)
-            
-            if total_money > 0:
-                base['Pénz'] = f"{total_money} Ft"
-            else:
-                base['Pénz'] = ""
-
+            # Összesen (DB) és Pénz összegzése
+            try:
+                base['Összesen'] = sum(pd.to_numeric(subset['Összesen'], errors='coerce').fillna(0))
+            except: pass
         merged.append(base)
     
     res = pd.DataFrame(merged)
-    
-    # Eredeti sorrend visszaállítása
     if 'Sorrend' in res.columns:
         res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce')
         res = res.sort_values('Sorrend')
 
-    # --- CSOPORTOSÍTÁS CÍM ALAPJÁN (A KERETEZÉSHEZ) ---
+    # --- CSOPORTOSÍTÁS JAVÍTÁSA ---
     res['Csoport'] = 0
     group_id = 1
     for i in range(1, len(res)):
-        # Ha az aktuális sor címe ugyanaz, mint az előzőé (és nem üres)
-        addr_prev = str(res.iloc[i-1]['Cím']).strip().lower()
-        addr_curr = str(res.iloc[i]['Cím']).strip().lower()
+        # Tisztított címek: csak betűk és számok maradnak az összehasonlításhoz
+        def clean_addr(s):
+            return re.sub(r'\W+', '', str(s)).lower()
+
+        addr_prev = clean_addr(res.iloc[i-1]['Cím'])
+        addr_curr = clean_addr(res.iloc[i]['Cím'])
         
         if addr_prev == addr_curr and addr_curr != "":
             if res.iloc[i-1]['Csoport'] == 0:
@@ -369,7 +343,6 @@ def merge_data(all_dfs):
                 group_id += 1
             else:
                 res.at[res.index[i], 'Csoport'] = res.iloc[i-1]['Csoport']
-                
     return res
 
 def create_label_pdf(df, fn, ft):
@@ -491,9 +464,7 @@ class Checkbox(Flowable):
 
 def create_manifest_pdf(df, c_n, meta):
     buffer = BytesIO()
-    # Minimális margók a maximális helyért
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=5*mm, leftMargin=5*mm, topMargin=8*mm, bottomMargin=12*mm)
-    
     f_reg, f_bold = register_fonts()
 
     styles = {
@@ -504,27 +475,16 @@ def create_manifest_pdf(df, c_n, meta):
         'IDStyle': ParagraphStyle('IDStyle', fontName=f_reg, fontSize=7.5, leading=9, alignment=2, textColor=colors.gray)
     }
 
-    def footer(canvas, doc):
-        canvas.saveState()
-        page_num = canvas.getPageNumber()
-        # Oldalszám középre, alulra
-        canvas.setFont(f_reg, 7)
-        canvas.drawCentredString(A4[0]/2, 5*mm, f"{page_num}. oldal")
-        canvas.restoreState()
-
     elements = []
-    
     j_str = ", ".join(meta.get('jaratok', []))
     header_str = f"MENETTERV - Járat(ok): {j_str} | {meta.get('ev', '')}. év, {meta.get('het', '')}. hét | {meta.get('nap', '')}"
     elements.append(Paragraph(header_str, styles['Header']))
     elements.append(Spacer(1, 2*mm))
 
-    # OSZLOPREND: #, NÉV/CÍM/INFÓ, RENDELÉS, PÉNZ, TEL, DB, ☐
     table_data = [["#", "NÉV / CÍM / INFÓ", "RENDELÉS", "PÉNZ", "TEL", "DB", "☐"]]
-    
-    # Szélességek: Név oszlop 95mm, Telefon 24mm, Pénz 18mm
     col_widths = [8*mm, 95*mm, 32*mm, 18*mm, 24*mm, 8*mm, 10*mm]
 
+    # Alap stílus
     table_styles = [
         ('FONTNAME', (0,0), (-1,0), f_bold),
         ('GRID', (0,0), (-1,-1), 0.3, colors.grey),
@@ -536,58 +496,60 @@ def create_manifest_pdf(df, c_n, meta):
         ('BOTTOMPADDING', (0,0), (-1,-1), 1),
     ]
 
-    # --- CSOPORTOSÍTÁS ÉS KERETEZÉS ---
+    # --- ÚJ: KERETEZÉS ÉS SZÜRKE HÁTTÉR ---
     if 'Csoport' in df.columns:
         groups = df['Csoport'].values
         start_idx = None
         for i in range(len(groups)):
-            curr_val = groups[i]
-            if curr_val > 0:
+            if groups[i] > 0:
                 if start_idx is None: start_idx = i
-                if i == len(groups) - 1 or groups[i+1] != curr_val:
-                    # Vastag keret és szürke háttér a teljes csoportnak
+                if i == len(groups) - 1 or groups[i+1] != groups[i]:
                     r_s, r_e = start_idx + 1, i + 1
+                    # Vastagabb fekete keret a csoport körül
                     table_styles.append(('BOX', (0, r_s), (-1, r_e), 1.2, colors.black))
+                    # Nagyon halvány szürke háttér a csoportnak
                     table_styles.append(('BACKGROUND', (0, r_s), (-1, r_e), colors.Color(0.96, 0.96, 0.96)))
                     start_idx = None
 
     for i, row in df.iterrows():
-        # Nyilacska jelzés a csoporttagoknak
+        # Nyilacska jelzés
         prefix = ""
-        c_id = row.get('Csoport', 0)
-        if c_id > 0 and i > 0 and df.iloc[i-1].get('Csoport') == c_id:
+        if row.get('Csoport', 0) > 0 and i > 0 and df.iloc[i-1].get('Csoport') == row.get('Csoport'):
             prefix = "↑ "
 
         u_name = str(row.get('Ügyintéző', ''))[:45]
         u_id = str(row.get('temp_id', ''))
         
-        # Név és ID belső táblázata (Jobbra zárt ID)
         t_inner = Table([[Paragraph(f"{prefix}{u_name}", styles['NameBold']), Paragraph(f"ID: {u_id}", styles['IDStyle'])]], 
-                        colWidths=[70*mm, 22*mm], style=[('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0)])
+                        colWidths=[70*mm, 22*mm], style=[('TOPPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (-1,-1), 0), ('LEFTPADDING', (0,0), (-1,-1), 0)])
 
-        # Cím és Megjegyzés
         info_flow = [t_inner, Paragraph(str(row.get('Cím', '')), styles['Normal'])]
-        note = str(row.get('Megjegyzés', '')).strip()
-        if note and note.lower() != 'nan':
-            info_flow.append(Paragraph(note, styles['Small']))
+        if str(row.get('Megjegyzés', '')).strip() and str(row.get('Megjegyzés', '')).lower() != 'nan':
+            info_flow.append(Paragraph(str(row.get('Megjegyzés', '')), styles['Small']))
 
         p_raw = str(row.get('Pénz', '')).strip()
-        penz_val = "" if p_raw in ["0 Ft", "0", "nan", ""] else p_raw
+        penz_display = "" if p_raw in ["0 Ft", "0", "nan", ""] else p_raw
 
         table_data.append([
             f"{int(row['Sorrend'])}",
             info_flow,
-            Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']), # Itt van az összevont rendelés!
-            Paragraph(f"<b>{penz_val}</b>", styles['Normal']),
+            Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']),
+            Paragraph(f"<b>{penz_display}</b>", styles['Normal']),
             Paragraph(str(row.get('Telefon', '')), styles['Small']),
             str(row.get('Összesen', '')),
-            "" # Üres hely a pipának
+            ""
         ])
 
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle(table_styles))
     elements.append(t)
     
+    def footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont(f_reg, 7)
+        canvas.drawCentredString(A4[0]/2, 5*mm, f"{canvas.getPageNumber()}. oldal")
+        canvas.restoreState()
+
     doc.build(elements, onFirstPage=footer, onLaterPages=footer)
     buffer.seek(0)
     return buffer

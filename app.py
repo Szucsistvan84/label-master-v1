@@ -490,6 +490,23 @@ class Checkbox(Flowable):
         self.canv.setFillColor(colors.white)
         self.canv.rect(0, 0, self.width, self.height, stroke=1, fill=1)
 
+Megértem, a 3:30-as kelés nem játék, tegyük rendbe gyorsan! A hiba ott van, hogy a table_data-ba üres stringet ("") tettünk az utolsó oszlophoz, így a Checkbox osztályod hiába létezik, nincs meghívva.
+
+Itt a végleges, javított create_manifest_pdf függvény. Ebben benne van a keretezés (csoportosítás), a szürke háttér és a négyzetek (Checkbox) kirajzolása is az utolsó oszlopba.
+
+Python
+# --- ÚJ OSZTÁLY A RAJZOLT NÉGYZETHEZ (Marad, ahogy írtad) ---
+class Checkbox(Flowable):
+    def __init__(self, size=10):
+        Flowable.__init__(self)
+        self.width = size
+        self.height = size
+
+    def draw(self):
+        self.canv.setLineWidth(0.8)
+        self.canv.setStrokeColor(colors.black)
+        self.canv.rect(0, 0, self.width, self.height, stroke=1, fill=0)
+
 def create_manifest_pdf(df, c_n, meta):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=5*mm, leftMargin=5*mm, topMargin=8*mm, bottomMargin=12*mm)
@@ -509,10 +526,10 @@ def create_manifest_pdf(df, c_n, meta):
     elements.append(Paragraph(header_str, styles['Header']))
     elements.append(Spacer(1, 2*mm))
 
+    # Táblázat fejléce
     table_data = [["#", "NÉV / CÍM / INFÓ", "RENDELÉS", "PÉNZ", "TEL", "DB", "☐"]]
     col_widths = [8*mm, 95*mm, 32*mm, 18*mm, 24*mm, 8*mm, 10*mm]
 
-    # Alap stílus
     table_styles = [
         ('FONTNAME', (0,0), (-1,0), f_bold),
         ('GRID', (0,0), (-1,-1), 0.3, colors.grey),
@@ -524,7 +541,7 @@ def create_manifest_pdf(df, c_n, meta):
         ('BOTTOMPADDING', (0,0), (-1,-1), 1),
     ]
 
-    # --- ÚJ: KERETEZÉS ÉS SZÜRKE HÁTTÉR ---
+    # --- CSOPORTOSÍTÁS / KERETEZÉS LOGIKÁJA ---
     if 'Csoport' in df.columns:
         groups = df['Csoport'].values
         start_idx = None
@@ -533,39 +550,38 @@ def create_manifest_pdf(df, c_n, meta):
                 if start_idx is None: start_idx = i
                 if i == len(groups) - 1 or groups[i+1] != groups[i]:
                     r_s, r_e = start_idx + 1, i + 1
-                    # Vastagabb fekete keret a csoport körül
-                    table_styles.append(('BOX', (0, r_s), (-1, r_e), 1.2, colors.black))
-                    # Nagyon halvány szürke háttér a csoportnak
+                    table_styles.append(('BOX', (0, r_s), (-1, r_e), 1.3, colors.black))
                     table_styles.append(('BACKGROUND', (0, r_s), (-1, r_e), colors.Color(0.96, 0.96, 0.96)))
                     start_idx = None
 
+    # Adatok feltöltése
     for i, row in df.iterrows():
-        # Nyilacska jelzés
-        prefix = ""
-        if row.get('Csoport', 0) > 0 and i > 0 and df.iloc[i-1].get('Csoport') == row.get('Csoport'):
-            prefix = "↑ "
-
+        prefix = "↑ " if (row.get('Csoport', 0) > 0 and i > 0 and df.iloc[i-1].get('Csoport') == row.get('Csoport')) else ""
+        
         u_name = str(row.get('Ügyintéző', ''))[:45]
         u_id = str(row.get('temp_id', ''))
         
+        # Név és ID egy sorban
         t_inner = Table([[Paragraph(f"{prefix}{u_name}", styles['NameBold']), Paragraph(f"ID: {u_id}", styles['IDStyle'])]], 
-                        colWidths=[70*mm, 22*mm], style=[('TOPPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (-1,-1), 0), ('LEFTPADDING', (0,0), (-1,-1), 0)])
+                        colWidths=[70*mm, 22*mm], style=[('LEFTPADDING', (0,0), (-1,-1), 0), ('TOPPADDING', (0,0), (-1,-1), 0)])
 
         info_flow = [t_inner, Paragraph(str(row.get('Cím', '')), styles['Normal'])]
-        if str(row.get('Megjegyzés', '')).strip() and str(row.get('Megjegyzés', '')).lower() != 'nan':
-            info_flow.append(Paragraph(str(row.get('Megjegyzés', '')), styles['Small']))
+        
+        megj = str(row.get('Megjegyzés', '')).strip()
+        if megj and megj.lower() != 'nan':
+            info_flow.append(Paragraph(megj, styles['Small']))
 
         p_raw = str(row.get('Pénz', '')).strip()
-        penz_display = "" if p_raw in ["0 Ft", "0", "nan", ""] else p_raw
+        penz_val = p_raw if (p_raw and p_raw.lower() != 'nan' and any(c.isdigit() for c in p_raw)) else ""
 
         table_data.append([
-            f"{int(row['Sorrend'])}",
+            f"{int(row.get('Sorrend', i+1))}",
             info_flow,
             Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']),
-            Paragraph(f"<b>{penz_display}</b>", styles['Normal']),
+            Paragraph(f"<b>{penz_val}</b>", styles['Normal']),
             Paragraph(str(row.get('Telefon', '')), styles['Small']),
             str(row.get('Összesen', '')),
-            ""
+            Checkbox(10) # <--- ITT HIVJUK MEG A NÉGYZETET!
         ])
 
     t = Table(table_data, colWidths=col_widths, repeatRows=1)

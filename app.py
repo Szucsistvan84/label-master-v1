@@ -301,7 +301,7 @@ def parse_interfood_pdf(pdf_file):
     
 def merge_data(all_rows):
     if not all_rows: return pd.DataFrame()
-    combined = pd.concat(all_dfs, ignore_index=True)
+    combined = pd.concat(all_rows, ignore_index=True)
     
     merged = []
     unique_ids = combined['temp_id'].unique()

@@ -318,12 +318,12 @@ def merge_data(all_dfs):
                 if o_str: all_orders.append(o_str)
             base['Rendelés_Full'] = " | ".join(all_orders)
             
-            # DB (Összesen) összeadása - ez általában kell a rakodáshoz
+            # DB (Összesen) összeadása
             try:
                 base['Összesen'] = sum(pd.to_numeric(subset['Összesen'], errors='coerce').fillna(0))
             except: pass
             
-            # PÉNZ: NEM adunk össze! Megtartjuk az első olyat, ami nem üres/nulla
+            # PÉNZ: NEM adunk össze! Az első érvényes összeget tartjuk meg.
             p_val = ""
             for _, r in subset.iterrows():
                 val = str(r.get('Pénz', '')).strip()
@@ -339,13 +339,11 @@ def merge_data(all_dfs):
         res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce')
         res = res.sort_values('Sorrend')
 
-    # --- CSOPORTOSÍTÁS A KERETEZÉSHEZ (Cím alapján) ---
-    # Ez csak a PDF-ben való megjelenítést segíti, az adatokat nem bántja
+    # --- CSOPORTOSÍTÁS (Cím alapján a keretezéshez) ---
     res['Csoport'] = 0
     group_id = 1
     for i in range(1, len(res)):
         def clean_addr(s):
-            # Csak betűk/számok, hogy a "Híd u. 3" és "Híd u. 3." egyezzen
             return re.sub(r'\W+', '', str(s)).lower()
 
         addr_prev = clean_addr(res.iloc[i-1]['Cím'])
@@ -800,7 +798,7 @@ def main():
                 sz_map = get_etlap_dict(y, w, 6)
                 
                 # Összefésülés
-                df_temp = merge_data(all_rows, p_map, sz_map)
+                df_temp = merge_data(all_dfs)
                 
                 if not df_temp.empty:
                     df_temp['Sorrend'] = range(1, len(df_temp) + 1)

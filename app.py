@@ -477,24 +477,6 @@ def create_label_pdf(df, fn, ft):
     buf.seek(0)
     return buf
     
-# --- ÚJ OSZTÁLY A RAJZOLT NÉGYZETHEZ ---
-class Checkbox(Flowable):
-    def __init__(self, size=12):
-        Flowable.__init__(self)
-        self.width = size
-        self.height = size
-
-    def draw(self):
-        self.canv.setLineWidth(1)
-        self.canv.setStrokeColor(colors.black)
-        self.canv.setFillColor(colors.white)
-        self.canv.rect(0, 0, self.width, self.height, stroke=1, fill=1)
-
-Megértem, a 3:30-as kelés nem játék, tegyük rendbe gyorsan! A hiba ott van, hogy a table_data-ba üres stringet ("") tettünk az utolsó oszlophoz, így a Checkbox osztályod hiába létezik, nincs meghívva.
-
-Itt a végleges, javított create_manifest_pdf függvény. Ebben benne van a keretezés (csoportosítás), a szürke háttér és a négyzetek (Checkbox) kirajzolása is az utolsó oszlopba.
-
-Python
 # --- ÚJ OSZTÁLY A RAJZOLT NÉGYZETHEZ (Marad, ahogy írtad) ---
 class Checkbox(Flowable):
     def __init__(self, size=10):

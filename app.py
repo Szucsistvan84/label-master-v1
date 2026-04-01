@@ -435,36 +435,37 @@ def create_label_pdf(df, fn, ft, meta):
             r = df.iloc[i]
             top_y = y + lh - inner_m
             
-            # --- ÚJ: Precíziós nap-alapú formázás ---
+# --- ÚJ: Precíziós nap-alapú formázás (JAVÍTOTT VÁLTOZÓKKAL) ---
+            import re
             r_full = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
             kulonleges = False
             
-            # Először szétvágjuk a szöveget ott, ahol új nap kezdődik (pl. " | " vagy "Csü:", "Pé:")
-            # Regexet használunk, hogy minden napjelölésnél vágjunk
-            import re
+            # Szétvágjuk a szöveget ott, ahol új nap kezdődik, de megtartjuk az elválasztókat is
+            # A regex figyeli a | jelet és a napok neveit is
             napi_blokkok = re.split(r'(\s*\|\s*|(?=Hé:|Ke:|Sze:|Csü:|Pé:|Szo:))', r_full)
             
-            formazott_rendeles_list = []
+            formazott_reszek = [] # Ezt kereste a hibaüzenet!
             
             for blokk in napi_blokkok:
-                if not blokk.strip(): continue
+                if not blokk or not blokk.strip(): 
+                    if blokk: formazott_reszek.append(blokk)
+                    continue
                 
                 szin_blokk = blokk
                 # Megnézzük, hogy ez a blokk egy különleges nappal kezdődik-e
                 for n in nap_list:
                     n_tag = f"{n}:"
-                    if n_tag in blokk and n != bazis_nap_rovid:
-                        kulonleges = True
-                        # A teljes blokkot (pl. "Pé: 1-R1K, 1-KLCS") félkövérré és kicsit nagyobbá tesszük
-                        szin_blokk = f'<font name="{f_bold}" size="8.2">{blokk}</font>'
+                    if n_tag in blokk:
+                        if n != bazis_nap_rovid:
+                            kulonleges = True
+                            # Vastagítás és méretnövelés a teljes blokkra
+                            szin_blokk = f'<font name="{f_bold}" size="8.2">{blokk}</font>'
                         break
                 
-                formazott_rendeles_list.append(szin_blokk)
+                formazott_reszek.append(szin_blokk)
             
-            formazott_rendeles = "".join(formazott_rendeles_list)
-            
-            # Újra összefűzzük a részeket egyetlen szöveggé
-            formazott_rendeles = ", ".join(formazott_reszek)
+            # Újra összefűzzük a darabokat
+            formazott_rendeles = "".join(formazott_reszek)
 
             # 1. Név mögötti szürkítés (Csak ha különleges nap van a sorban)
             if kulonleges:

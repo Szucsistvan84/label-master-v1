@@ -435,28 +435,33 @@ def create_label_pdf(df, fn, ft, meta):
             r = df.iloc[i]
             top_y = y + lh - inner_m
             
-            # --- ÚJ: Különleges nap és TELJES tétel félkövérítése ---
+            # --- ÚJ: Precíziós nap-alapú formázás ---
             r_full = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
             kulonleges = False
             
-            # Szétvágjuk a rendeléseket a vesszők mentén (pl. "Csü: 1-A, Pé: 1-B")
-            reszek = r_full.split(',')
-            formazott_reszek = []
+            # Először szétvágjuk a szöveget ott, ahol új nap kezdődik (pl. " | " vagy "Csü:", "Pé:")
+            # Regexet használunk, hogy minden napjelölésnél vágjunk
+            import re
+            napi_blokkok = re.split(r'(\s*\|\s*|(?=Hé:|Ke:|Sze:|Csü:|Pé:|Szo:))', r_full)
             
-            for resz in reszek:
-                tiszta_resz = resz.strip()
-                szin_resz = tiszta_resz
+            formazott_rendeles_list = []
+            
+            for blokk in napi_blokkok:
+                if not blokk.strip(): continue
                 
+                szin_blokk = blokk
+                # Megnézzük, hogy ez a blokk egy különleges nappal kezdődik-e
                 for n in nap_list:
                     n_tag = f"{n}:"
-                    if n_tag in tiszta_resz:
-                        if n != bazis_nap_rovid:
-                            kulonleges = True
-                            # Itt a trükk: a TELJES részt (pl. Pé: 1-R1K) f_bold-ba rakjuk
-                            # A size="8" egy picit nagyobbá is teszi, hogy még "kövérebb" legyen
-                            szin_resz = f'<font name="{f_bold}" size="8">{tiszta_resz}</font>'
+                    if n_tag in blokk and n != bazis_nap_rovid:
+                        kulonleges = True
+                        # A teljes blokkot (pl. "Pé: 1-R1K, 1-KLCS") félkövérré és kicsit nagyobbá tesszük
+                        szin_blokk = f'<font name="{f_bold}" size="8.2">{blokk}</font>'
+                        break
                 
-                formazott_reszek.append(szin_resz)
+                formazott_rendeles_list.append(szin_blokk)
+            
+            formazott_rendeles = "".join(formazott_rendeles_list)
             
             # Újra összefűzzük a részeket egyetlen szöveggé
             formazott_rendeles = ", ".join(formazott_reszek)

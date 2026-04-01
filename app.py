@@ -947,8 +947,9 @@ def main():
         
         c1.download_button(
             "📄 ETIKETTEK", 
-            create_label_pdf(edited_df, st.session_state.c_n, st.session_state.c_p), 
-            "etikettek.pdf", use_container_width=True
+            create_label_pdf(edited_df, st.session_state.c_n, st.session_state.c_p, meta), # <--- Itt a 'meta' a végén!
+            "etikettek.pdf", 
+            use_container_width=True
         )
         c2.download_button(
             "📋 MENETTERV", 

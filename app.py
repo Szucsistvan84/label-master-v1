@@ -223,7 +223,7 @@ def parse_interfood_pdf(pdf_file):
                             money_val = m_match.group(1).strip()
                             raw_money_text = m_match.group(0)
 
-all_relevant_text = " | ".join(all_relevant_text_parts)
+                all_relevant_text = " | ".join(all_relevant_text_parts)
 
                 # --- 1. FIX: Kettétört rendelési kódok összefoltozása (pl. 1- | D14 -> 1-D14) ---
                 all_relevant_text = re.sub(r'(\d+-)\s*\|\s*([A-Z][A-Z0-9*+]*)', r'\1\2', all_relevant_text)

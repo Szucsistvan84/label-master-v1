@@ -17,7 +17,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\d{2}/\d{6,7})'
 # Frissített minta: felismeri a sima (-), az en-dash (–) és az em-dash (—) jeleket is
-ORDER_PAT = r'(\d+)[-\u2013\u2014\u2212]([A-Z][A-Z0-9*+]*)'
+ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z][A-Z0-9*+]*)'
 # Frissített, "szóköz-toleráns" regex
 MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 

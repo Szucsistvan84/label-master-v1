@@ -224,28 +224,32 @@ def parse_interfood_pdf(pdf_file):
 
                 all_relevant_text = " | ".join(all_relevant_text_parts)
 
-                # --- 1. LÉPÉS: Szuper-Healer (Azonosító javítása a nyers szövegben) ---
-                # --- 0. LÉPÉS: Kötőjelek normalizálása ---
-                all_relevant_text = re.sub(r'[\u2013\u2014\u2212]', '-', all_relevant_text)
-
-                # --- 1. LÉPÉS: Szuper-Healer (A Végleges Verzió) ---
-                # Most már figyelembe veszi a kódod által beszúrt " | " karaktereket is!
-                # Megfogja a "1- | D14", "1 | -D14", és a szimpla "1 | D14" eseteket is.
-                all_relevant_text = re.sub(r'(\b\d{1,3})[\s\|]*-?[\s\|]*([A-Z][A-Z0-9*+]*)', r'\1-\2', all_relevant_text)
+                # --- 1. LÉPÉS: SZÖVEG NORMALIZÁLÁSA ---
+                # Csak a kötőjeleket egységesítjük, és kivesszük a zavaró pipe-okat a számok környékéről
+                text_to_parse = all_relevant_text
+                text_to_parse = re.sub(r'[\u2013\u2014\u2212]', '-', text_to_parse)
+                # Ez a sor segít a D14-nek: ha van "1 | - D14", csinál belőle "1-D14"-et
+                text_to_parse = re.sub(r'(\d+)\s*\|\s*-?\s*([A-Z])', r'\1-\2', text_to_parse)
 
                 # --- 2. LÉPÉS: RENDELÉSEK KINYERÉSE ---
-                raw_orders_pairs = re.findall(ORDER_PAT, all_relevant_text)
+                # A globális ORDER_PAT-et használjuk (20. sor)
+                raw_orders_pairs = re.findall(ORDER_PAT, text_to_parse)
                 
                 unique_orders, total_q = [], 0
+                found_for_removal = [] # Ezt fogjuk használni a megjegyzés tisztításához
+                
                 for q_part, code_part in raw_orders_pairs:
                     try:
                         q = int(q_part)
-                        unique_orders.append(f"{q}-{code_part}")
+                        order_string = f"{q}-{code_part}"
+                        unique_orders.append(order_string)
                         total_q += q
+                        # Elmentjük, hogy mit kell majd törölni a megjegyzésből
+                        found_for_removal.append(order_string)
                     except: continue
 
-                # Ez a lista kell a későbbi megjegyzés-tisztításhoz
-                raw_orders = [f"{q}-{c}" for q, c in raw_orders_pairs]
+                # Fontos: a tisztításhoz a nyers kódokat is adjuk hozzá (pl. D14)
+                raw_orders = found_for_removal
 
                 # --- MEGJEGYZÉS TISZTÍTÁSA ---
                 rem = all_relevant_text

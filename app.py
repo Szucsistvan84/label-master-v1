@@ -222,21 +222,22 @@ def parse_interfood_pdf(pdf_file):
                             money_val = m_match.group(1).strip()
                             raw_money_text = m_match.group(0)
 
-                all_relevant_text = " | ".join(all_relevant_text_parts)
+all_relevant_text = " | ".join(all_relevant_text_parts)
 
                 # --- 1. LÉPÉS: SZÖVEG NORMALIZÁLÁSA ---
-                # Csak a kötőjeleket egységesítjük, és kivesszük a zavaró pipe-okat a számok környékéről
                 text_to_parse = all_relevant_text
                 text_to_parse = re.sub(r'[\u2013\u2014\u2212]', '-', text_to_parse)
-                # Ez a sor segít a D14-nek: ha van "1 | - D14", csinál belőle "1-D14"-et
+                
+                # Szuper-Healer: ha a PDF-ben szétvált a darabszám és a kód (pl. "1 | - D14")
+                # Ezt alakítjuk át "1-D14" formára a kereséshez
                 text_to_parse = re.sub(r'(\d+)\s*\|\s*-?\s*([A-Z])', r'\1-\2', text_to_parse)
 
                 # --- 2. LÉPÉS: RENDELÉSEK KINYERÉSE ---
-                # A globális ORDER_PAT-et használjuk (20. sor)
+                # Itt a 20. sorban lévő ORDER_PAT-et használjuk
                 raw_orders_pairs = re.findall(ORDER_PAT, text_to_parse)
                 
                 unique_orders, total_q = [], 0
-                found_for_removal = [] # Ezt fogjuk használni a megjegyzés tisztításához
+                found_for_removal = []
                 
                 for q_part, code_part in raw_orders_pairs:
                     try:
@@ -244,12 +245,15 @@ def parse_interfood_pdf(pdf_file):
                         order_string = f"{q}-{code_part}"
                         unique_orders.append(order_string)
                         total_q += q
-                        # Elmentjük, hogy mit kell majd törölni a megjegyzésből
                         found_for_removal.append(order_string)
                     except: continue
 
-                # Fontos: a tisztításhoz a nyers kódokat is adjuk hozzá (pl. D14)
                 raw_orders = found_for_removal
+                
+                # --- KRITIKUS JAVÍTÁS ---
+                # Frissítjük az eredeti változót a javított szövegre, 
+                # hogy a későbbi megjegyzés-tisztítás már a "meggyógyított" 1-D14-et lássa!
+                all_relevant_text = text_to_parse
 
                 # --- MEGJEGYZÉS TISZTÍTÁSA ---
                 rem = all_relevant_text

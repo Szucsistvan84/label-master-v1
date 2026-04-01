@@ -396,11 +396,15 @@ def merge_data(all_rows):
                 
     return res
 
-def create_label_pdf(df, fn, ft):
+def create_label_pdf(df, fn, ft, meta):
     if df is None or df.empty: return None
     if 'Sorrend' not in df.columns: df['Sorrend'] = range(1, len(df) + 1)
     df = df.sort_values('Sorrend')
     
+    # --- ÚJ: Bázis nap meghatározása ---
+    bazis_nap_rovid = get_day_short(meta.get('nap', ''))
+    nap_list = ["Hé", "Ke", "Sze", "Csü", "Pé", "Szo"]
+
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     p = canvas.Canvas(buf, pagesize=A4)
@@ -426,12 +430,25 @@ def create_label_pdf(df, fn, ft):
         if i < len(df):
             r = df.iloc[i]
             top_y = y + lh - inner_m
+            
+            # --- ÚJ: Különleges nap és formázás meghatározása ---
+            r_full = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
+            kulonleges = False
+            formazott_rendeles = r_full
+            
+            for n in nap_list:
+                n_tag = f"{n}:"
+                if n_tag in r_full:
+                    if n != bazis_nap_rovid:
+                        kulonleges = True
+                        # Csak a nem-mai nap jelölését tesszük félkövérré
+                        formazott_rendeles = formazott_rendeles.replace(n_tag, f"<b>{n_tag}</b>")
 
-            # 1. Hétvégi kiemelés
-            is_weekend = r.get('Hétvégi') == True or "Szo:" in str(r.get('Rendelés_Full', ''))
-            if is_weekend:
+            # 1. Név mögötti szürkítés (Csak ha különleges nap van a sorban)
+            if kulonleges:
                 p.saveState()
-                p.setFillColor(colors.lightgrey)
+                p.setFillColor(colors.Color(0.88, 0.88, 0.88))
+                # A téglalap pontosan a név alá pozicionálva
                 p.rect(x + inner_m - 1*mm, top_y - 9.5 * mm, usable_w + 2*mm, 5.5 * mm, fill=1, stroke=0)
                 p.restoreState()
 
@@ -439,12 +456,8 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_bold, 10)
             p.drawString(x + inner_m, top_y - 3 * mm, f"#{int(r['Sorrend'])}")
             
-            # A prefix-es ID helyett a tiszta temp_id-t használjuk
-            # Biztosítjuk, hogy szöveg legyen, ha esetleg számként jönne
             display_id = str(r.get('temp_id', 'N/A'))
-
             p.setFont(f_reg, 8)
-            # Jobbra igazítva kiírjuk a tiszta kódot
             p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {display_id}")
 
             p.setFont(f_bold, 9)
@@ -455,36 +468,31 @@ def create_label_pdf(df, fn, ft):
             p.setFont(f_reg, 7)
             p.drawString(x + inner_m, top_y - 12.5 * mm, str(r.get('Cím', ''))[:45])
 
-            # 3. Rendelés (Lentebb tolva az ügyfél nevétől, hogy ne érjenek össze)
-            rendeles_text = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
-            para = Paragraph(f"<b>{rendeles_text}</b>", order_s)
-            
-            # Maximális magasság, hogy ne lógjon rá az alsó adatokra
+            # 3. Rendelés (A formázott, szelektíven félkövérített szöveggel)
+            para = Paragraph(formazott_rendeles, order_s)
             pw, ph = para.wrap(usable_w, 15 * mm)
             para.drawOn(p, x + inner_m, y_eff + inner_m + 6.8 * mm)
 
-            # 4. Fizetendő és Darab (Kisebb betű, közvetlenül a vonalra tolva)
+            # 4. Fizetendő és Darab
             penz = str(r.get('Pénz', '0 Ft')).replace(" ", "")
             if penz not in ["0Ft", "", "0"]:
                 p.setFont(f_bold, 9)
-                # Itt a kért kiegészítés: "Fizet: "
                 p.drawString(x + inner_m, y_eff + 5.5 * mm, f"Fizet: {str(r.get('Pénz', ''))}")
             
             p.setFont(f_bold, 8)
             p.drawRightString(x + lw - inner_m, y_eff + 5.5 * mm, f"{int(r.get('Összesen', 0))} db")
 
-            # 5. Folytonos elválasztó vonal
+            # 5. Elválasztó vonal és Futár
             p.setDash(1, 0) 
             p.setStrokeColor(colors.black)
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 5 * mm, x + lw - inner_m, y_eff + 5 * mm)
             
-            # Futár adatok
             p.setFont(f_reg, 6)
             p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
 
         else:
-            # Marketing etikett
+            # --- MARKETING ETIKETT (Érintetlenül hagyva) ---
             m_text = (
                 f"<font size='10' name='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
                 f"Új Ügyfeleink részére!<br/><br/>"

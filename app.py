@@ -435,19 +435,31 @@ def create_label_pdf(df, fn, ft, meta):
             r = df.iloc[i]
             top_y = y + lh - inner_m
             
-            # --- ÚJ: Különleges nap és formázás meghatározása (Golyóálló verzió) ---
+            # --- ÚJ: Különleges nap és TELJES tétel félkövérítése ---
             r_full = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
             kulonleges = False
-            formazott_rendeles = r_full
             
-            for n in nap_list:
-                n_tag = f"{n}:"
-                if n_tag in r_full:
-                    if n != bazis_nap_rovid:
-                        kulonleges = True
-                        # A sima <b> helyett kényszerítjük az f_bold betűtípust
-                        uj_tag = f'<font name="{f_bold}">{n_tag}</font>'
-                        formazott_rendeles = formazott_rendeles.replace(n_tag, uj_tag)
+            # Szétvágjuk a rendeléseket a vesszők mentén (pl. "Csü: 1-A, Pé: 1-B")
+            reszek = r_full.split(',')
+            formazott_reszek = []
+            
+            for resz in reszek:
+                tiszta_resz = resz.strip()
+                szin_resz = tiszta_resz
+                
+                for n in nap_list:
+                    n_tag = f"{n}:"
+                    if n_tag in tiszta_resz:
+                        if n != bazis_nap_rovid:
+                            kulonleges = True
+                            # Itt a trükk: a TELJES részt (pl. Pé: 1-R1K) f_bold-ba rakjuk
+                            # A size="8" egy picit nagyobbá is teszi, hogy még "kövérebb" legyen
+                            szin_resz = f'<font name="{f_bold}" size="8">{tiszta_resz}</font>'
+                
+                formazott_reszek.append(szin_resz)
+            
+            # Újra összefűzzük a részeket egyetlen szöveggé
+            formazott_rendeles = ", ".join(formazott_reszek)
 
             # 1. Név mögötti szürkítés (Csak ha különleges nap van a sorban)
             if kulonleges:

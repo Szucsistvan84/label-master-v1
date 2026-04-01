@@ -224,25 +224,27 @@ def parse_interfood_pdf(pdf_file):
 
                 all_relevant_text = " | ".join(all_relevant_text_parts)
 
-# --- 1. LÉPÉS: Szuper-Healer (Azonosító javítása a nyers szövegben) ---
-                # Ez összefűzi az elszakadt rendeléseket (pl. "1 - D14" -> "1-D14")
-                all_relevant_text = re.sub(r'(\d{1,3})[\s\n]*[-\u2013\u2014\u2212][\s\n]*([A-Z][A-Z0-9*+]*)', r'\1-\2', all_relevant_text)
+                # --- 1. LÉPÉS: Szuper-Healer (Azonosító javítása a nyers szövegben) ---
+                # --- 0. LÉPÉS: Kötőjelek normalizálása ---
+                all_relevant_text = re.sub(r'[\u2013\u2014\u2212]', '-', all_relevant_text)
+
+                # --- 1. LÉPÉS: Szuper-Healer (A Végleges Verzió) ---
+                # Most már figyelembe veszi a kódod által beszúrt " | " karaktereket is!
+                # Megfogja a "1- | D14", "1 | -D14", és a szimpla "1 | D14" eseteket is.
+                all_relevant_text = re.sub(r'(\b\d{1,3})[\s\|]*-?[\s\|]*([A-Z][A-Z0-9*+]*)', r'\1-\2', all_relevant_text)
 
                 # --- 2. LÉPÉS: RENDELÉSEK KINYERÉSE ---
-                # Fontos: Itt is a globális ORDER_PAT-et használjuk, ami már ismeri a zárójeleket!
                 raw_orders_pairs = re.findall(ORDER_PAT, all_relevant_text)
                 
                 unique_orders, total_q = [], 0
                 for q_part, code_part in raw_orders_pairs:
                     try:
-                        # Mivel a globális ORDER_PAT-ben van (\d+), a q_part már csak a szám
                         q = int(q_part)
-                        
                         unique_orders.append(f"{q}-{code_part}")
                         total_q += q
                     except: continue
 
-                # Ez a lista kell a későbbi megjegyzés-tisztításhoz (hogy ki tudjuk törölni a kódokat a megjegyzésből)
+                # Ez a lista kell a későbbi megjegyzés-tisztításhoz
                 raw_orders = [f"{q}-{c}" for q, c in raw_orders_pairs]
 
                 # --- MEGJEGYZÉS TISZTÍTÁSA ---

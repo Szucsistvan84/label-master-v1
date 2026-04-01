@@ -525,28 +525,33 @@ def create_manifest_pdf(df, c_n, meta):
         'IDStyle': ParagraphStyle('IDStyle', fontName=f_reg, fontSize=7.5, leading=9, alignment=2, textColor=colors.gray)
     }
 
+    # --- ÚJ: Bázis nap meghatározása ---
+    bazis_nap_rovid = get_day_short(meta.get('nap', ''))
+    nap_list = ["Hé", "Ke", "Sze", "Csü", "Pé", "Szo"]
+
     elements = []
     j_str = ", ".join(meta.get('jaratok', []))
     header_str = f"MENETTERV - Járat(ok): {j_str} | {meta.get('ev', '')}. év, {meta.get('het', '')}. hét | {meta.get('nap', '')}"
     elements.append(Paragraph(header_str, styles['Header']))
     elements.append(Spacer(1, 2*mm))
 
-    # Táblázat fejléce
-    table_data = [["#", "NÉV / CÍM / INFÓ", "RENDELÉS", "PÉNZ", "TEL", "DB", "☐"]]
-    col_widths = [8*mm, 95*mm, 32*mm, 18*mm, 24*mm, 8*mm, 10*mm]
+    # 1. FEJLÉC ÉS OSZLOPSZÉLESSÉGEK FRISSÍTÉSE
+    # Sorrend: #, NÉV, RENDELÉS, ☐, PÉNZ, TEL, DB
+    table_data = [["#", "NÉV / CÍM / INFÓ", "RENDELÉS", "☐", "PÉNZ", "TEL", "DB"]]
+    col_widths = [8*mm, 95*mm, 32*mm, 10*mm, 18*mm, 24*mm, 8*mm]
 
     table_styles = [
         ('FONTNAME', (0,0), (-1,0), f_bold),
         ('GRID', (0,0), (-1,-1), 0.3, colors.grey),
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('ALIGN', (3,0), (3,-1), 'RIGHT'),
-        ('ALIGN', (5,0), (6,-1), 'CENTER'),
+        ('ALIGN', (4,0), (4,-1), 'RIGHT'),  # Pénz most már a 4. index (0-tól számolva)
+        ('ALIGN', (3,0), (3,-1), 'CENTER'), # Checkbox középre
+        ('ALIGN', (6,0), (6,-1), 'CENTER'), # DB középre
         ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
         ('TOPPADDING', (0,0), (-1,-1), 1),
         ('BOTTOMPADDING', (0,0), (-1,-1), 1),
     ]
 
-    # --- CSOPORTOSÍTÁS / KERETEZÉS LOGIKÁJA ---
     if 'Csoport' in df.columns:
         groups = df['Csoport'].values
         start_idx = None
@@ -559,14 +564,30 @@ def create_manifest_pdf(df, c_n, meta):
                     table_styles.append(('BACKGROUND', (0, r_s), (-1, r_e), colors.Color(0.96, 0.96, 0.96)))
                     start_idx = None
 
-    # Adatok feltöltése
     for i, row in df.iterrows():
-        prefix = "↑ " if (row.get('Csoport', 0) > 0 and i > 0 and df.iloc[i-1].get('Csoport') == row.get('Csoport')) else ""
+        r_full = str(row.get('Rendelés_Full', ''))
         
+        # --- ÚJ: Dinamikus szürkítés és félkövérítés logikája ---
+        kulonleges = False
+        formazott_rendeles = r_full
+        
+        for n in nap_list:
+            n_tag = f"{n}:"
+            if n_tag in r_full:
+                if n != bazis_nap_rovid:
+                    kulonleges = True
+                    # Félkövérré tesszük a nem bázis napot (pl. <b>Pé:</b> 1-A)
+                    formazott_rendeles = formazott_rendeles.replace(n_tag, f"<b>{n_tag}</b>")
+
+        # Név háttérszínének beállítása (ha különleges nap van a sorban)
+        name_bg = colors.Color(0.88, 0.88, 0.88) if kulonleges else None
+        if name_bg:
+            table_styles.append(('BACKGROUND', (1, i+1), (1, i+1), name_bg))
+
+        prefix = "↑ " if (row.get('Csoport', 0) > 0 and i > 0 and df.iloc[i-1].get('Csoport') == row.get('Csoport')) else ""
         u_name = str(row.get('Ügyintéző', ''))[:45]
         u_id = str(row.get('temp_id', ''))
         
-        # Név és ID egy sorban
         t_inner = Table([[Paragraph(f"{prefix}{u_name}", styles['NameBold']), Paragraph(f"ID: {u_id}", styles['IDStyle'])]], 
                         colWidths=[70*mm, 22*mm], style=[('LEFTPADDING', (0,0), (-1,-1), 0), ('TOPPADDING', (0,0), (-1,-1), 0)])
 
@@ -576,26 +597,20 @@ def create_manifest_pdf(df, c_n, meta):
         if megj and megj.lower() != 'nan':
             info_flow.append(Paragraph(megj, styles['Small']))
 
-        # --- PÉNZ TISZTÍTÁSA (0 Ft kiszűrése) ---
         p_raw = str(row.get('Pénz', '')).strip()
-        
-        # Csak akkor írjuk ki, ha van benne szám ÉS az a szám nem nulla
         digits_only = "".join(re.findall(r'\d+', p_raw))
-        if digits_only and int(digits_only) > 0:
-            penz_val = p_raw
-        else:
-            penz_val = "" 
+        penz_val = p_raw if (digits_only and int(digits_only) > 0) else "" 
         
-        # A táblázatba már a frissített penz_val kerül:
         table_data.append([
-            f"{int(row.get('Sorrend', i+1))}",
-            info_flow,
-            Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']),
-            Paragraph(f"<b>{penz_val}</b>", styles['Normal']), # Itt jelenik meg
-            Paragraph(str(row.get('Telefon', '')), styles['Small']),
-            str(row.get('Összesen', '')),
-            Checkbox(10)
+            f"{int(row.get('Sorrend', i+1))}",                   # 0: #
+            info_flow,                                           # 1: Név/Cím
+            Paragraph(formazott_rendeles, styles['Small']),      # 2: Rendelés
+            Checkbox(10),                                        # 3: ☐ (EZ AZ ÚJ HELYE)
+            Paragraph(f"<b>{penz_val}</b>", styles['Normal']),   # 4: Pénz
+            Paragraph(str(row.get('Telefon', '')), styles['Small']), # 5: Tel
+            str(row.get('Összesen', ''))                         # 6: DB
         ])
+
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle(table_styles))
     elements.append(t)

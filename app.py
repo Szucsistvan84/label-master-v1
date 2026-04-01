@@ -222,7 +222,7 @@ def parse_interfood_pdf(pdf_file):
                             money_val = m_match.group(1).strip()
                             raw_money_text = m_match.group(0)
 
-all_relevant_text = " | ".join(all_relevant_text_parts)
+                all_relevant_text = " | ".join(all_relevant_text_parts)
 
                 # --- 1. LÉPÉS: SZÖVEG NORMALIZÁLÁSA ---
                 text_to_parse = all_relevant_text

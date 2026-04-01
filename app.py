@@ -226,13 +226,14 @@ def parse_interfood_pdf(pdf_file):
 
                 all_relevant_text = " | ".join(all_relevant_text_parts)
 
-                # --- EXTRA FIX: Kötőjelek normalizálása (Minden fura jelet sima '-' jelre cserélünk) ---
+                # --- 0. LÉPÉS: Kötőjelek normalizálása ---
                 all_relevant_text = re.sub(r'[\u2013\u2014\u2212]', '-', all_relevant_text)
 
-                # --- FIX: Kettétört rendelési kódok összefoltozása (pl. 1- | D14 -> 1-D14) ---
-                all_relevant_text = re.sub(r'(\d+-)\s*\|\s*([A-Z][A-Z0-9*+]*)', r'\1\2', all_relevant_text)
+                # --- 1. LÉPÉS: Szuper-Healer (Minden törést és szóközt kezel) ---
+                # Megfogja a "1- | D14", "1 | -D14", "1 - D14", és a "1- D14" eseteket is!
+                all_relevant_text = re.sub(r'(\b\d{1,3})\s*(?:-\s*\|\s*|\|\s*-\s*|-\s*)\s*([A-Z][A-Z0-9*+]*)', r'\1-\2', all_relevant_text)
 
-                # --- A SZOBRÁSZ-LOGIKA ---
+                # --- 2. LÉPÉS: RENDELÉSEK KINYERÉSE ---
                 raw_orders = re.findall(ORDER_PAT, all_relevant_text)
                 unique_orders, total_q = [], 0
                 for o in raw_orders:

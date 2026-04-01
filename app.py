@@ -553,19 +553,26 @@ def create_manifest_pdf(df, c_n, meta):
         if megj and megj.lower() != 'nan':
             info_flow.append(Paragraph(megj, styles['Small']))
 
+        # --- PÉNZ TISZTÍTÁSA (0 Ft kiszűrése) ---
         p_raw = str(row.get('Pénz', '')).strip()
-        penz_val = p_raw if (p_raw and p_raw.lower() != 'nan' and any(c.isdigit() for c in p_raw)) else ""
-
+        
+        # Csak akkor írjuk ki, ha van benne szám ÉS az a szám nem nulla
+        digits_only = "".join(re.findall(r'\d+', p_raw))
+        if digits_only and int(digits_only) > 0:
+            penz_val = p_raw
+        else:
+            penz_val = "" 
+        
+        # A táblázatba már a frissített penz_val kerül:
         table_data.append([
             f"{int(row.get('Sorrend', i+1))}",
             info_flow,
             Paragraph(str(row.get('Rendelés_Full', '')), styles['Small']),
-            Paragraph(f"<b>{penz_val}</b>", styles['Normal']),
+            Paragraph(f"<b>{penz_val}</b>", styles['Normal']), # Itt jelenik meg
             Paragraph(str(row.get('Telefon', '')), styles['Small']),
             str(row.get('Összesen', '')),
-            Checkbox(10) # <--- ITT HIVJUK MEG A NÉGYZETET!
+            Checkbox(10)
         ])
-
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle(table_styles))
     elements.append(t)

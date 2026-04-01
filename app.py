@@ -16,7 +16,8 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\d{2}/\d{6,7})'
-ORDER_PAT = r'\d+-[A-Z][A-Z0-9*+]*'
+# Frissített minta: felismeri a sima (-), az en-dash (–) és az em-dash (—) jeleket is
+ORDER_PAT = r'\d+[-\u2013\u2014\u2212][A-Z][A-Z0-9*+]*'
 # Frissített, "szóköz-toleráns" regex
 MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
@@ -225,20 +226,22 @@ def parse_interfood_pdf(pdf_file):
 
                 all_relevant_text = " | ".join(all_relevant_text_parts)
 
-                # --- 1. FIX: Kettétört rendelési kódok összefoltozása (pl. 1- | D14 -> 1-D14) ---
+                # --- EXTRA FIX: Kötőjelek normalizálása (Minden fura jelet sima '-' jelre cserélünk) ---
+                all_relevant_text = re.sub(r'[\u2013\u2014\u2212]', '-', all_relevant_text)
+
+                # --- FIX: Kettétört rendelési kódok összefoltozása (pl. 1- | D14 -> 1-D14) ---
                 all_relevant_text = re.sub(r'(\d+-)\s*\|\s*([A-Z][A-Z0-9*+]*)', r'\1\2', all_relevant_text)
 
-                # --- 2. RENDELÉSEK KINYERÉSE ---
+                # --- A SZOBRÁSZ-LOGIKA ---
                 raw_orders = re.findall(ORDER_PAT, all_relevant_text)
                 unique_orders, total_q = [], 0
                 for o in raw_orders:
                     try:
-                        # Szétválasztjuk a mennyiséget és a kódot (biztonságos split)
+                        # Mivel fent normalizáltunk, itt a split('-') már biztosan működik!
                         parts = o.split('-', 1)
                         q_part = parts[0]
                         code_part = parts[1]
                         
-                        # Mennyiség kinyerése (ha nincs szám, akkor 1)
                         digits = re.sub(r'\D', '', q_part)
                         q = int(digits[-1]) if digits else 1
                         
@@ -246,13 +249,11 @@ def parse_interfood_pdf(pdf_file):
                         total_q += q
                     except: continue
 
-                # --- 3. MEGJEGYZÉS TISZTÍTÁSA (A 'rem' az 'all_relevant_text'-ből indul!) ---
+                # --- MEGJEGYZÉS TISZTÍTÁSA ---
                 rem = all_relevant_text
-                
-                # Először a talált rendeléseket pucoljuk ki a szövegből
                 for o in raw_orders:
                     rem = rem.replace(o, "")
-
+                    
                 # Stop szavak és lábléc eltávolítása
                 stop_words_list = ["Csillagozott", "kiegészítő is van", "Összesítés", "Összesen:", "Nyomtatva:"]
                 for sw in stop_words_list:

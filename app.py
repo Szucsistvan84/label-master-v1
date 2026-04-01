@@ -133,8 +133,6 @@ def parse_interfood_pdf(pdf_file):
     metadata = {'year': None, 'week': None, 'day': None}
     
     # Kiegészített regexek
-    ORDER_PAT = r'(\d+-[A-Z][A-Z0-9*+]*)'
-    PHONE_PAT = r'(\d{2}/\d{6,7})'
     # Ez a regex a pénzösszeghez kell a stop-feltételhez
     MONEY_PAT_LOCAL = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 

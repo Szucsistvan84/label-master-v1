@@ -20,6 +20,16 @@ ORDER_PAT = r'\d+-[A-Z][A-Z0-9*+]*'
 # Frissített, "szóköz-toleráns" regex
 MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
+# --- EZT A SEGÉDFÜGGVÉNYT TEDD A KÓD ELEJÉRE ---
+def get_day_short(day_str):
+    if not day_str: return ""
+    primary_day = day_str.split(',')[0].strip() # "Csütörtök, Péntek" -> "Csütörtök"
+    day_map = {
+        "Hétfő": "Hé", "Kedd": "Ke", "Szerda": "Sze",
+        "Csütörtök": "Csü", "Péntek": "Pé", "Szombat": "Szo"
+    }
+    return day_map.get(primary_day, primary_day[:2])
+
 def extract_all_meta(pdf_files):
     all_meta = {'jaratok': [], 'ev': '', 'het': '', 'nap': ''}
     
@@ -278,22 +288,35 @@ def parse_interfood_pdf(pdf_file):
                     megj = ""
                 
                 if unique_orders:
-                    # A prefixet (Hé, Pé, Szo) használjuk, nem egy beégetett P-t
-                    full_id = f"{prefix}-{u_id}" 
+                    # --- 1. NAPOK SZÉPÍTÉSE (C -> Csü) ---
+                    mapping = {
+                        "H": "Hé", "K": "Ke", "S": "Sze", 
+                        "C": "Csü", "P": "Pé", "Z": "Szo"
+                    }
+                    # Ha a prefix nincs a listában, a metaadatból próbáljuk kitalálni
+                    szep_prefix = mapping.get(prefix, get_day_short(metadata.get('day', '')))
                     
+                    rendeles_szoveg = ", ".join(unique_orders)
+                    rendeles_full_javitott = f"{szep_prefix}: {rendeles_szoveg}"
+
+                    # --- 2. PÉNZ TISZTÍTÁSA (0 Ft eltüntetése) ---
+                    digits_only = "".join(re.findall(r'\d+', money_val))
+                    money_display = "" if (not digits_only or int(digits_only) == 0) else money_val
+
+                    # --- 3. ADATOK MENTÉSE ---
                     rows.append({
                         "Prefix": prefix, 
-                        "ID": full_id,  # Így a háttérben megmarad a nap szerinti elkülönítés
+                        "ID": f"{prefix}-{u_id}", 
                         "Ügyintéző": clean_name,
                         "Cím": address, 
                         "Telefon": tel_m.group(0) if tel_m else "",
-                        "Pénz": money_val, 
-                        "Rendelés": ", ".join(unique_orders),
+                        "Pénz": money_display, 
+                        "Rendelés": rendeles_szoveg,
                         "Megjegyzés": megj, 
                         "Összesen": total_q, 
                         "temp_id": u_id,
                         "Raklista_Ertek": 0, 
-                        "Rendelés_Full": f"{prefix}: {', '.join(unique_orders)}",
+                        "Rendelés_Full": rendeles_full_javitott,
                         "Hétvégi": False,
                         "Sorrend": st.session_state.weights.get(str(u_id), 999)
                     })

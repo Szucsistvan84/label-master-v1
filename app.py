@@ -413,7 +413,11 @@ def create_label_pdf(df, fn, ft, meta):
     usable_w = lw - (2 * inner_m)
 
     # Tömörített sorköz a rendeléseknek
-    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.5, leading=8.0)
+    # Fontos: A Paragraph-nak meg kell adni, mi legyen a Bold párja
+    order_s = ParagraphStyle('Order', 
+                             fontName=f_reg, 
+                             fontSize=7.5, 
+                             leading=8.0)
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1)
 
     total_slots = math.ceil(len(df) / 21) * 21

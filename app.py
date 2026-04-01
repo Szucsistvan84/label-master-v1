@@ -229,14 +229,9 @@ def parse_interfood_pdf(pdf_file):
                 # --- 0. LÉPÉS: Kötőjelek normalizálása ---
                 all_relevant_text = re.sub(r'[\u2013\u2014\u2212]', '-', all_relevant_text)
 
-                # --- 1. LÉPÉS: Szuper-Healer (Minden törést és szóközt kezel) ---
-                # Megfogja a "1- | D14", "1 | -D14", "1 - D14", és a "1- D14" eseteket is!
-                # 1. eset: Van kötőjel vagy elválasztó karakter (a korábbi logika turbózva)
-                all_relevant_text = re.sub(r'(\b\d{1,3})[\s\n]*(?:-[\s\n]*\||\|[\s\n]*-|-|[\s\n]-)[\s\n]*([A-Z][A-Z0-9*+]*)', r'\1-\2', all_relevant_text)
-                
-                # 2. eset: Nincs kötőjel, csak egy "üres" törés (pl. "1" az egyik sor végén, "D14" a következő elején)
-                all_relevant_text = re.sub(r'(\b\d{1,3})\s*\n\s*([A-Z][A-Z0-9*+]*)', r'\1-\2', all_relevant_text)
-
+                # --- 1. LÉPÉS: Szuper-Healer (Csak az azonosítót javítja) ---
+                # Megkeresi a "szám + kötőjel + szóköz/sortörés + betűs kód" eseteket és összefűzi
+                all_relevant_text = re.sub(r'(\d{1,3})[\s\n]*[-\u2013\u2014\u2212][\s\n]*([A-Z][A-Z0-9*+]*)', r'\1-\2', all_relevant_text)
                 # --- 2. LÉPÉS: RENDELÉSEK KINYERÉSE ---
                 raw_orders = re.findall(ORDER_PAT, all_relevant_text)
                 unique_orders, total_q = [], 0

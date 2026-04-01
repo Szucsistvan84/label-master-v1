@@ -223,30 +223,43 @@ def parse_interfood_pdf(pdf_file):
                             money_val = m_match.group(1).strip()
                             raw_money_text = m_match.group(0)
 
-                all_relevant_text = " | ".join(all_relevant_text_parts)
+all_relevant_text = " | ".join(all_relevant_text_parts)
 
-                # --- FIX: Kettétört rendelési kódok összefoltozása ---
-                # Keressük az 'szám- | Betű' mintát (pl. 1- | D14) és összeragasztjuk (1-D14)
+                # --- 1. FIX: Kettétört rendelési kódok összefoltozása (pl. 1- | D14 -> 1-D14) ---
                 all_relevant_text = re.sub(r'(\d+-)\s*\|\s*([A-Z][A-Z0-9*+]*)', r'\1\2', all_relevant_text)
 
-                # --- A SZOBRÁSZ-LOGIKA (VÁLTOZATLAN) ---
-                raw_orders = re.findall(ORDER_PAT, all_relevant_text)                
+                # --- 2. RENDELÉSEK KINYERÉSE ---
+                raw_orders = re.findall(ORDER_PAT, all_relevant_text)
                 unique_orders, total_q = [], 0
                 for o in raw_orders:
                     try:
-                        q_part = o.split('-')[0]
-                        q = int(re.sub(r'\D', '', q_part)[-1]) if re.sub(r'\D', '', q_part) else 1
-                        unique_orders.append(f"{q}-{o.split('-')[1]}")
+                        # Szétválasztjuk a mennyiséget és a kódot (biztonságos split)
+                        parts = o.split('-', 1)
+                        q_part = parts[0]
+                        code_part = parts[1]
+                        
+                        # Mennyiség kinyerése (ha nincs szám, akkor 1)
+                        digits = re.sub(r'\D', '', q_part)
+                        q = int(digits[-1]) if digits else 1
+                        
+                        unique_orders.append(f"{q}-{code_part}")
                         total_q += q
                     except: continue
 
+                # --- 3. MEGJEGYZÉS TISZTÍTÁSA (A 'rem' az 'all_relevant_text'-ből indul!) ---
                 rem = all_relevant_text
-                # Itt a meglévő tisztítási lépéseid futnak tovább...
-                stop_words = ["Csillagozott", "kiegészítő is van", "Összesítés", "Összesen:", "Nyomtatva:"]
-                for sw in stop_words:
+                
+                # Először a talált rendeléseket pucoljuk ki a szövegből
+                for o in raw_orders:
+                    rem = rem.replace(o, "")
+
+                # Stop szavak és lábléc eltávolítása
+                stop_words_list = ["Csillagozott", "kiegészítő is van", "Összesítés", "Összesen:", "Nyomtatva:"]
+                for sw in stop_words_list:
                     if sw in rem:
                         rem = rem.split(sw)[0]
 
+                # Maradék azonosítók és kód-töredékek takarítása
                 rem = re.sub(r'[A-Z]-\d+[-A-Z]*', '', rem)
                 rem = rem.replace(full_id_match, "")
                 rem = re.sub(r'(?i)\bdr\.?\s*', '', rem)

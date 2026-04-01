@@ -231,21 +231,23 @@ def parse_interfood_pdf(pdf_file):
                 # Megkeresi a "szám + kötőjel + szóköz/sortörés + betűs kód" eseteket és összefűzi
                 all_relevant_text = re.sub(r'(\d{1,3})[\s\n]*[-\u2013\u2014\u2212][\s\n]*([A-Z][A-Z0-9*+]*)', r'\1-\2', all_relevant_text)
                 # --- 2. LÉPÉS: RENDELÉSEK KINYERÉSE ---
-                raw_orders = re.findall(ORDER_PAT, all_relevant_text)
+                # A findall most már rögtön (darabszám, kód) párokat ad vissza a zárójelek miatt
+                raw_orders_pairs = re.findall(ORDER_PAT, all_relevant_text)
+                
                 unique_orders, total_q = [], 0
-                for o in raw_orders:
+                for q_part, code_part in raw_orders_pairs:
                     try:
-                        # Mivel fent normalizáltunk, itt a split('-') már biztosan működik!
-                        parts = o.split('-', 1)
-                        q_part = parts[0]
-                        code_part = parts[1]
-                        
-                        digits = re.sub(r'\D', '', q_part)
-                        q = int(digits[-1]) if digits else 1
+                        # q_part: a darabszám (pl. "1")
+                        # code_part: az étel kódja (pl. "D14")
+                        q = int(q_part)
                         
                         unique_orders.append(f"{q}-{code_part}")
                         total_q += q
                     except: continue
+
+                # Ez a rész kell a későbbi megjegyzés-tisztításhoz:
+                # Visszaállítjuk a raw_orders-t egy listává a törléshez
+                raw_orders = [f"{q}-{c}" for q, c in raw_orders_pairs]
 
                 # --- MEGJEGYZÉS TISZTÍTÁSA ---
                 rem = all_relevant_text

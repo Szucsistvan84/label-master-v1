@@ -435,7 +435,7 @@ def create_label_pdf(df, fn, ft, meta):
             r = df.iloc[i]
             top_y = y + lh - inner_m
             
-            # --- ÚJ: Különleges nap és formázás meghatározása ---
+            # --- ÚJ: Különleges nap és formázás meghatározása (Golyóálló verzió) ---
             r_full = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
             kulonleges = False
             formazott_rendeles = r_full
@@ -445,8 +445,9 @@ def create_label_pdf(df, fn, ft, meta):
                 if n_tag in r_full:
                     if n != bazis_nap_rovid:
                         kulonleges = True
-                        # Csak a nem-mai nap jelölését tesszük félkövérré
-                        formazott_rendeles = formazott_rendeles.replace(n_tag, f"<b>{n_tag}</b>")
+                        # A sima <b> helyett kényszerítjük az f_bold betűtípust
+                        uj_tag = f'<font name="{f_bold}">{n_tag}</font>'
+                        formazott_rendeles = formazott_rendeles.replace(n_tag, uj_tag)
 
             # 1. Név mögötti szürkítés (Csak ha különleges nap van a sorban)
             if kulonleges:

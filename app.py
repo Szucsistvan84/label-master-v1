@@ -225,9 +225,12 @@ def parse_interfood_pdf(pdf_file):
 
                 all_relevant_text = " | ".join(all_relevant_text_parts)
 
+                # --- FIX: Kettétört rendelési kódok összefoltozása ---
+                # Keressük az 'szám- | Betű' mintát (pl. 1- | D14) és összeragasztjuk (1-D14)
+                all_relevant_text = re.sub(r'(\d+-)\s*\|\s*([A-Z][A-Z0-9*+]*)', r'\1\2', all_relevant_text)
+
                 # --- A SZOBRÁSZ-LOGIKA (VÁLTOZATLAN) ---
-                raw_orders = re.findall(ORDER_PAT, all_relevant_text)
-                unique_orders, total_q = [], 0
+                raw_orders = re.findall(ORDER_PAT, all_relevant_text)                unique_orders, total_q = [], 0
                 for o in raw_orders:
                     try:
                         q_part = o.split('-')[0]

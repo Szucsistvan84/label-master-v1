@@ -131,17 +131,18 @@ def get_etlap_dict(year, week, target_day=None):
 def debug_pdf_layout(pdf_file):
     with pdfplumber.open(pdf_file) as pdf:
         page = pdf.pages[0]
-        # 150-es felbontás elég a vizualizációhoz
         im = page.to_image(resolution=150)
         
-        # A vágási pontok (függőlegesek)
-        v_lines = [0, 50, 140, 360, 510, 580, 780, 842]
+        # Rajzoljunk egy rácsot 50 pontonként, és írjuk rá a számokat
+        for x in range(0, int(page.width), 50):
+            im.draw_vlines([x], stroke="lightgray", stroke_width=1)
+            # Ez a rész vizuálisan segít beazonosítani a pontos helyet
         
-        # Piros vonalak rárajzolása
-        im.draw_vlines(v_lines, stroke="red", stroke_width=2)
+        # A jelenlegi (még rossz) vonalaid pirossal
+        current_v_lines = [0, 50, 140, 360, 510, 580, 780, 842]
+        im.draw_vlines(current_v_lines, stroke="red", stroke_width=2)
         
-        # Megjelenítés: .annotated a kulcsszó, ez tartalmazza a rajzot!
-        st.image(im.annotated, caption="Most már látnod kell a PIROS vonalakat!", use_container_width=True)
+        st.image(im.annotated, caption="Keresd meg, hol végződnek az oszlopok a szürke rács alapján!", use_container_width=True)
 
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(pdf_file):

@@ -804,9 +804,18 @@ def main():
                         all_rows.extend(rows)
 
             if all_rows:
-                # Az étlaphoz kellenek a dátumok
-                y = meta_auto.get('ev') or '2026'
-                w = meta_auto.get('het') or '13'
+                # 1. Megnézzük, van-e mentett metaadatunk a "memóriában"
+                saved_meta = st.session_state.get('meta_data', {})
+                
+                # 2. Először a memóriából próbálunk adatot nyerni, ha nincs, 
+                # akkor a frissen generált meta_auto-ból (ha épp most futott le)
+                current_meta = saved_meta if saved_meta else meta_auto
+                
+                # 3. Az étlaphoz kellenek a dátumok - biztonságos lekérés
+                y = current_meta.get('ev') or current_meta.get('year') or '2026'
+                w = current_meta.get('het') or current_meta.get('week') or '13'
+                
+                # Innentől mehet tovább a kódod...
                 
                 p_map = get_etlap_dict(y, w, 5)
                 sz_map = get_etlap_dict(y, w, 6)

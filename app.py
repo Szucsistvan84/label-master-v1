@@ -198,42 +198,51 @@ def parse_interfood_pdf(pdf_file):
                 
                 if id_match:
                     full_id = id_match.group(1)
-                    # Tisztítjuk a nevet (levágjuk az ID-t a szövegből)
-                    clean_name = name_area.replace(full_id, "").strip()
                     
-                    # Rendelés és Összesen
+                    # --- AZ OSZLOPOK PONTOS KIOSZTÁSA ---
+                    # 1. Megjegyzés (A név előtti rész, pl. "fehér tégla kerítés")
+                    extra_info = get_col_text(v_lines[2], v_lines[3]) 
+                    
+                    # 2. Ügyintéző (A tényleges név, pl. "Aradi Márk")
+                    real_admin = get_col_text(v_lines[3], v_lines[4])
+                    
+                    # 3. Cím (Marad a helyén, de szűrjük a szemetet)
+                    raw_address = get_col_text(v_lines[2], v_lines[3]) # Ez most még keveredik, javítjuk:
+                    
+                    # Javított sávok a leírásod alapján:
+                    # ID/Név sáv (5.5-21.5): Itt van az ID és a név egy része
+                    # Cím sáv (21.5-39.5): Itt van a lakcím
+                    # Ügyintéző sáv (39.5-47.5): Itt az admin neve
+                    
+                    address = get_col_text(v_lines[2], v_lines[3])
+                    admin_name = get_col_text(v_lines[3], v_lines[4])
+                    
+                    # --- STOP WORDS SZŰRÉS ---
+                    stop_words = ["Nyomtatta:", "Oldal:", "Menetlevél", "Összesen:", "Készült:"]
+                    if any(sw in address for sw in stop_words) or any(sw in admin_name for sw in stop_words):
+                        continue # Ha szemetet találunk, átugorjuk ezt a "sort"
+
+                    # Rendelés és egyéb adatok...
                     order_raw = get_col_text(v_lines[5], v_lines[6])
-                    total_raw = get_col_text(v_lines[6], v_lines[7])
-                    
-                    # Rendelések kinyerése regex-szel
                     raw_orders = re.findall(ORDER_PAT, order_raw)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     
-                    # Pénz és Telefon (az 52-es kocka környékéről)
                     tel_penz_raw = get_col_text(v_lines[4], v_lines[5])
                     money_m = re.search(MONEY_PAT, tel_penz_raw)
                     money_val = money_m.group(0).strip() if money_m else ""
-                    
-                    phone_m = re.search(PHONE_PAT, tel_penz_raw.replace(" ", ""))
-                    phone_val = phone_m.group(0) if phone_m else ""
-
-                    prefix = full_id.split('-')[0]
-                    mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
 
                     rows.append({
                         "ID": full_id,
-                        "Ügyintéző": clean_name, # Itt a név szerepel az Ügyintéző oszlop helyett, ha oda kérted
-                        "Cím": get_col_text(v_lines[2], v_lines[3]),
-                        "Telefon": phone_val,
+                        "Ügyintéző": admin_name,      # Most már az Aradi Márk kerül ide
+                        "Cím": address,               # A debreceni cím
+                        "Telefon": phone_val,         # (A korábbi regex-szel)
                         "Pénz": money_val,
                         "Rendelés": rendeles_str if rendeles_str else order_raw,
-                        "Megjegyzés": "",
+                        "Megjegyzés": extra_info,     # A "fehér tégla, sörfőzde" ide kerül
                         "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
-                        "PDF_Osszesen": int(re.search(r'\d+', total_raw).group()) if re.search(r'\d+', total_raw) else 0,
-                        "Rendelés_Full": f"{mapping.get(prefix, '')}: {rendeles_str if rendeles_str else order_raw}",
+                        "Rendelés_Full": f"{mapping.get(prefix, '')}: {rendeles_str}",
                         "temp_id": full_id.split('-')[-1],
-                        "Prefix": prefix,
-                        "Sorrend": 999
+                        "Prefix": prefix
                     })
 
     if not rows: return [], metadata

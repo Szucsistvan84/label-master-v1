@@ -248,7 +248,7 @@ def parse_interfood_pdf(pdf_file):
                 # Csak a legszükségesebb dolgokat pucoljuk ki, a név és rendelés eleve nincs benne!
                 if address: rem = rem.replace(address, "")
                 rem = re.sub(r'[HKSCPZ]-\d+', '', rem)
-                rem = re.sub(r'(?i)\bkcs[\s.:]*|(?i)\bkapucsengő[\s.:]*', '', rem)
+                rem = re.sub(r'(?i)\b(kcs|kapucsengő)[\s.:]*', '', rem)
                 
                 megj = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 if (re.match(r'^\d+$', megj)) or megj in ["-", "|"]: megj = ""

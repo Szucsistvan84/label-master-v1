@@ -149,19 +149,18 @@ def parse_interfood_pdf(pdf_file):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None, 'jaratok': []}
     
+    # STOP WORDS: Ezeket keressük, hogy kiszűrjük a láblécet
+    stop_words = ["Nyomtatta:", "Oldal:", "Menetlevél", "Összesen:", "Készült:", "Vége"]
+
     with pdfplumber.open(pdf_file) as pdf:
         page = pdf.pages[0]
-        W = page.width  # A4 fekvő esetén ez ~842 pt
+        W = page.width
         
-        # KONVERZIÓ: A te 88-as rácsodat átszámoljuk PDF pontokra
         def c(kocka): return (kocka / 88) * W
 
-        # A te pontos leírásod alapján belőtt határok:
-        # 0-5.5: Sorszám, 5.5-21.5: ID/Név, 21.5-39.5: Cím, 
-        # 39.5-47.5: Ügyintéző, 47.5-52: Tel/Pénz, 52-82.5: Rendelés, 82.5-88: Össz
+        # A te pontos 88-as rácsod alapján beállított határok
         v_lines = [c(0), c(5.5), c(21.5), c(39.5), c(47.5), c(52), c(82.5), c(88)]
 
-        # Metaadatok és Járatszám kinyerése
         text_all = page.extract_text() or ""
         y_m = re.search(r'Év:\s*(\d{4})', text_all)
         w_m = re.search(r'Hét:\s*(\d{1,2})', text_all)
@@ -171,84 +170,69 @@ def parse_interfood_pdf(pdf_file):
         if j_m: metadata['jaratok'] = [j_m.group(1)]
 
         for pg in pdf.pages:
-            # Az x_tolerance segít, hogy a szóközöket jól lássa
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
-            
-            # Horgonyok: Keressük az ID-kat (pl. C-491607)
             anchors = [w for w in words if re.search(r'[HKSCPZ]-\d{5,7}', w['text'])]
             
             for i, anchor in enumerate(anchors):
-                # A "sor" magassága: az ID tetejétől a következő ID tetejéig
                 y_top = anchor['top'] - 5
                 y_bottom = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else pg.height
                 
-                # Az adott blokkhoz tartozó összes szó
                 line_words = [w for w in words if y_top <= w['top'] < y_bottom]
                 
-                # Belső függvény az oszlopok szövegének kiszedéséhez
                 def get_col_text(x_min, x_max):
-                    # Megnézzük melyik szó közepe esik a sávba
                     sel = [w for w in line_words if x_min <= (w['x0'] + w['x1'])/2 < x_max]
                     sel.sort(key=lambda x: (x['top'], x['x0']))
                     return " ".join([w['text'] for w in sel])
 
-                # ID és Név sáv (5.5 - 21.5 kocka)
-                name_area = get_col_text(v_lines[1], v_lines[2])
-                id_match = re.search(r'([HKSCPZ]-\d{5,7})', name_area)
+                # ADATGYŰJTÉS A RÁCS ALAPJÁN
+                full_id_area = get_col_text(v_lines[0], v_lines[2])
+                id_match = re.search(r'([HKSCPZ]-\d{5,7})', full_id_area)
                 
                 if id_match:
                     full_id = id_match.group(1)
+                    prefix = full_id.split('-')[0]
                     
-                    # --- AZ OSZLOPOK PONTOS KIOSZTÁSA ---
-                    # 1. Megjegyzés (A név előtti rész, pl. "fehér tégla kerítés")
-                    extra_info = get_col_text(v_lines[2], v_lines[3]) 
-                    
-                    # 2. Ügyintéző (A tényleges név, pl. "Aradi Márk")
-                    real_admin = get_col_text(v_lines[3], v_lines[4])
-                    
-                    # 3. Cím (Marad a helyén, de szűrjük a szemetet)
-                    raw_address = get_col_text(v_lines[2], v_lines[3]) # Ez most még keveredik, javítjuk:
-                    
-                    # Javított sávok a leírásod alapján:
-                    # ID/Név sáv (5.5-21.5): Itt van az ID és a név egy része
-                    # Cím sáv (21.5-39.5): Itt van a lakcím
-                    # Ügyintéző sáv (39.5-47.5): Itt az admin neve
-                    
-                    address = get_col_text(v_lines[2], v_lines[3])
-                    admin_name = get_col_text(v_lines[3], v_lines[4])
-                    
-                    # --- STOP WORDS SZŰRÉS ---
-                    stop_words = ["Nyomtatta:", "Oldal:", "Menetlevél", "Összesen:", "Készült:"]
-                    if any(sw in address for sw in stop_words) or any(sw in admin_name for sw in stop_words):
-                        continue # Ha szemetet találunk, átugorjuk ezt a "sort"
+                    # Oszlopok kiosztása a leírásod szerint:
+                    address = get_col_text(v_lines[2], v_lines[3])      # Cím (21.5 - 39.5)
+                    admin_name = get_col_text(v_lines[3], v_lines[4])   # Ügyintéző (39.5 - 47.5)
+                    tel_penz_raw = get_col_text(v_lines[4], v_lines[5]) # Tel/Pénz (47.5 - 52)
+                    order_raw = get_col_text(v_lines[5], v_lines[6])    # Rendelés (52 - 82.5)
+                    total_raw = get_col_text(v_lines[6], v_lines[7])    # Összesen (82.5 - 88)
 
-                    # Rendelés és egyéb adatok...
-                    order_raw = get_col_text(v_lines[5], v_lines[6])
-                    raw_orders = re.findall(ORDER_PAT, order_raw)
-                    rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
+                    # SZŰRÉS: Ha bármelyik fontos mező stop word-öt tartalmaz, eldobjuk
+                    if any(sw in address for sw in stop_words) or any(sw in admin_name for sw in stop_words):
+                        continue
+
+                    # REGEXEK: Telefon, Pénz, Rendelés kinyerése
+                    phone_m = re.search(PHONE_PAT, tel_penz_raw.replace(" ", ""))
+                    phone_val = phone_m.group(0) if phone_m else ""
                     
-                    tel_penz_raw = get_col_text(v_lines[4], v_lines[5])
                     money_m = re.search(MONEY_PAT, tel_penz_raw)
                     money_val = money_m.group(0).strip() if money_m else ""
+                    
+                    raw_orders = re.findall(ORDER_PAT, order_raw)
+                    rendeles_str = ", ".join([f"{q}-{c_code}" for q, c_code in raw_orders])
+
+                    mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
 
                     rows.append({
                         "ID": full_id,
-                        "Ügyintéző": admin_name,      # Most már az Aradi Márk kerül ide
-                        "Cím": address,               # A debreceni cím
-                        "Telefon": phone_val,         # (A korábbi regex-szel)
+                        "Ügyintéző": admin_name, # Most már Aradi Márk lesz itt
+                        "Cím": address,
+                        "Telefon": phone_val,
                         "Pénz": money_val,
                         "Rendelés": rendeles_str if rendeles_str else order_raw,
-                        "Megjegyzés": extra_info,     # A "fehér tégla, sörfőzde" ide kerül
-                        "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
+                        "Megjegyzés": "", # Ide tehetjük a get_col_text(v_lines[1], v_lines[2]) tisztított részét ha kell
+                        "Összesen": sum(int(q) for q, c_code in raw_orders) if raw_orders else 0,
+                        "PDF_Osszesen": int(re.search(r'\d+', total_raw).group()) if re.search(r'\d+', total_raw) else 0,
                         "Rendelés_Full": f"{mapping.get(prefix, '')}: {rendeles_str}",
                         "temp_id": full_id.split('-')[-1],
-                        "Prefix": prefix
+                        "Prefix": prefix,
+                        "Sorrend": 999
                     })
 
     if not rows: return [], metadata
-    
     df = pd.DataFrame(rows)
-    # Csoportosítás az ügyfélkód vége alapján (temp_id)
     df['Csoport'] = df.groupby('temp_id').ngroup() + 1
     return df.to_dict('records'), metadata
     

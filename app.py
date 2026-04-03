@@ -266,49 +266,45 @@ def parse_interfood_pdf(pdf_file):
                 # hogy a megjegyzés-takarító már ne lássa a szemetet
                 all_relevant_text = text_to_parse
                 
-# --- BEAZONOSÍTÁS A TISZTÍTÁSHOZ ---
-                # Megkeressük az ID-t, hogy később tudjuk törölni a megjegyzésből
-                customer_id = None
-                if id_match:
-                    customer_id = id_match.group(0) # Pl: C-45258
-                
-                # --- MEGJEGYZÉS TISZTÍTÁSA (FINOMHANGOLT VERZIÓ) ---
+                # --- MEGJEGYZÉS TISZTÍTÁSA (STABIL ÉS BIZTONSÁGOS) ---
                 rem = all_relevant_text
                 
                 # 1. Konkrét, már beazonosított rendelési tételek törlése (pl. "1-E2")
                 for o_str in found_for_removal:
                     rem = rem.replace(o_str, "")
-                    # Szóközös verzió kezelése a PDF-ben
+                    # Szóközös verzió kezelése a PDF-ben (1 - E2)
                     alt_o = o_str.replace("-", " - ")
                     rem = rem.replace(alt_o, "")
 
-                # 2. Ügyfél ID és név törlése (ha szerepel a szövegben)
-                if customer_id:
-                    rem = rem.replace(customer_id, "")
-                    # Ha az ID csak számmal van ott (pl. -45258)
-                    short_id = customer_id.replace("C-", "").replace("P-", "")
+                # 2. Ügyfél ID törlése (Hogy ne maradjon ott pl. a -45258)
+                # A te kódodban ez a 'full_id_match' változó
+                if 'full_id_match' in locals() and full_id_match:
+                    rem = rem.replace(full_id_match, "")
+                    # Ha az ID csak számmal van ott (pl. -491607)
+                    short_id = full_id_match.replace("C-", "").replace("P-", "")
                     rem = rem.replace(f"-{short_id}", "")
 
-                if clean_name:
+                # 3. Név és Cím radírozása
+                if 'clean_name' in locals() and clean_name:
                     rem = rem.replace(str(clean_name), "")
-
-                # 3. Cím radírozása - de csak óvatosan (Városnév törlése)
+                
                 if address:
                     rem = rem.replace(address, "")
-                    # Csak a városnevet keressük ki a cím elejéről (pl. Debrecen)
+                    # Városnév (pl. Debrecen) törlése a megjegyzés elejéről
                     city_match = re.search(r'^\d{4}\s+([A-Za-zÁ-ź]+)', address)
                     if city_match:
                         rem = rem.replace(city_match.group(1), "")
 
-                # 4. CÍM-SZEMÉT IRTÁSA (u, út, stb.) - Csak ha nem tétel része!
-                # Itt a (?<!...) biztosítja, hogy ne tétel (1-U) legyen
+                # 4. CÍM-SZEMÉT IRTÁSA (u, u., út, fsz. stb.)
+                # Csak akkor töröljük, ha NEM rendelési tétel része (nincs előtte kötőjel)
+                # Így a 1-U megmarad, de a "Pöltenberg u" végéről az "u" eltűnik
                 street_junk = ["u", "u.", "út", "utca", "fsz", "emelet", "ajtó"]
                 for junk in street_junk:
                     rem = re.sub(rf'(?<![a-zA-Z0-9-–])\b{junk}\b\.?', ' ', rem, flags=re.IGNORECASE)
 
-                # 5. AZ "ÁRVA SZÁMOK" SZABÁLYA
-                # Csak azt a számot töröljük, ami után kötőjel és betű van (hibás tétel)
-                # A kapukódok (pl. 2036) így megmaradnak!
+                # 5. AZ "ÁRVA SZÁMOK" ÉS MARADÉK KÓDOK SZABÁLYA
+                # Csak azt a számot töröljük, ami után kötőjel van, de NEM valid tétel követi
+                # A kapukódok (pl. 2036, 76101) így megmaradnak!
                 rem = re.sub(r'\b\d+\s*[-\u2013\u2014\u2212]\s*(?![A-Z]{1,2}\b)', ' ', rem)
 
                 # 6. LÁBLÉC ÉS STOP SZAVAK
@@ -320,10 +316,10 @@ def parse_interfood_pdf(pdf_file):
                 rem = re.sub(r'(?i)\bdr\.?\s*', '', rem)
                 
                 # --- VÉGSŐ TISZTÍTÁS ---
-                # Dupla szóközök, kezdő/záró írásjelek
+                # Felesleges szóközök és írásjelek eltávolítása
                 rem = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 
-                # Ha csak egy magányos kötőjel maradt:
+                # Ha csak egy magányos kötőjel vagy szemét maradt, legyen üres
                 if rem in ["-", "|", ".", ","] or len(rem) < 1:
                     megj = ""
                 else:

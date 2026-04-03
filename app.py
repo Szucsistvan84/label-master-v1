@@ -128,10 +128,6 @@ def get_etlap_dict(year, week, target_day=None):
     return {}
    
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
-import pdfplumber
-import re
-import pandas as pd
-
 def parse_interfood_pdf(pdf_file):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None}

@@ -164,17 +164,16 @@ def parse_interfood_pdf(pdf_file):
                 line_words = sorted(lines[y], key=lambda x: x['x0'])
                 text_ws = " ".join([w['text'] for w in line_words])
                 
-                # --- MÓDOSÍTÁS: Keressük meg az ÖSSZES ügyfélkódot a sorban ---
+                # --- JAVÍTÁS: Minden ügyfélkódot keresünk a sorban ---
                 customer_matches = list(re.finditer(r'([HKSCPZ]-[0-9]{5,7})', text_ws))
                 if not customer_matches: continue
 
-                # Minden egyes talált ügyfélkódon végigmegyünk (akkor is, ha csak egy van)
                 for match in customer_matches:
                     full_id_match = match.group(0)
                     prefix = full_id_match.split('-')[0]
                     u_id = full_id_match.split('-')[-1]
 
-                    # Koordináták alapú adatok (ezek maradnak az eredeti logikád szerint)
+                    # Koordináták finomhangolása
                     b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 370])
                     b4 = " ".join([w['text'] for w in line_words if 370 <= w['x0'] < 490])
                     
@@ -188,7 +187,7 @@ def parse_interfood_pdf(pdf_file):
                     addr_m = re.search(r'(\d{4})', b3)
                     address = b3[addr_m.start():].strip() if addr_m else b3
 
-                    # --- ADATGYŰJTÉS ÉS PÉNZ KERESÉSE (Változatlan stop-logika) ---
+                    # --- ADATGYŰJTÉS ÉS PÉNZ KERESÉSE (STOP-LOGIKÁVAL) ---
                     money_val = "0 Ft"
                     raw_money_text = ""
                     all_relevant_text_parts = [text_ws]
@@ -199,14 +198,10 @@ def parse_interfood_pdf(pdf_file):
                             next_line_words = sorted(lines[sorted_y[i + offset]], key=lambda x: x['x0'])
                             next_t_ws = " ".join([w['text'] for w in next_line_words])
                             
-                            # Ha jön a következő ügyfél (vagy az ebben a sorban lévő második), megállunk
-                            # De mivel mi most egy ügyfélkód-ciklusban vagyunk, csak a következő SOR kódját nézzük
                             if re.search(r'([HKSCPZ]-[0-9]{5,7})', next_t_ws):
                                 break
-                            
                             if any(stop in next_t_ws for stop in stop_keywords):
                                 break
-                            
                             if len(re.findall(ORDER_PAT, next_t_ws)) > 10:
                                 break
 
@@ -220,7 +215,7 @@ def parse_interfood_pdf(pdf_file):
 
                     all_relevant_text = " | ".join(all_relevant_text_parts)
 
-                    # --- INNENTŐL A TISZTÍTÁSI LOGIKÁD VÁLTOZATLANUL FOLYTATÓDIK ---
+                    # --- 1. LÉPÉS: AGRESSZÍV ELŐTISZTÍTÁS ---
                     text_to_parse = all_relevant_text
                     text_to_parse = re.sub(r'[\u2013\u2014\u2212]', '-', text_to_parse)
                     text_to_parse = re.sub(r'(\d+)\s*\|\s*-?\s*([A-Z])', r'\1-\2', text_to_parse)
@@ -229,6 +224,7 @@ def parse_interfood_pdf(pdf_file):
                     text_to_parse = re.sub(r'\d{2}/\d[\d\s,]*\d', ' ', text_to_parse)
                     text_to_parse = re.sub(r'(?<![A-Z0-9-])\d+(?!\s*-\s*[A-Z])', ' ', text_to_parse)
 
+                    # --- 2. LÉPÉS: RENDELÉSEK KINYERÉSE ---
                     raw_orders_pairs = re.findall(ORDER_PAT, text_to_parse)
                     unique_orders, total_q = [], 0
                     found_for_removal = []
@@ -245,13 +241,72 @@ def parse_interfood_pdf(pdf_file):
                     raw_orders = found_for_removal
                     all_relevant_text = text_to_parse
                     
-                    # (A megjegyzés tisztító rész, a név-törlés, stb. jön itt, 
-                    # amit az eredeti kódodban már profin megírtál...)
-                    # [Ezt a részt változatlanul hagytam a logikádban]
+                    # --- MEGJEGYZÉS TISZTÍTÁSA ---
                     rem = all_relevant_text
-                    # ... (itt fut le az összes rem.replace és regex tisztításod) ...
+                    for o_str in found_for_removal:
+                        rem = rem.replace(o_str, "")
+                        alt_o = o_str.replace("-", " - ")
+                        rem = rem.replace(alt_o, "")
+
+                    if full_id_match:
+                        rem = rem.replace(full_id_match, "")
+                        short_id = full_id_match.replace("C-", "").replace("P-", "")
+                        rem = rem.replace(f"-{short_id}", "")
+
+                    if clean_name: rem = rem.replace(str(clean_name), "")
+                    if address:
+                        rem = rem.replace(address, "")
+                        city_match = re.search(r'^\d{4}\s+([A-Za-zÁ-ź]+)', address)
+                        if city_match: rem = rem.replace(city_match.group(1), "")
+
+                    street_junk = ["u", "u.", "út", "utca", "fsz", "emelet", "ajtó"]
+                    for junk in street_junk:
+                        rem = re.sub(rf'(?<![a-zA-Z0-9-–])\b{junk}\b\.?', ' ', rem, flags=re.IGNORECASE)
+
+                    rem = re.sub(r'\b\d+\s*[-\u2013\u2014\u2212]\s*(?![A-Z]{1,2}\b)', ' ', rem)
+
+                    stop_words_list = ["Csillagozott", "kiegészítő is van", "Összesítés", "Összesen:", "Nyomtatva:", "InterFood", "menetterve"]
+                    for sw in stop_words_list:
+                        if sw in rem: rem = rem.split(sw)[0]
+
+                    rem = re.sub(r'(?i)\bdr\.?\s*', '', rem)
                     
-                    # Az adatmentés résznél:
+                    # Név részletek törlése
+                    name_targets = []
+                    if clean_name: 
+                        clean_name_no_dr = re.sub(r'(?i)\bdr\.?\s*', '', str(clean_name)).strip()
+                        name_targets.append(clean_name_no_dr)
+                        name_parts = re.split(r'[\s\-]', clean_name_no_dr)
+                        for part in name_parts:
+                            if len(part.strip("., ")) > 2: name_targets.append(part.strip("., "))
+                                
+                    for target in sorted(list(set(name_targets)), key=len, reverse=True):
+                        rem = re.compile(re.escape(target), re.IGNORECASE).sub("", rem)
+
+                    if address: rem = rem.replace(address, "")
+                    if clean_tel: rem = rem.replace(clean_tel, "")
+                    rem = re.sub(r'52\s\d{6}', '', rem)
+                    for o in raw_orders: rem = rem.replace(o, "")
+                    if raw_money_text: rem = rem.replace(raw_money_text, "")
+                    rem = re.sub(MONEY_PAT_LOCAL, "", rem)
+
+                    if total_q:
+                        tq_str = str(total_q)
+                        rem = re.sub(rf'^\s*{tq_str}\s*\|?', '', rem)
+                        rem = re.sub(rf'\|\s*{tq_str}(\s*\||\s+)', ' | ', rem)
+
+                    rem = re.sub(r'(?i)\bkcs[\s.:]*', '', rem)
+                    rem = re.sub(r'(?i)\bkapucsengő[\s.:]*', '', rem)
+                    rem = re.sub(r'\b[HKSCPZ]\b\s*[|:]*', '', rem)
+                    rem = re.sub(r'^\s*[\d\s]+\|?\s*', '', rem)
+                    rem = rem.replace(" - |", " | ").replace("/", " ").replace("*", " ")
+                    rem = re.sub(r'(\s*\|\s*)+', ' | ', rem)
+                    rem = re.sub(r'[,.\s]{2,}', ' ', rem) 
+                    
+                    megj = re.sub(r'\s+', ' ', rem).strip(" |,. /")
+                    if (re.match(r'^\d+$', megj) and "#" not in megj) or megj in ["-", "|"]:
+                        megj = ""
+
                     if unique_orders:
                         mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
                         szep_prefix = mapping.get(prefix, get_day_short(metadata.get('day', '')))
@@ -269,7 +324,7 @@ def parse_interfood_pdf(pdf_file):
                             "Telefon": tel_m.group(0) if tel_m else "",
                             "Pénz": money_display, 
                             "Rendelés": rendeles_szoveg,
-                            "Megjegyzés": "megj_változód_itt", # Itt a tisztított megjegyzésed
+                            "Megjegyzés": megj, 
                             "Összesen": total_q, 
                             "temp_id": u_id,
                             "Raklista_Ertek": 0, 

@@ -266,61 +266,59 @@ def parse_interfood_pdf(pdf_file):
                 # hogy a megjegyzés-takarító már ne lássa a szemetet
                 all_relevant_text = text_to_parse
                 
-                # --- MEGJEGYZÉS TISZTÍTÁSA (STABIL VERZIÓ) ---
+                # --- MEGJEGYZÉS TISZTÍTÁSA (FINOMHANGOLT VERZIÓ) ---
                 rem = all_relevant_text
                 
-                # 1. Először a konkrét rendeléseket szedjük ki (amiket már megtaláltunk)
+                # 1. Konkrét, már beazonosított rendelési tételek törlése (pl. "1-E2")
                 for o_str in found_for_removal:
                     rem = rem.replace(o_str, "")
-                    # Ha a PDF-ben "1 - E2" lenne szóközökkel
-                    parts = o_str.split('-')
-                    if len(parts) == 2:
-                        rem = rem.replace(f"{parts[0]} - {parts[1]}", "")
+                    # Szóközös verzió kezelése
+                    alt_o = o_str.replace("-", " - ")
+                    rem = rem.replace(alt_o, "")
 
-                # 2. Cím és Név radírozása (Agresszívabb, darabolt verzió)
-                if address:
-                    rem = rem.replace(address, "")
-                    # A címet szavakra bontjuk, és a házszámokat/utca neveket is kiszedjük
-                    # De csak a 3 betűnél hosszabbakat vagy a konkrét házszámokat!
-                    addr_words = re.split(r'[,.\s]+', address)
-                    for word in addr_words:
-                        if len(word) > 2 or word.isdigit():
-                            rem = rem.replace(word, "")
+                # 2. Ügyfél ID és név törlése (csak ha pont az szerepel ott)
+                if 'full_id_match' in locals() and full_id_match:
+                    rem = rem.replace(full_id_match, "")
+                # Ha az ID száma (pl. 45258) kötőjellel van ott, azt is kivehetjük
+                if customer_id:
+                    short_id = str(customer_id).replace("C-", "").replace("P-", "")
+                    rem = rem.replace(f"-{short_id}", "")
 
                 if clean_name:
                     rem = rem.replace(str(clean_name), "")
 
-                # 3. AZ ÚJ SZŰRŐ: Utca-töredékek és "árva" rövidítések irtása
-                # Csak akkor töröljük az u, út, fsz stb. szavakat, ha NINCS előttük kötőjel!
-                # Így a "1-U" megmarad, de a "Debrecen u" -> "u" része eltűnik.
-                street_junk = ["u", "u.", "út", "utca", "fsz", "emelet", "em", "ajtó", "porta"]
+                # 3. Cím radírozása - de csak óvatosan!
+                if address:
+                    rem = rem.replace(address, "")
+                    # Csak a városnevet és az egyértelmű "u. 8." jellegű véget töröljük
+                    city_match = re.search(r'^\d{4}\s+([A-Za-zÁ-ź]+)', address)
+                    if city_match:
+                        rem = rem.replace(city_match.group(1), "")
+
+                # 4. CÍM-SZEMÉT IRTÁSA (u, út, stb.) - Csak ha nem tétel része!
+                # Ez az, ami az "u" betűket kiszedi Kovács Mátétól, de hagyja a 1k2036-ot
+                street_junk = ["u", "u.", "út", "utca", "fsz", "emelet", "ajtó"]
                 for junk in street_junk:
-                    # Regex magyarázat: (?<!-) -> ne legyen előtte kötőjel, \b -> szóhatár
-                    rem = re.sub(rf'(?<!-)\b{junk}\b', ' ', rem, flags=re.IGNORECASE)
+                    rem = re.sub(rf'(?<![a-zA-Z0-9-–])\b{junk}\b\.?', ' ', rem, flags=re.IGNORECASE)
 
-                # 4. Maradék technikai kódok irtása (pl. ha ott ragadt egy "-E2")
-                # Minden kötőjellel kezdődő betűs sorozatot törlünk, ami nem lett tétel
-                rem = re.sub(r'(?<!\d)-\s*[A-Z][A-Z0-9*+]*', ' ', rem)
+                # 5. AZ "ÁRVA SZÁMOK" SZABÁLYA - VÁLTOZOTT!
+                # Nem törlünk minden számot, mert az lehet kapukód.
+                # Csak azt töröljük, ami után kötőjel és betű van (vagyis hibásan ottmaradt tétel)
+                rem = re.sub(r'\b\d+\s*[-\u2013\u2014\u2212]\s*(?![A-Z]{1,2}\b)', ' ', rem)
 
-                # 5. Árva számok irtása (házszámok, irányítószámok maradéka)
-                # Csak azt a számot töröljük, ami után nem jön rögtön kötőjel és betű
-                rem = re.sub(r'(?<![A-Z0-9-])\d+(?!\s*-\s*[A-Z])', ' ', rem)
-
-                # 6. Stop szavak (Lábléc, stb.)
-                stop_words_list = ["Csillagozott", "kiegészítő is van", "Összesítés", "Összesen:", "Nyomtatva:"]
+                # 6. LÁBLÉC ÉS STOP SZAVAK
+                stop_words_list = ["Csillagozott", "kiegészítő is van", "Összesítés", "Összesen:", "Nyomtatva:", "InterFood", "menetterve"]
                 for sw in stop_words_list:
                     if sw in rem: rem = rem.split(sw)[0]
 
-                # --- VÉGSŐ FINOMÍTÁS ---
-                # Dr. és egyéb maradékok
+                # 7. Dr. és egyéb maradványok
                 rem = re.sub(r'(?i)\bdr\.?\s*', '', rem)
-                rem = rem.replace(full_id_match, "") if 'full_id_match' in locals() else rem
-
-                # Szóközök és írásjelek gatyába rázása
+                
+                # --- VÉGSŐ TISZTÍTÁS ---
                 rem = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 
-                # Ha csak szemét maradt (pl. egyetlen kötőjel vagy pont), akkor üres
-                if len(rem) < 2 or re.match(r'^[\d\s\-\|,\.]+$', rem):
+                # Ha csak egy magányos kötőjel maradt:
+                if rem in ["-", "|", ".", ","]:
                     megj = ""
                 else:
                     megj = rem

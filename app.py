@@ -265,61 +265,22 @@ def parse_interfood_pdf(pdf_file):
                 # Frissítjük az all_relevant_text-et a tisztítottra, 
                 # hogy a megjegyzés-takarító már ne lássa a szemetet
                 all_relevant_text = text_to_parse
-                
-                # --- MEGJEGYZÉS TISZTÍTÁSA (ÚJ, AGRESSZÍV VERZIÓ) ---
-                # Az all_relevant_text-ből indulunk, amit az elötisztítás már kicsit megpucolt
+                # --- MEGJEGYZÉS TISZTÍTÁSA ---
                 rem = all_relevant_text
-                
-                # 1. LÉPÉS: Rendelési tételek radírozása
-                # Megpróbáljuk a talált tétel-stringeket (pl. "1-E2") kiszedni
-                for o_str in found_for_removal:
-                    rem = rem.replace(o_str, "")
-                    # Biztonsági játék: ha a PDF-ben szóköz maradt volna a kötőjelnél
-                    alt_o = o_str.replace("-", " - ")
-                    rem = rem.replace(alt_o, "")
-
-                # 2. LÉPÉS: Cím és Név töredékek irtása
-                # Ha a teljes cím egyezik, kirepül. Ha nem, a város/utca akkor is menjen.
-                if address:
-                    rem = rem.replace(address, "")
-                    # Város és utca kulcsszavak törlése (Debrecen Pöltenberg u -> kirepül)
-                    addr_parts = re.split(r'[,.\s]+', address)
-                    for ap in addr_parts:
-                        if len(ap) > 3: # Csak a hosszabb szavakat keressük (Debrecen, utca, stb.)
-                            rem = rem.replace(ap, "")
-
-                if clean_name:
-                    rem = rem.replace(str(clean_name), "")
-                
-                # 3. LÉPÉS: Általános "szemét" és maradék kódok (pl. magányos -E2)
-                # Minden "szám-kötőjel-betű" vagy "kötőjel-betű" maradékot eltüntetünk
-                rem = re.sub(r'\d*\s*[-\u2013\u2014\u2212]\s*[A-Z][A-Z0-9*+]*', ' ', rem)
-                
-                # Árva számok (pl. házszám maradékok, összesítők)
-                rem = re.sub(r'(?<![A-Z0-9-])\d+(?!\s*-\s*[A-Z])', ' ', rem)
-
-                # 4. LÉPÉS: Stop szavak és Interfood specifikus sallangok
-                stop_words_list = ["Csillagozott", "kiegészítő is van", "Összesítés", "Összesen:", "Nyomtatva:", "InterFood", "menetterve"]
+                for o in raw_orders:
+                    rem = rem.replace(o, "")
+                    
+                # Stop szavak és lábléc eltávolítása
+                stop_words_list = ["Csillagozott", "kiegészítő is van", "Összesítés", "Összesen:", "Nyomtatva:"]
                 for sw in stop_words_list:
                     if sw in rem:
                         rem = rem.split(sw)[0]
 
-                # 5. LÉPÉS: Finomhangolás (Település nevek és utca rövidítések)
-                rem = re.sub(r'(?i)\b(Debrecen|Hajdúböszörmény|Hajdúnánás|u\.|út|utca|tér|fsz|emelet|ajtó)\b', ' ', rem)
-                
-                # Dr. és egyéb maradékok
+                # Maradék azonosítók és kód-töredékek takarítása
+                rem = re.sub(r'[A-Z]-\d+[-A-Z]*', '', rem)
+                rem = rem.replace(full_id_match, "")
                 rem = re.sub(r'(?i)\bdr\.?\s*', '', rem)
-                rem = rem.replace(full_id_match, "") if 'full_id_match' in locals() else rem
-
-                # Végső takarítás: felesleges szóközök és írásjelek
-                rem = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 
-                # Validáció: ha csak számok vagy kötőjelek maradtak, akkor az üres
-                if len(rem) < 2 or re.match(r'^[\d\s\-\|,\.]+$', rem):
-                    megj = ""
-                else:
-                    megj = rem
-                    
                 name_targets = []
                 if clean_name: 
                     clean_name_no_dr = re.sub(r'(?i)\bdr\.?\s*', '', str(clean_name)).strip()

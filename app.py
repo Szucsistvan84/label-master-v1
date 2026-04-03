@@ -791,44 +791,35 @@ def main():
             debug_pdf_layout(up_files[0]) 
         
             if st.button("🚀 FELDOLGOZÁS"):
-                # Itt kap értéket a változó
+                # MINDENT ide húzunk be a gomb alá:
                 meta_auto = extract_all_meta(up_files)
-                # Elmentjük a session_state-be, hogy a többi gombnyomásnál is megmaradjon
                 st.session_state.meta_data = meta_auto
-            all_rows = []
-            with st.spinner("PDF-ek beolvasása..."):
-                for f in up_files:
-                    f.seek(0) # Visszatekerés az elejére!
-                    rows, _ = parse_interfood_pdf(f) # A parse_interfood meta-ját most kihagyjuk
-                    if rows:
-                        all_rows.extend(rows)
+                
+                all_rows = []
+                with st.spinner("PDF-ek beolvasása..."):
+                    for f in up_files:
+                        f.seek(0)
+                        rows, _ = parse_interfood_pdf(f)
+                        if rows:
+                            all_rows.extend(rows)
 
-            if all_rows:
-                # 1. Megnézzük, van-e mentett metaadatunk a "memóriában"
-                saved_meta = st.session_state.get('meta_data', {})
-                
-                # 2. Először a memóriából próbálunk adatot nyerni, ha nincs, 
-                # akkor a frissen generált meta_auto-ból (ha épp most futott le)
-                current_meta = saved_meta if saved_meta else meta_auto
-                
-                # 3. Az étlaphoz kellenek a dátumok - biztonságos lekérés
-                y = current_meta.get('ev') or current_meta.get('year') or '2026'
-                w = current_meta.get('het') or current_meta.get('week') or '13'
-                
-                # Innentől mehet tovább a kódod...
-                
-                p_map = get_etlap_dict(y, w, 5)
-                sz_map = get_etlap_dict(y, w, 6)
-                
-                # Összefésülés
-                df_temp = merge_data(all_rows)
-                
-                if not df_temp.empty:
-                    df_temp['Sorrend'] = range(1, len(df_temp) + 1)
-                
-                st.session_state.mdf = df_temp
-                st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
-                st.rerun()
+                if all_rows:
+                    # Metaadatok kinyerése a mentett állapotból vagy a frissből
+                    current_meta = st.session_state.meta_data
+                    y = current_meta.get('ev') or current_meta.get('year') or '2026'
+                    w = current_meta.get('het') or current_meta.get('week') or '13'
+                    
+                    # Étlap és összefésülés
+                    st.session_state.etlap = get_etlap_dict(y, w) # Elmentjük az étlapot is!
+                    
+                    df_temp = merge_data(all_rows)
+                    
+                    if not df_temp.empty:
+                        df_temp['Sorrend'] = range(1, len(df_temp) + 1)
+                    
+                    st.session_state.mdf = df_temp
+                    st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
+                    st.rerun() # Ez most már csak egyszer fut le a végén
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:

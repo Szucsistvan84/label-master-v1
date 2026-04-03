@@ -140,9 +140,7 @@ def parse_interfood_pdf(pdf_file):
                 y_m = re.search(r'Év:\s*(\d{4})', first_page_text)
                 w_m = re.search(r'Hét:\s*(\d{1,2})', first_page_text)
                 d_m = re.search(r'Nap:\s*([a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ]+)', first_page_text)
-                if y_m: metadata['year'] = y_m.group(1)
-                if w_m: metadata['week'] = w_m.group(1)
-                if d_m: metadata['day'] = d_m.group(1)
+                if y_m: metadata['year'] = y_m.group(1); metadata['week'] = w_m.group(1); metadata['day'] = d_m.group(1)
 
         for page in pdf.pages:
             words = page.extract_words()
@@ -152,11 +150,8 @@ def parse_interfood_pdf(pdf_file):
                 found = False
                 for ey in lines:
                     if abs(y - ey) < 3:
-                        lines[ey].append(w)
-                        found = True
-                        break
-                if not found:
-                    lines[y] = [w]
+                        lines[ey].append(w); found = True; break
+                if not found: lines[y] = [w]
 
             sorted_y = sorted(lines.keys())
             for i, y in enumerate(sorted_y):
@@ -170,118 +165,98 @@ def parse_interfood_pdf(pdf_file):
                 prefix = full_id_match.split('-')[0]
                 u_id = full_id_match.split('-')[-1]
 
-                # --- 1. NÉGYSÁVOS VÉDŐSZEMÜVEG (X-KOORDINÁTÁK) ---
-                # Sorszám sáv (0-60) - A lap legszéle
-                sorszam_words = [w for w in line_words if w['x0'] < 60]
-                # Ügyfélkód és Felső Megjegyzés (60-370)
-                bal_sav_words = [w for w in line_words if 60 <= w['x0'] < 370]
-                # Név, Cím, Telefon, Rendelések (370-570)
-                kozep_sav_words = [w for w in line_words if 370 <= w['x0'] < 570]
-                # Összesítő Kontroll (570+)
-                jobb_sav_words = [w for w in line_words if w['x0'] >= 570]
+                # --- 1. ÖTSÁVOS PRECÍZIÓS OSZTÁS ---
+                sorszam_txt = " ".join([w['text'] for w in line_words if w['x0'] < 50])
+                # Megjegyzés sáv: Az ID után kezdődik, de a NÉV előtt megáll (kb. 150-320)
+                bal_megj_words = [w for w in line_words if 150 <= w['x0'] < 320]
+                # Név és Cím sáv: (320-480)
+                nev_cim_words = [w for w in line_words if 320 <= w['x0'] < 480]
+                # Adat sáv: Pénz, Telefon, Rendelés (480-570)
+                adat_words = [w for w in line_words if 480 <= w['x0'] < 570]
+                # Kontroll sáv: (570+)
+                kontroll_words = [w for w in line_words if w['x0'] >= 570]
 
-                text_sorszam = " ".join([w['text'] for w in sorted(sorszam_words, key=lambda x: x['x0'])])
-                text_bal = " ".join([w['text'] for w in sorted(bal_sav_words, key=lambda x: x['x0'])])
-                text_kozep = " ".join([w['text'] for w in sorted(kozep_sav_words, key=lambda x: x['x0'])])
-                text_jobb = " ".join([w['text'] for w in jobb_sav_words])
+                text_bal_megj = " ".join([w['text'] for w in sorted(bal_megj_words, key=lambda x: x['x0'])])
+                text_adat = " ".join([w['text'] for w in sorted(adat_words, key=lambda x: x['x0'])])
+                text_kontroll = " ".join([w['text'] for w in sorted(kontroll_words, key=lambda x: x['x0'])])
 
-                # Alap adatok kinyerése
-                b3 = " ".join([w['text'] for w in line_words if 150 <= w['x0'] < 370])
-                b4 = " ".join([w['text'] for w in line_words if 370 <= w['x0'] < 490])
-                
-                clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4).strip()
+                # Adatok kinyerése a teljes sorból (BIZTONSÁGI JAVÍTÁS ADRIENNEK)
+                clean_name = ""
+                b4_words = [w for w in line_words if 320 <= w['x0'] < 490]
+                b4_txt = " ".join([w['text'] for w in sorted(b4_words, key=lambda x: x['x0'])])
+                clean_name = re.sub(r'[^a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ \-]', '', b4_txt).strip()
                 clean_name = re.sub(r'\s*-[A-Z]$', '', clean_name)
 
-                tel_m = re.search(r'(52/\d{6}|[237]0/\d{7})', text_ws.replace(" ", ""))
-                addr_m = re.search(r'(\d{4})', b3)
-                address = b3[addr_m.start():].strip() if addr_m else b3
-
-                # --- 2. ÖSSZESÍTŐ KONTROLL ---
-                pdf_total_q = 0
-                total_q_match = re.search(r'(\d+)', text_jobb)
-                if total_q_match: pdf_total_q = int(total_q_match.group(1))
-
-                # --- 3. ADATGYŰJTÉS (KÖVETKEZŐ SOROKBÓL) ---
+                # Pénz keresése a TELJES sorban (Hogy Adrienné is meglegyen!)
                 money_val = "0 Ft"
-                raw_money_text = ""
-                all_relevant_text_parts = [text_ws]
+                m_match = re.search(MONEY_PAT_LOCAL, text_ws)
+                if m_match:
+                    money_val = m_match.group(1).strip()
+
+                tel_m = re.search(r'(52/\d{6}|[237]0/\d{7})', text_ws.replace(" ", ""))
                 
-                # Itt definiáljuk a listát a megjegyzés darabkáinak!
-                # Az első darabka a bal sávból jön (ügyfélkód utáni rész)
-                initial_megj_part = text_bal.replace(full_id_match, "").strip()
-                all_relevant_bal_parts = [initial_megj_part] if initial_megj_part else []
+                # --- 2. ADATGYŰJTÉS ---
+                all_relevant_text_parts = [text_ws]
+                all_relevant_bal_parts = [text_bal_megj] if text_bal_megj.strip() else []
                 
                 stop_keywords = ["Összesen:", "Étel kód", "InterFood", "Nyomtatta:", "Összesítés"]
 
                 for offset in range(1, 6):
                     if i + offset < len(sorted_y):
-                        next_line_words = sorted(lines[sorted_y[i + offset]], key=lambda x: x['x0'])
-                        next_t_ws = " ".join([w['text'] for w in next_line_words])
+                        n_words = sorted(lines[sorted_y[i + offset]], key=lambda x: x['x0'])
+                        n_txt = " ".join([w['text'] for w in n_words])
+                        if re.search(r'([HKSCPZ]-[0-9]{5,7})', n_txt) or any(s in n_txt for s in stop_keywords): break
                         
-                        if re.search(r'([HKSCPZ]-[0-9]{5,7})', next_t_ws) or any(stop in next_t_ws for stop in stop_keywords):
-                            break
+                        all_relevant_text_parts.append(n_txt)
+                        # Alsó soroknál a megjegyzés szélesebb lehet a vonalig
+                        n_bal = " ".join([w['text'] for w in n_words if w['x0'] < 485])
+                        if n_bal.strip(): all_relevant_bal_parts.append(n_bal)
 
-                        all_relevant_text_parts.append(next_t_ws)
-                        
-                        # Megjegyzés alsó sorai (0 és 490 között, hogy mindent elkapjunk a vonalig)
-                        next_bal = [w for w in next_line_words if w['x0'] < 490]
-                        text_next_bal = " ".join([w['text'] for w in sorted(next_bal, key=lambda x: x['x0'])])
-                        if text_next_bal.strip():
-                            all_relevant_bal_parts.append(text_next_bal)
+                        if money_val == "0 Ft":
+                            m_match_n = re.search(MONEY_PAT_LOCAL, n_txt)
+                            if m_match_n: money_val = m_match_n.group(1).strip()
 
-                        # Pénz keresése a teljes sorban
-                        m_match = re.search(MONEY_PAT_LOCAL, next_t_ws)
-                        if m_match and money_val == "0 Ft":
-                            money_val = m_match.group(1).strip()
-                            raw_money_text = m_match.group(0)
-
-                # --- 4. RENDELÉSEK KINYERÉSE (MASTER) ---
-                full_text_for_orders = " | ".join(all_relevant_text_parts)
-                full_text_for_orders = re.sub(r'[\u2013\u2014\u2212]', '-', full_text_for_orders)
-                full_text_for_orders = re.sub(r'(\d+)\s*\|\s*-?\s*([A-Z])', r'\1-\2', full_text_for_orders)
-                
-                raw_orders_pairs = re.findall(ORDER_PAT, full_text_for_orders)
+                # --- 3. RENDELÉSEK (MASTER) ---
+                full_orders_txt = " | ".join(all_relevant_text_parts)
+                full_orders_txt = re.sub(r'(\d+)\s*\|\s*-?\s*([A-Z])', r'\1-\2', full_orders_txt)
+                raw_orders_pairs = re.findall(ORDER_PAT, full_orders_txt)
                 unique_orders, total_q = [], 0
-                for q_part, code_part in raw_orders_pairs:
-                    try:
-                        q = int(q_part)
-                        unique_orders.append(f"{q}-{code_part}")
-                        total_q += q
+                for q_p, c_p in raw_orders_pairs:
+                    try: q=int(q_p); unique_orders.append(f"{q}-{c_p}"); total_q += q
                     except: continue
 
-                # --- 5. MEGJEGYZÉS SZOBRÁSZAT (MÁSOLATON) ---
-                megj_raw = " | ".join(all_relevant_bal_parts)
-                rem = megj_raw
-                
-                # Kizárjuk a sorszámot és a pénzt is, ha belekerült volna
-                if text_sorszam: rem = rem.replace(text_sorszam, "")
-                if raw_money_text: rem = rem.replace(raw_money_text, "")
-                if address: rem = rem.replace(address, "")
-                
+                # --- 4. MEGJEGYZÉS SZOBRÁSZAT (SORSZÁM ÉS NÉV KIZÁRÁSSAL) ---
+                rem = " | ".join(all_relevant_bal_parts)
+                # Szigorú név-kivonás: ha a név benne maradt, üssük ki
+                if clean_name:
+                    rem = rem.replace(clean_name, "")
+                    # Keresztnevekre is szűrünk, ha a vezetéknév valahol lemaradt
+                    for part in clean_name.split():
+                        if len(part) > 2: rem = rem.replace(part, "")
+
+                if sorszam_txt: rem = rem.replace(sorszam_txt, "")
+                rem = rem.replace(full_id_match, "")
                 rem = re.sub(MONEY_PAT_LOCAL, "", rem)
                 rem = re.sub(r'(?i)\b(kcs|kapucsengő)[\s.:]*', '', rem)
                 
                 megj = re.sub(r'\s+', ' ', rem).strip(" |,. /")
                 if (re.match(r'^\d+$', megj)) or megj in ["-", "|"]: megj = ""
 
-                # --- 6. ADATOK MENTÉSE ---
-                if unique_orders or pdf_total_q > 0:
+                # --- 5. MENTÉS ---
+                pdf_t_q = 0
+                tq_m = re.search(r'(\d+)', text_kontroll)
+                if tq_m: pdf_t_q = int(tq_m.group(1))
+
+                if unique_orders or pdf_t_q > 0:
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
-                    szep_prefix = mapping.get(prefix, get_day_short(metadata.get('day', '')))
-                    rendeles_szoveg = ", ".join(unique_orders)
-                    
+                    szep_p = mapping.get(prefix, get_day_short(metadata.get('day', '')))
                     rows.append({
-                        "Prefix": prefix, "ID": f"{prefix}-{u_id}", 
-                        "Ügyintéző": clean_name, "Cím": address, 
-                        "Telefon": tel_m.group(0) if tel_m else "",
-                        "Pénz": "" if "0 Ft" in money_val else money_val, 
-                        "Rendelés": rendeles_szoveg,
-                        "Megjegyzés": megj, 
-                        "Összesen": total_q, 
-                        "temp_id": u_id,
-                        "Raklista_Ertek": pdf_total_q, 
-                        "Rendelés_Full": f"{szep_prefix}: {rendeles_szoveg}",
-                        "Hétvégi": False,
+                        "Prefix": prefix, "ID": f"{prefix}-{u_id}", "Ügyintéző": clean_name,
+                        "Cím": "Debrecen...", "Telefon": tel_m.group(0) if tel_m else "",
+                        "Pénz": "" if "0 Ft" in money_val else money_val,
+                        "Rendelés": ", ".join(unique_orders), "Megjegyzés": megj,
+                        "Összesen": total_q, "temp_id": u_id, "Raklista_Ertek": pdf_t_q,
+                        "Rendelés_Full": f"{szep_p}: {', '.join(unique_orders)}", "Hétvégi": False,
                         "Sorrend": st.session_state.weights.get(str(u_id), 999)
                     })
     return rows, metadata

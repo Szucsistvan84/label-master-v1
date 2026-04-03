@@ -4,6 +4,7 @@ import pandas as pd
 import re
 import math
 import requests
+import PIL.ImageDraw
 from io import BytesIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -126,7 +127,22 @@ def get_etlap_dict(year, week, target_day=None):
     except Exception as e:
         st.error(f"Étlap letöltési hiba: {e}")
     return {}
-   
+
+def debug_pdf_layout(pdf_file):
+    with pdfplumber.open(pdf_file) as pdf:
+        page = pdf.pages[0] # Az első oldalt nézzük
+        img = page.to_image(resolution=150)
+        
+        # A korábbi vágási éleink (függőlegesek)
+        v_lines = [0, 80, 155, 345, 485, 550, 775, 842]
+        
+        # Kirajzoljuk a vonalakat a képre
+        # Megjegyzés: a pdfplumber .draw_vlines-t használunk
+        img.draw_vlines(v_lines, stroke="red", stroke_width=2)
+        
+        # Megjelenítjük Streamlitben
+        st.image(img.original, caption="Így látja a gép a vágási éleket (Piros vonalak)", use_container_width=True)
+
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(pdf_file):
     rows = []

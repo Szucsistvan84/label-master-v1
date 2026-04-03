@@ -227,20 +227,25 @@ def parse_interfood_pdf(pdf_file):
                 # --- 1. LÉPÉS: AGRESSZÍV ELŐTISZTÍTÁS ---
                 text_to_parse = all_relevant_text
                 
-                # Először kiszedjük a pénzt és a telefonszámokat (a roncsokat is!),
-                # hogy ne kavarjanak be a darabszámokba (pl. Czinege-ügy)
-                text_to_parse = re.sub(MONEY_PAT, ' ', text_to_parse)
-                text_to_parse = re.sub(PHONE_PAT, ' ', text_to_parse)
-                
-                # Kötőjelek egységesítése
+                # A) Kötőjelek egységesítése (ezzel kezdünk, hogy a többi regex lássa őket)
                 text_to_parse = re.sub(r'[\u2013\u2014\u2212]', '-', text_to_parse)
 
-                # Szuper-Healer: ha a PDF-ben szétvált a darabszám és a kód (pl. "1 | - D14")
-                # Ezt összevonjuk "1-D14" formára
+                # B) Szuper-Healer: ha a PDF-ben szétvált a darabszám és a kód (pl. "1 | - D14")
+                # Ezt még azelőtt összeforrasztjuk, mielőtt az árva számokat bántanánk!
                 text_to_parse = re.sub(r'(\d+)\s*\|\s*-?\s*([A-Z])', r'\1-\2', text_to_parse)
 
+                # C) Pénz és Telefon irtása (a roncsokat is beleértve)
+                text_to_parse = re.sub(MONEY_PAT, ' ', text_to_parse)
+                text_to_parse = re.sub(PHONE_PAT, ' ', text_to_parse)
+                # Speciális Czinege-féle vesszős telefon roncsok (pl. 30/728214,30/01)
+                text_to_parse = re.sub(r'\d{2}/\d[\d\s,]*\d', ' ', text_to_parse)
+
+                # D) AZ ÚJ PAJZS: Árva számok irtása (A képernyőfotód alapján)
+                # Kitöröljük azokat a számokat, amik után NINCS kötőjel+betű. 
+                # (Így a telefonszám végéről átszökött "1" eltűnik, de az "1-UK" marad)
+                text_to_parse = re.sub(r'(?<![A-Z0-9-])\d+(?!\s*-\s*[A-Z])', ' ', text_to_parse)
+
                 # --- 2. LÉPÉS: RENDELÉSEK KINYERÉSE ---
-                # A 20. sorban lévő ORDER_PAT-et használjuk a már tiszta szövegen
                 raw_orders_pairs = re.findall(ORDER_PAT, text_to_parse)
                 
                 unique_orders, total_q = [], 0
@@ -257,11 +262,9 @@ def parse_interfood_pdf(pdf_file):
 
                 raw_orders = found_for_removal
                 
-                # --- KRITIKUS JAVÍTÁS ---
-                # Frissítjük az eredeti változót, hogy a későbbi megjegyzés-takarítás 
-                # (kb. a 230. sor környékén) már ne lássa a telefonszámokat és a hibás kódokat!
+                # Frissítjük az all_relevant_text-et a tisztítottra, 
+                # hogy a megjegyzés-takarító már ne lássa a szemetet
                 all_relevant_text = text_to_parse
-
                 # --- MEGJEGYZÉS TISZTÍTÁSA ---
                 rem = all_relevant_text
                 for o in raw_orders:

@@ -130,18 +130,18 @@ def get_etlap_dict(year, week, target_day=None):
 
 def debug_pdf_layout(pdf_file):
     with pdfplumber.open(pdf_file) as pdf:
-        page = pdf.pages[0] # Az első oldalt nézzük
-        img = page.to_image(resolution=150)
+        page = pdf.pages[0]
+        # 150-es felbontás elég a vizualizációhoz
+        im = page.to_image(resolution=150)
         
-        # A korábbi vágási éleink (függőlegesek)
+        # A vágási pontok (függőlegesek)
         v_lines = [0, 80, 155, 345, 485, 550, 775, 842]
         
-        # Kirajzoljuk a vonalakat a képre
-        # Megjegyzés: a pdfplumber .draw_vlines-t használunk
-        img.draw_vlines(v_lines, stroke="red", stroke_width=2)
+        # Piros vonalak rárajzolása
+        im.draw_vlines(v_lines, stroke="red", stroke_width=2)
         
-        # Megjelenítjük Streamlitben
-        st.image(img.original, caption="Így látja a gép a vágási éleket (Piros vonalak)", use_container_width=True)
+        # Megjelenítés: .annotated a kulcsszó, ez tartalmazza a rajzot!
+        st.image(im.annotated, caption="Most már látnod kell a PIROS vonalakat!", use_container_width=True)
 
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(pdf_file):

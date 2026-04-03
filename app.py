@@ -131,44 +131,47 @@ def get_etlap_dict(year, week, target_day=None):
 def parse_interfood_pdf(pdf_file):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None}
-    # Rugalmasabb ID minta
-    ID_PAT = r'([HKSCPZ]-[0-9]{5,7})'
-    MONEY_PAT = r'([-\d\s]{2,}Ft)'
-
+    # Rugalmasabb ID minta: bármi, amiben van kötőjel és utána számok
+    ID_PAT = r'[A-Z]-\d+' 
+    
     with pdfplumber.open(pdf_file) as pdf:
-        # Metaadatok kinyerése (Év, Hét, Nap)
-        first_page_text = pdf.pages[0].extract_text()
-        if first_page_text:
-            y_m = re.search(r'Év:\s*(\d{4})', first_page_text)
-            w_m = re.search(r'Hét:\s*(\d{1,2})', first_page_text)
-            d_m = re.search(r'Nap:\s*([a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ]+)', first_page_text)
-            if y_m: metadata.update({'year': y_m.group(1), 'week': w_m.group(1), 'day': d_m.group(1)})
+        # Alapadatok az első oldalról
+        text = pdf.pages[0].extract_text() or ""
+        y_m = re.search(r'Év:\s*(\d{4})', text)
+        w_m = re.search(r'Hét:\s*(\d{1,2})', text)
+        if y_m: metadata.update({'year': y_m.group(1), 'week': w_m.group(1)})
 
         for page in pdf.pages:
             words = page.extract_words()
             
-            # 1. SOROK MEGHATÁROZÁSA (re.search-el, hogy biztosan megtalálja)
-            id_tops = sorted([w['top'] for w in words if re.search(ID_PAT, w['text'])])
+            # --- 1. SOROK MEGHATÁROZÁSA (Sokkal engedékenyebb) ---
+            # Minden olyan magasságot elmentünk, ahol kötőjelet és számot látunk egy szóban
+            id_tops = []
+            for w in words:
+                if "-" in w['text'] and any(char.isdigit() for char in w['text']):
+                    id_tops.append(w['top'])
+            
+            id_tops = sorted(list(set(id_tops))) # Duplikációk kiszűrése
             
             if not id_tops:
                 continue
 
             h_lines = [0]
             for top in id_tops:
-                h_lines.append(top - 2)
+                h_lines.append(top - 3) # Kicsit több helyet hagyunk a vágás felett
             h_lines.append(page.height)
 
-            # 2. FÜGGŐLEGES VÁGÓÉLEK (Fekvő A4: 842 pt széles)
-            # Koordináták: Sor, ID, Cím, Ügyintéző, Tel/Pénz, Rendelés, Összesen
-            v_lines = [30, 75, 145, 335, 475, 538, 770, 830] 
+            # --- 2. FÜGGŐLEGES VÁGÓÉLEK (0-tól 842-ig, a teljes A4-es lap) ---
+            # [0:Margó, 1:Sorszám+ID, 2:Cím, 3:Név, 4:Tel/Pénz, 5:Rendelés, 6:Összesen]
+            v_lines = [0, 85, 160, 345, 485, 550, 780, 842] 
 
             table_settings = {
                 "vertical_strategy": "explicit",
                 "explicit_vertical_lines": v_lines,
                 "horizontal_strategy": "explicit",
                 "explicit_horizontal_lines": h_lines,
-                "snap_tolerance": 3,
-                "join_tolerance": 3,
+                "snap_tolerance": 4, # Még több tolerancia a "mágnesességhez"
+                "join_tolerance": 4,
             }
 
             table = page.extract_table(table_settings)
@@ -176,37 +179,34 @@ def parse_interfood_pdf(pdf_file):
                 continue
 
             for r in table:
-                # Biztonsági ellenőrzés az ID oszlopra (r[1])
-                if not r or len(r) < 2 or not r[1]:
-                    continue
+                # Keressünk ID-t az első vagy második oszlopban (néha elcsúszik)
+                combined_id_area = (str(r[0] or "") + str(r[1] or ""))
+                id_match = re.search(ID_PAT, combined_id_area)
                 
-                id_match = re.search(ID_PAT, r[1])
                 if not id_match:
-                    continue
+                    continue # Csak akkor ugrunk, ha tényleg nincs ott ID
                 
                 full_id = id_match.group(0)
                 u_id = full_id.split('-')[-1]
                 prefix = full_id.split('-')[0]
                 
-                # Adatok kinyerése
+                # Adatok kimentése
                 address = (r[2] or "").replace("\n", " ").strip()
                 admin_name = (r[3] or "").replace("\n", " ").strip()
                 tel_penz_raw = (r[4] or "").replace("\n", " ")
                 order_raw = (r[5] or "").replace("\n", " ").strip()
                 
-                # PDF szerinti összesen (770 és 830 között)
+                # Összesen (A lap legszélén: 780-842 között)
                 pdf_total_val = 0
                 if r[6]:
                     t_match = re.search(r'(\d+)', str(r[6]))
                     if t_match: pdf_total_val = int(t_match.group(1))
 
-                # Rendelések kinyerése (Regex-szel)
+                # Rendelés kódok (pl. 1-D15)
                 raw_orders = re.findall(r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z0-9*+]+)', order_raw)
                 rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                 
-                # Ha a regex nem talált semmit, de van szöveg, tartsuk meg a nyerset!
-                final_order = rendeles_str if rendeles_str else order_raw
-                
+                # Telefon és Pénz
                 phone = ""
                 tel_m = re.search(r'(\d{2}/\d+)', tel_penz_raw.replace(" ", ""))
                 if tel_m: phone = tel_m.group(0)
@@ -216,20 +216,20 @@ def parse_interfood_pdf(pdf_file):
                 if money_m: money_val = money_m.group(1).strip()
 
                 mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
-                szep_p = mapping.get(prefix, "")
+                nap_nev = mapping.get(prefix, "")
 
-                # SOR MENTÉSE - Nincs több "if" szűrés, minden ID-val rendelkező sort mentünk!
+                # MINDENT BEMENTÜNK (Nincs szűrés a rendelés tartalmára)
                 rows.append({
                     "ID": full_id,
                     "Ügyintéző": admin_name,
                     "Cím": address,
                     "Telefon": phone,
                     "Pénz": money_val,
-                    "Rendelés": final_order,
+                    "Rendelés": rendeles_str if rendeles_str else order_raw,
                     "Megjegyzés": "",
                     "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
                     "PDF_Osszesen": pdf_total_val,
-                    "Rendelés_Full": f"{szep_p}: {final_order}" if szep_p else final_order,
+                    "Rendelés_Full": f"{nap_nev}: {rendeles_str if rendeles_str else order_raw}",
                     "temp_id": u_id,
                     "Prefix": prefix,
                     "Sorrend": 999
@@ -238,7 +238,7 @@ def parse_interfood_pdf(pdf_file):
     if not rows:
         return [], metadata
     
-    # Csoportosítás és visszaadás
+    # Csoportosítás
     df = pd.DataFrame(rows)
     df['Csoport'] = df.groupby('temp_id').ngroup() + 1
     

@@ -780,18 +780,21 @@ def main():
 
         st.divider()
 
+        # 1. A függvény elején (vagy a main elején) adjunk neki egy alapértéket, 
+        # hogy ne legyen "Unbound" (ismeretlen)
+        meta_auto = {} 
+        
         st.subheader("📄 Új PDF-ek")
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
-
+        
         if up_files:
-            # --- EZT A SORT ADD HOZZÁ: megmutatja az első feltöltött PDF-et piros vonalakkal ---
             debug_pdf_layout(up_files[0]) 
-            # -------------------------------------------------------------------------------
-
+        
             if st.button("🚀 FELDOLGOZÁS"):
-                # 1. Kinyerjük az összes metaadatot
+                # Itt kap értéket a változó
                 meta_auto = extract_all_meta(up_files)
-                # ... a kód többi része változatlan
+                # Elmentjük a session_state-be, hogy a többi gombnyomásnál is megmaradjon
+                st.session_state.meta_data = meta_auto
             all_rows = []
             with st.spinner("PDF-ek beolvasása..."):
                 for f in up_files:

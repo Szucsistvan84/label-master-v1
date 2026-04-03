@@ -128,6 +128,10 @@ def get_etlap_dict(year, week, target_day=None):
     return {}
    
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
+import pdfplumber
+import re
+import pandas as pd
+
 def parse_interfood_pdf(pdf_file):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None}
@@ -136,99 +140,96 @@ def parse_interfood_pdf(pdf_file):
     MONEY_PAT = r'([-\d\s]{2,}Ft)'
 
     with pdfplumber.open(pdf_file) as pdf:
-        # Metadata
         first_page_text = pdf.pages[0].extract_text()
         if first_page_text:
-            y_m = re.search(r'Év:\s*(\d{4})', first_page_text); w_m = re.search(r'Hét:\s*(\d{1,2})', first_page_text)
-            d_m = re.search(r'Nap:\s*([a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ]+)', first_page_text)
-            if y_m: metadata.update({'year': y_m.group(1), 'week': w_m.group(1), 'day': d_m.group(1)})
+            y_m = re.search(r'Év:\s*(\d{4})', first_page_text)
+            w_m = re.search(r'Hét:\s*(\d{1,2})', first_page_text)
+            if y_m: metadata.update({'year': y_m.group(1), 'week': w_m.group(1)})
 
         for page in pdf.pages:
             words = page.extract_words()
             
-            # --- DINAMIKUS RÁCS MEGHATÁROZÁSA ---
-            # Megkeressük a fejléc szavait, hogy tudjuk hol vágjunk
-            header_y = 150 # Általában 150 alatt vannak a fejlécek
-            h_coords = {w['text'].lower(): w['x0'] for w in words if w['top'] < header_y}
-            
-            # Fix biztonsági rács, amit a fejlécek alapján finomítunk
-            # 0:Sor, 1:ID, 2:Cím, 3:Ügyintéző, 4:Tel/Pénz, 5:Rendelés, 6:Össz
-            v_lines = [0, 48, 142, 315, 485, 538, 575, 605]
-            
-            # Ha látjuk a "telefon" vagy "rendelése" szót, odatesszük a kést
-            if "rendelése" in h_coords: v_lines[5] = h_coords["rendelése"] - 2
-            if "telefon" in h_coords: v_lines[4] = h_coords["telefon"] - 5
-
-            # Vízszintes rács az ID-k alapján
+            # Vízszintes vágás az ID-k alapján
             id_tops = sorted([w['top'] for w in words if re.match(ID_PAT, w['text'])])
             h_lines = [0]
-            for top in id_tops: h_lines.append(top - 3)
+            for top in id_tops: h_lines.append(top - 2)
             h_lines.append(page.height)
 
-            table = page.extract_table({
-                "vertical_strategy": "explicit", "explicit_vertical_lines": v_lines,
-                "horizontal_strategy": "explicit", "explicit_horizontal_lines": h_lines,
-                "snap_tolerance": 3
-            })
+            # --- A4 FEKVŐ (842pt) SZERINTI OSZLOPOK ---
+            # Kitolva 810-ig, hogy minden oszlop látsszon!
+            v_lines = [35, 75, 145, 335, 475, 538, 760, 810] 
 
+            table_settings = {
+                "vertical_strategy": "explicit",
+                "explicit_vertical_lines": v_lines,
+                "horizontal_strategy": "explicit",
+                "horizontal_lines": h_lines,
+                "snap_tolerance": 2,
+                "join_tolerance": 2,
+            }
+
+            table = page.extract_table(table_settings)
             if not table: continue
 
             for r in table:
-                if not r or not r[1] or '-' not in r[1]: continue
+                if not r or not r[1] or not re.search(ID_PAT, r[1]): continue
                 
-                # Alapadatok kinyerése
-                full_id = r[1].strip().split()[0]
-                prefix = full_id.split('-')[0]
+                full_id = re.search(ID_PAT, r[1]).group(0)
                 u_id = full_id.split('-')[-1]
                 
-                address = (r[2] or "").split("\n")[0].strip()
-                admin_name = (r[3] or "").split("\n")[0].strip()
-                
-                # Telefon és Pénz (4. oszlop - a rács megvédi!)
+                address = (r[2] or "").replace("\n", " ").strip()
+                admin_name = (r[3] or "").replace("\n", " ").strip()
                 tel_penz_raw = (r[4] or "").replace("\n", " ")
-                money_m = re.search(MONEY_PAT, tel_penz_raw)
-                money_val = money_m.group(1).strip() if money_m else "0 Ft"
                 
-                # Itt a rács miatt a telefon végén már nincs ott a rendelés kódja!
-                phone = ""
-                tel_m = re.search(r'(\d{2}/\d{5,8})', tel_penz_raw.replace(" ", ""))
-                if tel_m: phone = tel_m.group(0)
-
-                # --- MEGJEGYZÉS ---
-                # Ami a cellákban a sortörés után maradt
-                megj_parts = []
-                for cell_idx in [1, 2, 3, 4]:
-                    cell_content = (r[cell_idx] or "").split("\n")
-                    if len(cell_content) > 1: megj_parts.extend(cell_content[1:])
+                # RENDELÉS (Most már 760-ig látunk, Kovács Máté D15-je biztonságban!)
+                order_raw = (r[5] or "").replace("\n", " ").strip()
+                raw_orders = re.findall(r'(\d+)-([A-Z0-9*]+)', order_raw)
                 
-                megj = " ".join(megj_parts).strip()
-                # Kivesszük belőle a "Ft"-ot ha benne maradt
-                megj = re.sub(MONEY_PAT, "", megj).strip(" | ,")
-
-                # RENDELÉSEK (5. oszlop - Tiszta, mert a rács elvágta a telefont!)
-                order_text = (r[5] or "").replace("\n", " ")
-                raw_orders = re.findall(r'(\d+)-([A-Z0-9*]+)', order_text)
-                unique_orders = [f"{q}-{c}" for q, c in raw_orders]
-                
-                # 8. OSZLOP: A PDF-ben szereplő összesen darabszám
+                # ÖSSZESEN (A lap széléről, 760 és 810 között)
                 pdf_total_val = 0
                 if r[6]:
-                    t_match = re.search(r'\d+', str(r[6]))
-                    if t_match: pdf_total_val = int(t_match.group())
+                    t_match = re.search(r'(\d+)', str(r[6]))
+                    if t_match: pdf_total_val = int(t_match.group(1))
 
-                if unique_orders or pdf_total_val > 0:
+                # Telefon / Pénz szétbontás
+                phone = ""
+                tel_m = re.search(r'(\d{2}/\d+)', tel_penz_raw.replace(" ", ""))
+                if tel_m: phone = tel_m.group(0)
+                
+                money_val = "0 Ft"
+                money_m = re.search(MONEY_PAT, tel_penz_raw)
+                if money_m: money_val = money_m.group(1).strip()
+
+                # Megjegyzés gyűjtése a cellák aljából
+                megj_parts = []
+                for cell in [r[1], r[2], r[3]]:
+                    if cell and "\n" in cell:
+                        megj_parts.extend(cell.split("\n")[1:])
+                megj = " ".join(megj_parts).strip()
+
+                if raw_orders or pdf_total_val > 0:
+                    prefix = full_id.split('-')[0]
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
-                    szep_p = mapping.get(prefix, "")
+                    
                     rows.append({
                         "ID": full_id, "Ügyintéző": admin_name, "Cím": address,
                         "Telefon": phone, "Pénz": "" if "0 Ft" in money_val else money_val,
-                        "Rendelés": ", ".join(unique_orders), "Megjegyzés": megj,
+                        "Rendelés": ", ".join([f"{q}-{c}" for q, c in raw_orders]),
+                        "Megjegyzés": megj,
                         "Összesen": sum(int(q) for q, c in raw_orders),
-                        "PDF_Osszesen": pdf_total_val, # Ez az új oszlop!
-                        "Rendelés_Full": f"{szep_p}: {', '.join(unique_orders)}",
-                        "temp_id": u_id, "Sorrend": 999
+                        "PDF_Osszesen": pdf_total_val,
+                        "Rendelés_Full": f"{mapping.get(prefix, '')}: {', '.join([f'{q}-{c}' for q, c in raw_orders])}",
+                        "temp_id": u_id, "Prefix": prefix, "Sorrend": 999
                     })
-    return rows, metadata
+
+    if not rows: return [], metadata
+    
+    # --- CSOPORTOSÍTÁS VISSZAÁLLÍTÁSA ---
+    df = pd.DataFrame(rows)
+    # A temp_id alapján csoportszámot adunk
+    df['Csoport'] = df.groupby('temp_id').ngroup() + 1
+    
+    return df.to_dict('records'), metadata
     
 def merge_data(all_rows):
     if not all_rows: 

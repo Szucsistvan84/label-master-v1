@@ -135,7 +135,7 @@ def debug_pdf_layout(pdf_file):
         im = page.to_image(resolution=150)
         
         # A vágási pontok (függőlegesek)
-        v_lines = [0, 80, 155, 345, 485, 550, 775, 842]
+        v_lines = [0, 50, 140, 360, 510, 580, 780, 842]
         
         # Piros vonalak rárajzolása
         im.draw_vlines(v_lines, stroke="red", stroke_width=2)
@@ -173,7 +173,7 @@ def parse_interfood_pdf(pdf_file):
             h_lines.append(page.height)
 
             # Függőleges vágóélek a teljes fekvő A4-re (842 pt)
-            v_lines = [0, 80, 155, 345, 485, 550, 775, 842] 
+            v_lines = [0, 50, 140, 360, 510, 580, 780, 842] 
 
             table_settings = {
                 "vertical_strategy": "explicit",

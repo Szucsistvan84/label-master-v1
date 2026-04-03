@@ -205,38 +205,59 @@ def parse_interfood_pdf(pdf_file):
                 
                 if id_match:
                     full_id = id_match.group(1)
+                    prefix = full_id.split('-')[0]
                     
-                    # Megjegyzés és Cím szétválasztása (a sörfőzdés korrekcióval)
-                    note_p1 = full_id_area.replace(full_id, "").strip()
-                    address_area = get_col_text(v_lines[2], v_lines[3])
-                    
-                    addr_m = re.search(r'(\d{4}\s*Debrecen.*?\d+\.?\s*(?:[fsz\d\./\s]*)*)', address_area)
-                    if addr_m:
-                        address = addr_m.group(1).strip()
-                        note_p2 = address_area.replace(address, "").strip()
-                    else:
-                        address = address_area
-                        note_p2 = ""
+                    # --- 1. SORSZÁM (0 - 5.5 kocka) ---
+                    # Ezt nem tesszük a megjegyzésbe
+                    sorszam_raw = get_col_text(v_lines[0], v_lines[1])
 
-                    admin_name = get_col_text(v_lines[3], v_lines[4])
+                    # --- 2. ÜGYINTÉZŐ (39.5 - 47.5 kocka) ---
+                    # Itt csak a nevet keressük, a telefonszámot (xx/xxx) regex-szel kiszűrjük belőle
+                    admin_area = get_col_text(v_lines[3], v_lines[4])
+                    admin_name = re.sub(PHONE_PAT, '', admin_area).strip()
+
+                    # --- 3. TELEFON ÉS PÉNZ (47.5 - 52 kocka) ---
                     tel_penz_raw = get_col_text(v_lines[4], v_lines[5])
-                    order_raw = get_col_text(v_lines[5], v_lines[6])
-                    total_raw = get_col_text(v_lines[6], v_lines[7])
+                    phone_m = re.search(PHONE_PAT, tel_penz_raw.replace(" ", ""))
+                    phone_val = phone_m.group(0) if phone_m else ""
+                    
+                    money_m = re.search(MONEY_PAT, tel_penz_raw)
+                    money_val = money_m.group(0).strip() if money_m else ""
 
-                    # Ha a gyűjtött szövegben STOP WORD van, eldobjuk
+                    # --- 4. MEGJEGYZÉS SZOBRÁSZAT ---
+                    # Rész 1 & 2 (ID melletti és alatti sáv 5.5 - 21.5)
+                    # Kivesszük belőle az ID-t
+                    note_left_side = get_col_text(v_lines[1], v_lines[2]).replace(full_id, "").strip()
+                    
+                    # Rész 3 (Cím sáv 21.5 - 39.5, ami nem a cím)
+                    address_area = get_col_text(v_lines[2], v_lines[3])
+                    addr_m = re.search(r'(\d{4}\s*Debrecen.*?\d+\.?\s*(?:[fsz\d\./\s]*)*)', address_area)
+                    
+                    address = addr_m.group(1).strip() if addr_m else address_area
+                    note_right_side = address_area.replace(address, "").strip()
+
+                    # Összefűzési logika: 
+                    # Itt trükközünk: a note_left_side-ot kettévágjuk ha van benne sorváltás (vagy szóköz blokk)
+                    # De egyszerűbb, ha a bal oldalt és a jobb oldalt a kért " | " és folytonos módon rakjuk össze:
+                    full_note = f"{note_left_side} | {note_right_side}".strip(" | ")
+
+                    # TÖRLÉSI LOGIKA: Ha benne van az admin neve vagy a / jel utáni rész
+                    if "/" in full_note:
+                        # Csak a / jel előtti részt tartjuk meg, ha utána az admin neve jön
+                        parts = full_note.split("/")
+                        if len(parts) > 1 and admin_name in parts[1]:
+                            full_note = parts[0].strip()
+                    
+                    # Ha a megjegyzés simán tartalmazza az admin nevét, töröljük a nevet belőle
+                    full_note = full_note.replace(admin_name, "").strip(" | ")
+
+                    # --- 5. RENDELÉS ÉS ÖSSZESEN ---
+                    order_raw = get_col_text(v_lines[5], v_lines[6])
                     if any(sw in address or sw in admin_name or sw in order_raw for sw in stop_words):
                         continue
 
-                    # Telefon, pénz, rendelés regexek
-                    phone_m = re.search(PHONE_PAT, tel_penz_raw.replace(" ", ""))
-                    phone_val = phone_m.group(0) if phone_m else ""
-                    money_m = re.search(MONEY_PAT, tel_penz_raw)
-                    money_val = money_m.group(0).strip() if money_m else ""
                     raw_orders = re.findall(ORDER_PAT, order_raw)
-                    rendeles_str = ", ".join([f"{q}-{c_code}" for q, c_code in raw_orders])
-
-                    mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
-                    prefix = full_id.split('-')[0]
+                    rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
 
                     rows.append({
                         "ID": full_id,
@@ -244,14 +265,11 @@ def parse_interfood_pdf(pdf_file):
                         "Cím": address,
                         "Telefon": phone_val,
                         "Pénz": money_val,
-                        "Rendelés": rendeles_str if rendeles_str else order_raw,
-                        "Megjegyzés": f"{note_p1} {note_p2}".strip(),
-                        "Összesen": sum(int(q) for q, c_code in raw_orders) if raw_orders else 0,
-                        "PDF_Osszesen": int(re.search(r'\d+', total_raw).group()) if re.search(r'\d+', total_raw) else 0,
-                        "Rendelés_Full": f"{mapping.get(prefix, '')}: {rendeles_str}",
+                        "Rendelés": rendeles_str,
+                        "Megjegyzés": full_note,
+                        "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
                         "temp_id": full_id.split('-')[-1],
-                        "Prefix": prefix,
-                        "Sorrend": 999
+                        "Prefix": prefix
                     })
 
     if not rows: return [], metadata

@@ -148,28 +148,50 @@ def debug_pdf_layout(pdf_file):
 def parse_interfood_pdf(pdf_file):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None, 'jaratok': []}
-    stop_words = ["Nyomtatta:", "Oldal:", "Menetlevél", "Összesen:", "Készült:", "Vége"]
+    
+    # Kibővített Stop Words lista a te meghatározásod alapján
+    stop_words = [
+        "Összesítés:", 
+        "Csilagozott betűnél", # Eltéréssel is: Csillagozott/Csilagozott
+        "Összesen:", 
+        "Nyomtatta:", 
+        "Oldal:", 
+        "Menetlevél", 
+        "Vége"
+    ]
 
     with pdfplumber.open(pdf_file) as pdf:
         page = pdf.pages[0]
         W = page.width
         def c(kocka): return (kocka / 88) * W
-
-        # 88-as rács határok
         v_lines = [c(0), c(5.5), c(21.5), c(39.5), c(47.5), c(52), c(82.5), c(88)]
-
-        text_all = page.extract_text() or ""
-        y_m = re.search(r'Év:\s*(\d{4})', text_all); w_m = re.search(r'Hét:\s*(\d{1,2})', text_all)
-        if y_m: metadata['year'] = y_m.group(1)
-        if w_m: metadata['week'] = w_m.group(1)
 
         for pg in pdf.pages:
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
+            
+            # --- FÜGGŐLEGES SOROMPÓ (Cutoff) BEÁLLÍTÁSA ---
+            # Megkeressük a lap alját jelző szavak legmagasabb pontját
+            footer_elements = [
+                w for w in words 
+                if any(tag in w['text'] for tag in ["Összesítés", "Csilagozott", "Összesen"])
+                and w['top'] > pg.height * 0.5 # Csak a lap alsó felében keressük
+            ]
+            
+            # Ha nincs ilyen szó, a lap alja a határ, ha van, akkor a szó teteje
+            page_cutoff = min([w['top'] for w in footer_elements]) - 2 if footer_elements else pg.height
+
             anchors = [w for w in words if re.search(r'[HKSCPZ]-\d{5,7}', w['text'])]
             
             for i, anchor in enumerate(anchors):
+                # Ha az ID eleve a cutoff alatt van (téves találat), kihagyjuk
+                if anchor['top'] >= page_cutoff:
+                    continue
+
                 y_top = anchor['top'] - 5
-                y_bottom = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else pg.height
+                # A blokk vége: vagy a következő ID, vagy a lap alja (sorompó)
+                next_anchor_top = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else page_cutoff
+                y_bottom = min(next_anchor_top, page_cutoff)
+                
                 line_words = [w for w in words if y_top <= w['top'] < y_bottom]
                 
                 def get_col_text(x_min, x_max):
@@ -177,19 +199,17 @@ def parse_interfood_pdf(pdf_file):
                     sel.sort(key=lambda x: (x['top'], x['x0']))
                     return " ".join([w['text'] for w in sel])
 
+                # Adatgyűjtés a sávokból
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
                 id_match = re.search(r'([HKSCPZ]-\d{5,7})', full_id_area)
                 
                 if id_match:
                     full_id = id_match.group(1)
                     
-                    # 1. Megjegyzés első fele (ID mellett)
+                    # Megjegyzés és Cím szétválasztása (a sörfőzdés korrekcióval)
                     note_p1 = full_id_area.replace(full_id, "").strip()
-
-                    # 2. Cím sáv (Itt van a cím és alatta a megjegyzés második fele)
                     address_area = get_col_text(v_lines[2], v_lines[3])
                     
-                    # Cím kinyerése: 4000 Debrecen... végén házszám/emelet
                     addr_m = re.search(r'(\d{4}\s*Debrecen.*?\d+\.?\s*(?:[fsz\d\./\s]*)*)', address_area)
                     if addr_m:
                         address = addr_m.group(1).strip()
@@ -198,22 +218,20 @@ def parse_interfood_pdf(pdf_file):
                         address = address_area
                         note_p2 = ""
 
-                    # 3. Ügyintéző és egyebek
                     admin_name = get_col_text(v_lines[3], v_lines[4])
                     tel_penz_raw = get_col_text(v_lines[4], v_lines[5])
                     order_raw = get_col_text(v_lines[5], v_lines[6])
                     total_raw = get_col_text(v_lines[6], v_lines[7])
 
-                    if any(sw in address for sw in stop_words) or any(sw in admin_name for sw in stop_words):
+                    # Ha a gyűjtött szövegben STOP WORD van, eldobjuk
+                    if any(sw in address or sw in admin_name or sw in order_raw for sw in stop_words):
                         continue
 
-                    # Változók definiálása (hogy ne legyen NameError)
+                    # Telefon, pénz, rendelés regexek
                     phone_m = re.search(PHONE_PAT, tel_penz_raw.replace(" ", ""))
                     phone_val = phone_m.group(0) if phone_m else ""
-                    
                     money_m = re.search(MONEY_PAT, tel_penz_raw)
                     money_val = money_m.group(0).strip() if money_m else ""
-                    
                     raw_orders = re.findall(ORDER_PAT, order_raw)
                     rendeles_str = ", ".join([f"{q}-{c_code}" for q, c_code in raw_orders])
 

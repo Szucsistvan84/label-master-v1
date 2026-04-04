@@ -164,7 +164,7 @@ def parse_interfood_pdf(pdf_file):
         page = pdf.pages[0]
         W = page.width
         def c(kocka): return (kocka / 88) * W
-        v_lines = [c(0), c(5.5), c(21.5), c(39.5), c(47.30728913), c(52), c(82.5), c(88)]
+        v_lines = [c(0), c(5.5), c(21.5), c(39.5), c(47.30728911), c(52), c(82.5), c(88)]
 
         for pg in pdf.pages:
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)

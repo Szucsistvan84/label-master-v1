@@ -203,48 +203,57 @@ def parse_interfood_pdf(pdf_file):
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
                 id_match = re.search(r'([HKSCPZ]-\d{5,7})', full_id_area)
                 
-                if id_match:
-                    full_id = id_match.group(1)
-                    
-                    # --- 0. GOLYÓÁLLÓ STOP-PAJZS ---
-                    # Csak akkor dobjuk ki, ha az ID maga egy STOP-szó (ami lehetetlen)
-                    # vagy ha a sor eleje gyanús. De Ibolyának van rendes C- kódja, 
-                    # így ő most már érinthetetlen!
-                    line_text_full = " ".join([w['text'] for w in line_words])
-                    if "Összesítés:" in line_text_full and not full_id.startswith(('C-', 'P-', 'K-')):
+                # --- 0. FEJLÉC ÉS LÁBLÉC TELJES KIZÁRÁSA ---
+                line_text_full = " ".join([w['text'] for w in line_words])
+                
+                # Szigorú fejléc és lábléc kulcsszavak
+                tiltott_szavak = [
+                    "járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", # Fejléc
+                    "Összesítés:", "Csilagozott", "Összesen:" # Lábléc
+                ]
+                
+                # Ha a sor bármelyik tiltott szót tartalmazza, ÉS nem tartalmaz ügyfélkódot, ugrunk
+                if any(stop in line_text_full for stop in tiltott_szavak):
+                    # Kivétel: Ha a sorban van ID (C- vagy P-), akkor ne ugorjuk át, 
+                    # mert lehet, hogy egy kód hasonlít valamire (bár ez ritka)
+                    if not re.search(r'[CPK]-\d{4,}', line_text_full):
                         continue
 
+                if id_match:
+                    full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # Sor magasságának rögzítése a pontos rendelés-olvasáshoz
-                    y_top = min(w['top'] for w in line_words) - 1
-                    y_bottom = max(w['bottom'] for w in line_words) + 1
+                    # Sor magasságának rögzítése - EZÁLTAL NEM LÁT LE A LÁBLÉCIG
+                    y_top = min(w['top'] for w in line_words)
+                    y_bottom = max(w['bottom'] for w in line_words)
 
                     # --- KOORDINÁTÁK ---
-                    x38 = (38 / 88) * W  
+                    x38 = (38 / 88) * W
                     x40 = (40 / 88) * W
                     x52 = (52 / 88) * W  
 
                     # --- 1. ÜGYINTÉZŐ ÉS TELEFON ---
-                    col_words = [w for w in line_words if x38 <= (w['x0'] + w['x1'])/2 < x52]
-                    col_words.sort(key=lambda w: w['x0'])
-                    raw_combined = " ".join([w['text'] for w in col_words])
+                    # Csak a soron belüli szavakat nézzük
+                    admin_words = [w for w in line_words if x38 <= (w['x0'] + w['x1'])/2 < x52]
+                    admin_words.sort(key=lambda w: w['x0'])
+                    raw_combined = " ".join([w['text'] for w in admin_words])
                     
                     phone_match = re.search(r'(\d{2}/[\d\s,]+)', raw_combined)
-                    phone_val = phone_match.group(1).replace(" ", "") if phone_match else ""
+                    phone_val = phone_match.group(1).replace(" ", "").strip(", ") if phone_match else ""
                     
                     admin_name = raw_combined
                     if phone_val: admin_name = admin_name.replace(phone_val, "")
                     
-                    # Tisztítás: Komoróczy-Elek marad, a -UK, -BK, -V kódok mennek
+                    # Tisztítás: Kódok (-UK) mennek, Komoróczy-Elek marad
                     admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
                     admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "")
                     admin_name = admin_name.replace("/", "").replace(",", " ").strip()
                     admin_name = re.sub(r'\s+-\s*$', '', admin_name)
                     admin_name = re.sub(r'\s+', ' ', admin_name).strip("- ").strip()
 
-                    # --- 2. CÍM TISZTÍTÁSA (Biró/Tar fix) ---
-                    address = get_col_text((22/88)*W, x40).strip()
+                    # --- 2. CÍM TISZTÍTÁSA ---
+                    addr_words = [w for w in line_words if (22/88)*W <= (w['x0']+w['x1'])/2 < x40]
+                    address = " ".join([w['text'] for w in sorted(addr_words, key=lambda x: x['x0'])]).strip()
                     if admin_name:
                         name_parts = admin_name.split()
                         if name_parts and address.endswith(name_parts[0]):
@@ -256,16 +265,17 @@ def parse_interfood_pdf(pdf_file):
                     money_val = money_m.group(1) if money_m else "0Ft"
 
                     # --- 4. MEGJEGYZÉS ---
-                    x9, x22 = (9/88)*W, (22/88)*W
-                    note_raw = get_col_text(x9, x22).replace(full_id, "").strip()
-                    full_note = note_raw
+                    note_words = [w for w in line_words if (9/88)*W <= (w['x0']+w['x1'])/2 < (22/88)*W]
+                    note_raw = " ".join([w['text'] for w in sorted(note_words, key=lambda x: x['x0'])])
+                    full_note = note_raw.replace(full_id, "").strip()
                     if len(admin_name) > 3:
                         for part in admin_name.split():
                             if len(part) > 2: full_note = full_note.replace(part, "")
                     full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
 
-                    # --- 5. RENDELÉS (Csak az aktuális sorban!) ---
-                    # Itt akadályozzuk meg, hogy Ibolya berántsa a lap alját
+                    # --- 5. RENDELÉS (AZ UTOLSÓ VÉDVONAL) ---
+                    # Itt Ibolya nem tudja "berántani" a láblécet, mert CSAK a line_words-ben keresünk,
+                    # ami az aktuális ciklus sora, nem a teljes PDF oszlopa!
                     order_words = [w for w in line_words if w['x0'] >= x52]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
                     

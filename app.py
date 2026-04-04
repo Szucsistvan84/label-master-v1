@@ -164,7 +164,7 @@ def parse_interfood_pdf(pdf_file):
         page = pdf.pages[0]
         W = page.width
         def c(kocka): return (kocka / 88) * W
-        v_lines = [c(0), c(5.5), c(21.5), c(39.5), c(47.3072891051), c(52), c(82.5), c(88)]
+        v_lines = [c(0), c(5.5), c(21.5), c(39.5), c(47), c(52), c(82.5), c(88)]
 
         for pg in pdf.pages:
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
@@ -215,47 +215,57 @@ def parse_interfood_pdf(pdf_file):
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- SZIGORÚ SOR-SZŰRŐ ---
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
                     row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
 
-                    # --- HATÁRVONALAK FINOMHANGOLÁSA (x48 -> x47) ---
+                    # Visszatérünk az emberi léptékű határokhoz
                     x40 = (40 / 88) * W
-                    x47_3072891051 = (47.3072891051 / 88) * W      # Balra toltuk 1 egységgel, hogy a '20/' kiessen a névből
+                    x48 = (48 / 88) * W
                     x52_5 = (52.5 / 88) * W
 
-                    # --- 1. ÜGYINTÉZŐ NEVE (x40 - x47) ---
-                    name_words = [w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x47_3072891051]
-                    admin_name = " ".join([w['text'] for w in sorted(name_words, key=lambda w: w['x0'])])
-                    # Csak a zavaró karaktereket takarítjuk
-                    admin_name = re.sub(r'\d{3,}', '', admin_name).replace("Ft", "").strip("- /")
+                    # --- 1. KOMBINÁLT ADATGYŰJTÉS ---
+                    # Begyűjtjük a nevet és a telefont egyben, majd szétválasztjuk
+                    # (x40-től x52.5-ig tartó sáv)
+                    combined_words = [w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5]
+                    combined_text = " ".join([w['text'] for w in sorted(combined_words, key=lambda w: w['x0'])])
 
-                    # --- 2. TELEFON ÉS PÉNZ (x47 - x52.5) ---
-                    tel_money_words = [w for w in row_words if x47_3072891051 <= (w['x0'] + w['x1'])/2 < x52_5]
-                    tel_money_text = " ".join([w['text'] for w in sorted(tel_money_words, key=lambda w: w['x0'])])
+                    # --- A SZÉTVÁLASZTÁS MESTERSÉGE (Regex-szel) ---
+                    # Keressük a telefonszámot (pl. 20/1234567)
+                    phone_match = re.search(r'(\d{2}/\d[\d\s,]+\d)', combined_text)
                     
-                    # Telefon: most már a '20/' is ide fog tartozni
-                    phone_match = re.search(r'(\d{2}/\d[\d\s,]+\d)', tel_money_text)
-                    phone_val = phone_match.group(1).replace(" ", "").strip(", ") if phone_match else ""
-                    
-                    # Pénz kivonása
-                    money_match = re.search(r'(-?\d+)\s*Ft', tel_money_text)
+                    if phone_match:
+                        phone_val = phone_match.group(1).replace(" ", "").strip(", ")
+                        # A név az, ami a telefonszám ELŐTT van
+                        admin_name = combined_text.split(phone_match.group(1))[0].strip()
+                    else:
+                        phone_val = ""
+                        admin_name = combined_text
+
+                    # --- PÉNZ KERESÉSE ---
+                    # A pénz általában a sáv végén van, vagy a telefonszám után
+                    money_match = re.search(r'(-?\d+)\s*Ft', combined_text)
                     if money_match:
                         money_val = money_match.group(0).replace(" ", "")
+                        # Ha a pénz benne maradt a névben, pucoljuk ki
+                        admin_name = admin_name.replace(money_match.group(0), "").strip()
                     else:
-                        rem_money = tel_money_text
-                        if phone_match:
-                            rem_money = rem_money.replace(phone_match.group(1), "")
-                        money_digits = re.search(r'(-?\d+)', rem_money)
-                        money_val = f"{money_digits.group(1)}Ft" if money_digits else "0Ft"
+                        # Ha nincs Ft, keressük a "ragadós nullát" a végén
+                        last_number = re.search(r'(\d+)$', combined_text)
+                        if last_number and (not phone_val or last_number.group(1) not in phone_val):
+                            money_val = f"{last_number.group(1)}Ft"
+                        else:
+                            money_val = "0Ft"
 
-                    # --- 3. RENDELÉS (x52.5 felett) ---
+                    # Név végső simítása
+                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name) # Kódok lekaparása
+                    admin_name = admin_name.strip("- /")
+
+                    # --- 2. RENDELÉS, CÍM, MEGJEGYZÉS (Változatlan, bevált részek) ---
                     order_words = [w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
                     raw_orders = re.findall(ORDER_PAT, order_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
 
-                    # --- 4. CÍM ÉS MEGJEGYZÉS ---
                     address = " ".join([w['text'] for w in sorted([w for w in row_words if (22/88)*W <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
                     note_raw = " ".join([w['text'] for w in sorted([w for w in row_words if (8/88)*W <= (w['x0']+w['x1'])/2 < (22/88)*W], key=lambda x: x['x0'])])
                     full_note = note_raw.replace(full_id, "").replace("Dr.", "").strip(" /|")

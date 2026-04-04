@@ -280,9 +280,57 @@ def parse_interfood_pdf(pdf_file):
                     raw_orders = re.findall(ORDER_PAT, order_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
 
-                    address = " ".join([w['text'] for w in sorted([w for w in row_words if (22/88)*W <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
-                    note_raw = " ".join([w['text'] for w in sorted([w for w in row_words if (8/88)*W <= (w['x0']+w['x1'])/2 < (22/88)*W], key=lambda x: x['x0'])])
-                    full_note = note_raw.replace(full_id, "").replace("Dr.", "").strip(" /|")
+                    # --- 2. RENDELÉS, CÍM, MEGJEGYZÉS ---
+                    order_words = [w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5]
+                    order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
+                    raw_orders = re.findall(ORDER_PAT, order_text)
+                    rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
+
+                    # CÍM (v_lines[2] és x40 között) - Dinamikus sávszélesség
+                    address = " ".join([w['text'] for w in sorted([w for w in row_words if v_lines[2] <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
+
+                    # --- MEGJEGYZÉS SZOBRÁSZAT (V2 - Részlegmegőrző) ---
+                    # 1. Alapanyag: Az Ügyfél oszlop (v_lines[1] - v_lines[2])
+                    note_area_words = [w for w in line_words if v_lines[1] <= (w['x0'] + w['x1'])/2 < v_lines[2]]
+                    customer_block = " ".join([w['text'] for w in sorted(note_area_words, key=lambda x: (x['top'], x['x0']))])
+
+                    # 2. ID és Kategória radírozása (Prefixek: C, P, Z, S, H, K)
+                    clean_customer = re.sub(r'[CPZSHK]-\d+', '', customer_block)
+                    for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr."]:
+                        clean_customer = clean_customer.replace(junk, "")
+                    
+                    # 3. RÉSZLEG VS. NÉV SZÉTVÁLASZTÁSA (A perjel mentén)
+                    reszleg = ""
+                    if "/" in clean_customer:
+                        parts = clean_customer.split("/")
+                        potential_reszleg = parts[0].strip()
+                        # Ha a perjel előtti rész nem azonos az ügyintézővel, akkor az értékes részleg infó
+                        if potential_reszleg.lower() != admin_name.lower():
+                            reszleg = potential_reszleg
+                    
+                    # 4. EGYÉB INSTRUKCIÓK (ami még maradt a radírozás után)
+                    remaining_info = clean_customer
+                    if reszleg: remaining_info = remaining_info.replace(reszleg, "")
+                    if admin_name: remaining_info = remaining_info.replace(admin_name, "")
+                    
+                    extra_instructions = remaining_info.replace("/", "").strip(" -/|.,")
+
+                    # 5. ÖSSZEFŰZÉS (Részleg | Instrukciók)
+                    final_note_parts = []
+                    if reszleg:
+                        final_note_parts.append(reszleg)
+                    if extra_instructions:
+                        final_note_parts.append(extra_instructions)
+                    
+                    full_note = " | ".join(final_note_parts)
+
+                    # Biztonsági fék: ha csak a név maradt volna, ne duplázzuk megjegyzésbe
+                    if full_note.replace("|", "").strip().lower() == admin_name.lower():
+                        full_note = ""
+
+                    # Rendelés szöveges formázása a CSV-hez
+                    mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
+                    full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
 
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
                     full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""

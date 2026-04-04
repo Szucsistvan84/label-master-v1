@@ -262,19 +262,28 @@ def parse_interfood_pdf(pdf_file):
                             last_num = re.search(r'(\d+)$', bottom_text.strip() if bottom_text else top_text.strip())
                             money_val = f"{last_num.group(1)}Ft" if last_num else "0Ft"
 
-                        # 3. NÉV TISZTÍTÁSA
-                        # A név az, ami a top_text-ben a telefon előtt van
-                        if phone_match and phone_match.group(1) in top_text:
-                            admin_name = top_text.split(phone_match.group(1))[0].strip()
-                        else:
-                            # Ha a telefon nem a felső sorban volt, akkor a felső sor maga a név
-                            admin_name = top_text
-                    else:
-                        phone_val, money_val, admin_name = "", "0Ft", ""
+                    # --- ÜGYINTÉZŐ KERESÉSE (Gumi-sor technika) ---
+                    # 1. Alapgyűjtés az admin sávból (x40 és x52.5 között)
+                    admin_words = [w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5]
+                    admin_words = sorted(admin_words, key=lambda x: (x['top'], x['x0']))
+                    
+                    # 2. Elsődleges név összerakása
+                    admin_name = " ".join([w['text'] for w in admin_words]).strip()
 
-                    # Végső simítások
-                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name).strip("- /")
-                    # --- 2. RENDELÉS, CÍM, MEGJEGYZÉS (Változatlan, bevált részek) ---
+                    # 3. KORREKCIÓ (Bíró Dávid és társai): 
+                    # Ha a név gyanúsan rövid (pl. nincs benne szóköz), 
+                    # tágítjuk a keresést lefelé 8 pixellel
+                    if " " not in admin_name and admin_words:
+                        y_center = admin_words[0]['top']
+                        # Újra lekérjük, de nagyobb függőleges toleranciával
+                        extra_admin = [w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5 
+                                      and abs(w['top'] - y_center) < 8]
+                        admin_name = " ".join([w['text'] for w in sorted(extra_admin, key=lambda x: (x['top'], x['x0']))]).strip()
+
+                    # 4. Tisztítás (Levágjuk a maradék telefon-töredékeket vagy kódokat a névből)
+                    admin_name = re.sub(r'(\d{1,2}/\d+)', '', admin_name) # Telefonszám kiejtése
+                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name) # Prefixek kiejtése
+                    admin_name = admin_name.strip("- /|")                    # --- 2. RENDELÉS, CÍM, MEGJEGYZÉS (Változatlan, bevált részek) ---
                     order_words = [w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
                     raw_orders = re.findall(ORDER_PAT, order_text)

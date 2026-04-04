@@ -344,8 +344,7 @@ def parse_interfood_pdf(pdf_file):
                     megj_text = " ".join([w['text'] for w in sorted(relevant_note_words, key=lambda x: (x['top'], x['x0']))]).strip()
 
                     if megj_text:
-                        # A) ID-K TÖRLÉSE (A korábbi hiba helye)
-                        # A customer_block helyett a megj_text-en futtatjuk a regexet
+                        # A) ID-K TÖRLÉSE (Javítva: a megj_text-en futtatjuk)
                         megj_text = re.sub(r'[CPZSHK]-\d+', '', megj_text)
                         
                         # B) RENDELÉS-KÓDOK TÖRLÉSE (pl. 1-R4)
@@ -370,7 +369,7 @@ def parse_interfood_pdf(pdf_file):
                         
                         megj_text = " ".join(final_m_parts).strip(" ,.-/|*")
 
-                    # Ezt a változót használd a mentésnél!
+                    # VÉGEREDMÉNY MENTÉSE
                     clean_megjegyzese = megj_text
                     
                     # 2. ID és Kategória radírozása (Prefixek: C, P, Z, S, H, K)

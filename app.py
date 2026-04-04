@@ -203,60 +203,59 @@ def parse_interfood_pdf(pdf_file):
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
                 id_match = re.search(r'([HKSCPZ]-\d{5,7})', full_id_area)
                 
+                # --- 0. FEJLÉC ÉS LÁBLÉC TELJES KIZÁRÁSA ---
+                line_text_full = " ".join([w['text'] for w in line_words])
+                tiltott_szavak = ["járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", "Összesítés:", "Csilagozott", "Összesen:"]
+                
+                if any(stop in line_text_full for stop in tiltott_szavak):
+                    if not re.search(r'[HKSCPZ]-\d{5,7}', line_text_full):
+                        continue
+
                 if id_match:
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- A SZIGORÚ SOR-SZŰRŐ (IBOLYA ÉS NULLA-FIX) ---
-                    # Csak azokat a szavakat nézzük, amik az ID (horgony) közvetlen közelében vannak (+/- 8 pixel)
+                    # --- SZIGORÚ SOR-SZŰRŐ ---
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
                     row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
 
-                    # --- KOORDINÁTÁK ---
+                    # --- PONTOSÍTOTT KOORDINÁTÁK ---
+                    x22 = (22 / 88) * W
                     x38 = (38 / 88) * W
-                    x40 = (40 / 88) * W
+                    x42 = (42 / 88) * W  # Itt válik el a név a telefonszámtól
                     x52 = (52 / 88) * W  
 
-                    # --- 1. ÜGYINTÉZŐ ÉS TELEFON ---
-                    # Csak a row_words-ből (az adott sorból) dolgozunk!
-                    admin_words = [w for w in row_words if x38 <= (w['x0'] + w['x1'])/2 < x52]
-                    admin_words.sort(key=lambda w: w['x0'])
-                    raw_admin_text = " ".join([w['text'] for w in admin_words])
+                    # --- 1. ÜGYINTÉZŐ (Csak a név sávja) ---
+                    # Csak az x38 és x42 közötti szavakat nézzük a névhez
+                    name_words = [w for w in row_words if x38 <= (w['x0'] + w['x1'])/2 < x42]
+                    admin_name = " ".join([w['text'] for w in sorted(name_words, key=lambda w: w['x0'])])
+                    # Tisztítás
+                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
+                    admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "").strip("- ").strip()
+
+                    # --- 2. TELEFON ÉS PÉNZ (Csak a telefon sávja) ---
+                    # Csak az x42 és x52 közötti szavakat nézzük
+                    tel_words = [w for w in row_words if x42 <= (w['x0'] + w['x1'])/2 < x52]
+                    tel_text = " ".join([w['text'] for w in sorted(tel_words, key=lambda w: w['x0'])])
                     
-                    # Telefon: pontos regex, ami nem engedi a ragadós nullákat
-                    phone_match = re.search(r'(\d{2}/\d[\d\s,]+\d)', raw_admin_text)
+                    phone_match = re.search(r'(\d{2}/\d[\d\s,]+\d)', tel_text)
                     phone_val = phone_match.group(1).replace(" ", "").strip(", ") if phone_match else ""
                     
-                    # Név tisztítása: minden marad, ami eddig jó volt
-                    admin_name = raw_admin_text
-                    if phone_val:
-                        admin_name = admin_name.replace(phone_match.group(1), "")
-                    
-                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
-                    admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "")
-                    admin_name = admin_name.replace("/", "").replace(",", " ").strip()
-                    admin_name = re.sub(r'\s+', ' ', admin_name).strip("- ").strip()
-
-                    # --- 2. CÍM (Szélesebb sáv a biztonság kedvéért) ---
-                    addr_words = [w for w in row_words if (20/88)*W <= (w['x0']+w['x1'])/2 < x40]
-                    address = " ".join([w['text'] for w in sorted(addr_words, key=lambda x: x['x0'])]).strip()
-
-                    # --- 3. PÉNZ ---
-                    # A pénzt a raw_admin_text-ben keressük, de szigorúan csak a "Ft" előtti számot
-                    money_m = re.search(r'(-?\d+)\s*Ft', raw_admin_text)
+                    money_m = re.search(r'(-?\d+)\s*Ft', tel_text)
                     money_val = money_m.group(0).replace(" ", "") if money_m else "0Ft"
 
-                    # --- 4. MEGJEGYZÉS ---
-                    note_words = [w for w in row_words if (8/88)*W <= (w['x0']+w['x1'])/2 < (22/88)*W]
-                    note_raw = " ".join([w['text'] for w in sorted(note_words, key=lambda x: x['x0'])])
-                    full_note = note_raw.replace(full_id, "").strip()
-                    full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
+                    # --- 3. CÍM ---
+                    addr_words = [w for w in row_words if x22 <= (w['x0']+w['x1'])/2 < x38]
+                    address = " ".join([w['text'] for w in sorted(addr_words, key=lambda x: x['x0'])]).strip()
 
-                    # --- 5. RENDELÉS (AZ IBOLYA-PAJZS) ---
-                    # Mivel row_words-t használunk, csak az adott sorban lévő kódokat találja meg!
+                    # --- 4. MEGJEGYZÉS ---
+                    note_words = [w for w in row_words if (8/88)*W <= (w['x0']+w['x1'])/2 < x22]
+                    full_note = " ".join([w['text'] for w in sorted(note_words, key=lambda x: x['x0'])])
+                    full_note = full_note.replace(full_id, "").replace("Dr.", "").strip(" /|")
+
+                    # --- 5. RENDELÉS ---
                     order_words = [w for w in row_words if w['x0'] >= x52]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
-                    
                     raw_orders = re.findall(ORDER_PAT, order_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     

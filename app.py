@@ -208,35 +208,36 @@ def parse_interfood_pdf(pdf_file):
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- KOORDINÁTÁK JAVÍTÁSA (inst használatával) ---
-                    row_y0 = inst.y0 - 2 
-                    row_y1 = inst.y1 + 14 
+                    # --- KOORDINÁTÁK (A te kódodban 'rect' a változó neve!) ---
+                    row_y0 = rect.y0 - 2 
+                    row_y1 = rect.y1 + 14 
                     
                     x40 = (40 / 88) * W  
                     x52 = (52 / 88) * W  
 
                     # --- 1. ÜGYINTÉZŐ ÉS TELEFON (40-52 sáv) ---
-                    # A 'words' kinyerése az aktuális sor magasságában
+                    # Kinyerjük a szavakat az aktuális ID magasságában
                     words = page.get_text("words", clip=(x40, row_y0, x52, row_y1))
                     
                     # SORBARENDEZÉS X ALAPJÁN (Ettől lesz jó a Kissné Molnár Erzsébet sorrend!)
                     words.sort(key=lambda w: w[0])
                     
-                    # Szöveg összefűzése
+                    # Szöveg összefűzése szóközökkel
                     raw_combined = " ".join([w[4] for w in words])
                     
                     # TELEFON KERESÉSE (##/###### vagy ##/#######)
                     phone_match = re.search(r'(\d{2}/\d{6,7})', raw_combined.replace(" ", ""))
                     phone_val = phone_match.group(1) if phone_match else ""
                     
-                    # ÜGYINTÉZŐ: Számok és Ft levágása a nyers szövegből
+                    # ÜGYINTÉZŐ TISZTÍTÁSA
                     admin_name = raw_combined
                     if phone_val:
-                        # Kivágjuk a telót
+                        # Kivágjuk a konkrét telefonszámot a szövegből
                         admin_name = admin_name.replace(phone_val, "")
                     
-                    # Tisztítás: csak betűk maradjanak (Lajos-mentesítés)
+                    # Gyalugép: minden számot, a Ft-ot és a felesleges perjeleket töröljük
                     admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "").replace("/", "").strip()
+                    # Dupla szóközök eltüntetése
                     admin_name = re.sub(r'\s+', ' ', admin_name)
 
                     # --- 2. PÉNZ ---
@@ -247,13 +248,14 @@ def parse_interfood_pdf(pdf_file):
                     money_m = re.search(r'(-?\d+Ft)', money_raw)
                     money_val = money_m.group(1) if money_m else ""
 
-                    # --- 3. MEGJEGYZÉS ÉS EGYEBEK ---
-                    # Itt maradhat a korábbi logikád a get_col_text-tel
+                    # --- 3. MEGJEGYZÉS, CÍM, RENDELÉS ---
+                    # A megjegyzést és címet a már meglévő get_col_text-tel is olvashatod
                     x9 = (9 / 88) * W
                     x22 = (22 / 88) * W
                     note_raw = get_col_text(x9, x22).replace(full_id, "").strip()
                     
                     full_note = note_raw
+                    # Ha a név maradványa benne van a megjegyzésben, kiszedjük
                     if len(admin_name) > 3:
                         for word in admin_name.split():
                             if len(word) > 2:

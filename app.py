@@ -262,41 +262,41 @@ def parse_interfood_pdf(pdf_file):
                             last_num = re.search(r'(\d+)$', bottom_text.strip() if bottom_text else top_text.strip())
                             money_val = f"{last_num.group(1)}Ft" if last_num else "0Ft"
 
-                    # --- ÜGYINTÉZŐ KERESÉSE (V7 - A Vaskezű Mentőcsapat) ---
-                    # 1. Minden szót begyűjtünk az admin sávból (x40 - x52.5)
-                    admin_words_raw = [w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5]
-                    admin_words_raw = sorted(admin_words_raw, key=lambda x: (x['top'], x['x0']))
+                    # --- ÜGYINTÉZŐ KERESÉSE (V9 - Bíró Dávid Mentőöv) ---
+                    # 1. Begyűjtünk minden szót az oszlopból (x40 - x52.5)
+                    admin_candidates = [w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5]
                     
-                    filtered_admin = []
-                    if admin_words_raw:
-                        # Referencia magasság: a sorban talált bármely szó teteje
-                        y_ref = min([w['top'] for w in row_words]) if row_words else admin_words_raw[0]['top']
-                        
-                        for w in admin_words_raw:
-                            t = w['text'].strip()
+                    # 2. Referencia magasság a sor elejétől
+                    y_start = min([w['top'] for w in row_words]) if row_words else (admin_candidates[0]['top'] if admin_candidates else 0)
+                    
+                    raw_name_parts = []
+                    for w in admin_candidates:
+                        # 25-30 pixel távolságig mindent begyűjtünk, ami nem "Ft" és nem telefon
+                        if abs(w['top'] - y_start) < 30:
+                            t_clean = w['text'].strip()
                             
-                            # SZŰRÉS: Pénzösszegek és írásjelek azonnali kukázása
-                            if "Ft" in t or t in [",", "|", "/"]: continue
-                            
-                            # MAGASSÁG: 35 pixelre tágítjuk! Ez már majdnem két teljes sornyi távolság.
-                            # Így a Bíró és a Tar nevek akkor is bekerülnek, ha nagyon lecsúsztak.
-                            if abs(w['top'] - y_ref) < 35:
-                                # TELEFON-IRTÓ: Ha a szó tiszta szám és hosszú (pl. 30011...), akkor ez a telefon része
-                                if t.isdigit() and len(t) > 4: continue
-                                # Ha benne van a perjel (pl. 30/...), az is telefon
-                                if "/" in t and any(c.isdigit() for c in t): continue
+                            # Kidobjuk a nyilvánvalóan nem név elemeket (pénz, írásjel, telefon-perjel)
+                            if "Ft" in t_clean or t_clean in [",", "|", "/"]:
+                                continue
+                            if "/" in t_clean and any(c.isdigit() for c in t_clean):
+                                continue
                                 
-                                filtered_admin.append(w)
+                            raw_name_parts.append(w)
 
-                    # 2. Név összefűzése
-                    admin_name = " ".join([w['text'] for w in sorted(filtered_admin, key=lambda x: (x['top'], x['x0']))]).strip()
+                    # 3. Sorba rendezzük (Fentről le, balról jobbra)
+                    sorted_parts = sorted(raw_name_parts, key=lambda x: (x['top'], x['x0']))
+                    full_raw_text = " ".join([p['text'] for p in sorted_parts])
+
+                    # 4. A DRASZTIKUS TISZTÍTÁS (Most jön a lényeg!)
+                    # Először törlünk minden számot (0, 2, 3, adagszámok, telefonszám-maradékok)
+                    clean_name = re.sub(r'\d+', '', full_raw_text)
                     
-                    # 3. UTÓLAGOS RADÍR (A Czinege-féle makacs számok ellen)
-                    # Bármi, ami 3-nál több számjegyből áll, repül a névből
-                    admin_name = re.sub(r'\d{3,}', '', admin_name)
-                    # Prefixek (pl. -C1) eltávolítása
-                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
-                    admin_name = admin_name.strip("- /|.,")                    
+                    # Töröljük a prefixeket (pl. -C1, -S2)
+                    clean_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', clean_name)
+                    
+                    # Megtisztítjuk a maradék írásjelektől és dupla szóközöktől
+                    admin_name = clean_name.replace("/", "").replace("|", "").strip(" -/|.,")
+                    admin_name = " ".join(admin_name.split()) # Dupla szóközök ellen                    
                     # --- 2. RENDELÉS, CÍM, MEGJEGYZÉS (Változatlan, bevált részek) ---
                     order_words = [w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])

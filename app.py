@@ -233,33 +233,27 @@ def parse_interfood_pdf(pdf_file):
                     if phone_val:
                         admin_name = admin_name.replace(phone_val, "")
                     
-                    # A TRÜKK: Csak a "szabadon álló" vagy kód-szerű kötőjeleket töröljük
-                    # 1. Töröljük a kódokat: kötőjel + 1-3 nagybetű/szám (pl. -UK, -Z)
-                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
-                    # 2. Töröljük a számokat és a "Ft"-ot
-                    admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "")
-                    # 3. Takarítás: vesszők, perjelek, és a sor végén maradt árva kötőjelek
+                    # A TRÜKK: Komoróczy-Elek marad, a -UK/-Z kódok mennek
+                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name) # Kódok törlése
+                    admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "") # Számok és Ft törlése
                     admin_name = admin_name.replace("/", "").replace(",", " ").strip()
-                    admin_name = re.sub(r'\s+-\s*$', '', admin_name) # Sor végi kötőjel stop
-                    
-                    # Dupla szóközök és maradék kötőjelek a széleken
-                    admin_name = re.sub(r'\s+', ' ', admin_name).strip("- ")
+                    admin_name = re.sub(r'\s+-\s*$', '', admin_name) # Sor végi árva kötőjel törlése
+                    admin_name = re.sub(r'\s+', ' ', admin_name).strip("- ") # Tisztítás
 
                     # --- 2. CÍM TISZTÍTÁSA (Vezetéknév visszanyerése) ---
                     address = get_col_text((22/88)*W, x40).strip()
                     if admin_name:
                         name_parts = admin_name.split()
-                        # Ha a név első szava (pl. Biró) a cím végén van, onnan levágjuk
                         if name_parts and address.endswith(name_parts[0]):
                             address = address[:address.rfind(name_parts[0])].strip(", ")
 
-                    # --- 3. PÉNZ ÉS EGYEBEK ---
+                    # --- 3. PÉNZ ---
                     money_raw = raw_combined.replace(" ", "")
                     if phone_val: money_raw = money_raw.replace(phone_val, "")
                     money_m = re.search(r'(-?\d+Ft)', money_raw)
-                    money_val = money_m.group(1) if money_m else ""
+                    money_val = money_m.group(1) if money_m else "0Ft"
 
-                    # Megjegyzés oszlop tisztítása (9-22 kocka)
+                    # --- 4. MEGJEGYZÉS (9-22 kocka) ---
                     x9, x22 = (9/88)*W, (22/88)*W
                     note_raw = get_col_text(x9, x22).replace(full_id, "").strip()
                     full_note = note_raw
@@ -270,7 +264,7 @@ def parse_interfood_pdf(pdf_file):
                     full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
                     full_note = re.sub(r'\s+', ' ', full_note)
 
-                    # Rendelés (52-től a lap széléig)
+                    # --- 5. RENDELÉS ---
                     order_raw = get_col_text(x52, (82.5/88)*W)
                     raw_orders = re.findall(ORDER_PAT, order_raw)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
@@ -290,7 +284,7 @@ def parse_interfood_pdf(pdf_file):
                         "Rendelés_Full": full_rendeles_text,
                         "temp_id": full_id.split('-')[-1],
                         "Prefix": prefix,
-                        "Csoport": current_group_id
+                        "Csoport": 0  # Itt 0-ra állítottam, hogy ne dobjon hibát
                     })
     
     if not rows: return [], metadata

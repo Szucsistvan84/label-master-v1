@@ -215,35 +215,34 @@ def parse_interfood_pdf(pdf_file):
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- SZIGORÚ SOR-SZŰRŐ (A magasság fixálása) ---
+                    # --- SZIGORÚ SOR-SZŰRŐ ---
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
                     row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
 
-                    # --- AZ ÁLTALAD MÉRT PONTOS HATÁRVONALAK ---
+                    # --- HATÁRVONALAK FINOMHANGOLÁSA (x48 -> x47) ---
                     x40 = (40 / 88) * W
-                    x48 = (48 / 88) * W
+                    x47 = (47 / 88) * W      # Balra toltuk 1 egységgel, hogy a '20/' kiessen a névből
                     x52_5 = (52.5 / 88) * W
 
-                    # --- 1. ÜGYINTÉZŐ NEVE (x40 - x48) ---
-                    name_words = [w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x48]
+                    # --- 1. ÜGYINTÉZŐ NEVE (x40 - x47) ---
+                    name_words = [w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x47]
                     admin_name = " ".join([w['text'] for w in sorted(name_words, key=lambda w: w['x0'])])
-                    # Csak a technikai szemetet takarítjuk, a '/' maradjon a telefonban!
-                    admin_name = re.sub(r'\d{3,}', '', admin_name).replace("Ft", "").strip("- ")
+                    # Csak a zavaró karaktereket takarítjuk
+                    admin_name = re.sub(r'\d{3,}', '', admin_name).replace("Ft", "").strip("- /")
 
-                    # --- 2. TELEFON ÉS PÉNZ (x48 - x52.5) ---
-                    tel_money_words = [w for w in row_words if x48 <= (w['x0'] + w['x1'])/2 < x52_5]
+                    # --- 2. TELEFON ÉS PÉNZ (x47 - x52.5) ---
+                    tel_money_words = [w for w in row_words if x47 <= (w['x0'] + w['x1'])/2 < x52_5]
                     tel_money_text = " ".join([w['text'] for w in sorted(tel_money_words, key=lambda w: w['x0'])])
                     
-                    # Telefon kivonása a sávból
+                    # Telefon: most már a '20/' is ide fog tartozni
                     phone_match = re.search(r'(\d{2}/\d[\d\s,]+\d)', tel_money_text)
                     phone_val = phone_match.group(1).replace(" ", "").strip(", ") if phone_match else ""
                     
-                    # Pénz kivonása a sávból (ami marad a telefon után)
+                    # Pénz kivonása
                     money_match = re.search(r'(-?\d+)\s*Ft', tel_money_text)
                     if money_match:
                         money_val = money_match.group(0).replace(" ", "")
                     else:
-                        # Ha nincs 'Ft', de van ott egy magányos szám (a ragadós nulla)
                         rem_money = tel_money_text
                         if phone_match:
                             rem_money = rem_money.replace(phone_match.group(1), "")
@@ -256,7 +255,7 @@ def parse_interfood_pdf(pdf_file):
                     raw_orders = re.findall(ORDER_PAT, order_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
 
-                    # --- 4. CÍM ÉS MEGJEGYZÉS (A stabil oszlopok) ---
+                    # --- 4. CÍM ÉS MEGJEGYZÉS ---
                     address = " ".join([w['text'] for w in sorted([w for w in row_words if (22/88)*W <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
                     note_raw = " ".join([w['text'] for w in sorted([w for w in row_words if (8/88)*W <= (w['x0']+w['x1'])/2 < (22/88)*W], key=lambda x: x['x0'])])
                     full_note = note_raw.replace(full_id, "").replace("Dr.", "").strip(" /|")

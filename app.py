@@ -203,39 +203,40 @@ def parse_interfood_pdf(pdf_file):
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
                 id_match = re.search(r'([HKSCPZ]-\d{5,7})', full_id_area)
                 
+                # Feltételezve, hogy az 'inst' vagy 'rect' az, amit a page.search_for() visszaadott
                 if id_match:
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- TŰPONTOS KOORDINÁTÁK ---
-                    x9  = (9 / 88) * W   
-                    x22 = (22 / 88) * W  
+                    # --- KOORDINÁTÁK JAVÍTÁSA ---
+                    # Itt a 'rect' az a téglalap, amit az ID keresésekor találtunk
+                    # Ha a ciklusodban pl. 'for rect in instances:' van, akkor jó a rect.y0
+                    row_y0 = rect.y0 - 2 
+                    row_y1 = rect.y1 + 14 # picit növelve, hogy a név/teló/pénz biztosan benne legyen
+                    
                     x40 = (40 / 88) * W  
                     x52 = (52 / 88) * W  
-                    
-                    # Az aktuális sor függőleges határai (fontos a hiba javításához!)
-                    # A rect a ciklusban az éppen megtalált ID-t tartalmazó téglalap
-                    row_y0 = rect.y0 - 2  # pici ráhagyás felfelé
-                    row_y1 = rect.y1 + 15 # ráhagyás lefelé, hogy a név alatti pénz is beleférjen
-                    
+
                     # --- 1. ÜGYINTÉZŐ ÉS TELEFON (40-52 sáv) ---
-                    # Itt javítottuk a koordinátákat row_y0 és row_y1-re
+                    # A 'words' kinyerése az aktuális sor magasságában
                     words = page.get_text("words", clip=(x40, row_y0, x52, row_y1))
+                    
+                    # Sorbarendezés balról jobbra (X koordináta alapján)
                     words.sort(key=lambda w: w[0])
                     
+                    # Szöveg összefűzése
                     raw_combined = " ".join([w[4] for w in words])
                     
-                    # TELEFON KERESÉSE
+                    # Telefon keresése (##/###### vagy ##/#######)
                     phone_match = re.search(r'(\d{2}/\d{6,7})', raw_combined.replace(" ", ""))
                     phone_val = phone_match.group(1) if phone_match else ""
                     
-                    # ÜGYINTÉZŐ TISZTÍTÁSA
+                    # Ügyintéző: Számok és Ft levágása a nyers szövegből
                     admin_name = raw_combined
                     if phone_val:
-                        # Kivágjuk a telót, de óvatosan a szóközökkel
                         admin_name = admin_name.replace(phone_val, "")
                     
-                    # Számok és Ft törlése a névből
+                    # Tisztítás: csak betűk maradjanak
                     admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "").replace("/", "").strip()
                     admin_name = re.sub(r'\s+', ' ', admin_name)
 
@@ -244,21 +245,27 @@ def parse_interfood_pdf(pdf_file):
                     if phone_val:
                         money_raw = money_raw.replace(phone_val, "")
                     
+                    # Keressük a számot a Ft előtt
                     money_m = re.search(r'(-?\d+Ft)', money_raw)
                     money_val = money_m.group(1) if money_m else ""
 
-                    # --- 3. MEGJEGYZÉS (9-22) ---
+                    # --- 3. MEGJEGYZÉS (9-22 kocka) ---
+                    # Itt használjuk a meglévő get_col_text-et, de korlátozott szélességgel
+                    x9 = (9 / 88) * W
+                    x22 = (22 / 88) * W
                     note_raw = get_col_text(x9, x22).replace(full_id, "").strip()
+                    
                     full_note = note_raw
+                    # Ha a név (vagy egy része) belecsúszott, töröljük
                     if len(admin_name) > 3:
-                        for part in admin_name.split():
-                            if len(part) > 2:
-                                full_note = full_note.replace(part, "")
+                        for word in admin_name.split():
+                            if len(word) > 2:
+                                full_note = full_note.replace(word, "")
                     
                     full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
                     full_note = re.sub(r'\s+', ' ', full_note)
 
-                    # --- 4. CÍM (22-40) ---
+                    # --- 4. CÍM (22-40 kocka) ---
                     address = get_col_text(x22, x40).strip()
 
                     # --- 5. RENDELÉS ---

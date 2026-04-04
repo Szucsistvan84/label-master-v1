@@ -221,17 +221,17 @@ def parse_interfood_pdf(pdf_file):
 
                     # --- HATÁRVONALAK FINOMHANGOLÁSA (x48 -> x47) ---
                     x40 = (40 / 88) * W
-                    x47_30728913 = (47.30728913 / 88) * W      # Balra toltuk 1 egységgel, hogy a '20/' kiessen a névből
+                    x47_30728911 = (47.30728911 / 88) * W      # Balra toltuk 1 egységgel, hogy a '20/' kiessen a névből
                     x52_5 = (52.5 / 88) * W
 
                     # --- 1. ÜGYINTÉZŐ NEVE (x40 - x47) ---
-                    name_words = [w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x47_30728913]
+                    name_words = [w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x47_30728911]
                     admin_name = " ".join([w['text'] for w in sorted(name_words, key=lambda w: w['x0'])])
                     # Csak a zavaró karaktereket takarítjuk
                     admin_name = re.sub(r'\d{3,}', '', admin_name).replace("Ft", "").strip("- /")
 
                     # --- 2. TELEFON ÉS PÉNZ (x47 - x52.5) ---
-                    tel_money_words = [w for w in row_words if x47_30728913 <= (w['x0'] + w['x1'])/2 < x52_5]
+                    tel_money_words = [w for w in row_words if x47_30728911 <= (w['x0'] + w['x1'])/2 < x52_5]
                     tel_money_text = " ".join([w['text'] for w in sorted(tel_money_words, key=lambda w: w['x0'])])
                     
                     # Telefon: most már a '20/' is ide fog tartozni

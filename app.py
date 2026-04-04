@@ -203,57 +203,60 @@ def parse_interfood_pdf(pdf_file):
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
                 id_match = re.search(r'([HKSCPZ]-\d{5,7})', full_id_area)
                 
-                if id_match:
+if id_match:
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- 1. ÜGYINTÉZŐ ÉS TELEFON (40-től az 51. kockáig tartó sáv) ---
-                    # Egyben olvassuk be, mert összeérnek
-                    combined_area = get_col_text(v_lines[3], v_lines[5]) 
+                    # --- 1. ÜGYINTÉZŐ ÉS TELEFON SZÉTVÁLASZTÁSA ---
+                    # Beolvassuk a név (40) és a teló (51) közötti teljes sávot
+                    combined_area = get_col_text(v_lines[3], v_lines[5])
                     
-                    # TELEFON KERESÉSE: Szigorúan 2 számjegy / 7 számjegy
-                    phone_match = re.search(r'(\d{2}/\d{7})', combined_area.replace(" ", ""))
+                    # FRISSÍTETT REGEX: 2 jegy / 6 VAGY 7 jegy (vezetékes és mobil is)
+                    phone_match = re.search(r'(\d{2}/\d{6,7})', combined_area.replace(" ", ""))
+                    
                     if phone_match:
                         phone_val = phone_match.group(1)
-                        # A NÉV az, ami a telefonszám ELŐTT van a beolvasott sávban
-                        admin_name_raw = combined_area.split(phone_val[0:2] + "/")[0]
-                        admin_name = admin_name_raw.strip()
+                        # Trükk: A telefonszám első 2 számjegye + a perjel a választóvonal
+                        splitter = phone_val[:3] # pl: "52/" vagy "20/"
+                        if splitter in combined_area:
+                            admin_name = combined_area.split(splitter)[0].strip()
+                        else:
+                            # Ha a szóközök miatt nem találja, megpróbáljuk szóközök nélkül
+                            temp_combined = combined_area.replace(" ", "")
+                            if splitter in temp_combined:
+                                # Ez egy biztonsági mentés, ha nagyon összeérnének
+                                admin_name = combined_area[:combined_area.find(phone_val[:2])].strip()
+                            else:
+                                admin_name = combined_area.strip()
                     else:
                         phone_val = ""
-                        admin_name = get_col_text(v_lines[3], v_lines[4]).strip()
+                        admin_name = combined_area.strip()
 
-                    # --- 2. PÉNZ (Az 51. kocka utáni rész, jobbra zárt) ---
-                    # A pénz a sáv végén van, "Ft" jellel
-                    money_area = get_col_text(v_lines[4], v_lines[5])
-                    
-                    # Kivágjuk a már megtalált telefonszámot a sávból, hogy ne zavarjon be
-                    money_clean = money_area
+                    # --- 2. PÉNZ (Ezt nem bántjuk, marad a jól bevált logikád) ---
+                    # Csak a biztonság kedvéért: a phone_val-t továbbra is kivesszük belőle
+                    tel_penz_raw = get_col_text(v_lines[4], v_lines[5]).replace(" ", "")
+                    money_only_raw = tel_penz_raw
                     if phone_val:
-                        # Csak a telefonszám utolsó pár jegyét vágjuk le, ha belelógna
-                        phone_tail = phone_val[-7:]
-                        money_clean = money_area.replace(phone_tail, "")
-
-                    # Pénz regex: keressük a számokat a Ft előtt
-                    money_m = re.search(r'(-?\d+[\d\s]*Ft)', money_clean)
+                        money_only_raw = tel_penz_raw.replace(phone_val, "")
+                    
+                    money_m = re.search(MONEY_PAT, money_only_raw)
+                    if not money_m:
+                        money_m = re.search(r'(-?\d+[\d\s]*Ft)', get_col_text(v_lines[4], v_lines[5]))
                     money_val = money_m.group(1).strip() if money_m else ""
 
-                    # --- 3. MEGJEGYZÉS (Szobrászat: sorszám nélkül, perjelek nélkül) ---
-                    # ID melletti rész (9-22 kocka környéke)
+                    # --- 3. MEGJEGYZÉS TISZTÍTÁSA ---
+                    # Itt visszahozzuk a "szobrászatot", de óvatosan
                     note_l = get_col_text(v_lines[1], v_lines[2]).replace(full_id, "").strip()
-                    # Sorszám levágása (ha a 4. kockáig tart, a v_lines[1] (5.5) már kiszűri)
                     
-                    # Cím alatti rész (22-40 kocka)
-                    address_full = get_col_text(v_lines[2], v_lines[3])
-                    # (Itt a korábbi cím-megőrző logika...)
-                    address = " ".join(address_full.split()).strip()
+                    # Ha az admin neve véletlenül benne maradt a megjegyzésben, töröljük
+                    full_note = note_l
+                    if admin_name and len(admin_name) > 2:
+                        full_note = full_note.replace(admin_name, "").strip()
                     
-                    # Összefűzés és tisztítás
-                    # Dr. és admin név törlése a megjegyzésből
-                    full_note = note_l.replace(admin_name, "").replace("Dr.", "").strip()
-                    # Perjel csere | jelre
-                    full_note = full_note.replace("/", " | ").replace("  ", " ").strip(" | ")
+                    # Dr. és egyéb sallangok törlése, perjelek cseréje
+                    full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
 
-                    # --- 4. RENDELÉS ÉS FULL SZÖVEG ---
+                    # --- 4. RENDELÉS ÉS EGYEBEK ---
                     order_raw = get_col_text(v_lines[5], v_lines[6])
                     raw_orders = re.findall(ORDER_PAT, order_raw)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
@@ -264,7 +267,7 @@ def parse_interfood_pdf(pdf_file):
                     rows.append({
                         "ID": full_id,
                         "Ügyintéző": admin_name,
-                        "Cím": address,
+                        "Cím": get_col_text(v_lines[2], v_lines[3]).strip(),
                         "Telefon": phone_val,
                         "Pénz": money_val,
                         "Rendelés": rendeles_str,

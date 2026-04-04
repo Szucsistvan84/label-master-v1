@@ -225,7 +225,7 @@ def parse_interfood_pdf(pdf_file):
                     x52_5 = (52.5 / 88) * W
 
                     # --- 1. ÜGYINTÉZŐ NEVE (x40 - x47) ---
-                    name_words = [w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x47_30727]
+                    name_words = [w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x47_30729]
                     admin_name = " ".join([w['text'] for w in sorted(name_words, key=lambda w: w['x0'])])
                     # Csak a zavaró karaktereket takarítjuk
                     admin_name = re.sub(r'\d{3,}', '', admin_name).replace("Ft", "").strip("- /")

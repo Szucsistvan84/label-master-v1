@@ -262,27 +262,34 @@ def parse_interfood_pdf(pdf_file):
                             last_num = re.search(r'(\d+)$', bottom_text.strip() if bottom_text else top_text.strip())
                             money_val = f"{last_num.group(1)}Ft" if last_num else "0Ft"
 
-                    # --- ÜGYINTÉZŐ KERESÉSE (Gumi-sor technika) ---
+                    # --- ÜGYINTÉZŐ KERESÉSE (V5 - Szám- és Összesítés-biztos) ---
                     # 1. Alapgyűjtés az admin sávból (x40 és x52.5 között)
-                    admin_words = [w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5]
-                    admin_words = sorted(admin_words, key=lambda x: (x['top'], x['x0']))
+                    admin_words_raw = [w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5]
                     
-                    # 2. Elsődleges név összerakása
+                    # 2. SZŰRÉS: Csak azokat tartsuk meg, amik névnek tűnnek
+                    # Meghatározzuk a sor tetejét a sorszám alapján (ha van)
+                    y_top_ref = min([w['top'] for w in row_words]) if row_words else (admin_words_raw[0]['top'] if admin_words_raw else 0)
+                    
+                    filtered_admin = []
+                    for w in admin_words_raw:
+                        t = w['text'].strip()
+                        # KIDOBJUK: ami pénzösszeg (Ft), ami tiszta szám és rövid (adagszám), vagy írásjel
+                        if "Ft" in t: continue
+                        if t.isdigit() and len(t) < 4: continue
+                        if t in [",", ".", "/", "-", "|"]: continue
+                        
+                        # LIMIT: Csak a sor tetejétől számított 12 pixelen belül nézelődünk
+                        # Ez eléri a lecsúszott "Bíró"-t, de megáll a lenti összesítő táblázat előtt
+                        if abs(w['top'] - y_top_ref) < 12:
+                            filtered_admin.append(w)
+
+                    # 3. Név összerakása és végső pucolás
+                    admin_words = sorted(filtered_admin, key=lambda x: (x['top'], x['x0']))
                     admin_name = " ".join([w['text'] for w in admin_words]).strip()
-
-                    # 3. KORREKCIÓ (Bíró Dávid és társai): 
-                    # Ha a név gyanúsan rövid (pl. nincs benne szóköz), 
-                    # tágítjuk a keresést lefelé 8 pixellel
-                    if " " not in admin_name and admin_words:
-                        y_center = admin_words[0]['top']
-                        # Újra lekérjük, de nagyobb függőleges toleranciával
-                        extra_admin = [w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5 
-                                      and abs(w['top'] - y_center) < 8]
-                        admin_name = " ".join([w['text'] for w in sorted(extra_admin, key=lambda x: (x['top'], x['x0']))]).strip()
-
-                    # 4. Tisztítás (Levágjuk a maradék telefon-töredékeket vagy kódokat a névből)
-                    admin_name = re.sub(r'(\d{1,2}/\d+)', '', admin_name) # Telefonszám kiejtése
-                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name) # Prefixek kiejtése
+                    
+                    # Biztonsági vágás: Ha mégis maradt volna szám a végén (pl. összesítésnél)
+                    admin_name = re.sub(r'\d+.*$', '', admin_name).strip()
+                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name).strip("- /|")
                     admin_name = admin_name.strip("- /|")                    # --- 2. RENDELÉS, CÍM, MEGJEGYZÉS (Változatlan, bevált részek) ---
                     order_words = [w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])

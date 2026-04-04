@@ -262,46 +262,39 @@ def parse_interfood_pdf(pdf_file):
                             last_num = re.search(r'(\d+)$', bottom_text.strip() if bottom_text else top_text.strip())
                             money_val = f"{last_num.group(1)}Ft" if last_num else "0Ft"
 
-                    # --- ÜGYINTÉZŐ KERESÉSE (V9 - Bíró Dávid Mentőöv) ---
-                    # 1. Begyűjtünk minden szót az oszlopból (x40 - x52.5)
-                    admin_candidates = [w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5]
+                    # --- ÜGYINTÉZŐ KERESÉSE (V10 - A Koordináta-mester) ---
+                    # 1. Tágított X-sáv (x38 - x54), hogy a kilógó vezetéknevek is beleférjenek
+                    admin_candidates = [w for w in line_words if 38 <= (w['x0'] + w['x1'])/2 < 54]
                     
-                    # 2. Referencia magasság a sor elejétől
+                    # 2. Referencia magasság
                     y_start = min([w['top'] for w in row_words]) if row_words else (admin_candidates[0]['top'] if admin_candidates else 0)
                     
                     raw_name_parts = []
                     for w in admin_candidates:
-                        # 25-30 pixel távolságig mindent begyűjtünk, ami nem "Ft" és nem telefon
-                        if abs(w['top'] - y_start) < 30:
+                        # 35 pixel magasságig mindent begyűjtünk
+                        if abs(w['top'] - y_start) < 35:
                             t_clean = w['text'].strip()
                             
-                            # Kidobjuk a nyilvánvalóan nem név elemeket (pénz, írásjel, telefon-perjel)
-                            if "Ft" in t_clean or t_clean in [",", "|", "/"]:
-                                continue
-                            if "/" in t_clean and any(c.isdigit() for c in t_clean):
-                                continue
+                            # SZŰRÉS: Pénz, telefon-töredékek és írásjelek
+                            if "Ft" in t_clean or t_clean in [",", "|", "/"]: continue
+                            if "/" in t_clean and any(c.isdigit() for c in t_clean): continue
+                            if t_clean.isdigit() and len(t_clean) < 4: continue # Adagszámok/pénz eleje
                                 
                             raw_name_parts.append(w)
 
-                    # 3. Sorba rendezzük (Fentről le, balról jobbra)
+                    # 3. SORREND: Nagyon fontos! Előbb Y (sorok), aztán X (szavak a soron belül)
+                    # A PDF-ben a Bíró lehet, hogy 1 pixellel feljebb van, mint a Dávid
                     sorted_parts = sorted(raw_name_parts, key=lambda x: (x['top'], x['x0']))
-                    full_raw_text = " ".join([p['text'] for p in sorted_parts])
-
-                    # 4. A DRASZTIKUS TISZTÍTÁS (Most jön a lényeg!)
-                    # Először törlünk minden számot (0, 2, 3, adagszámok, telefonszám-maradékok)
-                    clean_name = re.sub(r'\d+', '', full_raw_text)
                     
-                    # Töröljük a prefixeket (pl. -C1, -S2)
+                    # 4. Összefűzés és SZÁM-IRTÁS
+                    full_raw_text = " ".join([p['text'] for p in sorted_parts])
+                    # Minden számjegyet kirtunk (0, 1, 2, telefonszám maradék)
+                    clean_name = re.sub(r'\d+', '', full_raw_text)
+                    # Prefixek (-C1, stb) törlése
                     clean_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', clean_name)
                     
-                    # Megtisztítjuk a maradék írásjelektől és dupla szóközöktől
                     admin_name = clean_name.replace("/", "").replace("|", "").strip(" -/|.,")
-                    admin_name = " ".join(admin_name.split()) # Dupla szóközök ellen                    
-                    # --- 2. RENDELÉS, CÍM, MEGJEGYZÉS (Változatlan, bevált részek) ---
-                    order_words = [w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5]
-                    order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
-                    raw_orders = re.findall(ORDER_PAT, order_text)
-                    rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
+                    admin_name = " ".join(admin_name.split())
 
                     # --- 2. RENDELÉS, CÍM, MEGJEGYZÉS ---
                     order_words = [w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5]

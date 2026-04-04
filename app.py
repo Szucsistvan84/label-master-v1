@@ -214,18 +214,21 @@ def parse_interfood_pdf(pdf_file):
                 
                 # Ha a sor bármelyik tiltott szót tartalmazza, ÉS nem tartalmaz ügyfélkódot, ugrunk
                 if any(stop in line_text_full for stop in tiltott_szavak):
-                    # Kivétel: Ha a sorban van ID (C- vagy P-), akkor ne ugorjuk át, 
-                    # mert lehet, hogy egy kód hasonlít valamire (bár ez ritka)
-                    if not re.search(r'[CPK]-\d{4,}', line_text_full):
+                    if not re.search(r'[HKSCPZ]-\d{5,7}', line_text_full):
                         continue
 
                 if id_match:
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # Sor magasságának rögzítése - EZÁLTAL NEM LÁT LE A LÁBLÉCIG
-                    y_top = min(w['top'] for w in line_words)
-                    y_bottom = max(w['bottom'] for w in line_words)
+                    # --- IBOLYA-FIX: SZIGORÚ SOR-SZŰRÉS ---
+                    # Csak azokat a szavakat hagyjuk meg, amik az ID (anchor) magasságában vannak (+/- 8 pixel)
+                    # Ez megakadályozza, hogy a sáv alatti láblécből szavakat gyűjtsön be.
+                    strict_y_top = anchor['top'] - 2
+                    strict_y_bottom = anchor['bottom'] + 8
+                    
+                    # ÚJ VÁLTOZÓ: row_words - ez csak az adott sor szavait tartalmazza
+                    row_words = [w for w in line_words if strict_y_top <= (w['top'] + w['bottom'])/2 <= strict_y_bottom]
 
                     # --- KOORDINÁTÁK ---
                     x38 = (38 / 88) * W
@@ -233,8 +236,8 @@ def parse_interfood_pdf(pdf_file):
                     x52 = (52 / 88) * W  
 
                     # --- 1. ÜGYINTÉZŐ ÉS TELEFON ---
-                    # Csak a soron belüli szavakat nézzük
-                    admin_words = [w for w in line_words if x38 <= (w['x0'] + w['x1'])/2 < x52]
+                    # A line_words helyett már a row_words-ből dolgozunk!
+                    admin_words = [w for w in row_words if x38 <= (w['x0'] + w['x1'])/2 < x52]
                     admin_words.sort(key=lambda w: w['x0'])
                     raw_combined = " ".join([w['text'] for w in admin_words])
                     
@@ -244,7 +247,7 @@ def parse_interfood_pdf(pdf_file):
                     admin_name = raw_combined
                     if phone_val: admin_name = admin_name.replace(phone_val, "")
                     
-                    # Tisztítás: Kódok (-UK) mennek, Komoróczy-Elek marad
+                    # Tisztítás
                     admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
                     admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "")
                     admin_name = admin_name.replace("/", "").replace(",", " ").strip()
@@ -252,7 +255,7 @@ def parse_interfood_pdf(pdf_file):
                     admin_name = re.sub(r'\s+', ' ', admin_name).strip("- ").strip()
 
                     # --- 2. CÍM TISZTÍTÁSA ---
-                    addr_words = [w for w in line_words if (22/88)*W <= (w['x0']+w['x1'])/2 < x40]
+                    addr_words = [w for w in row_words if (22/88)*W <= (w['x0']+w['x1'])/2 < x40]
                     address = " ".join([w['text'] for w in sorted(addr_words, key=lambda x: x['x0'])]).strip()
                     if admin_name:
                         name_parts = admin_name.split()
@@ -265,7 +268,7 @@ def parse_interfood_pdf(pdf_file):
                     money_val = money_m.group(1) if money_m else "0Ft"
 
                     # --- 4. MEGJEGYZÉS ---
-                    note_words = [w for w in line_words if (9/88)*W <= (w['x0']+w['x1'])/2 < (22/88)*W]
+                    note_words = [w for w in row_words if (9/88)*W <= (w['x0']+w['x1'])/2 < (22/88)*W]
                     note_raw = " ".join([w['text'] for w in sorted(note_words, key=lambda x: x['x0'])])
                     full_note = note_raw.replace(full_id, "").strip()
                     if len(admin_name) > 3:
@@ -273,10 +276,9 @@ def parse_interfood_pdf(pdf_file):
                             if len(part) > 2: full_note = full_note.replace(part, "")
                     full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
 
-                    # --- 5. RENDELÉS (AZ UTOLSÓ VÉDVONAL) ---
-                    # Itt Ibolya nem tudja "berántani" a láblécet, mert CSAK a line_words-ben keresünk,
-                    # ami az aktuális ciklus sora, nem a teljes PDF oszlopa!
-                    order_words = [w for w in line_words if w['x0'] >= x52]
+                    # --- 5. RENDELÉS ---
+                    # CSAK a row_words-ben keressük a rendelést, így a lábléc kódjai nem kerülnek bele!
+                    order_words = [w for w in row_words if w['x0'] >= x52]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
                     
                     raw_orders = re.findall(ORDER_PAT, order_text)
@@ -297,7 +299,7 @@ def parse_interfood_pdf(pdf_file):
                         "Rendelés_Full": full_rendeles_text,
                         "temp_id": full_id.split('-')[-1],
                         "Prefix": prefix,
-                        "Csoport": 0 
+                        "Csoport": current_group_id if 'current_group_id' in locals() else 0
                     })
     
     if not rows: return [], metadata

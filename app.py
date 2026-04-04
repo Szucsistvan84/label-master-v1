@@ -334,24 +334,24 @@ def parse_interfood_pdf(pdf_file):
                         address = " ".join(address_parts).strip(" ,.-/|")
 
                     # --- 5. MEGJEGYZÉS SZOBRÁSZAT (V16 - A Mindentudó) ---
-                    # 1. Alapanyag kinyerése (v_lines[1] és v_lines[2] között)
+                    # 1. Alapanyag kinyerése
                     note_area_words = [w for w in line_words if v_lines[1] <= (w['x0'] + w['x1'])/2 < v_lines[2]]
                     
-                    # Csak az ID (anchor) magasságában keressük a megjegyzést (+/- 35 pixel)
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
                     relevant_note_words = [w for w in note_area_words if abs(w['top'] - y_anchor) < 35]
                     
-                    # Itt jön létre a szöveg
+                    # Itt hozzuk létre a megjegyzés szövegét
                     megj_text = " ".join([w['text'] for w in sorted(relevant_note_words, key=lambda x: (x['top'], x['x0']))]).strip()
 
                     if megj_text:
-                        # A) ID-K ÉS RENDELÉS-KÓDOK TÖRLÉSE (pl. C-491607 vagy 1-R4)
-                        # Töröljük a belógó ID-kat
+                        # A) ID-K TÖRLÉSE (A korábbi hiba helye)
+                        # A customer_block helyett a megj_text-en futtatjuk a regexet
                         megj_text = re.sub(r'[CPZSHK]-\d+', '', megj_text)
-                        # Töröljük a belógó rendelési tételeket
+                        
+                        # B) RENDELÉS-KÓDOK TÖRLÉSE (pl. 1-R4)
                         megj_text = re.sub(r'\d+\s*[-\u2013\u2014\u2212]\s*[A-Z][A-Z0-9*+]*', '', megj_text)
 
-                        # B) DINAMIKUS NÉV-RADÍR (Az ügyintéző neve alapján)
+                        # C) DINAMIKUS NÉV-RADÍR (Az ügyintéző neve alapján)
                         if admin_name:
                             name_parts = [n.strip(" ,.|/-").lower() for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
                             m_parts = megj_text.split()
@@ -363,14 +363,14 @@ def parse_interfood_pdf(pdf_file):
                             
                             megj_text = " ".join(m_parts)
 
-                        # C) ÁLTALÁNOS SZEMÉTSZŰRÉS (Dr, Összesen, stb.)
+                        # D) ÁLTALÁNOS SZEMÉTSZŰRÉS
                         junk_fragments = ["dr", "dr.", "idősb", "ifj", "össz", "összesen", "adag", "db"]
                         m_parts = megj_text.split()
                         final_m_parts = [p for p in m_parts if p.strip(" ,.|/-").lower() not in junk_fragments]
                         
                         megj_text = " ".join(final_m_parts).strip(" ,.-/|*")
 
-                    # VÉGEREDMÉNY MENTÉSE
+                    # Ezt a változót használd a mentésnél!
                     clean_megjegyzese = megj_text
                     
                     # 2. ID és Kategória radírozása (Prefixek: C, P, Z, S, H, K)

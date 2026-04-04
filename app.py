@@ -208,11 +208,9 @@ def parse_interfood_pdf(pdf_file):
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- KOORDINÁTÁK JAVÍTÁSA ---
-                    # Itt a 'rect' az a téglalap, amit az ID keresésekor találtunk
-                    # Ha a ciklusodban pl. 'for rect in instances:' van, akkor jó a rect.y0
-                    row_y0 = rect.y0 - 2 
-                    row_y1 = rect.y1 + 14 # picit növelve, hogy a név/teló/pénz biztosan benne legyen
+                    # --- KOORDINÁTÁK JAVÍTÁSA (inst használatával) ---
+                    row_y0 = inst.y0 - 2 
+                    row_y1 = inst.y1 + 14 
                     
                     x40 = (40 / 88) * W  
                     x52 = (52 / 88) * W  
@@ -221,22 +219,23 @@ def parse_interfood_pdf(pdf_file):
                     # A 'words' kinyerése az aktuális sor magasságában
                     words = page.get_text("words", clip=(x40, row_y0, x52, row_y1))
                     
-                    # Sorbarendezés balról jobbra (X koordináta alapján)
+                    # SORBARENDEZÉS X ALAPJÁN (Ettől lesz jó a Kissné Molnár Erzsébet sorrend!)
                     words.sort(key=lambda w: w[0])
                     
                     # Szöveg összefűzése
                     raw_combined = " ".join([w[4] for w in words])
                     
-                    # Telefon keresése (##/###### vagy ##/#######)
+                    # TELEFON KERESÉSE (##/###### vagy ##/#######)
                     phone_match = re.search(r'(\d{2}/\d{6,7})', raw_combined.replace(" ", ""))
                     phone_val = phone_match.group(1) if phone_match else ""
                     
-                    # Ügyintéző: Számok és Ft levágása a nyers szövegből
+                    # ÜGYINTÉZŐ: Számok és Ft levágása a nyers szövegből
                     admin_name = raw_combined
                     if phone_val:
+                        # Kivágjuk a telót
                         admin_name = admin_name.replace(phone_val, "")
                     
-                    # Tisztítás: csak betűk maradjanak
+                    # Tisztítás: csak betűk maradjanak (Lajos-mentesítés)
                     admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "").replace("/", "").strip()
                     admin_name = re.sub(r'\s+', ' ', admin_name)
 
@@ -245,18 +244,16 @@ def parse_interfood_pdf(pdf_file):
                     if phone_val:
                         money_raw = money_raw.replace(phone_val, "")
                     
-                    # Keressük a számot a Ft előtt
                     money_m = re.search(r'(-?\d+Ft)', money_raw)
                     money_val = money_m.group(1) if money_m else ""
 
-                    # --- 3. MEGJEGYZÉS (9-22 kocka) ---
-                    # Itt használjuk a meglévő get_col_text-et, de korlátozott szélességgel
+                    # --- 3. MEGJEGYZÉS ÉS EGYEBEK ---
+                    # Itt maradhat a korábbi logikád a get_col_text-tel
                     x9 = (9 / 88) * W
                     x22 = (22 / 88) * W
                     note_raw = get_col_text(x9, x22).replace(full_id, "").strip()
                     
                     full_note = note_raw
-                    # Ha a név (vagy egy része) belecsúszott, töröljük
                     if len(admin_name) > 3:
                         for word in admin_name.split():
                             if len(word) > 2:
@@ -265,10 +262,8 @@ def parse_interfood_pdf(pdf_file):
                     full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
                     full_note = re.sub(r'\s+', ' ', full_note)
 
-                    # --- 4. CÍM (22-40 kocka) ---
                     address = get_col_text(x22, x40).strip()
 
-                    # --- 5. RENDELÉS ---
                     order_raw = get_col_text(x52, (82.5/88)*W)
                     raw_orders = re.findall(ORDER_PAT, order_raw)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])

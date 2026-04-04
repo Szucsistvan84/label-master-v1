@@ -246,49 +246,64 @@ def parse_interfood_pdf(pdf_file):
                             last_num = re.search(r'(\d+)$', bottom_text.strip() if bottom_text else top_text.strip())
                             money_val = f"{last_num.group(1)}Ft" if last_num else "0Ft"
 
-                    # --- ÜGYINTÉZŐ KERESÉSE (V12 - A Gyémántkeménységű) ---
+                    # --- ÜGYINTÉZŐ KERESÉSE (V15 - A Szanyi-specialista) ---
                     x_start_admin = (38 / 88) * W
                     x_end_admin = (54 / 88) * W
+                    
+                    # Csak azokat a szavakat gyűjtjük, amik az admin sávban vannak
                     admin_candidates = [w for w in line_words if x_start_admin <= (w['x0'] + w['x1'])/2 < x_end_admin]
                     
                     y_start = (anchor['top'] + anchor['bottom']) / 2
-                    
                     raw_name_parts = []
-                    # STOP-szavak, amiknél azonnal megállunk
-                    stop_keywords = ["Összesen", "Összesítés", "Összes", "Össz:"]
                     
-                    # Sorba rendezve nézzük a szavakat
-                    sorted_candidates = sorted(admin_candidates, key=lambda x: (x['top'], x['x0']))
+                    # STOP-szavak az összesítéshez
+                    stop_keywords = ["Összesen", "Összesítés", "Össz"]
                     
-                    for w in sorted_candidates:
+                    # Rendezés: fentről le, balról jobbra
+                    for w in sorted(admin_candidates, key=lambda x: (x['top'], x['x0'])):
                         t_clean = w['text'].strip()
                         
-                        # 1. STOP: Ha elérjük az összesítőt, vége a névnek
+                        # 1. STOP: Ha elérjük az összesítőt
                         if any(stop.lower() in t_clean.lower() for stop in stop_keywords):
                             break
-                        
-                        # 2. Függőleges keret (35 pixel a Bíró/Tar típusú elcsúszásokhoz)
+                            
+                        # 2. FÜGGŐLEGES SZŰRÉS: Maradunk az ID magasságában (+/- 35 pixel)
                         if abs(w['top'] - y_start) < 35:
-                            # SZŰRÉS: Pénz és telefon maradékai
+                            # 3. HORIZONTÁLIS VÉDELEM: Ha a szó x1-e túlnyúlik az admin sávon, 
+                            # és a szöveg gyanúsan rövid/töredék, akkor az már a megjegyzés
+                            if w['x1'] > x_end_admin * 1.02 and len(t_clean) < 6:
+                                continue
+
+                            # 4. TÍPUS SZŰRÉS: Pénz, telefon, kódok (pl. 4-SP3)
                             if "Ft" in t_clean: continue
                             if "/" in t_clean and any(c.isdigit() for c in t_clean): continue
-                            # Ha tiszta szám és rövid, az adagszám vagy pénz eleje -> KUKA
-                            if t_clean.isdigit() and len(t_clean) < 4: continue
-                            
-                            # RENDELÉS-KÓD SZŰRÉS: Ha pl. "4-SP3" típusú kódot látunk az admin sávban, az nem név
                             if re.search(r'\d-[A-Z]', t_clean): continue
+                            if t_clean.isdigit() and len(t_clean) < 4: continue
                                 
                             raw_name_parts.append(w)
 
-                    # 3. Összeállítás
-                    full_raw_text = " ".join([p['text'] for p in sorted_parts]) if 'sorted_parts' in locals() else " ".join([p['text'] for p in raw_name_parts])
+                    # --- ÖSSZEÁLLÍTÁS ÉS SEBÉSZI TISZTÍTÁS ---
+                    full_raw_text = " ".join([p['text'] for p in sorted(raw_name_parts, key=lambda x: (x['top'], x['x0']))])
                     
-                    # 4. TISZTÍTÁS: Csak a zavaró számokat és prefixeket (pl. -C1) vágjuk ki
-                    # A csillag (*) és a vessző (,) megmaradhat!
-                    clean_name = re.sub(r'(?<!\d)\d+(?!\d)', '', full_raw_text) # Csak az önálló számokat törli
+                    # Számok, prefixek, csillagok törlése
+                    clean_name = full_raw_text.replace("*", "")
+                    clean_name = re.sub(r'\d+', '', clean_name)
                     clean_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', clean_name)
                     
-                    admin_name = clean_name.replace("|", "").strip(" -/|.")
+                    # SZÓTÁR ALAPÚ SZŰRÉS (Szanyi Norbert "közöt" és Gabriella "D" ellen)
+                    junk_words = ["közöt", "között", "köz", "D", "S", "adag", "db"]
+                    
+                    final_parts = []
+                    for part in clean_name.split():
+                        p_stripped = part.strip(" ,.|/-")
+                        # Ha a szó benne van a szemét-listában, vagy csak 1 karakter (és nem monogram)
+                        if p_stripped.lower() in [j.lower() for j in junk_words]:
+                            continue
+                        if len(p_stripped) == 1 and not p_stripped.endswith('.'):
+                            continue
+                        final_parts.append(part)
+
+                    admin_name = " ".join(final_parts).strip(" -/|.,*")
                     admin_name = " ".join(admin_name.split())
 
                     # --- 4. RENDELÉS ÉS MEGJEGYZÉS ---

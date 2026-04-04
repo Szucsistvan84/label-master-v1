@@ -207,53 +207,53 @@ def parse_interfood_pdf(pdf_file):
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- PONTOS KOCKA-KOORDINÁTÁK ---
-                    # 40-es kocka eleje: (40/88)*W
-                    # 48-as kocka eleje: (48/88)*W
-                    # 52-es kocka eleje: (52/88)*W
-                    name_x_start = (40 / 88) * W
-                    name_x_end = (48 / 88) * W
-                    tel_x_end = (52 / 88) * W
-
-                    # --- 1. ÜGYINTÉZŐ (40 - 48 kocka) ---
-                    # Csak ebből a sávból olvassuk a nevet
-                    admin_name = get_col_text(name_x_start, name_x_end).strip()
-
-                    # --- 2. TELEFON ÉS PÉNZ (48 - 52 kocka) ---
-                    # A telefonszám a 48-as kockától indul
-                    tel_penz_raw = get_col_text(name_x_end, tel_x_end).replace(" ", "")
+                    # 1. Beolvassuk a 40 és 52 kocka közötti teljes sávot (Név + Teló + Pénz)
+                    raw_block = get_col_text((40/88)*W, (52/88)*W)
                     
-                    # Telefon: 2 jegy / 6-7 jegy
-                    phone_match = re.search(r'(\d{2}/\d{6,7})', tel_penz_raw)
+                    # --- TELEFONSZÁM KERESÉSE ---
+                    # Csak számokat és perjelet keresünk (legalább 6-7 számjeggyel a perjel után)
+                    phone_match = re.search(r'(\d{2}/\d{6,7})', raw_block.replace(" ", ""))
                     phone_val = phone_match.group(1) if phone_match else ""
                     
-                    # Pénz: Kivágjuk a telefont a nyers sávból
-                    money_only_raw = tel_penz_raw
+                    # --- ÜGYINTÉZŐ KERESÉSE ---
+                    # Kitakarítjuk a blokkból a telefonszámot és a pénzt (számokat)
+                    # Ami marad (betűk), az lesz az ügyintéző
+                    admin_name = raw_block
                     if phone_val:
-                        money_only_raw = tel_penz_raw.replace(phone_val, "")
+                        admin_name = admin_name.replace(phone_val, "")
                     
-                    money_m = re.search(r'(-?\d+Ft)', money_only_raw)
+                    # "Gyalugép": minden számot és a "Ft" szöveget eltávolítunk a névből
+                    admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "").strip()
+                    # Ha maradt benne perjel a takarítás után, azt is levágjuk
+                    admin_name = admin_name.replace("/", "").strip()
+
+                    # --- PÉNZ TISZTÍTÁSA ---
+                    money_area = raw_block.replace(" ", "")
+                    if phone_val:
+                        money_area = money_area.replace(phone_val, "")
+                    
+                    money_m = re.search(r'(-?\d+Ft)', money_area)
                     money_val = money_m.group(1) if money_m else ""
 
-                    # --- 3. MEGJEGYZÉS (A 9-es és 22-es kocka között) ---
-                    # Fontos: csak a 22-esig olvassuk, hogy ne érjen bele a névbe!
-                    note_x_start = (9 / 88) * W
-                    note_x_end = (22 / 88) * W
-                    full_note = get_col_text(note_x_start, note_x_end).replace(full_id, "").strip()
+                    # --- MEGJEGYZÉS SZOBRÁSZAT (9-22 kocka) ---
+                    note_raw = get_col_text((9/88)*W, (22/88)*W).replace(full_id, "").strip()
                     
-                    # Ha véletlenül mégis benne van az admin név, levágjuk
-                    if admin_name and len(admin_name) > 2:
-                        full_note = full_note.replace(admin_name, "").strip()
+                    # Ha a név (vagy annak egy része) benne van a megjegyzésben, töröljük belőle
+                    full_note = note_raw
+                    if len(admin_name) > 3:
+                        # Szavanként is ellenőrizzük, hogy ne maradjon ott a név töredéke
+                        for word in admin_name.split():
+                            if len(word) > 2:
+                                full_note = full_note.replace(word, "")
                     
                     full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
+                    full_note = re.sub(r'\s+', ' ', full_note).strip()
 
-                    # --- 4. CÍM (22 - 40 kocka) ---
-                    addr_x_start = (22 / 88) * W
-                    addr_x_end = (40 / 88) * W
-                    address = get_col_text(addr_x_start, addr_x_end).strip()
+                    # --- CÍM (22-40 kocka) ---
+                    address = get_col_text((22/88)*W, (40/88)*W).strip()
 
-                    # --- 5. RENDELÉS ÉS EGYEBEK ---
-                    order_raw = get_col_text(v_lines[5], v_lines[6])
+                    # --- RENDELÉS ---
+                    order_raw = get_col_text((52/88)*W, (82.5/88)*W)
                     raw_orders = re.findall(ORDER_PAT, order_raw)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     

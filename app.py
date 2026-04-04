@@ -370,10 +370,12 @@ def parse_interfood_pdf(pdf_file):
                         megj_text = " ".join(final_m_parts).strip(" ,.-/|*")
 
                     # VÉGEREDMÉNY MENTÉSE
+                    # Ezt a változót használd a mentésnél!
                     clean_megjegyzese = megj_text
                     
-                    # 2. ID és Kategória radírozása (Prefixek: C, P, Z, S, H, K)
-                    clean_customer = re.sub(r'[CPZSHK]-\d+', '', customer_block)
+                    # --- ITT VOLT A HIBA: A customer_block helyett a tiszta V16-os szöveget használjuk ---
+                    # 2. Kategória radírozása (Az ID-kat a V16 már feljebb törölte)
+                    clean_customer = clean_megjegyzese
                     for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr."]:
                         clean_customer = clean_customer.replace(junk, "")
                     
@@ -383,7 +385,7 @@ def parse_interfood_pdf(pdf_file):
                         parts = clean_customer.split("/")
                         potential_reszleg = parts[0].strip()
                         # Ha a perjel előtti rész nem azonos az ügyintézővel, akkor az értékes részleg infó
-                        if potential_reszleg.lower() != admin_name.lower():
+                        if admin_name and potential_reszleg.lower() != admin_name.lower():
                             reszleg = potential_reszleg
                     
                     # 4. EGYÉB INSTRUKCIÓK (ami még maradt a radírozás után)
@@ -403,9 +405,8 @@ def parse_interfood_pdf(pdf_file):
                     full_note = " | ".join(final_note_parts)
 
                     # Biztonsági fék: ha csak a név maradt volna, ne duplázzuk megjegyzésbe
-                    if full_note.replace("|", "").strip().lower() == admin_name.lower():
+                    if admin_name and full_note.replace("|", "").strip().lower() == admin_name.lower():
                         full_note = ""
-
                     # Rendelés szöveges formázása a CSV-hez
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
                     full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""

@@ -203,53 +203,44 @@ def parse_interfood_pdf(pdf_file):
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
                 id_match = re.search(r'([HKSCPZ]-\d{5,7})', full_id_area)
                 
-                # Feltételezve, hogy az 'inst' vagy 'rect' az, amit a page.search_for() visszaadott
+                # --- 0. TELJES SOR SZŰRÉSE (STOP-ZÓNA) ---
+                line_text_full = " ".join([w['text'] for w in line_words])
+                stop_szavak = ["Összesítés:", "Csilagozott", "Összesen:"]
+                if any(stop in line_text_full for stop in stop_szavak):
+                    continue
+
                 if id_match:
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- 0. OKOS LAP ALJA PAJZS ---
-                    # Csak akkor ugrunk, ha NINCS érvényes ID, de van stop szó.
-                    # Ha van ID (mint Varga Ibolyánál), akkor NEM ugrunk el, hanem feldolgozzuk!
-                    line_text_full = " ".join([w['text'] for w in line_words])
-                    stop_szavak = ["Összesítés:", "Csilagozott", "Összesen:"]
-                    
-                    # Ha véletlenül ID nélküli sorba futnánk ami stop szót tartalmaz
-                    if not id_match and any(stop in line_text_full for stop in stop_szavak):
-                        continue
+                    # Sor magasságának meghatározása (fontos a rendelés megállításához!)
+                    y_top = min(w['top'] for w in line_words) - 1
+                    y_bottom = max(w['bottom'] for w in line_words) + 1
 
                     # --- KOORDINÁTÁK ---
-                    x38 = (38 / 88) * W  # Balra nyitunk a lemaradó vezetéknevekért (Biró, Tar)
+                    x38 = (38 / 88) * W
                     x40 = (40 / 88) * W
                     x52 = (52 / 88) * W  
 
-                    # --- 1. ÜGYINTÉZŐ ÉS TELEFON (38-52 sáv) ---
+                    # --- 1. ÜGYINTÉZŐ ÉS TELEFON ---
                     col_words = [w for w in line_words if x38 <= (w['x0'] + w['x1'])/2 < x52]
                     col_words.sort(key=lambda w: w['x0'])
                     raw_combined = " ".join([w['text'] for w in col_words])
                     
-                    # Telefon azonosítása
                     phone_match = re.search(r'(\d{2}/\d{6,7})', raw_combined.replace(" ", ""))
                     phone_val = phone_match.group(1) if phone_match else ""
                     
-                    # ÜGYINTÉZŐ TISZTÍTÁSA
                     admin_name = raw_combined
-                    if phone_val:
-                        admin_name = admin_name.replace(phone_val, "")
+                    if phone_val: admin_name = admin_name.replace(phone_val, "")
                     
-                    # TISZTÍTÁSI SORREND:
-                    # 1. Kódok törlése (-UK, -Z, stb.)
+                    # Tisztítás (Varga Ibolya kódjai mennek, Komoróczy-Elek marad)
                     admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
-                    # 2. Számok és Ft törlése
                     admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "")
-                    # 3. Maradék írásjelek (vessző, perjel) törlése
                     admin_name = admin_name.replace("/", "").replace(",", " ").strip()
-                    # 4. Sor végi árva kötőjel eltüntetése (Komoróczy-Elek marad, Varga- eltűnik)
                     admin_name = re.sub(r'\s+-\s*$', '', admin_name)
-                    # 5. Szélek tiszítása a maradék kötőjelektől és szóközöktől
                     admin_name = re.sub(r'\s+', ' ', admin_name).strip("- ").strip()
 
-                    # --- 2. CÍM TISZTÍTÁSA (Hogy a Biró ne maradjon a címben) ---
+                    # --- 2. CÍM TISZTÍTÁSA (Biró/Tar fix) ---
                     address = get_col_text((22/88)*W, x40).strip()
                     if admin_name:
                         name_parts = admin_name.split()
@@ -262,20 +253,22 @@ def parse_interfood_pdf(pdf_file):
                     money_m = re.search(r'(-?\d+Ft)', money_raw)
                     money_val = money_m.group(1) if money_m else "0Ft"
 
-                    # --- 4. MEGJEGYZÉS (9-22 kocka) ---
+                    # --- 4. MEGJEGYZÉS ---
                     x9, x22 = (9/88)*W, (22/88)*W
                     note_raw = get_col_text(x9, x22).replace(full_id, "").strip()
                     full_note = note_raw
                     if len(admin_name) > 3:
                         for part in admin_name.split():
                             if len(part) > 2: full_note = full_note.replace(part, "")
-                    
                     full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
-                    full_note = re.sub(r'\s+', ' ', full_note)
 
-                    # --- 5. RENDELÉS ---
-                    order_raw = get_col_text(x52, (82.5/88)*W)
-                    raw_orders = re.findall(ORDER_PAT, order_raw)
+                    # --- 5. RENDELÉS (SZIGORÚ HATÁROKKAL) ---
+                    # Csak azokat a szavakat nézzük, amik az 52-es x koordináta után vannak 
+                    # ÉS a sor y_top / y_bottom magasságán belül!
+                    order_words = [w for w in line_words if w['x0'] >= x52]
+                    order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
+                    
+                    raw_orders = re.findall(ORDER_PAT, order_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}

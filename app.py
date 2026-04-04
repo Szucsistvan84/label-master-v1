@@ -229,47 +229,51 @@ def parse_interfood_pdf(pdf_file):
                     combined_words = [w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5]
                     combined_text = " ".join([w['text'] for w in sorted(combined_words, key=lambda w: w['x0'])])
 
-                    # --- INTELLIGENS SZÉTVÁLASZTÁS (Szóköz-toleráns verzió) ---
-                    raw_text = combined_text.strip()
+                    # --- Y-KOORDINÁTA ALAPÚ SZÉTVÁLASZTÁS ---
+                    # Begyűjtjük a szavakat a név utáni sávból (x40 - x52.5)
+                    tel_money_words = sorted([w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5], key=lambda w: w['top'])
 
-                    # 1. PÉNZ KERESÉSE (Most már kezeli a 13 925 Ft formátumot is)
-                    # Minta: szám, utána tetszőleges szám vagy szóköz, a végén 'Ft'
-                    money_match = re.search(r'(-?\d[\d\s]*)\s*Ft$', raw_text)
-                    
-                    if money_match:
-                        # Kivesszük a teljes talált részt, és CSAK a szóközöket pucoljuk ki belőle
-                        raw_money = money_match.group(1).replace(" ", "")
-                        money_val = f"{raw_money}Ft"
-                        # A maradék szöveg a pénz nélkül
-                        remaining_text = raw_text[:money_match.start()].strip()
-                    else:
-                        # Ha nincs Ft, nézzük meg a "ragadós" számokat a végén (ezres tagolással)
-                        last_num_match = re.search(r'(\d[\d\s]*)$', raw_text)
-                        if last_num_match:
-                            raw_money = last_num_match.group(1).replace(" ", "")
-                            money_val = f"{raw_money}Ft"
-                            remaining_text = raw_text[:last_num_match.start()].strip()
+                    if tel_money_words:
+                        # Megnézzük a magasságokat. Ha van benne jelentős ugrás, az sortörés.
+                        first_y = tel_money_words[0]['top']
+                        top_row = [w for w in tel_money_words if abs(w['top'] - first_y) < 4]
+                        bottom_row = [w for w in tel_money_words if w not in top_row]
+
+                        # Felső sor: általában a Telefonszám (vagy a név vége)
+                        top_text = " ".join([w['text'] for w in sorted(top_row, key=lambda w: w['x0'])])
+                        
+                        # Alsó sor: általában a Pénz
+                        bottom_text = " ".join([w['text'] for w in sorted(bottom_row, key=lambda w: w['x0'])])
+
+                        # 1. TELEFON AZONOSÍTÁSA
+                        # Először a felső sorban keressük, ha nincs, nézzük az egészet
+                        full_context = top_text + " " + bottom_text
+                        phone_match = re.search(r'(\d{1,2}/\d+)', full_context)
+                        phone_val = phone_match.group(1).replace(" ", "") if phone_match else ""
+
+                        # 2. PÉNZ AZONOSÍTÁSA
+                        # Elsődlegesen az alsó sorban keressük a pénzt (szóköz-toleráns)
+                        money_match = re.search(r'(-?\d[\d\s]*)\s*Ft', bottom_text if bottom_text else top_text)
+                        
+                        if money_match:
+                            money_val = money_match.group(0).replace(" ", "")
                         else:
-                            money_val = "0Ft"
-                            remaining_text = raw_text
+                            # Ha nincs Ft, nézzük az alsó sor utolsó számát (pl. 0 Ft-nál)
+                            last_num = re.search(r'(\d+)$', bottom_text.strip() if bottom_text else top_text.strip())
+                            money_val = f"{last_num.group(1)}Ft" if last_num else "0Ft"
 
-                    # 2. TELEFON KERESÉSE (A már letisztított maradékban)
-                    phone_match = re.search(r'(\d{1,2}/\d+)', remaining_text)
-                    
-                    if phone_match:
-                        phone_val = phone_match.group(1).replace(" ", "")
-                        # A név az, ami a telefon ELŐTT van
-                        admin_name = remaining_text.split(phone_match.group(1))[0].strip()
+                        # 3. NÉV TISZTÍTÁSA
+                        # A név az, ami a top_text-ben a telefon előtt van
+                        if phone_match and phone_match.group(1) in top_text:
+                            admin_name = top_text.split(phone_match.group(1))[0].strip()
+                        else:
+                            # Ha a telefon nem a felső sorban volt, akkor a felső sor maga a név
+                            admin_name = top_text
                     else:
-                        phone_val = ""
-                        admin_name = remaining_text
+                        phone_val, money_val, admin_name = "", "0Ft", ""
 
-                    # 3. VÉGSŐ TISZTÍTÁS
-                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
-                    if phone_val and phone_val in admin_name:
-                        admin_name = admin_name.replace(phone_val, "").strip()
-                    
-                    admin_name = admin_name.strip("- /")
+                    # Végső simítások
+                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name).strip("- /")
                     # --- 2. RENDELÉS, CÍM, MEGJEGYZÉS (Változatlan, bevált részek) ---
                     order_words = [w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])

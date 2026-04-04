@@ -207,55 +207,52 @@ def parse_interfood_pdf(pdf_file):
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- 1. ÜGYINTÉZŐ ÉS TELEFON SZÉTVÁLASZTÁSA ---
-                    # A név a 39.5-nél kezdődik, a teló az 51.5-ig tarthat
-                    combined_area = get_col_text(v_lines[3], v_lines[5])
-                    
-                    # Keressük a telefonszámot (2 jegy / 6-7 jegy)
-                    phone_match = re.search(r'(\d{2}/\d{6,7})', combined_area.replace(" ", ""))
-                    
-                    if phone_match:
-                        phone_val = phone_match.group(1)
-                        # A vágási pont a telefonszám első két számjegye és a perjel
-                        splitter = phone_val[:3] # pl. "52/" vagy "20/"
-                        
-                        if splitter in combined_area:
-                            admin_name = combined_area.split(splitter)[0].strip()
-                        else:
-                            # Ha a szóközök miatt nem jönne össze a split
-                            # Keressük meg hol kezdődik a telefonszám számsora
-                            start_idx = combined_area.find(phone_val[:2])
-                            admin_name = combined_area[:start_idx].strip() if start_idx > 0 else combined_area.strip()
-                    else:
-                        phone_val = ""
-                        # Ha nincs telefonszám, akkor a teljes sáv az ügyintéző
-                        admin_name = get_col_text(v_lines[3], v_lines[4]).strip()
+                    # --- PONTOS KOCKA-KOORDINÁTÁK ---
+                    # 40-es kocka eleje: (40/88)*W
+                    # 48-as kocka eleje: (48/88)*W
+                    # 52-es kocka eleje: (52/88)*W
+                    name_x_start = (40 / 88) * W
+                    name_x_end = (48 / 88) * W
+                    tel_x_end = (52 / 88) * W
 
-                    # --- 2. MEGJEGYZÉS TISZTÍTÁSA (A legfontosabb rész!) ---
-                    # Itt csúszott el: a bal oldali sávból (v_lines[1] - v_lines[2]) 
-                    # KI KELL TÖRÖLNI az admin nevet, ha benne van
-                    note_raw = get_col_text(v_lines[1], v_lines[2]).replace(full_id, "").strip()
-                    
-                    # Szobrászat: töröljük a nevet a megjegyzésből, hogy ne duplikálódjon
-                    full_note = note_raw
-                    if admin_name and len(admin_name) > 3:
-                        full_note = full_note.replace(admin_name, "").strip()
-                    
-                    # Dr. és egyéb sallangok, perjelek cseréje
-                    full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
-                    # Dupla szóközök és felesleges | jelek takarítása
-                    full_note = re.sub(r'\s+', ' ', full_note)
-                    full_note = full_note.replace("| |", "|").strip(" | ")
+                    # --- 1. ÜGYINTÉZŐ (40 - 48 kocka) ---
+                    # Csak ebből a sávból olvassuk a nevet
+                    admin_name = get_col_text(name_x_start, name_x_end).strip()
 
-                    # --- 3. PÉNZ ÉS RENDELÉS (Ami már jó volt) ---
-                    # Pénz beolvasása a jól bevált módon
-                    money_raw = get_col_text(v_lines[4], v_lines[5]).replace(" ", "")
+                    # --- 2. TELEFON ÉS PÉNZ (48 - 52 kocka) ---
+                    # A telefonszám a 48-as kockától indul
+                    tel_penz_raw = get_col_text(name_x_end, tel_x_end).replace(" ", "")
+                    
+                    # Telefon: 2 jegy / 6-7 jegy
+                    phone_match = re.search(r'(\d{2}/\d{6,7})', tel_penz_raw)
+                    phone_val = phone_match.group(1) if phone_match else ""
+                    
+                    # Pénz: Kivágjuk a telefont a nyers sávból
+                    money_only_raw = tel_penz_raw
                     if phone_val:
-                        money_raw = money_raw.replace(phone_val.replace("/",""), "").replace(phone_val, "")
+                        money_only_raw = tel_penz_raw.replace(phone_val, "")
                     
-                    money_m = re.search(r'(-?\d+Ft)', money_raw)
+                    money_m = re.search(r'(-?\d+Ft)', money_only_raw)
                     money_val = money_m.group(1) if money_m else ""
 
+                    # --- 3. MEGJEGYZÉS (A 9-es és 22-es kocka között) ---
+                    # Fontos: csak a 22-esig olvassuk, hogy ne érjen bele a névbe!
+                    note_x_start = (9 / 88) * W
+                    note_x_end = (22 / 88) * W
+                    full_note = get_col_text(note_x_start, note_x_end).replace(full_id, "").strip()
+                    
+                    # Ha véletlenül mégis benne van az admin név, levágjuk
+                    if admin_name and len(admin_name) > 2:
+                        full_note = full_note.replace(admin_name, "").strip()
+                    
+                    full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
+
+                    # --- 4. CÍM (22 - 40 kocka) ---
+                    addr_x_start = (22 / 88) * W
+                    addr_x_end = (40 / 88) * W
+                    address = get_col_text(addr_x_start, addr_x_end).strip()
+
+                    # --- 5. RENDELÉS ÉS EGYEBEK ---
                     order_raw = get_col_text(v_lines[5], v_lines[6])
                     raw_orders = re.findall(ORDER_PAT, order_raw)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
@@ -266,7 +263,7 @@ def parse_interfood_pdf(pdf_file):
                     rows.append({
                         "ID": full_id,
                         "Ügyintéző": admin_name,
-                        "Cím": get_col_text(v_lines[2], v_lines[3]).strip(),
+                        "Cím": address,
                         "Telefon": phone_val,
                         "Pénz": money_val,
                         "Rendelés": rendeles_str,

@@ -208,22 +208,20 @@ def parse_interfood_pdf(pdf_file):
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- KOORDINÁTÁK (Az inst változót használjuk a rect helyett!) ---
-                    row_y0 = inst.y0 - 2 
-                    row_y1 = inst.y1 + 14 
-                    
+                    # --- KOORDINÁTÁK ---
                     x40 = (40 / 88) * W  
                     x52 = (52 / 88) * W  
 
                     # --- 1. ÜGYINTÉZŐ ÉS TELEFON (40-52 sáv) ---
-                    # Kinyerjük a szavakat az aktuális ID magasságában
-                    words = page.get_text("words", clip=(x40, row_y0, x52, row_y1))
+                    # Nem kell rect/inst, mert a line_words már tartalmazza a sor szavait!
+                    # Csak azokat a szavakat tartjuk meg, amik a 40-52 sávba esnek
+                    col_words = [w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52]
                     
                     # SORBARENDEZÉS X ALAPJÁN (Ettől lesz jó a Kissné Molnár Erzsébet sorrend!)
-                    words.sort(key=lambda w: w[0])
+                    col_words.sort(key=lambda w: w['x0'])
                     
-                    # Szöveg összefűzése szóközökkel
-                    raw_combined = " ".join([w[4] for w in words])
+                    # Szöveg összefűzése
+                    raw_combined = " ".join([w['text'] for w in col_words])
                     
                     # TELEFON KERESÉSE (##/###### vagy ##/#######)
                     phone_match = re.search(r'(\d{2}/\d{6,7})', raw_combined.replace(" ", ""))
@@ -235,7 +233,7 @@ def parse_interfood_pdf(pdf_file):
                         # Kivágjuk a konkrét telefonszámot a szövegből
                         admin_name = admin_name.replace(phone_val, "")
                     
-                    # "Gyalugép": minden számot, a Ft-ot és a felesleges perjeleket töröljük
+                    # Gyalugép: minden számot, a Ft-ot és a felesleges perjeleket töröljük
                     admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "").replace("/", "").strip()
                     # Dupla szóközök eltüntetése
                     admin_name = re.sub(r'\s+', ' ', admin_name)

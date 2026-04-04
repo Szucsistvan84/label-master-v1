@@ -205,14 +205,8 @@ def parse_interfood_pdf(pdf_file):
                 
                 # --- 0. FEJLÉC ÉS LÁBLÉC TELJES KIZÁRÁSA ---
                 line_text_full = " ".join([w['text'] for w in line_words])
+                tiltott_szavak = ["járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", "Összesítés:", "Csilagozott", "Összesen:"]
                 
-                # Szigorú fejléc és lábléc kulcsszavak
-                tiltott_szavak = [
-                    "járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", # Fejléc
-                    "Összesítés:", "Csilagozott", "Összesen:" # Lábléc
-                ]
-                
-                # Ha a sor bármelyik tiltott szót tartalmazza, ÉS nem tartalmaz ügyfélkódot, ugrunk
                 if any(stop in line_text_full for stop in tiltott_szavak):
                     if not re.search(r'[HKSCPZ]-\d{5,7}', line_text_full):
                         continue
@@ -220,72 +214,58 @@ def parse_interfood_pdf(pdf_file):
                 if id_match:
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
-                    
-                    # --- IBOLYA-FIX: SZIGORÚ SOR-SZŰRÉS ---
-                    # Csak azokat a szavakat hagyjuk meg, amik az ID (anchor) magasságában vannak (+/- 8 pixel)
-                    # Ez megakadályozza, hogy a sáv alatti láblécből szavakat gyűjtsön be.
-                    strict_y_top = anchor['top'] - 2
-                    strict_y_bottom = anchor['bottom'] + 8
-                    
-                    # ÚJ VÁLTOZÓ: row_words - ez csak az adott sor szavait tartalmazza
-                    row_words = [w for w in line_words if strict_y_top <= (w['top'] + w['bottom'])/2 <= strict_y_bottom]
 
-                    # --- KOORDINÁTÁK ---
+                    # --- KOORDINÁTÁK (Visszaállítva a stabil app(15) alapokra) ---
                     x38 = (38 / 88) * W
                     x40 = (40 / 88) * W
                     x52 = (52 / 88) * W  
 
-                    # --- 1. ÜGYINTÉZŐ ÉS TELEFON ---
-                    # A line_words helyett már a row_words-ből dolgozunk!
-                    admin_words = [w for w in row_words if x38 <= (w['x0'] + w['x1'])/2 < x52]
+                    # --- 1. ÜGYINTÉZŐ ÉS TELEFON (Javított regexszel) ---
+                    admin_words = [w for w in line_words if x38 <= (w['x0'] + w['x1'])/2 < x52]
                     admin_words.sort(key=lambda w: w['x0'])
                     raw_combined = " ".join([w['text'] for w in admin_words])
                     
-                    phone_match = re.search(r'(\d{2}/[\d\s,]+)', raw_combined)
+                    # Telefon: Csak a tényleges számot vágjuk ki, nem engedjük a 0-t a végére tapadni
+                    phone_match = re.search(r'(\d{2}/\d[\d\s,]+\d)', raw_combined)
                     phone_val = phone_match.group(1).replace(" ", "").strip(", ") if phone_match else ""
                     
                     admin_name = raw_combined
-                    if phone_val: admin_name = admin_name.replace(phone_val, "")
+                    if phone_val:
+                        # Fontos: csak a pontos egyezést töröljük a névből
+                        admin_name = admin_name.replace(phone_match.group(1), "")
                     
-                    # Tisztítás
+                    # Név tisztítása (Megtartjuk a jól működő logikát)
                     admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
                     admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "")
                     admin_name = admin_name.replace("/", "").replace(",", " ").strip()
-                    admin_name = re.sub(r'\s+-\s*$', '', admin_name)
                     admin_name = re.sub(r'\s+', ' ', admin_name).strip("- ").strip()
 
-                    # --- 2. CÍM TISZTÍTÁSA ---
-                    addr_words = [w for w in row_words if (22/88)*W <= (w['x0']+w['x1'])/2 < x40]
+                    # --- 2. CÍM (Szélesebb tartomány, hogy ne maradjon le semmi) ---
+                    addr_words = [w for w in line_words if (20/88)*W <= (w['x0']+w['x1'])/2 < x40]
                     address = " ".join([w['text'] for w in sorted(addr_words, key=lambda x: x['x0'])]).strip()
-                    if admin_name:
-                        name_parts = admin_name.split()
-                        if name_parts and address.endswith(name_parts[0]):
-                            address = address[:address.rfind(name_parts[0])].strip(", ")
 
                     # --- 3. PÉNZ ---
-                    money_raw = raw_combined.replace(" ", "")
-                    money_m = re.search(r'(-?\d+Ft)', money_raw)
-                    money_val = money_m.group(1) if money_m else "0Ft"
+                    money_m = re.search(r'(-?\d+\s*Ft)', raw_combined)
+                    money_val = money_m.group(1).replace(" ", "") if money_m else "0Ft"
 
                     # --- 4. MEGJEGYZÉS ---
-                    note_words = [w for w in row_words if (9/88)*W <= (w['x0']+w['x1'])/2 < (22/88)*W]
+                    note_words = [w for w in line_words if (8/88)*W <= (w['x0']+w['x1'])/2 < (22/88)*W]
                     note_raw = " ".join([w['text'] for w in sorted(note_words, key=lambda x: x['x0'])])
                     full_note = note_raw.replace(full_id, "").strip()
-                    if len(admin_name) > 3:
-                        for part in admin_name.split():
-                            if len(part) > 2: full_note = full_note.replace(part, "")
                     full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
 
-                    # --- 5. RENDELÉS ---
-                    # CSAK a row_words-ben keressük a rendelést, így a lábléc kódjai nem kerülnek bele!
-                    order_words = [w for w in row_words if w['x0'] >= x52]
+                    # --- 5. RENDELÉS (IBOLYA-BIZTOS MEGOLDÁS) ---
+                    # Csak azokat a szavakat nézzük, amik az ID sávjában vannak (+/- 10 pixel)
+                    # Így nem rántja be a láblécet, de megtalálja a kódokat a sorban
+                    y_mid = (anchor['top'] + anchor['bottom']) / 2
+                    order_words = [w for w in line_words if w['x0'] >= x52 and abs(((w['top']+w['bottom'])/2) - y_mid) < 10]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
                     
                     raw_orders = re.findall(ORDER_PAT, order_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
-                    full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}"
+                    full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
 
                     rows.append({
                         "ID": full_id,

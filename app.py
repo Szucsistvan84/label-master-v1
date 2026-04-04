@@ -333,47 +333,46 @@ def parse_interfood_pdf(pdf_file):
                         # Frissítjük az address változót a tisztított változattal
                         address = " ".join(address_parts).strip(" ,.-/|")
 
-                    # --- MEGJEGYZÉS SZOBRÁSZAT (V16 - A Mindentudó) ---
-                    # 1. Alapanyag kinyerése
+                    # --- 5. MEGJEGYZÉS SZOBRÁSZAT (V16 - A Mindentudó) ---
+                    # 1. Alapanyag kinyerése (v_lines[1] és v_lines[2] között)
                     note_area_words = [w for w in line_words if v_lines[1] <= (w['x0'] + w['x1'])/2 < v_lines[2]]
                     
                     # Csak az ID (anchor) magasságában keressük a megjegyzést (+/- 35 pixel)
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
                     relevant_note_words = [w for w in note_area_words if abs(w['top'] - y_anchor) < 35]
                     
+                    # Itt jön létre a szöveg
                     megj_text = " ".join([w['text'] for w in sorted(relevant_note_words, key=lambda x: (x['top'], x['x0']))]).strip()
 
                     if megj_text:
-                        # A) RENDELÉS-KÓDOK TÖRLÉSE (pl. "1-R4", "2-L1K")
-                        # Ne maradjanak benne a megjegyzésben a tételek
+                        # A) ID-K ÉS RENDELÉS-KÓDOK TÖRLÉSE (pl. C-491607 vagy 1-R4)
+                        # Töröljük a belógó ID-kat
+                        megj_text = re.sub(r'[CPZSHK]-\d+', '', megj_text)
+                        # Töröljük a belógó rendelési tételeket
                         megj_text = re.sub(r'\d+\s*[-\u2013\u2014\u2212]\s*[A-Z][A-Z0-9*+]*', '', megj_text)
 
                         # B) DINAMIKUS NÉV-RADÍR (Az ügyintéző neve alapján)
-                        # Ha az admin_name benne van a megjegyzésben, levágjuk
                         if admin_name:
                             name_parts = [n.strip(" ,.|/-").lower() for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
                             m_parts = megj_text.split()
                             
-                            # Eleje takarítás
                             while m_parts and m_parts[0].strip(" ,.|/-").lower() in name_parts:
                                 m_parts.pop(0)
-                            # Vége takarítás
                             while m_parts and m_parts[-1].strip(" ,.|/-").lower() in name_parts:
                                 m_parts.pop()
                             
                             megj_text = " ".join(m_parts)
 
-                        # C) CÍM-MARADVÁNYOK ÉS SZEMÉT SZŰRÉSE
-                        # Ha a címből maradt ott valami, vagy stop-szavak
-                        junk_fragments = ["dr", "dr.", "idősb", "ifj", "össz", "összesen", "adag"]
+                        # C) ÁLTALÁNOS SZEMÉTSZŰRÉS (Dr, Összesen, stb.)
+                        junk_fragments = ["dr", "dr.", "idősb", "ifj", "össz", "összesen", "adag", "db"]
                         m_parts = megj_text.split()
                         final_m_parts = [p for p in m_parts if p.strip(" ,.|/-").lower() not in junk_fragments]
                         
                         megj_text = " ".join(final_m_parts).strip(" ,.-/|*")
 
-                    # Ez megy majd a táblázat "Megjegyzés" oszlopába
+                    # VÉGEREDMÉNY MENTÉSE
                     clean_megjegyzese = megj_text
-
+                    
                     # 2. ID és Kategória radírozása (Prefixek: C, P, Z, S, H, K)
                     clean_customer = re.sub(r'[CPZSHK]-\d+', '', customer_block)
                     for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr."]:

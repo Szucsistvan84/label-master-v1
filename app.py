@@ -208,61 +208,69 @@ def parse_interfood_pdf(pdf_file):
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
+                    # --- 0. LAP ALJA BETON-PAJZS ---
+                    line_text_full = " ".join([w['text'] for w in line_words])
+                    stop_szavak = ["Összesítés:", "Csilagozott", "Összesen:"]
+                    if any(stop in line_text_full for stop in stop_szavak):
+                        continue
+
                     # --- KOORDINÁTÁK ---
-                    x40 = (40 / 88) * W  
+                    x38 = (38 / 88) * W  # Balra nyitunk a lemaradó vezetéknevekért
+                    x40 = (40 / 88) * W
                     x52 = (52 / 88) * W  
 
-                    # --- 1. ÜGYINTÉZŐ ÉS TELEFON (40-52 sáv) ---
-                    # Nem kell rect/inst, mert a line_words már tartalmazza a sor szavait!
-                    # Csak azokat a szavakat tartjuk meg, amik a 40-52 sávba esnek
-                    col_words = [w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52]
-                    
-                    # SORBARENDEZÉS X ALAPJÁN (Ettől lesz jó a Kissné Molnár Erzsébet sorrend!)
+                    # --- 1. ÜGYINTÉZŐ ÉS TELEFON (38-52 sáv) ---
+                    col_words = [w for w in line_words if x38 <= (w['x0'] + w['x1'])/2 < x52]
                     col_words.sort(key=lambda w: w['x0'])
-                    
-                    # Szöveg összefűzése
                     raw_combined = " ".join([w['text'] for w in col_words])
                     
-                    # TELEFON KERESÉSE (##/###### vagy ##/#######)
+                    # Telefon azonosítása
                     phone_match = re.search(r'(\d{2}/\d{6,7})', raw_combined.replace(" ", ""))
                     phone_val = phone_match.group(1) if phone_match else ""
                     
                     # ÜGYINTÉZŐ TISZTÍTÁSA
                     admin_name = raw_combined
                     if phone_val:
-                        # Kivágjuk a konkrét telefonszámot a szövegből
                         admin_name = admin_name.replace(phone_val, "")
                     
-                    # Gyalugép: minden számot, a Ft-ot és a felesleges perjeleket töröljük
-                    admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "").replace("/", "").strip()
-                    # Dupla szóközök eltüntetése
-                    admin_name = re.sub(r'\s+', ' ', admin_name)
-
-                    # --- 2. PÉNZ ---
-                    money_raw = raw_combined.replace(" ", "")
-                    if phone_val:
-                        money_raw = money_raw.replace(phone_val, "")
+                    # A TRÜKK: Csak a "szabadon álló" vagy kód-szerű kötőjeleket töröljük
+                    # 1. Töröljük a kódokat: kötőjel + 1-3 nagybetű/szám (pl. -UK, -Z)
+                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
+                    # 2. Töröljük a számokat és a "Ft"-ot
+                    admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "")
+                    # 3. Takarítás: vesszők, perjelek, és a sor végén maradt árva kötőjelek
+                    admin_name = admin_name.replace("/", "").replace(",", " ").strip()
+                    admin_name = re.sub(r'\s+-\s*$', '', admin_name) # Sor végi kötőjel stop
                     
+                    # Dupla szóközök és maradék kötőjelek a széleken
+                    admin_name = re.sub(r'\s+', ' ', admin_name).strip("- ")
+
+                    # --- 2. CÍM TISZTÍTÁSA (Vezetéknév visszanyerése) ---
+                    address = get_col_text((22/88)*W, x40).strip()
+                    if admin_name:
+                        name_parts = admin_name.split()
+                        # Ha a név első szava (pl. Biró) a cím végén van, onnan levágjuk
+                        if name_parts and address.endswith(name_parts[0]):
+                            address = address[:address.rfind(name_parts[0])].strip(", ")
+
+                    # --- 3. PÉNZ ÉS EGYEBEK ---
+                    money_raw = raw_combined.replace(" ", "")
+                    if phone_val: money_raw = money_raw.replace(phone_val, "")
                     money_m = re.search(r'(-?\d+Ft)', money_raw)
                     money_val = money_m.group(1) if money_m else ""
 
-                    # --- 3. MEGJEGYZÉS, CÍM, RENDELÉS ---
-                    x9 = (9 / 88) * W
-                    x22 = (22 / 88) * W
+                    # Megjegyzés oszlop tisztítása (9-22 kocka)
+                    x9, x22 = (9/88)*W, (22/88)*W
                     note_raw = get_col_text(x9, x22).replace(full_id, "").strip()
-                    
                     full_note = note_raw
-                    # Ha a név maradványa benne van a megjegyzésben, kiszedjük
                     if len(admin_name) > 3:
-                        for word in admin_name.split():
-                            if len(word) > 2:
-                                full_note = full_note.replace(word, "")
+                        for part in admin_name.split():
+                            if len(part) > 2: full_note = full_note.replace(part, "")
                     
                     full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
                     full_note = re.sub(r'\s+', ' ', full_note)
 
-                    address = get_col_text(x22, x40).strip()
-
+                    # Rendelés (52-től a lap széléig)
                     order_raw = get_col_text(x52, (82.5/88)*W)
                     raw_orders = re.findall(ORDER_PAT, order_raw)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
@@ -281,7 +289,8 @@ def parse_interfood_pdf(pdf_file):
                         "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
                         "Rendelés_Full": full_rendeles_text,
                         "temp_id": full_id.split('-')[-1],
-                        "Prefix": prefix
+                        "Prefix": prefix,
+                        "Csoport": current_group_id
                     })
     
     if not rows: return [], metadata

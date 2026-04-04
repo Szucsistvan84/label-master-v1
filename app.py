@@ -307,14 +307,31 @@ def parse_interfood_pdf(pdf_file):
                     admin_name = " ".join(admin_name.split())
 
                     # --- 4. RENDELÉS ÉS MEGJEGYZÉS ---
-                    # Itt most már biztosan létezik a row_words és az x52_5 is!
                     order_words = [w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
                     raw_orders = re.findall(ORDER_PAT, order_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
 
-                    # CÍM (v_lines[2] és x40 között) - Dinamikus sávszélesség
+                    # CÍM meghatározása (v_lines[2] és x40 között)
                     address = " ".join([w['text'] for w in sorted([w for w in row_words if v_lines[2] <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
+
+                    # --- DINAMIKUS CÍMTISZTÍTÁS (Az Ügyintéző neve alapján) ---
+                    if admin_name and address:
+                        # Az ügyintéző nevét tiszta szavakra bontjuk, csak a 1 karakternél hosszabbakat tartjuk meg
+                        name_parts_to_erase = [n.strip(" ,.|/-").lower() for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
+                        
+                        address_parts = address.split()
+                        
+                        # Amíg a cím utolsó szava (tisztítva) egyezik valamelyik név-taggal, levágjuk
+                        while address_parts and address_parts[-1].strip(" ,.|/-").lower() in name_parts_to_erase:
+                            address_parts.pop()
+                        
+                        # Extra biztonsági kör: Dr. és egyéb maradékok
+                        if address_parts and address_parts[-1].strip(" ,.|/-").lower() in ["dr", "dr.", "idősb", "ifj"]:
+                            address_parts.pop()
+
+                        # Frissítjük az address változót a tisztított változattal
+                        address = " ".join(address_parts).strip(" ,.-/|")
 
                     # --- MEGJEGYZÉS SZOBRÁSZAT (V2 - Részlegmegőrző) ---
                     # 1. Alapanyag: Az Ügyfél oszlop (v_lines[1] - v_lines[2])

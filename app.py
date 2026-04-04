@@ -262,37 +262,41 @@ def parse_interfood_pdf(pdf_file):
                             last_num = re.search(r'(\d+)$', bottom_text.strip() if bottom_text else top_text.strip())
                             money_val = f"{last_num.group(1)}Ft" if last_num else "0Ft"
 
-                    # --- ÜGYINTÉZŐ KERESÉSE (V6 - A Túlélő Verzió) ---
-                    # 1. Összegyűjtjük az összes szót az admin sávból
+                    # --- ÜGYINTÉZŐ KERESÉSE (V7 - A Vaskezű Mentőcsapat) ---
+                    # 1. Minden szót begyűjtünk az admin sávból (x40 - x52.5)
                     admin_words_raw = [w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5]
                     admin_words_raw = sorted(admin_words_raw, key=lambda x: (x['top'], x['x0']))
                     
                     filtered_admin = []
                     if admin_words_raw:
-                        # Az első talált szó lesz a viszonyítási pontunk (ez a név eleje)
-                        first_y = admin_words_raw[0]['top']
+                        # Referencia magasság: a sorban talált bármely szó teteje
+                        y_ref = min([w['top'] for w in row_words]) if row_words else admin_words_raw[0]['top']
                         
                         for w in admin_words_raw:
                             t = w['text'].strip()
                             
-                            # Szűrés: Pénz és rövid adagszámok ki, de a nevek maradjanak
-                            if "Ft" in t: continue
-                            if t.isdigit() and len(t) < 4: continue
-                            if t in [",", ".", "/", "-", "|"]: continue
+                            # SZŰRÉS: Pénzösszegek és írásjelek azonnali kukázása
+                            if "Ft" in t or t in [",", "|", "/"]: continue
                             
-                            # TOLERANCIA: Az első szótól számítva 25 pixelt engedünk lefelé.
-                            # Ez bőven elég a Bíró/Tar neveknek, de még megáll az összesítő előtt.
-                            if abs(w['top'] - first_y) < 25:
+                            # MAGASSÁG: 35 pixelre tágítjuk! Ez már majdnem két teljes sornyi távolság.
+                            # Így a Bíró és a Tar nevek akkor is bekerülnek, ha nagyon lecsúsztak.
+                            if abs(w['top'] - y_ref) < 35:
+                                # TELEFON-IRTÓ: Ha a szó tiszta szám és hosszú (pl. 30011...), akkor ez a telefon része
+                                if t.isdigit() and len(t) > 4: continue
+                                # Ha benne van a perjel (pl. 30/...), az is telefon
+                                if "/" in t and any(c.isdigit() for c in t): continue
+                                
                                 filtered_admin.append(w)
 
-                    # 3. Név összerakása
-                    admin_words = sorted(filtered_admin, key=lambda x: (x['top'], x['x0']))
-                    admin_name = " ".join([w['text'] for w in admin_words]).strip()
+                    # 2. Név összefűzése
+                    admin_name = " ".join([w['text'] for w in sorted(filtered_admin, key=lambda x: (x['top'], x['x0']))]).strip()
                     
-                    # Végső pucolás: telefonszám maradékok és prefixek
-                    admin_name = re.sub(r'\d{2}/\d{5,}', '', admin_name) 
+                    # 3. UTÓLAGOS RADÍR (A Czinege-féle makacs számok ellen)
+                    # Bármi, ami 3-nál több számjegyből áll, repül a névből
+                    admin_name = re.sub(r'\d{3,}', '', admin_name)
+                    # Prefixek (pl. -C1) eltávolítása
                     admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
-                    admin_name = admin_name.strip("- /|")                    
+                    admin_name = admin_name.strip("- /|.,")                    
                     # --- 2. RENDELÉS, CÍM, MEGJEGYZÉS (Változatlan, bevált részek) ---
                     order_words = [w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])

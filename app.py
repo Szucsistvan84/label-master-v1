@@ -213,86 +213,38 @@ def parse_interfood_pdf(pdf_file):
 
                 if id_match:
                     full_id = id_match.group(1)
-                    prefix = full_id.split('-')[0]
-                    
-                    y_anchor = (anchor['top'] + anchor['bottom']) / 2
-                    row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
+                    # ... (y_anchor és x-határok beállítása) ...
 
-                    # Visszatérünk az emberi léptékű határokhoz
-                    x40 = (40 / 88) * W
-                    x48 = (48 / 88) * W
-                    x52_5 = (52.5 / 88) * W
-
-                    # --- 1. KOMBINÁLT ADATGYŰJTÉS ---
-                    # Begyűjtjük a nevet és a telefont egyben, majd szétválasztjuk
-                    # (x40-től x52.5-ig tartó sáv)
-                    combined_words = [w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5]
-                    combined_text = " ".join([w['text'] for w in sorted(combined_words, key=lambda w: w['x0'])])
-
-                    # --- Y-KOORDINÁTA ALAPÚ SZÉTVÁLASZTÁS ---
-                    # Begyűjtjük a szavakat a név utáni sávból (x40 - x52.5)
+                    # 1. TELEFON ÉS PÉNZ KERESÉSE
                     tel_money_words = sorted([w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5], key=lambda w: w['top'])
-
+                    
+                    phone_val, money_val = "", "0Ft" # Alapértelmezett értékek
+                    
                     if tel_money_words:
-                        # Megnézzük a magasságokat. Ha van benne jelentős ugrás, az sortörés.
-                        first_y = tel_money_words[0]['top']
-                        top_row = [w for w in tel_money_words if abs(w['top'] - first_y) < 4]
-                        bottom_row = [w for w in tel_money_words if w not in top_row]
+                        # ... (itt marad a top_text, bottom_text, phone_match logika) ...
+                        # ... (figyelj, hogy ez a rész maradjon beljebb) ...
+                        pass 
 
-                        # Felső sor: általában a Telefonszám (vagy a név vége)
-                        top_text = " ".join([w['text'] for w in sorted(top_row, key=lambda w: w['x0'])])
-                        
-                        # Alsó sor: általában a Pénz
-                        bottom_text = " ".join([w['text'] for w in sorted(bottom_row, key=lambda w: w['x0'])])
-
-                        # 1. TELEFON AZONOSÍTÁSA
-                        # Először a felső sorban keressük, ha nincs, nézzük az egészet
-                        full_context = top_text + " " + bottom_text
-                        phone_match = re.search(r'(\d{1,2}/\d+)', full_context)
-                        phone_val = phone_match.group(1).replace(" ", "") if phone_match else ""
-
-                        # 2. PÉNZ AZONOSÍTÁSA
-                        # Elsődlegesen az alsó sorban keressük a pénzt (szóköz-toleráns)
-                        money_match = re.search(r'(-?\d[\d\s]*)\s*Ft', bottom_text if bottom_text else top_text)
-                        
-                        if money_match:
-                            money_val = money_match.group(0).replace(" ", "")
-                        else:
-                            # Ha nincs Ft, nézzük az alsó sor utolsó számát (pl. 0 Ft-nál)
-                            last_num = re.search(r'(\d+)$', bottom_text.strip() if bottom_text else top_text.strip())
-                            money_val = f"{last_num.group(1)}Ft" if last_num else "0Ft"
-
-                    # --- ÜGYINTÉZŐ KERESÉSE (V10 - A Koordináta-mester) ---
-                    # 1. Tágított X-sáv (x38 - x54), hogy a kilógó vezetéknevek is beleférjenek
+                    # --- ÜGYINTÉZŐ KERESÉSE (V10) ---
+                    # EZT A BLOKKOT HÚZD KI BALRA! 
+                    # Egy szintben kell lennie az 'if tel_money_words:' sorral!
                     admin_candidates = [w for w in line_words if 38 <= (w['x0'] + w['x1'])/2 < 54]
                     
-                    # 2. Referencia magasság
                     y_start = min([w['top'] for w in row_words]) if row_words else (admin_candidates[0]['top'] if admin_candidates else 0)
                     
                     raw_name_parts = []
                     for w in admin_candidates:
-                        # 35 pixel magasságig mindent begyűjtünk
                         if abs(w['top'] - y_start) < 35:
                             t_clean = w['text'].strip()
-                            
-                            # SZŰRÉS: Pénz, telefon-töredékek és írásjelek
                             if "Ft" in t_clean or t_clean in [",", "|", "/"]: continue
                             if "/" in t_clean and any(c.isdigit() for c in t_clean): continue
-                            if t_clean.isdigit() and len(t_clean) < 4: continue # Adagszámok/pénz eleje
-                                
+                            if t_clean.isdigit() and len(t_clean) < 4: continue
                             raw_name_parts.append(w)
 
-                    # 3. SORREND: Nagyon fontos! Előbb Y (sorok), aztán X (szavak a soron belül)
-                    # A PDF-ben a Bíró lehet, hogy 1 pixellel feljebb van, mint a Dávid
                     sorted_parts = sorted(raw_name_parts, key=lambda x: (x['top'], x['x0']))
-                    
-                    # 4. Összefűzés és SZÁM-IRTÁS
                     full_raw_text = " ".join([p['text'] for p in sorted_parts])
-                    # Minden számjegyet kirtunk (0, 1, 2, telefonszám maradék)
                     clean_name = re.sub(r'\d+', '', full_raw_text)
-                    # Prefixek (-C1, stb) törlése
                     clean_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', clean_name)
-                    
                     admin_name = clean_name.replace("/", "").replace("|", "").strip(" -/|.,")
                     admin_name = " ".join(admin_name.split())
 

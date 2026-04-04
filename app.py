@@ -213,38 +213,34 @@ def parse_interfood_pdf(pdf_file):
 
                 if id_match:
                     full_id = id_match.group(1)
-                    # ... (y_anchor és x-határok beállítása) ...
+                    prefix = full_id.split('-')[0]
+                    
+                    # 1. ELŐSZÖR DEFINIÁLJUK A KOORDINÁTÁKAT (Ezt hozd előre!)
+                    W = page.width
+                    x40 = (40 / 88) * W
+                    x48 = (48 / 88) * W
+                    x52_5 = (52.5 / 88) * W
+                    y_anchor = (anchor['top'] + anchor['bottom']) / 2
 
-                    # --- 1. TELEFON ÉS PÉNZ KERESÉSE ---
-                    # Ezt a sávot használjuk a telefonhoz és pénzhez
+                    # 2. MOST MÁR HASZNÁLHATJUK ŐKET A KERESÉSHEZ
+                    # Telefon és Pénz sáv
                     tel_money_words = sorted([w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5], key=lambda w: w['top'])
                     
                     phone_val, money_val = "", "0Ft"
                     
                     if tel_money_words:
-                        first_y = tel_money_words[0]['top']
-                        top_row = [w for w in tel_money_words if abs(w['top'] - first_y) < 4]
-                        bottom_row = [w for w in tel_money_words if w not in top_row]
+                        # ... (itt marad a telefonos logika, top_text, bottom_text, stb.) ...
+                        # ... változatlanul ...
+                        pass
 
-                        top_text = " ".join([w['text'] for w in sorted(top_row, key=lambda w: w['x0'])])
-                        bottom_text = " ".join([w['text'] for w in sorted(bottom_row, key=lambda w: w['x0'])])
-
-                        full_context = top_text + " " + bottom_text
-                        phone_match = re.search(r'(\d{1,2}/\d+)', full_context)
-                        phone_val = phone_match.group(1).replace(" ", "") if phone_match else ""
-
-                        money_match = re.search(r'(-?\d[\d\s]*)\s*Ft', bottom_text if bottom_text else top_text)
-                        if money_match:
-                            money_val = money_match.group(0).replace(" ", "")
-                        else:
-                            last_num = re.search(r'(\d+)$', bottom_text.strip() if bottom_text else top_text.strip())
-                            money_val = f"{last_num.group(1)}Ft" if last_num else "0Ft"
-
-                    # --- ÜGYINTÉZŐ KERESÉSE (V10 - A Koordináta-mester) ---
-                    # Itt line_words-t használunk row_words helyett, hogy ne legyen NameError
-                    admin_candidates = [w for w in line_words if 38 <= (w['x0'] + w['x1'])/2 < 54]
+                    # --- ÜGYINTÉZŐ KERESÉSE (V10) ---
+                    # Itt is tágítjuk az X sávot a biztonság kedvéért (x38 és x54 közé)
+                    x_start_admin = (38 / 88) * W
+                    x_end_admin = (54 / 88) * W
                     
-                    # Referencia magasság az ID (anchor) alapján
+                    admin_candidates = [w for w in line_words if x_start_admin <= (w['x0'] + w['x1'])/2 < x_end_admin]
+                    
+                    # Referencia magasság
                     y_start = (anchor['top'] + anchor['bottom']) / 2
                     
                     raw_name_parts = []

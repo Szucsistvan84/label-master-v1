@@ -164,7 +164,7 @@ def parse_interfood_pdf(pdf_file):
         page = pdf.pages[0]
         W = page.width
         def c(kocka): return (kocka / 88) * W
-        v_lines = [c(0), c(5.5), c(21.5), c(39.5), c(47.30727), c(52), c(82.5), c(88)]
+        v_lines = [c(0), c(5.5), c(21.5), c(39.5), c(47.30729), c(52), c(82.5), c(88)]
 
         for pg in pdf.pages:
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
@@ -221,7 +221,7 @@ def parse_interfood_pdf(pdf_file):
 
                     # --- HATÁRVONALAK FINOMHANGOLÁSA (x48 -> x47) ---
                     x40 = (40 / 88) * W
-                    x47_30727 = (47.30727 / 88) * W      # Balra toltuk 1 egységgel, hogy a '20/' kiessen a névből
+                    x47_30729 = (47.30729 / 88) * W      # Balra toltuk 1 egységgel, hogy a '20/' kiessen a névből
                     x52_5 = (52.5 / 88) * W
 
                     # --- 1. ÜGYINTÉZŐ NEVE (x40 - x47) ---
@@ -231,7 +231,7 @@ def parse_interfood_pdf(pdf_file):
                     admin_name = re.sub(r'\d{3,}', '', admin_name).replace("Ft", "").strip("- /")
 
                     # --- 2. TELEFON ÉS PÉNZ (x47 - x52.5) ---
-                    tel_money_words = [w for w in row_words if x47_30727 <= (w['x0'] + w['x1'])/2 < x52_5]
+                    tel_money_words = [w for w in row_words if x47_30729 <= (w['x0'] + w['x1'])/2 < x52_5]
                     tel_money_text = " ".join([w['text'] for w in sorted(tel_money_words, key=lambda w: w['x0'])])
                     
                     # Telefon: most már a '20/' is ide fog tartozni

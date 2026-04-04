@@ -203,7 +203,7 @@ def parse_interfood_pdf(pdf_file):
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
                 id_match = re.search(r'([HKSCPZ]-\d{5,7})', full_id_area)
                 
-if id_match:
+                if id_match:
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     

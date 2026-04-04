@@ -208,14 +208,18 @@ def parse_interfood_pdf(pdf_file):
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- 0. LAP ALJA BETON-PAJZS ---
+                    # --- 0. OKOS LAP ALJA PAJZS ---
+                    # Csak akkor ugrunk, ha NINCS érvényes ID, de van stop szó.
+                    # Ha van ID (mint Varga Ibolyánál), akkor NEM ugrunk el, hanem feldolgozzuk!
                     line_text_full = " ".join([w['text'] for w in line_words])
                     stop_szavak = ["Összesítés:", "Csilagozott", "Összesen:"]
-                    if any(stop in line_text_full for stop in stop_szavak):
+                    
+                    # Ha véletlenül ID nélküli sorba futnánk ami stop szót tartalmaz
+                    if not id_match and any(stop in line_text_full for stop in stop_szavak):
                         continue
 
                     # --- KOORDINÁTÁK ---
-                    x38 = (38 / 88) * W  # Balra nyitunk a lemaradó vezetéknevekért
+                    x38 = (38 / 88) * W  # Balra nyitunk a lemaradó vezetéknevekért (Biró, Tar)
                     x40 = (40 / 88) * W
                     x52 = (52 / 88) * W  
 
@@ -233,14 +237,19 @@ def parse_interfood_pdf(pdf_file):
                     if phone_val:
                         admin_name = admin_name.replace(phone_val, "")
                     
-                    # A TRÜKK: Komoróczy-Elek marad, a -UK/-Z kódok mennek
-                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name) # Kódok törlése
-                    admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "") # Számok és Ft törlése
+                    # TISZTÍTÁSI SORREND:
+                    # 1. Kódok törlése (-UK, -Z, stb.)
+                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
+                    # 2. Számok és Ft törlése
+                    admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "")
+                    # 3. Maradék írásjelek (vessző, perjel) törlése
                     admin_name = admin_name.replace("/", "").replace(",", " ").strip()
-                    admin_name = re.sub(r'\s+-\s*$', '', admin_name) # Sor végi árva kötőjel törlése
-                    admin_name = re.sub(r'\s+', ' ', admin_name).strip("- ") # Tisztítás
+                    # 4. Sor végi árva kötőjel eltüntetése (Komoróczy-Elek marad, Varga- eltűnik)
+                    admin_name = re.sub(r'\s+-\s*$', '', admin_name)
+                    # 5. Szélek tiszítása a maradék kötőjelektől és szóközöktől
+                    admin_name = re.sub(r'\s+', ' ', admin_name).strip("- ").strip()
 
-                    # --- 2. CÍM TISZTÍTÁSA (Vezetéknév visszanyerése) ---
+                    # --- 2. CÍM TISZTÍTÁSA (Hogy a Biró ne maradjon a címben) ---
                     address = get_col_text((22/88)*W, x40).strip()
                     if admin_name:
                         name_parts = admin_name.split()
@@ -284,7 +293,7 @@ def parse_interfood_pdf(pdf_file):
                         "Rendelés_Full": full_rendeles_text,
                         "temp_id": full_id.split('-')[-1],
                         "Prefix": prefix,
-                        "Csoport": 0  # Itt 0-ra állítottam, hogy ne dobjon hibát
+                        "Csoport": 0 
                     })
     
     if not rows: return [], metadata

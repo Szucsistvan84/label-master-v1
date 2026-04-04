@@ -229,35 +229,48 @@ def parse_interfood_pdf(pdf_file):
                     combined_words = [w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5]
                     combined_text = " ".join([w['text'] for w in sorted(combined_words, key=lambda w: w['x0'])])
 
-                    # --- A SZÉTVÁLASZTÁS MESTERSÉGE (Regex-szel) ---
-                    # Keressük a telefonszámot (pl. 20/1234567)
-                    phone_match = re.search(r'(\d{2}/\d[\d\s,]+\d)', combined_text)
-                    
-                    if phone_match:
-                        phone_val = phone_match.group(1).replace(" ", "").strip(", ")
-                        # A név az, ami a telefonszám ELŐTT van
-                        admin_name = combined_text.split(phone_match.group(1))[0].strip()
-                    else:
-                        phone_val = ""
-                        admin_name = combined_text
+                    # --- INTELLIGENS SZÉTVÁLASZTÁS (Körzetszám-független) ---
+                    # 1. Először mentsük el a teljes szöveget a tisztításhoz
+                    raw_text = combined_text.strip()
 
-                    # --- PÉNZ KERESÉSE ---
-                    # A pénz általában a sáv végén van, vagy a telefonszám után
-                    money_match = re.search(r'(-?\d+)\s*Ft', combined_text)
+                    # 2. PÉNZ KERESÉSE (Hátulról előre)
+                    # Megkeressük a "Ft" végződést és a közvetlenül előtte álló számokat
+                    money_match = re.search(r'(-?\d+)\s*Ft$', raw_text)
+                    
                     if money_match:
                         money_val = money_match.group(0).replace(" ", "")
-                        # Ha a pénz benne maradt a névben, pucoljuk ki
-                        admin_name = admin_name.replace(money_match.group(0), "").strip()
+                        # A maradék szöveg a pénz nélkül (ez tartalmazza a nevet és a telefont)
+                        remaining_text = raw_text[:money_match.start()].strip()
                     else:
-                        # Ha nincs Ft, keressük a "ragadós nullát" a végén
-                        last_number = re.search(r'(\d+)$', combined_text)
-                        if last_number and (not phone_val or last_number.group(1) not in phone_val):
-                            money_val = f"{last_number.group(1)}Ft"
+                        # Ha nincs Ft a végén, nézzük meg, van-e ott egy magányos szám (ragadós nulla)
+                        last_num_match = re.search(r'(\d+)$', raw_text)
+                        if last_num_match:
+                            money_val = f"{last_num_match.group(1)}Ft"
+                            remaining_text = raw_text[:last_num_match.start()].strip()
                         else:
                             money_val = "0Ft"
+                            remaining_text = raw_text
 
-                    # Név végső simítása
-                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name) # Kódok lekaparása
+                    # 3. TELEFON KERESÉSE (A maradék szövegben)
+                    # A telefonszámot a perjel (/) alapján azonosítjuk (lehet 1 vagy 2 jegyű körzet is)
+                    phone_match = re.search(r'(\d{1,2}/\d+)', remaining_text)
+                    
+                    if phone_match:
+                        phone_val = phone_match.group(1).replace(" ", "")
+                        # A név az, ami a telefonszám ELŐTT maradt
+                        admin_name = remaining_text.split(phone_match.group(1))[0].strip()
+                    else:
+                        phone_val = ""
+                        admin_name = remaining_text
+
+                    # --- VÉGSŐ TISZTÍTÁS ---
+                    # Kódok lekaparása (pl. -R4K) és a maradék szemét eltávolítása
+                    admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
+                    
+                    # Ha a telefon véletlenül benne maradt a névben
+                    if phone_val and phone_val in admin_name:
+                        admin_name = admin_name.replace(phone_val, "").strip()
+                    
                     admin_name = admin_name.strip("- /")
 
                     # --- 2. RENDELÉS, CÍM, MEGJEGYZÉS (Változatlan, bevált részek) ---

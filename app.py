@@ -221,7 +221,7 @@ def parse_interfood_pdf(pdf_file):
 
                     # --- HATÁRVONALAK FINOMHANGOLÁSA (x48 -> x47) ---
                     x40 = (40 / 88) * W
-                    x47_34 = (47.33 / 88) * W      # Balra toltuk 1 egységgel, hogy a '20/' kiessen a névből
+                    x47_33 = (47.33 / 88) * W      # Balra toltuk 1 egységgel, hogy a '20/' kiessen a névből
                     x52_5 = (52.5 / 88) * W
 
                     # --- 1. ÜGYINTÉZŐ NEVE (x40 - x47) ---

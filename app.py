@@ -215,75 +215,61 @@ def parse_interfood_pdf(pdf_file):
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- SZIGORÚ SOR-SZŰRŐ (A kép alapján a magasság a legfontosabb) ---
+                    # --- SZIGORÚ SOR-SZŰRŐ (A magasság fixálása) ---
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
-                    row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 7]
+                    row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
 
-                    # Koordináta sávok a kép alapján finomítva
-                    x_cim_vege = (38 / 88) * W
-                    x_nev_vege = (43 / 88) * W
-                    x_rendeles_eleje = (52 / 88) * W  
+                    # --- AZ ÁLTALAD MÉRT PONTOS HATÁRVONALAK ---
+                    x40 = (40 / 88) * W
+                    x48 = (48 / 88) * W
+                    x52_5 = (52.5 / 88) * W
 
-                    # --- 1. ADATOK GYŰJTÉSE A KÖZÉPSŐ SÁVBÓL ---
-                    mid_words = [w for w in row_words if x_cim_vege <= (w['x0'] + w['x1'])/2 < x_rendeles_eleje]
-                    mid_words.sort(key=lambda w: w['x0'])
+                    # --- 1. ÜGYINTÉZŐ NEVE (x40 - x48) ---
+                    name_words = [w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x48]
+                    admin_name = " ".join([w['text'] for w in sorted(name_words, key=lambda w: w['x0'])])
+                    # Csak a technikai szemetet takarítjuk, a '/' maradjon a telefonban!
+                    admin_name = re.sub(r'\d{3,}', '', admin_name).replace("Ft", "").strip("- ")
+
+                    # --- 2. TELEFON ÉS PÉNZ (x48 - x52.5) ---
+                    tel_money_words = [w for w in row_words if x48 <= (w['x0'] + w['x1'])/2 < x52_5]
+                    tel_money_text = " ".join([w['text'] for w in sorted(tel_money_words, key=lambda w: w['x0'])])
                     
-                    full_mid_text = " ".join([w['text'] for w in mid_words])
-                    
-                    # TELEFON: Csak a perjelet tartalmazó részt keressük
-                    phone_match = re.search(r'(\d{2}/\d[\d\s,]+\d)', full_mid_text)
+                    # Telefon kivonása a sávból
+                    phone_match = re.search(r'(\d{2}/\d[\d\s,]+\d)', tel_money_text)
                     phone_val = phone_match.group(1).replace(" ", "").strip(", ") if phone_match else ""
                     
-                    # PÉNZ: Megkeressük a "Ft" előtti számot, és SEMMI MÁST
-                    money_match = re.search(r'(-?\d+)\s*Ft', full_mid_text)
-                    money_val = money_match.group(0).replace(" ", "") if money_match else "0Ft"
+                    # Pénz kivonása a sávból (ami marad a telefon után)
+                    money_match = re.search(r'(-?\d+)\s*Ft', tel_money_text)
+                    if money_match:
+                        money_val = money_match.group(0).replace(" ", "")
+                    else:
+                        # Ha nincs 'Ft', de van ott egy magányos szám (a ragadós nulla)
+                        rem_money = tel_money_text
+                        if phone_match:
+                            rem_money = rem_money.replace(phone_match.group(1), "")
+                        money_digits = re.search(r'(-?\d+)', rem_money)
+                        money_val = f"{money_digits.group(1)}Ft" if money_digits else "0Ft"
 
-                    # NÉV: Ami az x_cim_vege után van, de nem telefon és nem pénz
-                    name_parts = []
-                    for w in mid_words:
-                        t = w['text']
-                        # Ha nem a telefon része, nem a pénz része és nem csak egy magányos '0' a Ft előtt
-                        if phone_val and t.replace(" ", "") in phone_val.replace("/", ""): continue
-                        if money_val and t in money_val: continue
-                        if t == "Ft": continue
-                        # Ha nem kód (ID-szerűség)
-                        if not re.search(r'[A-Z0-9]{2,}-\d', t):
-                            name_parts.append(t)
-                    
-                    admin_name = " ".join(name_parts).strip("- ").strip()
-                    # Tisztítás a biztonság kedvéért
-                    admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "").strip()
-
-                    # --- 2. CÍM ÉS MEGJEGYZÉS (A jól bevált oszlopok) ---
-                    addr_words = [w for w in row_words if (22/88)*W <= (w['x0']+w['x1'])/2 < x_cim_vege]
-                    address = " ".join([w['text'] for w in sorted(addr_words, key=lambda x: x['x0'])]).strip()
-
-                    note_words = [w for w in row_words if (8/88)*W <= (w['x0']+w['x1'])/2 < (22/88)*W]
-                    full_note = " ".join([w['text'] for w in sorted(note_words, key=lambda x: x['x0'])])
-                    full_note = full_note.replace(full_id, "").replace("Dr.", "").strip(" /|")
-
-                    # --- 3. RENDELÉS (Ibolya-biztosítás) ---
-                    order_words = [w for w in row_words if w['x0'] >= x_rendeles_eleje]
+                    # --- 3. RENDELÉS (x52.5 felett) ---
+                    order_words = [w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
                     raw_orders = re.findall(ORDER_PAT, order_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
-                    
+
+                    # --- 4. CÍM ÉS MEGJEGYZÉS (A stabil oszlopok) ---
+                    address = " ".join([w['text'] for w in sorted([w for w in row_words if (22/88)*W <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
+                    note_raw = " ".join([w['text'] for w in sorted([w for w in row_words if (8/88)*W <= (w['x0']+w['x1'])/2 < (22/88)*W], key=lambda x: x['x0'])])
+                    full_note = note_raw.replace(full_id, "").replace("Dr.", "").strip(" /|")
+
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
                     full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
 
                     rows.append({
-                        "ID": full_id,
-                        "Ügyintéző": admin_name,
-                        "Cím": address,
-                        "Telefon": phone_val,
-                        "Pénz": money_val,
-                        "Rendelés": rendeles_str,
-                        "Megjegyzés": full_note,
+                        "ID": full_id, "Ügyintéző": admin_name, "Cím": address, "Telefon": phone_val,
+                        "Pénz": money_val, "Rendelés": rendeles_str, "Megjegyzés": full_note,
                         "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
-                        "Rendelés_Full": full_rendeles_text,
-                        "temp_id": full_id.split('-')[-1],
-                        "Prefix": prefix,
-                        "Csoport": current_group_id if 'current_group_id' in locals() else 0
+                        "Rendelés_Full": full_rendeles_text, "temp_id": full_id.split('-')[-1],
+                        "Prefix": prefix, "Csoport": current_group_id if 'current_group_id' in locals() else 0
                     })
     
     if not rows: return [], metadata

@@ -208,9 +208,9 @@ def parse_interfood_pdf(pdf_file):
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
                     
-                    # --- KOORDINÁTÁK (A te kódodban 'rect' a változó neve!) ---
-                    row_y0 = rect.y0 - 2 
-                    row_y1 = rect.y1 + 14 
+                    # --- KOORDINÁTÁK (Az inst változót használjuk a rect helyett!) ---
+                    row_y0 = inst.y0 - 2 
+                    row_y1 = inst.y1 + 14 
                     
                     x40 = (40 / 88) * W  
                     x52 = (52 / 88) * W  
@@ -235,7 +235,7 @@ def parse_interfood_pdf(pdf_file):
                         # Kivágjuk a konkrét telefonszámot a szövegből
                         admin_name = admin_name.replace(phone_val, "")
                     
-                    # Gyalugép: minden számot, a Ft-ot és a felesleges perjeleket töröljük
+                    # "Gyalugép": minden számot, a Ft-ot és a felesleges perjeleket töröljük
                     admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "").replace("/", "").strip()
                     # Dupla szóközök eltüntetése
                     admin_name = re.sub(r'\s+', ' ', admin_name)
@@ -249,7 +249,6 @@ def parse_interfood_pdf(pdf_file):
                     money_val = money_m.group(1) if money_m else ""
 
                     # --- 3. MEGJEGYZÉS, CÍM, RENDELÉS ---
-                    # A megjegyzést és címet a már meglévő get_col_text-tel is olvashatod
                     x9 = (9 / 88) * W
                     x22 = (22 / 88) * W
                     note_raw = get_col_text(x9, x22).replace(full_id, "").strip()

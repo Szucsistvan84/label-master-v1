@@ -208,55 +208,54 @@ def parse_interfood_pdf(pdf_file):
                     prefix = full_id.split('-')[0]
                     
                     # --- 1. ÜGYINTÉZŐ ÉS TELEFON SZÉTVÁLASZTÁSA ---
-                    # Beolvassuk a név (40) és a teló (51) közötti teljes sávot
+                    # A név a 39.5-nél kezdődik, a teló az 51.5-ig tarthat
                     combined_area = get_col_text(v_lines[3], v_lines[5])
                     
-                    # FRISSÍTETT REGEX: 2 jegy / 6 VAGY 7 jegy (vezetékes és mobil is)
+                    # Keressük a telefonszámot (2 jegy / 6-7 jegy)
                     phone_match = re.search(r'(\d{2}/\d{6,7})', combined_area.replace(" ", ""))
                     
                     if phone_match:
                         phone_val = phone_match.group(1)
-                        # Trükk: A telefonszám első 2 számjegye + a perjel a választóvonal
-                        splitter = phone_val[:3] # pl: "52/" vagy "20/"
+                        # A vágási pont a telefonszám első két számjegye és a perjel
+                        splitter = phone_val[:3] # pl. "52/" vagy "20/"
+                        
                         if splitter in combined_area:
                             admin_name = combined_area.split(splitter)[0].strip()
                         else:
-                            # Ha a szóközök miatt nem találja, megpróbáljuk szóközök nélkül
-                            temp_combined = combined_area.replace(" ", "")
-                            if splitter in temp_combined:
-                                # Ez egy biztonsági mentés, ha nagyon összeérnének
-                                admin_name = combined_area[:combined_area.find(phone_val[:2])].strip()
-                            else:
-                                admin_name = combined_area.strip()
+                            # Ha a szóközök miatt nem jönne össze a split
+                            # Keressük meg hol kezdődik a telefonszám számsora
+                            start_idx = combined_area.find(phone_val[:2])
+                            admin_name = combined_area[:start_idx].strip() if start_idx > 0 else combined_area.strip()
                     else:
                         phone_val = ""
-                        admin_name = combined_area.strip()
+                        # Ha nincs telefonszám, akkor a teljes sáv az ügyintéző
+                        admin_name = get_col_text(v_lines[3], v_lines[4]).strip()
 
-                    # --- 2. PÉNZ (Ezt nem bántjuk, marad a jól bevált logikád) ---
-                    # Csak a biztonság kedvéért: a phone_val-t továbbra is kivesszük belőle
-                    tel_penz_raw = get_col_text(v_lines[4], v_lines[5]).replace(" ", "")
-                    money_only_raw = tel_penz_raw
-                    if phone_val:
-                        money_only_raw = tel_penz_raw.replace(phone_val, "")
+                    # --- 2. MEGJEGYZÉS TISZTÍTÁSA (A legfontosabb rész!) ---
+                    # Itt csúszott el: a bal oldali sávból (v_lines[1] - v_lines[2]) 
+                    # KI KELL TÖRÖLNI az admin nevet, ha benne van
+                    note_raw = get_col_text(v_lines[1], v_lines[2]).replace(full_id, "").strip()
                     
-                    money_m = re.search(MONEY_PAT, money_only_raw)
-                    if not money_m:
-                        money_m = re.search(r'(-?\d+[\d\s]*Ft)', get_col_text(v_lines[4], v_lines[5]))
-                    money_val = money_m.group(1).strip() if money_m else ""
-
-                    # --- 3. MEGJEGYZÉS TISZTÍTÁSA ---
-                    # Itt visszahozzuk a "szobrászatot", de óvatosan
-                    note_l = get_col_text(v_lines[1], v_lines[2]).replace(full_id, "").strip()
-                    
-                    # Ha az admin neve véletlenül benne maradt a megjegyzésben, töröljük
-                    full_note = note_l
-                    if admin_name and len(admin_name) > 2:
+                    # Szobrászat: töröljük a nevet a megjegyzésből, hogy ne duplikálódjon
+                    full_note = note_raw
+                    if admin_name and len(admin_name) > 3:
                         full_note = full_note.replace(admin_name, "").strip()
                     
-                    # Dr. és egyéb sallangok törlése, perjelek cseréje
+                    # Dr. és egyéb sallangok, perjelek cseréje
                     full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
+                    # Dupla szóközök és felesleges | jelek takarítása
+                    full_note = re.sub(r'\s+', ' ', full_note)
+                    full_note = full_note.replace("| |", "|").strip(" | ")
 
-                    # --- 4. RENDELÉS ÉS EGYEBEK ---
+                    # --- 3. PÉNZ ÉS RENDELÉS (Ami már jó volt) ---
+                    # Pénz beolvasása a jól bevált módon
+                    money_raw = get_col_text(v_lines[4], v_lines[5]).replace(" ", "")
+                    if phone_val:
+                        money_raw = money_raw.replace(phone_val.replace("/",""), "").replace(phone_val, "")
+                    
+                    money_m = re.search(r'(-?\d+Ft)', money_raw)
+                    money_val = money_m.group(1) if money_m else ""
+
                     order_raw = get_col_text(v_lines[5], v_lines[6])
                     raw_orders = re.findall(ORDER_PAT, order_raw)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])

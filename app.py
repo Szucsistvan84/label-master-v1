@@ -203,22 +203,25 @@ def parse_interfood_pdf(pdf_file):
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
                 id_match = re.search(r'([HKSCPZ]-\d{5,7})', full_id_area)
                 
-                # --- 0. TELJES SOR SZŰRÉSE (STOP-ZÓNA) ---
-                line_text_full = " ".join([w['text'] for w in line_words])
-                stop_szavak = ["Összesítés:", "Csilagozott", "Összesen:"]
-                if any(stop in line_text_full for stop in stop_szavak):
-                    continue
-
                 if id_match:
                     full_id = id_match.group(1)
+                    
+                    # --- 0. GOLYÓÁLLÓ STOP-PAJZS ---
+                    # Csak akkor dobjuk ki, ha az ID maga egy STOP-szó (ami lehetetlen)
+                    # vagy ha a sor eleje gyanús. De Ibolyának van rendes C- kódja, 
+                    # így ő most már érinthetetlen!
+                    line_text_full = " ".join([w['text'] for w in line_words])
+                    if "Összesítés:" in line_text_full and not full_id.startswith(('C-', 'P-', 'K-')):
+                        continue
+
                     prefix = full_id.split('-')[0]
                     
-                    # Sor magasságának meghatározása (fontos a rendelés megállításához!)
+                    # Sor magasságának rögzítése a pontos rendelés-olvasáshoz
                     y_top = min(w['top'] for w in line_words) - 1
                     y_bottom = max(w['bottom'] for w in line_words) + 1
 
                     # --- KOORDINÁTÁK ---
-                    x38 = (38 / 88) * W
+                    x38 = (38 / 88) * W  
                     x40 = (40 / 88) * W
                     x52 = (52 / 88) * W  
 
@@ -227,13 +230,13 @@ def parse_interfood_pdf(pdf_file):
                     col_words.sort(key=lambda w: w['x0'])
                     raw_combined = " ".join([w['text'] for w in col_words])
                     
-                    phone_match = re.search(r'(\d{2}/\d{6,7})', raw_combined.replace(" ", ""))
-                    phone_val = phone_match.group(1) if phone_match else ""
+                    phone_match = re.search(r'(\d{2}/[\d\s,]+)', raw_combined)
+                    phone_val = phone_match.group(1).replace(" ", "") if phone_match else ""
                     
                     admin_name = raw_combined
                     if phone_val: admin_name = admin_name.replace(phone_val, "")
                     
-                    # Tisztítás (Varga Ibolya kódjai mennek, Komoróczy-Elek marad)
+                    # Tisztítás: Komoróczy-Elek marad, a -UK, -BK, -V kódok mennek
                     admin_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', admin_name)
                     admin_name = re.sub(r'\d+', '', admin_name).replace("Ft", "")
                     admin_name = admin_name.replace("/", "").replace(",", " ").strip()
@@ -249,7 +252,6 @@ def parse_interfood_pdf(pdf_file):
 
                     # --- 3. PÉNZ ---
                     money_raw = raw_combined.replace(" ", "")
-                    if phone_val: money_raw = money_raw.replace(phone_val, "")
                     money_m = re.search(r'(-?\d+Ft)', money_raw)
                     money_val = money_m.group(1) if money_m else "0Ft"
 
@@ -262,9 +264,8 @@ def parse_interfood_pdf(pdf_file):
                             if len(part) > 2: full_note = full_note.replace(part, "")
                     full_note = full_note.replace("Dr.", "").replace("/", " | ").strip(" | ")
 
-                    # --- 5. RENDELÉS (SZIGORÚ HATÁROKKAL) ---
-                    # Csak azokat a szavakat nézzük, amik az 52-es x koordináta után vannak 
-                    # ÉS a sor y_top / y_bottom magasságán belül!
+                    # --- 5. RENDELÉS (Csak az aktuális sorban!) ---
+                    # Itt akadályozzuk meg, hogy Ibolya berántsa a lap alját
                     order_words = [w for w in line_words if w['x0'] >= x52]
                     order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
                     

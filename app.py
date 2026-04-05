@@ -501,13 +501,18 @@ def parse_interfood_pdf(pdf_file):
                     # Ezek a PDF aljáról szöknek be, nincs helyük a megjegyzésben
                     full_note = re.sub(r'(Összesítés:|Csillagozott|Összesen:).*', '', full_note, flags=re.IGNORECASE)
 
-                    # B) MAGÁNYOS ELŐHÍVÓK (20, 30, 70, 06) ÉS SZÁMOK RADÍROZÁSA
-                    # 1. Ha két pipeline között van (pl. "| 20 |") -> Eltüntetjük a számot és az egyik pipeline-t
-                    full_note = re.sub(r'\|\s*(20|30|70|06)\s*(?=\|)', '', full_note)
-                    # 2. Ha a sor végén vagy elején maradt pipeline-al
+                    # B) MAGÁNYOS ELŐHÍVÓK ÉS SZÁMOK (ERZSÉBET-BIZTOS VERZIÓ)
+                    # 1. Ha két pipeline között csak egy szám van (pl. "| 20 |") -> egyetlen pipeline-ra cseréljük
+                    full_note = re.sub(r'\|\s*(20|30|70|06)\s*\|', '|', full_note)
+                    
+                    # 2. Ha a szám előtt/után pipeline van, de a sor szélén (pl. "Erzsébet | 20")
                     full_note = re.sub(r'\|\s*(20|30|70|06)\s*$', '', full_note)
                     full_note = re.sub(r'^\s*(20|30|70|06)\s*\|', '', full_note)
-                    # 3. Ha bárhol máshol magányosan áll (telefonvédelemmel: csak ha nincs utána / vagy több szám)
+                    
+                    # 3. Biztonsági tartalék: ha a tisztítás után maradt " | | " (dupla elválasztó)
+                    full_note = full_note.replace("|  |", "|").replace("| |", "|")
+
+                    # 4. Magányos számok bárhol (telefonvédelemmel: csak ha nincs utána / vagy több szám)
                     full_note = re.sub(r'\b(20|30|70|06)\b(?!\s*/|\s*\d)', '', full_note)
 
                     # C) NÉV-DUPLIKÁCIÓ ELLENI VÉDELEM (Globiz-effektus)

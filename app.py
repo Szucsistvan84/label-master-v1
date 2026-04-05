@@ -973,27 +973,29 @@ def create_manifest_pdf(df, c_n, meta):
     buffer.seek(0)
     return buffer
     
-def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dict
+def create_raklista_pdf(df, jarat_info, meta_dict):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=7 * mm, bottomMargin=12 * mm, leftMargin=8 * mm, rightMargin=8 * mm)
     etlap = st.session_state.get('etlap', {})
 
-    # --- JAVÍTOTT ADATLEKÉRÉS AZ ÚJ DICT-BŐL ---
     ev = meta_dict.get('ev', '')
     het = meta_dict.get('het', '')
     napok = meta_dict.get('nap', '') 
     
     dates_str = f"{ev}. {het}. hét ({napok})"
-    # -----------------------------------------
 
-    # ... (beolvasás és alapok után)
+    # --- 1. NAPOK FORDÍTÁSA (ÚJ RÉSZ) ---
+    nap_nevek = {
+        "H": "Hétfő", "K": "Kedd", "S": "Szerda", 
+        "C": "Csütörtök", "P": "Péntek", "Z": "Szombat"
+    }
+
     counts = {}
     for _, r in df.iterrows():
         order_str = str(r.get('Rendelés_Full', ''))
         day_parts = order_str.split('|')
         for part in day_parts:
-            # ÚJ, BŐVÍTETT PREFIX KERESÉS (H, K, S, C, P, Z)
             prefix = ""
             if "Hé:" in part: prefix = "H"
             elif "Ke:" in part: prefix = "K"
@@ -1004,15 +1006,13 @@ def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dic
             
             if not prefix: continue
             
-            # Kódok kinyerése (kezeli a kötőjelet és a speciális karaktereket is)
             found = re.findall(r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z0-9*+]+)', part)
             for qty, code in found:
                 full_key = f"{prefix}_{code.strip().upper()}"
                 counts[full_key] = counts.get(full_key, 0) + int(qty)
 
-    # 2. Stílusok finomhangolása
+    # Stílusok
     header_style = ParagraphStyle('H', fontName=f_bold, fontSize=8, alignment=1)
-    # Nagyon szűk sorköz (leading), hogy több férjen el
     normal_row_style = ParagraphStyle('NR', fontName=f_reg, fontSize=6.5, leading=7.5)
     star_row_style = ParagraphStyle('SR', fontName=f_bold, fontSize=6.5, leading=7.5)
 
@@ -1028,55 +1028,52 @@ def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dic
 
     total_qty = 0
     total_money = 0
-    processed_full_keys = set()
 
-    # 3. Táblázat feltöltése
-    for etlap_key in etlap.keys():
-        for suffix in ["", "*"]:
-            current_lookup = f"{etlap_key}{suffix}"
-            if current_lookup in counts:
-                info = etlap[etlap_key]
-                db = counts[current_lookup]
-                ar = info.get('ar', 0)
-                subtotal = db * ar
-                is_starred = "*" in current_lookup
+    # --- 2. TÁBLÁZAT FELTÖLTÉSE (JAVÍTOTT LOGIKA) ---
+    # Nem az etlap-on megyünk végig, hanem azon, amit a PDF-ben találtunk (counts)
+    for full_key in sorted(counts.keys()):
+        db = counts[full_key]
+        prefix = full_key.split('_')[0]
+        code_label = full_key.split('_')[1]
+        
+        # Itt dől el a nap neve!
+        day_short = nap_nevek.get(prefix, prefix)
+        
+        info = etlap.get(full_key, {})
+        ar = info.get('ar', 0)
+        nev = info.get('nev', '---')
+        subtotal = db * ar
+        
+        # Csillagos tétel?
+        is_starred = "*" in code_label
+        current_font = f_bold if is_starred else f_reg
+        current_p_style = star_row_style if is_starred else normal_row_style
 
-                current_font = f_bold if is_starred else f_reg
-                current_p_style = star_row_style if is_starred else normal_row_style
+        data.append([
+            Paragraph(day_short, ParagraphStyle('D', fontName=current_font, fontSize=5.5, alignment=1)),
+            Paragraph(code_label, ParagraphStyle('K', fontName=current_font, fontSize=7.5, alignment=1)),
+            Paragraph(f"{db} db", ParagraphStyle('Q', fontName=current_font, fontSize=7.5, alignment=1)),
+            Paragraph("[  ]", ParagraphStyle('CB', fontName=f_reg, fontSize=8, alignment=1)),
+            Paragraph(nev, current_p_style),
+            Paragraph(f"{ar} Ft", ParagraphStyle('A', fontName=current_font, fontSize=7, alignment=2)),
+            Paragraph(f"{subtotal} Ft", ParagraphStyle('S', fontName=current_font, fontSize=7, alignment=2))
+        ])
+        total_qty += db
+        total_money += subtotal
 
-                day_short = "Péntek" if current_lookup.startswith("P") else "Szombat"
-                code_label = current_lookup.split('_')[1]
-
-                data.append([
-                    Paragraph(day_short, ParagraphStyle('D', fontName=current_font, fontSize=5.5, alignment=1)),
-                    Paragraph(code_label, ParagraphStyle('K', fontName=current_font, fontSize=7.5, alignment=1)),
-                    Paragraph(f"{db} db", ParagraphStyle('Q', fontName=current_font, fontSize=7.5, alignment=1)),
-                    Paragraph("[  ]", ParagraphStyle('CB', fontName=f_reg, fontSize=8, alignment=1)),
-                    # Középre zárt checkbox
-                    Paragraph(info.get('nev', '---'), current_p_style),
-                    Paragraph(f"{ar} Ft", ParagraphStyle('A', fontName=current_font, fontSize=7, alignment=2)),
-                    Paragraph(f"{subtotal} Ft", ParagraphStyle('S', fontName=current_font, fontSize=7, alignment=2))
-                ])
-                total_qty += db
-                total_money += subtotal
-                processed_full_keys.add(current_lookup)
-
-    # Oszlopszélességek (Összesen: 194mm)
+    # --- INNENTŐL A TÖBBI RÉSZ (Táblázat stílus, Összesítő) MARADHAT ---
     col_widths = [12 * mm, 15 * mm, 12 * mm, 8 * mm, 105 * mm, 18 * mm, 24 * mm]
-
     t = Table(data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle([
         ('GRID', (0, 0), (-1, -1), 0.1, colors.black),
         ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        # Minimális belső margók (Padding) a sűrűségért
         ('TOPPADDING', (0, 0), (-1, -1), 1),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
         ('LEFTPADDING', (0, 0), (-1, -1), 2),
         ('RIGHTPADDING', (0, 0), (-1, -1), 2),
     ]))
 
-    # 4. Összesítő rész (Kompakt)
     jutalek = int(total_money * 0.13)
     summary_data = [
         ["", "", "", "", "ÖSSZESEN:", f"{total_qty} db", f"{total_money} Ft"],
@@ -1093,7 +1090,6 @@ def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dic
         ('LINEABOVE', (4, 0), (-1, 0), 0.5, colors.black),
     ]))
 
-    # Oldalszámozás
     def footer(canvas, doc):
         canvas.saveState()
         canvas.setFont(f_reg, 7)

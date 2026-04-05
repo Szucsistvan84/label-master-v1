@@ -980,7 +980,7 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     
     dates_str = f"{ev}. {het}. hét ({napok})"
 
-    # --- 1. NAPOK FORDÍTÁSA (ÚJ RÉSZ) ---
+    # --- 1. NAPOK ÖSSZESÍTÉSE (JAVÍTOTT PREFIXEK) ---
     nap_nevek = {
         "H": "Hétfő", "K": "Kedd", "S": "Szerda", 
         "C": "Csütörtök", "P": "Péntek", "Z": "Szombat"
@@ -989,23 +989,28 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     counts = {}
     for _, r in df.iterrows():
         order_str = str(r.get('Rendelés_Full', ''))
+        # A Rendelés_Full formátuma pl: "Csü: 1-A, 2-B | Pé: 1-C"
         day_parts = order_str.split('|')
         for part in day_parts:
             prefix = ""
+            # Itt szinkronizáljuk a betűket az Excel beolvasóval (prefix_map)
             if "Hé:" in part: prefix = "H"
             elif "Ke:" in part: prefix = "K"
             elif "Sze:" in part: prefix = "S"
-            elif "Csü:" in part: prefix = "C"
+            elif "Csü:" in part: prefix = "C"  # <-- Ez lesz a "C_A" kulcs alapja
             elif "Pé:" in part: prefix = "P"
             elif "Szo:" in part: prefix = "Z"
             
             if not prefix: continue
             
+            # Megkeressük a darabszámot és a kódot (pl: 8-A)
             found = re.findall(r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z0-9*+]+)', part)
             for qty, code in found:
+                # Nagyon fontos: a full_key formátuma egyezzen az étlapéval!
+                # Ha az étlapban "C_A" van, akkor itt is "C_A" kell legyen.
                 full_key = f"{prefix}_{code.strip().upper()}"
                 counts[full_key] = counts.get(full_key, 0) + int(qty)
-
+                
     # Stílusok
     header_style = ParagraphStyle('H', fontName=f_bold, fontSize=8, alignment=1)
     normal_row_style = ParagraphStyle('NR', fontName=f_reg, fontSize=6.5, leading=7.5)

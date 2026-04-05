@@ -495,7 +495,24 @@ def parse_interfood_pdf(pdf_file):
                     
                     full_note = " | ".join(final_note_parts)
                     
-                    # 6. Utolsó kozmetika
+                    # --- 6. UTOLSÓ FINOMHANGOLÁS ÉS KOZMETIKA ---
+                    
+                    # A) Magányos előhívók (30, 70, 06 stb.) eltávolítása, ha csak szóköz vagy pipeline van körülöttük
+                    # 1. Ha a sor végén van egy pipeline és egy szám (pl. "Járási | 30")
+                    full_note = re.sub(r'\|\s*(20|30|70|06|20|70)\s*$', '', full_note)
+                    # 2. Ha a sor elején van egy szám és egy pipeline (pl. "30 | teherporta")
+                    full_note = re.sub(r'^\s*(20|30|70|06)\s*\|', '', full_note)
+                    # 3. Ha önállóan áll, és nem követi perjel vagy több számjegy (telefonvédelem)
+                    full_note = re.sub(r'\b(20|30|70|06)\b(?!\s*/|\s*\d)', '', full_note)
+
+                    # B) Vesszőhegyek és írásjel-halmozódások (Kenézy-effektus)
+                    # Minden olyan részt, ahol vesszők és szóközök váltják egymást legalább 2-szer, egy szóközre cserélünk
+                    full_note = re.sub(r'([ ,]*[,][ ,]*){2,}', ' ', full_note)
+
+                    # C) Dupla pipeline-ok (||) és felesleges elválasztók takarítása
+                    full_note = re.sub(r'\|\s*\|', '|', full_note)
+                    
+                    # D) Végső szóköz- és szélső karakter takarítás
                     full_note = re.sub(r'\s+', ' ', full_note).strip(" ,.-/|*")
                     
                     # Rendelés szöveges formázása a CSV-hez

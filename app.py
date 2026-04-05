@@ -334,46 +334,48 @@ def parse_interfood_pdf(pdf_file):
                         address = " ".join(address_parts).strip(" ,.-/|")
 
                     # --- 5. MEGJEGYZÉS: A "HÚSDARÁLÓ" LOGIKA (Full Copy - Kivonás) ---
-                    # 1. Kinyerjük a sor összes szövegét, függetlenül a sávoktól
+                    # Előbb definiáljuk a sorszámot a kivonáshoz (ha az anchor-ból jön)
+                    current_row_idx = anchor.get('text', '') if anchor else ''
+
+                    # 1. Kinyerjük a sor összes szövegét
                     full_row_text = " ".join([w['text'] for w in sorted(row_words, key=lambda x: x['x0'])])
                     
-                    # 2. Elkezdjük lecsupaszítani a már ismert adatainkkal
+                    # 2. Elkezdjük lecsupaszítani
                     clean_megj = full_row_text
                     
-                    # A) Alapadatok kivonása (Sorszám, ID, Telefon, Pénz)
-                    if row_idx_str: clean_megj = clean_megj.replace(row_idx_str, "", 1)
-                    if full_id: clean_megj = clean_megj.replace(full_id, "", 1)
-                    if phone: clean_megj = clean_megj.replace(phone, "")
-                    if money: clean_megj = clean_megj.replace(money, "")
+                    # A) Alapadatok kivonása
+                    if current_row_idx: 
+                        clean_megj = clean_megj.replace(current_row_idx, "", 1)
+                    if full_id: 
+                        clean_megj = clean_megj.replace(full_id, "", 1)
+                    if phone: 
+                        clean_megj = clean_megj.replace(phone, "")
+                    if money: 
+                        clean_megj = clean_megj.replace(money, "")
                     
-                    # B) Ügyintéző nevének kivonása (darabokra bontva, hogy a töredékeket is vigye)
+                    # B) Ügyintéző nevének kivonása (darabokban)
                     if admin_name:
-                        # Az admin nevet szavakra bontjuk, és csak a 2 karakternél hosszabbakat vesszük ki (hogy a 'dr' ne vigye el a címet véletlenül)
                         name_fragments = [n.strip(" ,.|/-") for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
                         for fragment in name_fragments:
-                            # Szóhatárok figyelembevételével töröljük a nevet
                             clean_megj = re.sub(rf'\b{re.escape(fragment)}\b', '', clean_megj, flags=re.IGNORECASE)
 
                     # C) Cím kivonása
                     if address:
                         clean_megj = clean_megj.replace(address, "")
 
-                    # D) Rendelés kódok kivonása (Regex-szel az összes előfordulást)
-                    # Ez leszedi a 1-R4, 2-A típusú kódokat
+                    # D) Rendelés kódok kivonása
                     clean_megj = re.sub(r'\d+\s*[-\u2013\u2014\u2212]\s*[A-Z][A-Z0-9*+]*', '', clean_megj)
 
-                    # E) Maradék technikai sallangok (Sor végi összesítő szám, kategóriák)
-                    clean_megj = re.sub(r'\s\d+$', '', clean_megj.strip()) # Sor végi magányos szám
-                    for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "össz", "adag", "db"]:
+                    # E) Technikai sallangok
+                    clean_megj = re.sub(r'\s\d+$', '', clean_megj.strip()) 
+                    for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "össz", "adag", "db", "Ft"]:
                         clean_megj = re.sub(rf'\b{junk}\b', '', clean_megj, flags=re.IGNORECASE)
 
-                    # 3. UTOLSÓ SIMÍTÁSOK (Tisztítás a perjelektől és dupla szóközöktől)
+                    # 3. UTOLSÓ SIMÍTÁSOK
                     clean_megj = clean_megj.replace("|", " ")
-                    # Minden felesleges írásjelet és szóköz-halmozódást eltüntetünk
                     clean_megj = re.sub(r'\s+', ' ', clean_megj)
                     clean_megj = clean_megj.strip(" ,.-/|*")
 
-                    # Ez a végeredmény, amit az exportba teszünk
                     clean_megjegyzese = clean_megj
                     
                     # --- ITT VOLT A HIBA: A customer_block helyett a tiszta V16-os szöveget használjuk ---

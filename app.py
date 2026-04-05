@@ -306,36 +306,53 @@ def parse_interfood_pdf(pdf_file):
                     admin_name = " ".join(final_parts).strip(" -/|.,*")
                     admin_name = " ".join(admin_name.split())
 
-                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (STRUKTURÁLT JAVÍTÁS) ---
+                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (A "SZUPER-FOLYOSÓ" LOGIKA) ---
                     
-                    # 1. Minden szót begyűjtünk a jobb oldali sávból
-                    order_words = sorted([w for w in line_words if (w['x0'] + w['x1'])/2 >= x52_5], key=lambda x: (x['top'], x['x0']))
+                    # A 88-as skálád alapján számolt tűpontos határok
+                    # 65% (57.2 kocka) - 91% (80 kocka)
+                    x_start_limit = width * 0.65  
+                    x_end_limit = width * 0.91    
+
+                    # 1. KIVÁGÁS: Csak a folyosó szavait gyűjtjük össze, sorrendben
+                    folyoso_words = sorted([
+                        w for w in line_words 
+                        if (w['x0'] + w['x1'])/2 >= x_start_limit and (w['x0'] + w['x1'])/2 <= x_end_limit
+                    ], key=lambda x: (x['top'], x['x0']))
                     
-                    # 2. Speciális összefűzés: Ha egy szó "-" jelre végződik, NE tegyünk utána szóközt!
-                    full_right_text = ""
-                    for i, w in enumerate(order_words):
-                        text = w['text']
-                        full_right_text += text
-                        # Csak akkor teszünk szóközt, ha nem kötőjellel végződik a szó
-                        if not text.endswith(('-', '\u2013', '\u2014', '\u2212')):
-                            if i < len(order_words) - 1:
-                                full_right_text += " "
+                    # 2. TISZTÍTÁS: Kidobjuk a zavaró szövegeket (pl. "gimnázium") a folyosóból
+                    # Csak azt tartjuk meg, ami kód-alkatrész: szám, kötőjel, kód-karakter, csillag
+                    tiszta_elemek = []
+                    for w in folyoso_words:
+                        txt = w['text'].strip()
+                        # Ha van benne szám, kötőjel vagy nagybetűs kód/csillag, akkor kell nekünk
+                        if re.search(r'[\d\-\u2013\u2014\u2212A-Z\*]', txt):
+                            tiszta_elemek.append(txt)
 
-                    # 3. Biztonsági "tapadás": Ha mégis maradt volna szóköz a kötőjel után (pl. "1 - D14")
-                    full_right_text = re.sub(r'(\d+)\s*([-\u2013\u2014\u2212])\s+', r'\1\2', full_right_text)
+                    # 3. LEGO-RAGASZTÓ: Összefűzzük és összehúzzuk a szétesett darabokat
+                    raw_folyoso_text = " ".join(tiszta_elemek)
+                    # Eltüntetjük a szóközöket a kötőjelek körül (pl. "1 - D14" -> "1-D14")
+                    # Ez a sor oldja meg a szerdai és csütörtöki hibát is egyszerre!
+                    fixed_text = re.sub(r'(\d+)\s*([-\u2013\u2014\u2212])\s*', r'\1\2', raw_folyoso_text)
 
-                    # 4. KERESÉS: Most már az eredeti, precíz ORDER_PAT keres
-                    raw_orders = re.findall(ORDER_PAT, full_right_text)
+                    # 4. RENDELÉS KINYERÉSE: Most már a tiszta szövegen fut a regex
+                    raw_orders = re.findall(ORDER_PAT, fixed_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     
-                    # 5. MEGJEGYZÉS: Töröljük a felismert rendeléseket a szövegből
-                    clean_comment = full_right_text
-                    for q, c in raw_orders:
-                        # Ez pontosan a q-c párost veszi ki
-                        pattern_to_remove = rf'{q}[-\u2013\u2014\u2212]{re.escape(c)}'
-                        clean_comment = re.sub(pattern_to_remove, '', clean_comment, count=1)
+                    # 5. MEGJEGYZÉS: A teljes sorból kivonjuk a már megtalált rendeléseket
+                    # Így a megjegyzésben megmarad minden, ami a folyosón kívül volt (vagy amit kidobtunk)
+                    full_line_text = " ".join([w['text'] for w in sorted(line_words, key=lambda x: x['x0'])])
+                    clean_comment = full_line_text
                     
-                    # Végső takarítás
+                    for q, c in raw_orders:
+                        # Olyan mintát keresünk, ami rugalmas a szóközökre a törlésnél
+                        p = rf'{q}\s*[-\u2013\u2014\u2212]\s*{re.escape(c)}'
+                        clean_comment = re.sub(p, '', clean_comment, count=1)
+                    
+                    # Utolsó simítás: Telefonszám, pénz és ID eltávolítása a megjegyzésből
+                    clean_comment = re.sub(PHONE_PAT, '', clean_comment)
+                    clean_comment = re.sub(MONEY_PAT, '', clean_comment)
+                    clean_comment = re.sub(r'^[S|C|P]-\d+\s+', '', clean_comment)
+                    
                     megjegyzes = clean_comment.strip(", ").strip()
                     megjegyzes = re.sub(r'\s+', ' ', megjegyzes).strip()
 

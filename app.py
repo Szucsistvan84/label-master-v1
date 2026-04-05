@@ -351,12 +351,11 @@ def parse_interfood_pdf(pdf_file):
                         money = m_match.group(1)
 
                     # --- 2. HÚSDARÁLÓ LOGIKA: A TELJES SOR BEOLVASÁSA ---
-                    # Itt vesszük a "Full Copy"-t, amit kértél
+                    # Itt vesszük a "Full Copy"-t
                     full_row_text = " ".join([w['text'] for w in sorted(row_words, key=lambda x: x['x0'])])
                     clean_megj = full_row_text
 
                     # --- 3. NEGATÍV TAKARÍTÁS (Kivonjuk, amit már tudunk) ---
-                    
                     # Sorszám és ID kivonása
                     current_row_idx = anchor.get('text', '') if anchor else ''
                     if current_row_idx: 
@@ -370,7 +369,7 @@ def parse_interfood_pdf(pdf_file):
                     if money: 
                         clean_megj = clean_megj.replace(money, "")
                     
-                    # Ügyintéző nevének kivonása (szavanként, hogy alapos legyen)
+                    # Ügyintéző nevének kivonása (szavanként)
                     if admin_name:
                         name_fragments = [n.strip(" ,.|/-") for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
                         for fragment in name_fragments:
@@ -380,9 +379,9 @@ def parse_interfood_pdf(pdf_file):
                     if address:
                         clean_megj = clean_megj.replace(address, "")
 
-                    # Rendelés kódok és technikai sallangok (Regex)
+                    # Rendelés kódok és technikai sallangok
                     clean_megj = re.sub(r'\d+\s*[-\u2013\u2014\u2212]\s*[A-Z][A-Z0-9*+]*', '', clean_megj)
-                    clean_megj = re.sub(r'\s\d+$', '', clean_megj.strip()) # Sor végi magányos szám
+                    clean_megj = re.sub(r'\s\d+$', '', clean_megj.strip()) 
                     
                     # Fix "szemét" szavak törlése
                     for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "össz", "adag", "db", "Ft"]:

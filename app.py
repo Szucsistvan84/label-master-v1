@@ -495,46 +495,46 @@ def parse_interfood_pdf(pdf_file):
                     
                     full_note = " | ".join(final_note_parts)
                     
-                    # --- 6. UTOLSÓ FINOMHANGOLÁS ÉS KOZMETIKA (VÉGLEGES) ---
+                    # --- 6. UTOLSÓ FINOMHANGOLÁS (DRASZTIKUS & VÉGLEGES) ---
                     
-                    # A) OPTIPONT ÉS ÖSSZESÍTŐ SOROK TÖRLÉSE
-                    # Ezek a PDF aljáról szöknek be, nincs helyük a megjegyzésben
+                    # 1. OPTIPONT ÉS ÖSSZESÍTŐK AZONNALI TÖRLÉSE
                     full_note = re.sub(r'(Összesítés:|Csillagozott|Összesen:).*', '', full_note, flags=re.IGNORECASE)
 
-                    # B) MAGÁNYOS ELŐHÍVÓK ÉS SZÁMOK - ATOMBIZTOS VERZIÓ
-                    # 1. Konkrét szövegcsere a leggyakoribb hibákra (nem regex, sima replace)
-                    full_note = full_note.replace("| 20 |", "|")
-                    full_note = full_note.replace("| 30 |", "|")
-                    full_note = full_note.replace("| 70 |", "|")
-                    full_note = full_note.replace("| 06 |", "|")
+                    # 2. MAGÁNYOS ELŐHÍVÓK IRTÁSA (Minden formátumban: "| 20 |", "|20|", " 20 ", etc.)
+                    # Előbb a fix elválasztós formák
+                    for num in ["20", "30", "70", "06"]:
+                        full_note = full_note.replace(f"| {num} |", "|")
+                        full_note = full_note.replace(f"|{num}|", "|")
+                        full_note = full_note.replace(f"| {num}", "|")
+                        full_note = full_note.replace(f"{num} |", "|")
                     
-                    # 2. Szélek takarítása (ha a végén vagy elején maradt volna)
-                    full_note = re.sub(r'\|\s*(20|30|70|06)\s*$', '', full_note)
-                    full_note = re.sub(r'^\s*(20|30|70|06)\s*\|', '', full_note)
-                    
-                    # 3. Maradék magányos előhívók törlése (telefonvédelemmel)
-                    # Itt most a szóközökre is rálövünk a számok körül
-                    full_note = re.sub(r'\s\b(20|30|70|06)\b(?!\s*/|\s*\d)', '', full_note)
+                    # Aztán a magányos számok bárhol (KIVÉVE ha telefon/kapukód: 30/ vagy 14#)
+                    # Olyan szám, ami előtt szóköz vagy sorkezdet van, és nem követi perjel vagy szám
+                    full_note = re.sub(r'(?<=^|\s)(20|30|70|06)(?!\S)', '', full_note)
 
-                    # C) NÉV-DUPLIKÁCIÓ ELLENI VÉDELEM (Globiz-effektus)
+                    # 3. NÉV-DUPLIKÁCIÓ (Globiz)
                     if "|" in full_note:
-                        note_parts = [p.strip() for p in full_note.split("|")]
-                        if len(note_parts) > 1 and note_parts[1].lower().startswith(note_parts[0].lower()):
-                            note_parts[1] = note_parts[1][len(note_parts[0]):].strip()
-                        full_note = " | ".join(dict.fromkeys([p for p in note_parts if p]))
+                        parts = [p.strip() for p in full_note.split("|")]
+                        if len(parts) > 1 and parts[1].lower().startswith(parts[0].lower()):
+                            parts[1] = parts[1][len(parts[0]):].strip()
+                        full_note = " | ".join(dict.fromkeys([p for p in parts if p]))
 
-                    # D) ÁRVA ÍRÁSJELEK ÉS VESSZŐHEGYEK (Kenézy és Imréné-effektus)
-                    # 1. Pipeline melletti árva vesszők (pl. "| , " vagy " , |") törlése
+                    # 4. ÍRÁSJEL-HALMOZÓDÁS (Kenézy és Imréné-vesszők)
+                    # Mindent, ami nem betű/szám és ismétlődik, egy szóközre cserélünk
+                    # De a # és / jeleket (kapukód/telefon) megvédjük!
+                    full_note = re.sub(r'[ ,.;:*]{2,}', ' ', full_note)
+                    # Pipeline melletti árva vesszők
                     full_note = re.sub(r'\|\s*[,. ]+', '| ', full_note)
                     full_note = re.sub(r'[,. ]+\s*\|', ' |', full_note)
-                    # 2. Halmozott vesszők/pontok/szóközök kigyomlálása egy szóközre
-                    full_note = re.sub(r'([ ,.]*[,.][ ,.]*){2,}', ' ', full_note)
 
-                    # E) VÉGSŐ FORMÁZÁS ÉS TISZTÍTÁS
-                    # Dupla pipeline-ok (||) felszámolása szimplára
-                    full_note = re.sub(r'\|\s*\|', '|', full_note)
-                    # Dupla szóközök és a széleken maradt szemét (vessző, pont, pipeline, perjel) le
-                    full_note = re.sub(r'\s+', ' ', full_note).strip(" ,.-/|*")
+                    # 5. AZ UTOLSÓ PIPELINE-POLÍROZÁS
+                    # Több pipeline egymás után -> egy pipeline
+                    full_note = re.sub(r'(\|[ \t]*)+', ' | ', full_note)
+                    
+                    # 6. VÉGSŐ SZÉL- ÉS SZÓKÖZ TAKARÍTÁS
+                    full_note = re.sub(r'\s+', ' ', full_note)
+                    # A strip-ből most már mindent kiszedünk, ami a széleken maradhatott
+                    full_note = full_note.strip(" ,.-/|*")
                     
                     # Rendelés szöveges formázása a CSV-hez
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}

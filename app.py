@@ -752,7 +752,7 @@ def create_label_pdf(df, fn, ft, meta):
             r = df.iloc[i]
             top_y = y + lh - inner_m
             
-# --- ÚJ: Precíziós nap-alapú formázás (JAVÍTOTT VÁLTOZÓKKAL) ---
+            # --- ÚJ: Precíziós nap-alapú formázás (JAVÍTOTT VÁLTOZÓKKAL) ---
             import re
             r_full = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
             kulonleges = False

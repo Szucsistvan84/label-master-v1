@@ -91,15 +91,16 @@ def get_etlap_dict(year, week):
     try:
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
+            # header=None, mert mi magunk keressük meg a sorokat index alapján
             df = pd.read_excel(BytesIO(response.content), header=None)
             
-            # A biztos oszlopkiosztás: E=4 a Csütörtök, F=5 a Péntek
+            # Oszlopok: 1=H, 2=K, 3=Sze, 4=Csü, 5=Pé, 6=Szo
             prefix_map = {1: "H", 2: "K", 3: "S", 4: "C", 5: "P", 6: "Z"}
 
             for row_idx in range(len(df)):
-                val = str(df.iloc[row_idx, 0]) # A oszlop
+                val = str(df.iloc[row_idx, 0]) # A oszlop (0. index)
                 
-                # Csak akkor foglalkozunk a sorral, ha van benne kötőjel (KÓD - KATEGÓRIA)
+                # Megkeressük a kategória sorát (pl. "A - LEVESEK")
                 if " - " in val:
                     parts = val.split(" - ", 1)
                     cikkszam = parts[0].strip().upper()
@@ -107,29 +108,31 @@ def get_etlap_dict(year, week):
                     
                     for col_idx, day_prefix in prefix_map.items():
                         if col_idx < len(df.columns):
-                            # NÉV: Mindig a kód sorában (pl. E2 vagy E11)
-                            nev_cell = df.iloc[row_idx, col_idx]
-                            nev = str(nev_cell).strip() if pd.notnull(nev_cell) else ""
+                            # --- JAVÍTÁS ITT: ---
+                            # NÉV: a kategória sora ALATTI első sorban van (row_idx + 1)
+                            # ÁR: a kategória sora ALATTI második sorban van (row_idx + 2)
                             
-                            # ÁR: Mindig a név ALATTI sorban (pl. E3 vagy E12)
-                            if row_idx + 1 < len(df):
-                                ar_cell = df.iloc[row_idx + 1, col_idx]
-                                if pd.notnull(ar_cell):
-                                    # Kinyerjük a számot (pl. "2 195 Ft" -> 2195)
-                                    ar_digits = "".join(filter(str.isdigit, str(ar_cell)))
-                                    if ar_digits:
-                                        ar = int(ar_digits)
-                                        
-                                        # Ha van név ÉS ár, akkor mentjük
-                                        if nev != "" and "étlap" not in nev.lower() and nev != "nan":
-                                            etlap_full[f"{day_prefix}_{cikkszam}"] = {
-                                                'nev': nev, 
-                                                'ar': ar,
-                                                'kat': kategoria 
-                                            }
+                            if row_idx + 2 < len(df):
+                                nev_cell = df.iloc[row_idx + 1, col_idx]
+                                ar_cell = df.iloc[row_idx + 2, col_idx]
+                                
+                                nev = str(nev_cell).strip() if pd.notnull(nev_cell) else ""
+                                
+                                # Ár kinyerése
+                                ar_str = str(ar_cell)
+                                ar_digits = "".join(filter(str.isdigit, ar_str))
+                                
+                                if nev and nev.lower() != "nan" and ar_digits:
+                                    ar = int(ar_digits)
+                                    # Kulcs: pl. "C_A" vagy "P_R1"
+                                    etlap_full[f"{day_prefix}_{cikkszam}"] = {
+                                        'nev': nev, 
+                                        'ar': ar,
+                                        'kat': kategoria 
+                                    }
             return etlap_full
     except Exception as e:
-        print(f"Hiba az étlap beolvasásakor: {e}")
+        st.error(f"Hiba az étlap beolvasásakor: {e}")
     return {}
 
 def debug_pdf_layout(pdf_file):

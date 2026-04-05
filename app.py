@@ -330,52 +330,70 @@ def parse_interfood_pdf(pdf_file):
                         if address_parts and address_parts[-1].strip(" ,.|/-").lower() in ["dr", "dr.", "idősb", "ifj"]:
                             address_parts.pop()
 
-                        # Frissítjük az address változót a tisztított változattal
-                        address = " ".join(address_parts).strip(" ,.-/|")
+                    # --- 1. ISMERT ADATOK KINYERÉSE (A későbbi kivonáshoz) ---
+                    # Cím keresése
+                    address = ""
+                    city_match = re.search(r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-z-áéíóöőúüű]*)', row_text)
+                    if city_match:
+                        city_start = city_match.start()
+                        address = row_text[city_start:].split("  ")[0].strip()
 
-                    # --- 5. MEGJEGYZÉS: A "HÚSDARÁLÓ" LOGIKA (Full Copy - Kivonás) ---
-                    # Előbb definiáljuk a sorszámot a kivonáshoz (ha az anchor-ból jön)
-                    current_row_idx = anchor.get('text', '') if anchor else ''
+                    # Telefon keresése
+                    phone = ""
+                    p_match = re.search(PHONE_PAT, row_text)
+                    if p_match:
+                        phone = p_match.group(1)
 
-                    # 1. Kinyerjük a sor összes szövegét
+                    # Pénz keresése
+                    money = ""
+                    m_match = re.search(MONEY_PAT, row_text)
+                    if m_match:
+                        money = m_match.group(1)
+
+                    # --- 2. HÚSDARÁLÓ LOGIKA: A TELJES SOR BEOLVASÁSA ---
+                    # Itt vesszük a "Full Copy"-t, amit kértél
                     full_row_text = " ".join([w['text'] for w in sorted(row_words, key=lambda x: x['x0'])])
-                    
-                    # 2. Elkezdjük lecsupaszítani
                     clean_megj = full_row_text
+
+                    # --- 3. NEGATÍV TAKARÍTÁS (Kivonjuk, amit már tudunk) ---
                     
-                    # A) Alapadatok kivonása
+                    # Sorszám és ID kivonása
+                    current_row_idx = anchor.get('text', '') if anchor else ''
                     if current_row_idx: 
                         clean_megj = clean_megj.replace(current_row_idx, "", 1)
                     if full_id: 
                         clean_megj = clean_megj.replace(full_id, "", 1)
+                    
+                    # Telefon és Pénz kivonása
                     if phone: 
                         clean_megj = clean_megj.replace(phone, "")
                     if money: 
                         clean_megj = clean_megj.replace(money, "")
                     
-                    # B) Ügyintéző nevének kivonása (darabokban)
+                    # Ügyintéző nevének kivonása (szavanként, hogy alapos legyen)
                     if admin_name:
                         name_fragments = [n.strip(" ,.|/-") for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
                         for fragment in name_fragments:
                             clean_megj = re.sub(rf'\b{re.escape(fragment)}\b', '', clean_megj, flags=re.IGNORECASE)
 
-                    # C) Cím kivonása
+                    # Cím kivonása
                     if address:
                         clean_megj = clean_megj.replace(address, "")
 
-                    # D) Rendelés kódok kivonása
+                    # Rendelés kódok és technikai sallangok (Regex)
                     clean_megj = re.sub(r'\d+\s*[-\u2013\u2014\u2212]\s*[A-Z][A-Z0-9*+]*', '', clean_megj)
-
-                    # E) Technikai sallangok
-                    clean_megj = re.sub(r'\s\d+$', '', clean_megj.strip()) 
+                    clean_megj = re.sub(r'\s\d+$', '', clean_megj.strip()) # Sor végi magányos szám
+                    
+                    # Fix "szemét" szavak törlése
                     for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "össz", "adag", "db", "Ft"]:
                         clean_megj = re.sub(rf'\b{junk}\b', '', clean_megj, flags=re.IGNORECASE)
 
-                    # 3. UTOLSÓ SIMÍTÁSOK
+                    # --- 4. VÉGSŐ CSISZOLÁS ---
                     clean_megj = clean_megj.replace("|", " ")
                     clean_megj = re.sub(r'\s+', ' ', clean_megj)
                     clean_megj = clean_megj.strip(" ,.-/|*")
 
+                    # Ezt adjuk át az exportnak
                     clean_megjegyzese = clean_megj
                     
                     # --- ITT VOLT A HIBA: A customer_block helyett a tiszta V16-os szöveget használjuk ---

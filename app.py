@@ -453,50 +453,49 @@ def parse_interfood_pdf(pdf_file):
 
                     extra_instructions = extra_instructions.replace("/", "").strip(" -/|.,")
 
-# --- VÉGLEGES SEBÉSZI TISZTÍTÁS ---
+                    # --- TELEFONSZÁM- ÉS KAPUKÓD-BIZTOS TISZTÍTÁS ---
                     
-                    # 1. Telefonszám-előhívók és nevek melletti számok radírozása (pl. Erzsébet20 -> Erzsébet)
-                    # Olyan számokat keresünk, amik név után vagy önállóan állnak (20, 30, 70)
-                    clean_customer = re.sub(r'(?<=[a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ])\d+', '', clean_customer)
-                    clean_customer = re.sub(r'\b(20|30|70)\b', '', clean_customer)
+                    # 1. CSAK a magányos előhívókat bántjuk (pl. "Név 30")
+                    # Megnézzük, hogy a 20/30/70 után NINCS-E perjel vagy több számjegy
+                    clean_customer = re.sub(r'\b(20|30|70)\b(?![/\d])', '', clean_customer)
 
-                    # 2. Ügyintéző nevének teljes és részleges radírozása
+                    # 2. Ügyintéző nevének radírozása (finomítva)
                     if admin_name:
+                        # Teljes név törlése
                         clean_customer = re.sub(rf'\b{re.escape(admin_name)}\b', '', clean_customer, flags=re.IGNORECASE)
+                        # Név részei (pl. Kiss, János), de csak ha önálló szavak
                         for name_part in admin_name.split():
                             if len(name_part) > 2:
                                 clean_customer = re.sub(rf'\b{re.escape(name_part)}\b', '', clean_customer, flags=re.IGNORECASE)
 
-                    # 3. Vesszőhegyek és írásjel-halmozódások felszámolása
-                    # Bármilyen írásjel-ismétlődést (vessző, pont, szóköz vegyesen) egyetlen szóközre cserélünk
-                    clean_customer = re.sub(r'[ ,.;:|*]{2,}', ' ', clean_customer)
+                    # 3. Vesszőhegyek takarítása (a # és / jeleket békén hagyja!)
+                    # Csak a halmozott vesszőt, pontot és szóközt cseréli egyetlen szóközre
+                    clean_customer = re.sub(r'[,.;:|*]{2,}', ' ', clean_customer)
 
                     # 4. Részleg és Instrukció szétválasztása
                     reszleg = ""
                     extra_instructions = clean_customer
                     if "/" in clean_customer:
-                        c_parts = clean_customer.split("/")
-                        reszleg = c_parts[0].strip()
-                        extra_instructions = "/".join(c_parts[1:]).strip()
+                        # Ha a perjel telefonszám része (szám van előtte és utána), nem vágjuk szét!
+                        if not re.search(r'\d/\d', clean_customer):
+                            c_parts = clean_customer.split("/")
+                            reszleg = c_parts[0].strip()
+                            extra_instructions = "/".join(c_parts[1:]).strip()
 
-                    # 5. Intelligens összefűzés (Dupla pipeline elleni védelem)
+                    # 5. Intelligens összefűzés (Dupla pipeline ellen)
                     final_note_parts = []
-                    
-                    # Csak a ténylegesen tartalommal bíró részeket adjuk hozzá
                     r_clean = reszleg.strip(" ,.-/|*")
                     e_clean = extra_instructions.strip(" ,.-/|*")
                     
                     if r_clean and len(r_clean) > 1:
                         final_note_parts.append(r_clean)
                     if e_clean and len(e_clean) > 1:
-                        # Ha az extra rész ugyanaz, mint a részleg (duplikáció), ne adjuk hozzá
                         if not final_note_parts or e_clean.lower() != final_note_parts[0].lower():
                             final_note_parts.append(e_clean)
                     
-                    # Összefűzés: itt dől el a pipeline-ok sorsa
                     full_note = " | ".join(final_note_parts)
                     
-                    # 6. Utolsó simítás: dupla szóközök és maradék szélső szemét
+                    # 6. Utolsó kozmetika
                     full_note = re.sub(r'\s+', ' ', full_note).strip(" ,.-/|*")
                     
                     # Rendelés szöveges formázása a CSV-hez

@@ -367,104 +367,98 @@ def parse_interfood_pdf(pdf_file):
                             address_for_clean = working_line[start_idx:].strip()
 
                     # --- 4. LÉPÉS: KONTEXTUS BŐVÍTÉSE (PORSZÍVÓ) ---
-                    # A sima working_line helyett beszippantjuk a blokk összes szavát
-                    # line_words-ben már benne van minden a következő ID-ig
-                    full_block_text = " ".join([w['text'] for w in sorted(line_words, key=lambda x: (x['top'], x['x0']))])
+                    # Toleranciát használunk a rendezésnél, hogy az egy sorban lévő szavak ne cserélődjenek fel
+                    # A 'top' értéket 3 pixelre kerekítjük, így az egy vonalban lévők azonos 'top'-ot kapnak
+                    line_words_sorted = sorted(line_words, key=lambda x: (round(x['top'] / 3) * 3, x['x0']))
+                    full_block_text = " ".join([w['text'] for w in line_words_sorted])
                     
-                    # Levágjuk az elejéről a sorszámot az ID-ig (mint a régi kódodban)
+                    # Levágjuk az elejéről a sorszámot az ID-ig
                     id_match_context = re.search(id_pattern, full_block_text)
                     working_context = full_block_text[id_match_context.start():] if id_match_context else full_block_text
 
+                    # --- 5. LÉPÉS: TISZTÍTOTT KONTEXTUS LÉTREHOZÁSA ---
+                    # Csak itt inicializálunk, és rögtön takarítunk
                     megj_resz_1 = "" 
                     megj_resz_2 = "" 
 
-                    # --- 5. LÉPÉS: MEGJEGYZÉS 1. FELE (ID ÉS ZIP KÖZÖTT) ---
-                    temp_context = working_context
-                    if full_id and temp_context.startswith(full_id):
-                        temp_context = temp_context[len(full_id):].strip()
+                    # Kiszűrjük a rendelési kódokat és a pénzt, hogy ne zavarják a megjegyzés keresését
+                    clean_context = re.sub(ORDER_PAT, '', working_context)
+                    clean_context = re.sub(MONEY_PAT, '', clean_context)
+                    # A telefonszámot is érdemes kivenni a clean_context-ből, hogy ne zavarjon be megjegyzésként
+                    if 'phone_val' in locals() and phone_val:
+                        clean_context = clean_context.replace(phone_val, "")
 
-                    zip_match = re.search(r'\b\d{4}\b', temp_context)
+                    # --- 6. LÉPÉS: MEGJEGYZÉS 1. FELE (ID ÉS ZIP KÖZÖTT) ---
+                    # Ez kezeli a nevet/részleget az irányítószám előtt
+                    zip_match = re.search(r'\b\d{4}\b', clean_context)
                     if zip_match:
-                        name_zone = temp_context[:zip_match.start()].strip()
-                        if name_zone:
-                            if "/" in name_zone:
-                                megj_resz_1 = name_zone.split("/")[0].strip()
+                        # Az ID utáni, de a ZIP előtti rész kinyerése
+                        pre_zip = clean_context[:zip_match.start()].replace(full_id, "").strip()
+                        if pre_zip:
+                            if "/" in pre_zip:
+                                megj_resz_1 = pre_zip.split("/")[0].strip()
                             else:
-                                t_megj = name_zone
+                                t_megj = pre_zip
                                 if admin_name:
                                     for w in admin_name.split():
                                         if len(w) > 2:
                                             t_megj = re.sub(rf'\b{re.escape(w)}\b', '', t_megj, flags=re.IGNORECASE)
                                 megj_resz_1 = t_megj.strip()
 
-                    # --- 6. LÉPÉS: MEGJEGYZÉS 2. FELE (CÍM UTÁNI RÉSZ - SÖRFŐZDE/PORTA) ---
-                    # Itt már a working_context-et nézzük, amiben benne van a sörfőzde is!
-                    # Házszám keresése (ponttal vagy anélkül a biztonság kedvéért)
-                    house_num_match = re.search(r'\d+(\.)?', address)
-                    
-                    anchor_pos = -1
-                    if house_num_match and address in working_context:
-                        anchor_pos = working_context.find(address) + len(address)
-                    elif address in working_context:
-                        anchor_pos = working_context.find(address) + len(address)
-
-                    if anchor_pos != -1:
-                        after_address = working_context[anchor_pos:].strip()
-                        # Lezáró horgonyok: Telefon, Pénz, vagy Rendelés kódja
-                        end_pat = f"{re.escape(phone_val)}|{re.escape(money_val)}|Ft|{ORDER_PAT}"
-                        end_match = re.search(end_pat, after_address)
+                    # --- 7. LÉPÉS: MEGJEGYZÉS 2. FELE (CÍM UTÁNI RÉSZ) ---
+                    # Ez találja meg a "Sörfőzde", "Porta" stb. infókat a cím után
+                    if address in clean_context:
+                        anchor_pos = clean_context.find(address) + len(address)
+                        after_address = clean_context[anchor_pos:].strip()
                         
-                        if end_match:
-                            megj_resz_2 = after_address[:end_match.start()].strip()
-                        else:
-                            megj_resz_2 = after_address
+                        # A végét a telefon vagy a sor vége jelzi (a pénzt/rendelést már töröltük)
+                        end_m = re.search(re.escape(phone_val), after_address)
+                        megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
 
-                    # --- 7. LÉPÉS: ÖSSZEFŰZÉS ÉS A TE EREDETI V16 TISZTÍTÁSOD ---
+                    # --- 8. ÖSSZEFŰZÉS ÉS RADÍROZÁS ---
                     parts = []
-                    # Szanyi Norbi védelem (a te eredeti logikád)
+                    # Szanyi Norbi speciális esete
                     if address:
                         for keyword in ["legyenek", "perccel", "érkezés", "kapucsengő"]:
                             if keyword in address.lower() and keyword not in (megj_resz_1 + megj_resz_2).lower():
-                                extra_search = re.search(rf'\b{keyword}\b.*', address, re.IGNORECASE)
-                                if extra_search:
-                                    parts.append(extra_search.group().strip())
-                                    break
+                                extra_s = re.search(rf'\b{keyword}\b.*', address, re.IGNORECASE)
+                                if extra_s: parts.append(extra_s.group().strip())
 
                     if megj_resz_1 and len(megj_resz_1) > 1: parts.append(megj_resz_1)
                     if megj_resz_2 and len(megj_resz_2) > 1: parts.append(megj_resz_2)
                     
-                    clean_megjegyzese = " | ".join(dict.fromkeys(parts))
-                    clean_megjegyzese = re.sub(r'\s+', ' ', clean_megjegyzese).strip(" ,.-/|*")
+                    # Duplikátumok kiszűrése és tisztítás
+                    raw_combined = " | ".join(dict.fromkeys(parts))
+                    clean_customer = re.sub(r'\s+', ' ', raw_combined)
                     
-                    # --- INNEN JÖN A TE 346 SOROS KÓDOD FOLYTATÁSA (Radírozás, Részleg) ---
-                    clean_customer = clean_megjegyzese
-                    for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr."]:
+                    # Junk szavak törlése (Felnőtt, Dr. stb)
+                    for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj"]:
                         clean_customer = clean_customer.replace(junk, "")
-                    
+
+                    # --- 9. RÉSZLEG ÉS INSTRUKCIÓ SZÉTVÁLASZTÁSA ---
                     reszleg = ""
                     if "/" in clean_customer:
-                        # ... és így tovább a többi 100+ sorod ...
-                        parts = clean_customer.split("/")
-                        potential_reszleg = parts[0].strip()
-                        # Ha a perjel előtti rész nem azonos az ügyintézővel, akkor az értékes részleg infó
+                        c_parts = clean_customer.split("/")
+                        potential_reszleg = c_parts[0].strip()
                         if admin_name and potential_reszleg.lower() != admin_name.lower():
                             reszleg = potential_reszleg
                     
-                    # 4. EGYÉB INSTRUKCIÓK (ami még maradt a radírozás után)
-                    remaining_info = clean_customer
-                    if reszleg: remaining_info = remaining_info.replace(reszleg, "")
-                    if admin_name: remaining_info = remaining_info.replace(admin_name, "")
-                    
-                    extra_instructions = remaining_info.replace("/", "").strip(" -/|.,")
+                    # Ami maradt, az az extra instrukció
+                    extra_instructions = clean_customer
+                    if reszleg: extra_instructions = extra_instructions.replace(reszleg, "")
+                    if admin_name:
+                        for n_part in admin_name.split():
+                            if len(n_part) > 2:
+                                extra_instructions = re.sub(rf'\b{re.escape(n_part)}\b', '', extra_instructions, flags=re.IGNORECASE)
 
-                    # 5. ÖSSZEFŰZÉS (Részleg | Instrukciók)
+                    extra_instructions = extra_instructions.replace("/", "").strip(" -/|.,")
+
+                    # VÉGSŐ ÖSSZEÁLLÍTÁS
                     final_note_parts = []
-                    if reszleg:
-                        final_note_parts.append(reszleg)
-                    if extra_instructions:
-                        final_note_parts.append(extra_instructions)
+                    if reszleg: final_note_parts.append(reszleg)
+                    if extra_instructions: final_note_parts.append(extra_instructions)
                     
-                    full_note = " | ".join(final_note_parts)
+                    full_note = " | ".join(dict.fromkeys(final_note_parts)).strip(" -/|.,*")
 
                     # Biztonsági fék: ha csak a név maradt volna, ne duplázzuk megjegyzésbe
                     if admin_name and full_note.replace("|", "").strip().lower() == admin_name.lower():

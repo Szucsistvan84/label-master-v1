@@ -350,36 +350,68 @@ def parse_interfood_pdf(pdf_file):
                     if m_match:
                         money_for_clean = m_match.group(1)
 
-                    # --- 2. HÚSDARÁLÓ LOGIKA: A MEGJEGYZÉS KINYERÉSE ---
-                    # A teljes sor szövegéből (line_text_full) vonjuk ki, amit már tudunk
+                    # --- 2. HÚSDARÁLÓ LOGIKA: A MEGJEGYZÉS KINYERÉSE (V17) ---
+                    # A nyers alapanyagunk a teljes sor szövege
                     clean_megj = line_text_full
 
-                    # Sorszám és ID kivonása
-                    curr_idx = anchor.get('text', '')
-                    if curr_idx: clean_megj = clean_megj.replace(curr_idx, "", 1)
-                    if full_id: clean_megj = clean_megj.replace(full_id, "", 1)
+                    # 1. KIVONJUK AZ ISMERT ADATOKAT (Precíz és szavas törlés)
                     
-                    # Telefon és Pénz kivonása
-                    if phone_for_clean: clean_megj = clean_megj.replace(phone_for_clean, "")
-                    if money_for_clean: clean_megj = clean_megj.replace(money_for_clean, "")
-                    
-                    # Ügyintéző nevének kivonása (szavanként)
+                    # Sorszám törlése (csak ha a sor elején van)
+                    curr_idx = anchor.get('text', '').strip()
+                    if curr_idx:
+                        clean_megj = re.sub(rf'^{curr_idx}\b', '', clean_megj).strip()
+
+                    # ID és Prefix törlése (pl. C-123456)
+                    if full_id:
+                        clean_megj = clean_megj.replace(full_id, "")
+                    if 'prefix' in locals() and prefix:
+                        clean_megj = re.sub(rf'\b{prefix}\b', '', clean_megj)
+
+                    # Ügyintéző nevének törlése (DARABOKRA BONTVA)
                     if admin_name:
-                        for fragment in admin_name.split():
-                            if len(fragment) > 2:
-                                clean_megj = re.sub(rf'\b{re.escape(fragment)}\b', '', clean_megj, flags=re.IGNORECASE)
+                        # Az ügyintéző nevét szavakra szedjük (pl. "Kovács", "Máté")
+                        name_parts = [n.strip(" ,.|/-") for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
+                        for part in name_parts:
+                            # Szóhatárok között keressük, kis-nagybetű nem számít
+                            clean_megj = re.sub(rf'\b{re.escape(part)}\b', '', clean_megj, flags=re.IGNORECASE)
 
-                    # Cím kivonása
+                    # Cím törlése (szavanként, mert a vesszők/szóközök csalókák)
                     if address_for_clean:
-                        clean_megj = clean_megj.replace(address_for_clean, "")
+                        addr_parts = address_for_clean.split()
+                        for p in addr_parts:
+                            if len(p) > 2: # Csak a 2 karakternél hosszabb részeket (pl. u., 8. maradjon ha kell)
+                                clean_megj = clean_megj.replace(p, "")
 
-                    # Rendelés kódok és sallangok törlése
+                    # Telefon és Pénz törlése
+                    if phone_for_clean:
+                        clean_megj = clean_megj.replace(phone_for_clean, "")
+                    if money_for_clean:
+                        clean_megj = clean_megj.replace(money_for_clean, "")
+
+                    # 2. REGEXES TAKARÍTÁS (Rendelés és Sor végi összesítő)
+                    
+                    # Rendelés kódok (pl. 1-E2, 1-L3K)
                     clean_megj = re.sub(r'\d+\s*[-\u2013\u2014\u2212]\s*[A-Z][A-Z0-9*+]*', '', clean_megj)
-                    for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "össz", "adag", "db", "Ft"]:
+                    
+                    # Sor végi összesítő szám (pl. a sor végén álló magányos 1, 2, 4-es számok)
+                    clean_megj = re.sub(r'\s\d+$', '', clean_megj.strip())
+
+                    # Technikai szavak
+                    for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "össz", "adag", "db", "Ft", "Csü:", "Hé:", "Ke:", "Sze:", "Pé:"]:
                         clean_megj = re.sub(rf'\b{junk}\b', '', clean_megj, flags=re.IGNORECASE)
 
-                    # Végső tisztítás
-                    clean_megj = re.sub(r'\s+', ' ', clean_megj).strip(" ,.-/|*")
+                    # 3. VÉGSŐ FINOMHANGOLÁS (A "tisztító regex")
+                    clean_megj = clean_megj.replace("|", " ")
+                    # Minden maradék írásjel és sallang leszedése
+                    clean_megj = re.sub(r'[,\.\-/]{2,}', ' ', clean_megj) # Dupla írásjelek
+                    clean_megj = re.sub(r'\s+', ' ', clean_megj)        # Dupla szóközök
+                    
+                    clean_megj = clean_megj.strip(" ,.-/|*") # Szélekről takarítás
+
+                    # Ha csak 1-2 karakter maradt (pl. egy kósza kötőjel), akkor legyen üres
+                    if len(clean_megj) < 2:
+                        clean_megj = ""
+
                     clean_megjegyzese = clean_megj
                     
                     # --- ITT VOLT A HIBA: A customer_block helyett a tiszta V16-os szöveget használjuk ---

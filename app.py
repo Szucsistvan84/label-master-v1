@@ -306,28 +306,29 @@ def parse_interfood_pdf(pdf_file):
                     admin_name = " ".join(final_parts).strip(" -/|.,*")
                     admin_name = " ".join(admin_name.split())
 
-                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (SORVÉGI TÖRÉS JAVÍTÁSSAL) ---
-                    # Fontos a sorrend: először függőlegesen (top), aztán vízszintesen (x0) rendezünk
-                    order_words = sorted([w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5], key=lambda x: (x['top'], x['x0']))
+                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (A VALÓDI D14 JAVÍTÁS) ---
+                    
+                    # FIGYELEM: Itt a 'line_words' a kulcs! 
+                    # Ez tartalmazza a 2. és 3. sorba letört rendeléseket is (mint a D14)
+                    order_words = sorted([w for w in line_words if (w['x0'] + w['x1'])/2 >= x52_5], key=lambda x: (round(x['top'] / 4) * 4, x['x0']))
                     
                     full_right_text = " ".join([w['text'] for w in order_words])
                     
-                    # JAVÍTÁS: Ha egy kötőjel után szóköz vagy sortörés van (pl. "1- D14"), összehúzzuk őket
-                    # Ez megoldja a Szanyi Gabriellánál tapasztalt "1- [szünet] D14" problémát
+                    # Összehúzzuk a sorvégén letört kötőjeleket a következő szóval (pl. "1- D14" -> "1-D14")
                     full_right_text = re.sub(r'([-\u2013\u2014\u2212])\s+', r'\1', full_right_text)
                     
-                    # 1. Kinyerjük a konkrét kódokat (most már az 1-D14 is egyben lesz)
+                    # Kinyerjük a konkrét kódokat (Most már a 2. sor is benne van!)
                     raw_orders = re.findall(ORDER_PAT, full_right_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     
-                    # 2. Megjegyzés tisztítása
+                    # Megjegyzés tisztítása
                     clean_comment = full_right_text
                     for q, c in raw_orders:
                         # Kivágjuk a felismert kódokat a szövegből
                         pattern_to_remove = rf'{q}\s*[-\u2013\u2014\u2212]\s*{re.escape(c)}'
                         clean_comment = re.sub(pattern_to_remove, '', clean_comment, count=1)
                     
-                    # BIZTONSÁGI TISZTÍTÁS: Ha maradt volna árva "1-" vagy "2-" a sor végén, azt is töröljük a megjegyzésből
+                    # Árva maradékok (pl. sor végi "1-") radírozása a megjegyzésből
                     clean_comment = re.sub(r'\d+\s*[-\u2013\u2014\u2212](?!\w)', '', clean_comment)
                     
                     megjegyzes = clean_comment.strip(", ").strip()

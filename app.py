@@ -1175,40 +1175,29 @@ def main():
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
         
         if up_files:
-            debug_pdf_layout(up_files[0]) 
+            # --- ELŐNÉZET TÖRLÉSE ---
+            # A debug_pdf_layout(up_files[0]) sort töröltük vagy kikommenteltük
         
             if st.button("🚀 FELDOLGOZÁS"):
-                # 1. Meta adatok kinyerése
                 meta_auto = extract_all_meta(up_files)
                 st.session_state.meta_data = meta_auto
 
-                # --- 2. ÉTLAP LEKÉRÉSE ÉS ELLENŐRZÉSE ---
+                # Étlap kódok letöltése
                 napi_etlap_kodok = set()
                 if meta_auto['ev'] and meta_auto['het']:
-                    with st.spinner("Étlap kódok letöltése az API-ról..."):
+                    with st.spinner("Étlap letöltése..."):
                         etlap_dict = get_etlap_dict(meta_auto['ev'], meta_auto['het'])
                         for kulcs in etlap_dict.keys():
-                            # "P_D14" -> "D14"
                             parts = kulcs.split("_")
                             if len(parts) > 1:
                                 napi_etlap_kodok.add(parts[1])
                 
-                # Visszajelzés a Sidebar-ba, hogy látod-e a kódokat
-                with st.sidebar:
-                    st.divider()
-                    if napi_etlap_kodok:
-                        st.success(f"✅ {len(napi_etlap_kodok)} kód betöltve")
-                        st.write("### Aktuális étlap kódok:")
-                        st.caption(", ".join(sorted(napi_etlap_kodok)))
-                    else:
-                        st.error("❌ Nem sikerült kódokat letölteni az API-ról!")
-                # -----------------------------------------------
+                # ELMENTJÜK, hogy ne tűnjön el
+                st.session_state.napi_etlap_kodok = napi_etlap_kodok
 
-                # 3. Feldolgozás indítása (átadjuk a kódokat a tisztításhoz)
                 all_data = []
                 for f in up_files:
-                    # Fontos: itt két értéket várunk vissza (rows, _)
-                    rows, _ = parse_interfood_pdf(f, napi_etlap_kodok) 
+                    rows, _ = parse_interfood_pdf(f, napi_etlap_kodok)
                     all_data.append(rows)
                 
                 all_rows = []

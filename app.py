@@ -1041,27 +1041,33 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     total_money = 0
 
     # --- 2. TÁBLÁZAT FELTÖLTÉSE (JAVÍTOTT LOGIKA) ---
-    # Nem az etlap-on megyünk végig, hanem azon, amit a PDF-ben találtunk (counts)
-    for full_key in sorted(counts.keys()):
+    # Sorba rendezzük a kulcsokat: Hétfő (H), Kedd (K)... sorrendben
+    day_order = {"H":1, "K":2, "S":3, "C":4, "P":5, "Z":6}
+    sorted_keys = sorted(counts.keys(), key=lambda x: (day_order.get(x.split('_')[0], 9), x.split('_')[1]))
+
+    for full_key in sorted_keys:
         db = counts[full_key]
-        prefix = full_key.split('_')[0]
-        code_label = full_key.split('_')[1]
+        prefix = full_key.split('_')[0]   # Pl. "C"
+        code_label = full_key.split('_')[1] # Pl. "A"
         
-        # Itt dől el a nap neve!
-        day_short = nap_nevek.get(prefix, prefix)
+        # Itt dől el a nap neve a PDF-ben! 
+        # A "C"-ből "Csütörtök" lesz, a "P"-ből "Péntek"
+        day_long = prefix_to_nev.get(prefix, prefix)
         
+        # Étlap adatok lekérése a C_A, P_A stb. kulcs alapján
         info = etlap.get(full_key, {})
         ar = info.get('ar', 0)
         nev = info.get('nev', '---')
+        
         subtotal = db * ar
         
-        # Csillagos tétel?
+        # Csillagos tétel ellenőrzése a stílushoz
         is_starred = "*" in code_label
         current_font = f_bold if is_starred else f_reg
         current_p_style = star_row_style if is_starred else normal_row_style
 
         data.append([
-            Paragraph(day_short, ParagraphStyle('D', fontName=current_font, fontSize=5.5, alignment=1)),
+            Paragraph(day_long, ParagraphStyle('D', fontName=current_font, fontSize=5.5, alignment=1)),
             Paragraph(code_label, ParagraphStyle('K', fontName=current_font, fontSize=7.5, alignment=1)),
             Paragraph(f"{db} db", ParagraphStyle('Q', fontName=current_font, fontSize=7.5, alignment=1)),
             Paragraph("[  ]", ParagraphStyle('CB', fontName=f_reg, fontSize=8, alignment=1)),

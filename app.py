@@ -1182,7 +1182,7 @@ def main():
                 meta_auto = extract_all_meta(up_files)
                 st.session_state.meta_data = meta_auto
 
-                # Étlap kódok letöltése
+                # 1. Étlap kódok letöltése
                 napi_etlap_kodok = set()
                 if meta_auto['ev'] and meta_auto['het']:
                     with st.spinner("Étlap letöltése..."):
@@ -1192,39 +1192,34 @@ def main():
                             if len(parts) > 1:
                                 napi_etlap_kodok.add(parts[1])
                 
-                # ELMENTJÜK, hogy ne tűnjön el
+                # ELMENTJÜK a sidebarhoz
                 st.session_state.napi_etlap_kodok = napi_etlap_kodok
 
-                all_data = []
-                for f in up_files:
-                    rows, _ = parse_interfood_pdf(f, napi_etlap_kodok)
-                    all_data.append(rows)
-                
+                # 2. PDF-ek beolvasása (CSAK EGYSZER fut le)
                 all_rows = []
-                with st.spinner("PDF-ek beolvasása..."):
+                with st.spinner("PDF-ek beolvasása és tisztítása..."):
                     for f in up_files:
                         f.seek(0)
+                        # Itt már a letöltött kódokkal pucoljuk a megjegyzéseket!
                         rows, _ = parse_interfood_pdf(f, napi_etlap_kodok)
                         if rows:
                             all_rows.extend(rows)
 
                 if all_rows:
-                    # Metaadatok kinyerése a mentett állapotból vagy a frissből
                     current_meta = st.session_state.meta_data
                     y = current_meta.get('ev') or current_meta.get('year') or '2026'
                     w = current_meta.get('het') or current_meta.get('week') or '13'
                     
-                    # Étlap és összefésülés
-                    st.session_state.etlap = get_etlap_dict(y, w) # Elmentjük az étlapot is!
+                    # Elmentjük a teljes étlap szótárat is az árakhoz/nevekhez
+                    st.session_state.etlap = get_etlap_dict(y, w) 
                     
                     df_temp = merge_data(all_rows)
                     
                     if not df_temp.empty:
                         df_temp['Sorrend'] = range(1, len(df_temp) + 1)
-                    
-                    st.session_state.mdf = df_temp
-                    st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
-                    st.rerun() # Ez most már csak egyszer fut le a végén
+                        st.session_state.mdf = df_temp
+                        st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
+                        st.rerun() # Ez frissíti az oldalt és mutatja be a sidebart
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:

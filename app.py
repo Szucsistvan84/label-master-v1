@@ -310,6 +310,7 @@ def parse_interfood_pdf(pdf_file):
                     
                     # A 88-as skálád alapján számolt tűpontos határok
                     # 65% (57.2 kocka) - 91% (80 kocka)
+                    width = page.width
                     x_start_limit = width * 0.65  
                     x_end_limit = width * 0.91    
 

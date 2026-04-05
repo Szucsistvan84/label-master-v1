@@ -495,24 +495,37 @@ def parse_interfood_pdf(pdf_file):
                     
                     full_note = " | ".join(final_note_parts)
                     
-                    # --- 6. UTOLSÓ FINOMHANGOLÁS ÉS KOZMETIKA ---
+                    # --- 6. UTOLSÓ FINOMHANGOLÁS ÉS KOZMETIKA (VÉGLEGES) ---
                     
-                    # A) Magányos előhívók (30, 70, 06 stb.) eltávolítása, ha csak szóköz vagy pipeline van körülöttük
-                    # 1. Ha a sor végén van egy pipeline és egy szám (pl. "Járási | 30")
-                    full_note = re.sub(r'\|\s*(20|30|70|06|20|70)\s*$', '', full_note)
-                    # 2. Ha a sor elején van egy szám és egy pipeline (pl. "30 | teherporta")
-                    full_note = re.sub(r'^\s*(20|30|70|06)\s*\|', '', full_note)
-                    # 3. Ha önállóan áll, és nem követi perjel vagy több számjegy (telefonvédelem)
+                    # A) OPTIPONT SZELLEMIRTÓ: Ha a megjegyzésben összesítés vagy kiegészítő szöveg van
+                    # Ezek a PDF aljáról szöknek be, nincs helyük a megjegyzésben
+                    full_note = re.sub(r'Összesítés:.*|Csillagozott.*|Összesen:.*', '', full_note, flags=re.IGNORECASE)
+
+                    # B) Magányos előhívók és számok radírozása (Telefonvédelemmel)
+                    # Csak ha nem követi perjel vagy több számjegy
+                    full_note = re.sub(r'\|\s*(20|30|70|06)\s*$', '', full_note)
                     full_note = re.sub(r'\b(20|30|70|06)\b(?!\s*/|\s*\d)', '', full_note)
 
-                    # B) Vesszőhegyek és írásjel-halmozódások (Kenézy-effektus)
-                    # Minden olyan részt, ahol vesszők és szóközök váltják egymást legalább 2-szer, egy szóközre cserélünk
+                    # C) NÉV-DUPLIKÁCIÓ ELLENI VÉDELEM (Globiz-effektus)
+                    # Ha a pipeline két oldalán ugyanaz a szöveg szerepel
+                    if "|" in full_note:
+                        note_parts = [p.strip() for p in full_note.split("|")]
+                        # Ha a második rész a saját nevével kezdődik (pl. "Globiz Kft. | Globiz Kft. Valami")
+                        if len(note_parts) > 1 and note_parts[1].lower().startswith(note_parts[0].lower()):
+                            note_parts[1] = note_parts[1][len(note_parts[0]):].strip()
+                        full_note = " | ".join(dict.fromkeys([p for p in note_parts if p]))
+
+                    # D) VESSZŐHEGYEK ÉS ÁRVA ÍRÁSJELEK
+                    # 1. Pipeline utáni/előtti árva vesszők törlése
+                    full_note = re.sub(r'\|\s*,', '| ', full_note)
+                    full_note = re.sub(r',\s*\|', ' |', full_note)
+                    # 2. Halmozott vesszők/szóközök (Kenézy)
                     full_note = re.sub(r'([ ,]*[,][ ,]*){2,}', ' ', full_note)
 
-                    # C) Dupla pipeline-ok (||) és felesleges elválasztók takarítása
-                    full_note = re.sub(r'\|\s*\|', '|', full_note)
-                    
-                    # D) Végső szóköz- és szélső karakter takarítás
+                    # E) UTOLSÓ PIPELINE-MENTESÍTÉS ÉS SZÉLEK
+                    # Ha csak egy üres pipeline maradt a végén
+                    full_note = re.sub(r'\|\s*$', '', full_note).strip()
+                    # Dupla szóközök és szélső szemét (vessző, pont, perjel) le
                     full_note = re.sub(r'\s+', ' ', full_note).strip(" ,.-/|*")
                     
                     # Rendelés szöveges formázása a CSV-hez

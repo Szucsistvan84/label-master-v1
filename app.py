@@ -83,11 +83,7 @@ def register_fonts():
         return 'Helvetica', 'Helvetica-Bold'
 
 
-def get_etlap_dict(year, week, target_day=None):
-    """
-    Lekéri az Interfood Excel étlapot és kigyűjti a pénteki (5) és szombati (6) oszlopokat.
-    A kulcsok prefixet kapnak (P_ vagy Z_), hogy megkülönböztessük a napokat.
-    """
+def get_etlap_dict(year, week):
     if not year or not week: return {}
 
     url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
@@ -96,33 +92,46 @@ def get_etlap_dict(year, week, target_day=None):
     try:
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
+            # header=None-t használunk, hogy a legelső soroktól lássunk mindent
             df = pd.read_excel(BytesIO(response.content), header=None)
 
-            # 5-ös oszlop: Péntek (F), 6-os oszlop: Szombat (G/Zárónap)
-            # A PDF-ben a 'P' jelöli a pénteket, a 'Z' a szombatot
-            for day_prefix, col_idx in [("P", 5), ("Z", 6)]:
-                for i in range(len(df)):
-                    val = str(df.iloc[i, 0])
-                    if " - " in val:
-                        cikkszam = val.split(" - ")[0].strip().upper()
-                        try:
-                            # Név kinyerése
-                            nev = str(df.iloc[i, col_idx]).strip()
-                            # Ár kinyerése a név alatti cellából
-                            ar_val = df.iloc[i + 1, col_idx]
+            # Oszlop feltérképezés: B=1 (Hé), C=2 (Ke), D=3 (Sze), E=4 (Csü), F=5 (Pé), G=6 (Szo)
+            # Prefix térkép a raklista-logikához
+            prefix_map = {1: "H", 2: "K", 3: "S", 4: "C", 5: "P", 6: "Z"}
 
-                            if nev != "nan" and nev != "" and "étlap" not in nev.lower():
-                                ar = 0
-                                if pd.notnull(ar_val):
-                                    try:
-                                        ar = int(re.sub(r'\D', '', str(ar_val)))
-                                    except:
-                                        ar = 0
+            for row_idx in range(len(df)):
+                # Az A oszlopban (0) keressük a kódokat (pl. "D14 - Ételnév")
+                val = str(df.iloc[row_idx, 0])
+                
+                if " - " in val:
+                    cikkszam = val.split(" - ")[0].strip().upper()
+                    
+                    # Most végigmegyünk az összes nap oszlopán (1-től 6-ig)
+                    for col_idx, day_prefix in prefix_map.items():
+                        if col_idx < len(df.columns):
+                            try:
+                                # Név kinyerése az aktuális napi oszlopból
+                                nev = str(df.iloc[row_idx, col_idx]).strip()
+                                
+                                # Ár kinyerése a név alatti cellából (i + 1) - ez a te eredeti logikád
+                                # Csak akkor mentünk, ha van ott név és nem "nan"
+                                if nev != "nan" and nev != "" and "étlap" not in nev.lower():
+                                    
+                                    ar = 0
+                                    # Megnézzük a következő sort az ár miatt
+                                    if row_idx + 1 < len(df):
+                                        ar_val = df.iloc[row_idx + 1, col_idx]
+                                        if pd.notnull(ar_val):
+                                            try:
+                                                # Csak a számokat tartjuk meg (pl. "1 345 Ft" -> 1345)
+                                                ar = int(re.sub(r'\D', '', str(ar_val)))
+                                            except:
+                                                ar = 0
 
-                                # Egyedi kulcs: pl. "P_A" vagy "Z_A"
-                                etlap_full[f"{day_prefix}_{cikkszam}"] = {'nev': nev, 'ar': ar}
-                        except:
-                            continue
+                                    # Egyedi kulcs: pl. "CS_D14", "P_D14", "Z_H1"
+                                    etlap_full[f"{day_prefix}_{cikkszam}"] = {'nev': nev, 'ar': ar}
+                            except:
+                                continue
             return etlap_full
     except Exception as e:
         st.error(f"Étlap letöltési hiba: {e}")

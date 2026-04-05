@@ -333,45 +333,48 @@ def parse_interfood_pdf(pdf_file):
                         # Frissítjük az address változót a tisztított változattal
                         address = " ".join(address_parts).strip(" ,.-/|")
 
-                    # --- 5. MEGJEGYZÉS SZOBRÁSZAT (V16 - A Mindentudó) ---
-                    # 1. Alapanyag kinyerése
-                    note_area_words = [w for w in line_words if v_lines[1] <= (w['x0'] + w['x1'])/2 < v_lines[2]]
+                    # --- 5. MEGJEGYZÉS: A "HÚSDARÁLÓ" LOGIKA (Full Copy - Kivonás) ---
+                    # 1. Kinyerjük a sor összes szövegét, függetlenül a sávoktól
+                    full_row_text = " ".join([w['text'] for w in sorted(row_words, key=lambda x: x['x0'])])
                     
-                    y_anchor = (anchor['top'] + anchor['bottom']) / 2
-                    relevant_note_words = [w for w in note_area_words if abs(w['top'] - y_anchor) < 35]
+                    # 2. Elkezdjük lecsupaszítani a már ismert adatainkkal
+                    clean_megj = full_row_text
                     
-                    # Itt hozzuk létre a megjegyzés szövegét
-                    megj_text = " ".join([w['text'] for w in sorted(relevant_note_words, key=lambda x: (x['top'], x['x0']))]).strip()
+                    # A) Alapadatok kivonása (Sorszám, ID, Telefon, Pénz)
+                    if row_idx_str: clean_megj = clean_megj.replace(row_idx_str, "", 1)
+                    if full_id: clean_megj = clean_megj.replace(full_id, "", 1)
+                    if phone: clean_megj = clean_megj.replace(phone, "")
+                    if money: clean_megj = clean_megj.replace(money, "")
+                    
+                    # B) Ügyintéző nevének kivonása (darabokra bontva, hogy a töredékeket is vigye)
+                    if admin_name:
+                        # Az admin nevet szavakra bontjuk, és csak a 2 karakternél hosszabbakat vesszük ki (hogy a 'dr' ne vigye el a címet véletlenül)
+                        name_fragments = [n.strip(" ,.|/-") for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
+                        for fragment in name_fragments:
+                            # Szóhatárok figyelembevételével töröljük a nevet
+                            clean_megj = re.sub(rf'\b{re.escape(fragment)}\b', '', clean_megj, flags=re.IGNORECASE)
 
-                    if megj_text:
-                        # A) ID-K TÖRLÉSE (Javítva: a megj_text-en futtatjuk)
-                        megj_text = re.sub(r'[CPZSHK]-\d+', '', megj_text)
-                        
-                        # B) RENDELÉS-KÓDOK TÖRLÉSE (pl. 1-R4)
-                        megj_text = re.sub(r'\d+\s*[-\u2013\u2014\u2212]\s*[A-Z][A-Z0-9*+]*', '', megj_text)
+                    # C) Cím kivonása
+                    if address:
+                        clean_megj = clean_megj.replace(address, "")
 
-                        # C) DINAMIKUS NÉV-RADÍR (Az ügyintéző neve alapján)
-                        if admin_name:
-                            name_parts = [n.strip(" ,.|/-").lower() for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
-                            m_parts = megj_text.split()
-                            
-                            while m_parts and m_parts[0].strip(" ,.|/-").lower() in name_parts:
-                                m_parts.pop(0)
-                            while m_parts and m_parts[-1].strip(" ,.|/-").lower() in name_parts:
-                                m_parts.pop()
-                            
-                            megj_text = " ".join(m_parts)
+                    # D) Rendelés kódok kivonása (Regex-szel az összes előfordulást)
+                    # Ez leszedi a 1-R4, 2-A típusú kódokat
+                    clean_megj = re.sub(r'\d+\s*[-\u2013\u2014\u2212]\s*[A-Z][A-Z0-9*+]*', '', clean_megj)
 
-                        # D) ÁLTALÁNOS SZEMÉTSZŰRÉS
-                        junk_fragments = ["dr", "dr.", "idősb", "ifj", "össz", "összesen", "adag", "db"]
-                        m_parts = megj_text.split()
-                        final_m_parts = [p for p in m_parts if p.strip(" ,.|/-").lower() not in junk_fragments]
-                        
-                        megj_text = " ".join(final_m_parts).strip(" ,.-/|*")
+                    # E) Maradék technikai sallangok (Sor végi összesítő szám, kategóriák)
+                    clean_megj = re.sub(r'\s\d+$', '', clean_megj.strip()) # Sor végi magányos szám
+                    for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "össz", "adag", "db"]:
+                        clean_megj = re.sub(rf'\b{junk}\b', '', clean_megj, flags=re.IGNORECASE)
 
-                    # VÉGEREDMÉNY MENTÉSE
-                    # Ezt a változót használd a mentésnél!
-                    clean_megjegyzese = megj_text
+                    # 3. UTOLSÓ SIMÍTÁSOK (Tisztítás a perjelektől és dupla szóközöktől)
+                    clean_megj = clean_megj.replace("|", " ")
+                    # Minden felesleges írásjelet és szóköz-halmozódást eltüntetünk
+                    clean_megj = re.sub(r'\s+', ' ', clean_megj)
+                    clean_megj = clean_megj.strip(" ,.-/|*")
+
+                    # Ez a végeredmény, amit az exportba teszünk
+                    clean_megjegyzese = clean_megj
                     
                     # --- ITT VOLT A HIBA: A customer_block helyett a tiszta V16-os szöveget használjuk ---
                     # 2. Kategória radírozása (Az ID-kat a V16 már feljebb törölte)

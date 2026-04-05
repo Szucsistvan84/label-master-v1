@@ -330,60 +330,95 @@ def parse_interfood_pdf(pdf_file):
                         if address_parts and address_parts[-1].strip(" ,.|/-").lower() in ["dr", "dr.", "idősb", "ifj"]:
                             address_parts.pop()
 
-                    # --- 1. ISMERT ADATOK KINYERÉSE (A későbbi kivonáshoz) ---
-                    # Itt row_text helyett line_text_full-t használunk!
+                    # --- 1. HORGONYOK ÉS ALAPADATOK ELŐKÉSZÍTÉSE ---
+                    raw_line = line_text_full 
+                    megj_resz_1 = "" # Cég/Név eltérés (Renáta-szabály)
+                    megj_resz_2 = "" # Cím és Telefon közötti extra infó (Szeletelés)
+
+                    # --- 2. LÉPÉS: SORSZÁM ÉS PREFIX ELŐTTI RÉSZ VÁGÁSA ---
+                    # Az ID a legbiztosabb pont (pl. S-123456)
+                    id_pattern = r'[HKSCPZ]-\d{6}'
+                    id_match = re.search(id_pattern, raw_line)
+                    
+                    working_line = raw_line
+                    if id_match:
+                        # Levágjuk a sorszámot (mindent az ID elől)
+                        working_line = raw_line[id_match.start():]
+
+                    # --- 3. LÉPÉS: ISMERT ADATOK KINYERÉSE A VÁGOTT SORBÓL ---
+                    # Cím keresése
                     address_for_clean = ""
-                    city_match = re.search(r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-z-áéíóöőúüű]*)', line_text_full)
+                    city_match = re.search(r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-z-áéíóöőúüű]*)', working_line)
                     if city_match:
                         city_start = city_match.start()
-                        address_for_clean = line_text_full[city_start:].split("  ")[0].strip()
+                        address_for_clean = working_line[city_start:].split("  ")[0].strip()
 
-                    # Telefon keresése a takarításhoz
+                    # Telefon és Pénz keresése
                     phone_for_clean = ""
-                    p_match = re.search(PHONE_PAT, line_text_full)
-                    if p_match:
-                        phone_for_clean = p_match.group(1)
+                    p_match = re.search(PHONE_PAT, working_line)
+                    if p_match: phone_for_clean = p_match.group(1)
 
-                    # Pénz keresése a takarításhoz
                     money_for_clean = ""
-                    m_match = re.search(MONEY_PAT, line_text_full)
-                    if m_match:
-                        money_for_clean = m_match.group(1)
+                    m_match = re.search(MONEY_PAT, working_line)
+                    if m_match: money_for_clean = m_match.group(1)
 
-# --- 2. SZELETELŐ MÓDSZER: OSZLOPOK ALAPJÁN (V18) ---
-                    # A PDF sorát a nagy szóközök mentén daraboljuk fel (min. 2 szóköz)
-                    parts = re.split(r'\s{2,}', line_text_full.strip())
+                    # --- 4. LÉPÉS: ID LEFEJTÉSE ---
+                    if full_id and working_line.startswith(full_id):
+                        working_line = working_line[len(full_id):].strip()
+
+                    # --- 5. LÉPÉS: IRÁNYÍTÓSZÁM (A BETONFAL) KERESÉSE ---
+                    zip_match = re.search(r'\b\d{4}\b', working_line)
                     
-                    # Keressük meg azt a részt, ami nem név, nem cím, nem telefon és nem rendelés
-                    megj_candidates = []
+                    if zip_match:
+                        # NÉV ZÓNA: Az ID és az Irányítószám között
+                        name_zone = working_line[:zip_match.start()].strip()
+                        # CÍM/TELEFON ZÓNA: Irányítószámtól a végéig
+                        address_phone_zone = working_line[zip_match.start():].strip()
+
+                        # --- 6. LÉPÉS: "RENÁTA-SZABÁLY" (Név/Cég eltérés) ---
+                        if name_zone:
+                            if "/" in name_zone:
+                                # Ha van perjel, a cégnevet mentjük (pl. Fire Light Kft.)
+                                megj_resz_1 = name_zone.split("/")[0].strip()
+                            else:
+                                # Ha nincs perjel, megnézzük a név-maradékot (pl. Ivett, Renáta)
+                                temp_megj = name_zone
+                                if admin_name:
+                                    for word in admin_name.split():
+                                        if len(word) > 2:
+                                            temp_megj = re.sub(rf'\b{re.escape(word)}\b', '', temp_megj, flags=re.IGNORECASE)
+                                megj_resz_1 = temp_megj.strip()
+
+                        # --- 7. LÉPÉS: MEGJEGYZÉS 2. FELE (Cím és Telefon között) ---
+                        if address_for_clean:
+                            # Keressük a Telefon, Ft vagy Rendelés kód kezdetét mint záró horgonyt
+                            end_match = re.search(f"{re.escape(phone_for_clean)}|{re.escape(money_for_clean)}|Ft|{ORDER_PAT}", address_phone_zone)
+                            
+                            if end_match:
+                                middle_part = address_phone_zone[:end_match.start()].strip()
+                                # Kivonjuk a címet a "szendvics" közepéből
+                                if address_for_clean in middle_part:
+                                    megj_resz_2 = middle_part.replace(address_for_clean, "").strip()
+                                else:
+                                    temp_mid = middle_part
+                                    for word in address_for_clean.split():
+                                        if len(word) > 2:
+                                            temp_mid = temp_mid.replace(word, "")
+                                    megj_resz_2 = temp_mid.strip()
+
+                    # --- 8. LÉPÉS: ÖSSZEFŰZÉS ÉS VÉGSŐ TAKARÍTÁS ---
+                    parts = []
+                    # Csak akkor adjuk hozzá, ha értelmes infó (nem csak 1 karakter)
+                    if megj_resz_1 and len(megj_resz_1) > 1: parts.append(megj_resz_1)
+                    if megj_resz_2 and len(megj_resz_2) > 1: parts.append(megj_resz_2)
                     
-                    for p in parts:
-                        p_clean = p.strip()
-                        # Átugorjuk, ha:
-                        if p_clean == anchor.get('text', '').strip(): continue # Sorszám
-                        if p_clean == full_id: continue                       # ID
-                        if admin_name and p_clean in admin_name: continue     # Név
-                        if address_for_clean and p_clean in address_for_clean: continue # Cím
-                        if phone_for_clean and p_clean == phone_for_clean: continue # Telefon
-                        if money_for_clean and p_clean == money_for_clean: continue # Pénz
-                        if re.search(ORDER_PAT, p_clean): continue            # Rendelés kód
-                        
-                        # Ha nem találtunk egyezést a fentiekkel, ez lesz a megjegyzés
-                        if len(p_clean) > 1:
-                            megj_candidates.append(p_clean)
-
-                    # Összefűzzük a talált darabokat
-                    final_megj = " ".join(megj_candidates)
-
-                    # --- 3. UTOLSÓ SIMÍTÁS (Tisztítás) ---
-                    # Ha a megjegyzés véletlenül tartalmazza a rendelés kódját a végén, levágjuk
-                    final_megj = re.sub(r'\d+\s*[-\u2013\u2014\u2212]\s*[A-Z][A-Z0-9*+]*.*$', '', final_megj).strip()
+                    final_megj = " | ".join(parts)
                     
-                    # Ha csak technikai maradék maradt (pl. "Csü:", "db"), ürítsük ki
-                    if final_megj.lower() in ["csü:", "hé:", "ke:", "sze:", "pé:", "össz:", "db"]:
-                        final_megj = ""
-
-                    clean_megjegyzese = final_megj
+                    # Tisztító regex a legvégén
+                    final_megj = re.sub(r'[,\.\-/]{2,}', ' ', final_megj)
+                    final_megj = re.sub(r'\s+', ' ', final_megj)
+                    
+                    clean_megjegyzese = final_megj.strip(" ,.-/|*")
                     
                     # --- ITT VOLT A HIBA: A customer_block helyett a tiszta V16-os szöveget használjuk ---
                     # 2. Kategória radírozása (Az ID-kat a V16 már feljebb törölte)

@@ -306,24 +306,32 @@ def parse_interfood_pdf(pdf_file):
                     admin_name = " ".join(final_parts).strip(" -/|.,*")
                     admin_name = " ".join(admin_name.split())
 
-                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA ---
-                    # Minden szó, ami a rendelés sávjában van
-                    order_words = sorted([w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5], key=lambda x: x['x0'])
+                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (SORVÉGI TÖRÉS JAVÍTÁSSAL) ---
+                    # Fontos a sorrend: először függőlegesen (top), aztán vízszintesen (x0) rendezünk
+                    order_words = sorted([w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5], key=lambda x: (x['top'], x['x0']))
+                    
                     full_right_text = " ".join([w['text'] for w in order_words])
                     
-                    # 1. Kinyerjük a konkrét kódokat (pl. 1-R4)
+                    # JAVÍTÁS: Ha egy kötőjel után szóköz vagy sortörés van (pl. "1- D14"), összehúzzuk őket
+                    # Ez megoldja a Szanyi Gabriellánál tapasztalt "1- [szünet] D14" problémát
+                    full_right_text = re.sub(r'([-\u2013\u2014\u2212])\s+', r'\1', full_right_text)
+                    
+                    # 1. Kinyerjük a konkrét kódokat (most már az 1-D14 is egyben lesz)
                     raw_orders = re.findall(ORDER_PAT, full_right_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     
-                    # 2. Megjegyzés: minden, ami NEM illeszkedik a rendelés mintára
-                    # Eltávolítjuk a kódokat a teljes szövegből, a maradék lesz a megjegyzés
+                    # 2. Megjegyzés tisztítása
                     clean_comment = full_right_text
                     for q, c in raw_orders:
-                        # Ez eltávolítja a konkrét "1-R4" szerű mintákat
-                        clean_comment = re.sub(rf'{q}\s*[-\u2013\u2014\u2212]\s*{re.escape(c)}', '', clean_comment)
+                        # Kivágjuk a felismert kódokat a szövegből
+                        pattern_to_remove = rf'{q}\s*[-\u2013\u2014\u2212]\s*{re.escape(c)}'
+                        clean_comment = re.sub(pattern_to_remove, '', clean_comment, count=1)
                     
-                    # Tisztítás: felesleges szóközök és vesszők eltávolítása
+                    # BIZTONSÁGI TISZTÍTÁS: Ha maradt volna árva "1-" vagy "2-" a sor végén, azt is töröljük a megjegyzésből
+                    clean_comment = re.sub(r'\d+\s*[-\u2013\u2014\u2212](?!\w)', '', clean_comment)
+                    
                     megjegyzes = clean_comment.strip(", ").strip()
+                    megjegyzes = re.sub(r'\s+', ' ', megjegyzes).strip()
 
                     # CÍM meghatározása (v_lines[2] és x40 között)
                     address = " ".join([w['text'] for w in sorted([w for w in row_words if v_lines[2] <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()

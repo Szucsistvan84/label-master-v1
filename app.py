@@ -538,6 +538,15 @@ def parse_interfood_pdf(pdf_file):
                     r_clean = reszleg.strip(" ,.-/|*")
                     e_clean = extra_instructions.strip(" ,.-/|*")
                     
+                    # --- EZ AZ ÚJ TAKARÍTÓ RÉSZ ---
+                    # Kitöröljük a rendelés kódokat az extra utasításból, 
+                    # mert már megvannak a Rendelés oszlopban
+                    e_clean = re.sub(ORDER_PAT, '', e_clean)
+                    # A maradék dupla kötőjeleket és szemetet is eltüntetjük
+                    e_clean = re.sub(r'[-\u2013\u2014\u2212]{2,}', '-', e_clean)
+                    e_clean = e_clean.replace('  ', ' ').strip(" ,.-/|*")
+                    # --- IDÁIG ---
+                    
                     if r_clean and len(r_clean) > 1:
                         final_note_parts.append(r_clean)
                     if e_clean and len(e_clean) > 1:

@@ -987,15 +987,25 @@ def create_raklista_pdf(df, jarat_info, meta_dict): # meta_list helyett meta_dic
     dates_str = f"{ev}. {het}. hét ({napok})"
     # -----------------------------------------
 
+    # ... (beolvasás és alapok után)
     counts = {}
-    # ... (a függvény többi része marad változatlanul)
     for _, r in df.iterrows():
         order_str = str(r.get('Rendelés_Full', ''))
         day_parts = order_str.split('|')
         for part in day_parts:
-            prefix = "P" if "Pé:" in part else "Z" if "Szo:" in part else ""
+            # ÚJ, BŐVÍTETT PREFIX KERESÉS (H, K, S, C, P, Z)
+            prefix = ""
+            if "Hé:" in part: prefix = "H"
+            elif "Ke:" in part: prefix = "K"
+            elif "Sze:" in part: prefix = "S"
+            elif "Csü:" in part: prefix = "C"
+            elif "Pé:" in part: prefix = "P"
+            elif "Szo:" in part: prefix = "Z"
+            
             if not prefix: continue
-            found = re.findall(r'(\d+)\s*-\s*([A-Z0-9*+]+)', part)
+            
+            # Kódok kinyerése (kezeli a kötőjelet és a speciális karaktereket is)
+            found = re.findall(r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z0-9*+]+)', part)
             for qty, code in found:
                 full_key = f"{prefix}_{code.strip().upper()}"
                 counts[full_key] = counts.get(full_key, 0) + int(qty)

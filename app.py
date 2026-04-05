@@ -330,7 +330,7 @@ def parse_interfood_pdf(pdf_file):
                         if address_parts and address_parts[-1].strip(" ,.|/-").lower() in ["dr", "dr.", "idősb", "ifj"]:
                             address_parts.pop()
 
-# --- 1. HORGONYOK ELŐKÉSZÍTÉSE ---
+                    # --- 1. HORGONYOK ELŐKÉSZÍTÉSE ---
                     raw_line = line_text_full 
                     megj_resz_1 = "" 
                     megj_resz_2 = "" 
@@ -453,16 +453,43 @@ def parse_interfood_pdf(pdf_file):
 
                     extra_instructions = extra_instructions.replace("/", "").strip(" -/|.,")
 
-                    # VÉGSŐ ÖSSZEÁLLÍTÁS
-                    final_note_parts = []
-                    if reszleg: final_note_parts.append(reszleg)
-                    if extra_instructions: final_note_parts.append(extra_instructions)
+                    # --- VÉGSŐ TISZTÍTÁS ÉS ÖSSZEÁLLÍTÁS (JAVÍTOTT) ---
                     
-                    full_note = " | ".join(dict.fromkeys(final_note_parts)).strip(" -/|.,*")
+                    # 1. Telefonszám-töredékek (30, 70, 20) és felesleges írásjelek radírozása
+                    clean_customer = re.sub(r'\b(20|30|70)\b', '', clean_customer)
+                    # Sok egymást követő vessző vagy pont cseréje egyetlen szóközre
+                    clean_customer = re.sub(r'[,.;:|*]{2,}', ' ', clean_customer)
 
-                    # Biztonsági fék: ha csak a név maradt volna, ne duplázzuk megjegyzésbe
-                    if admin_name and full_note.replace("|", "").strip().lower() == admin_name.lower():
-                        full_note = ""
+                    # 2. Ügyintéző nevének és részeinek radírozása a megjegyzésből
+                    if admin_name:
+                        clean_customer = re.sub(rf'\b{re.escape(admin_name)}\b', '', clean_customer, flags=re.IGNORECASE)
+                        for name_part in admin_name.split():
+                            if len(name_part) > 2:
+                                clean_customer = re.sub(rf'\b{re.escape(name_part)}\b', '', clean_customer, flags=re.IGNORECASE)
+
+                    # 3. Újraépítjük a részeket (Részleg és Instrukció szétválasztása)
+                    reszleg = ""
+                    extra_instructions = clean_customer
+                    if "/" in clean_customer:
+                        c_parts = clean_customer.split("/")
+                        reszleg = c_parts[0].strip()
+                        extra_instructions = "/".join(c_parts[1:]).strip()
+
+                    # 4. ÖSSZEFŰZÉS
+                    final_note_parts = []
+                    # Csak akkor adjuk hozzá, ha a tisztítás után maradt benne valami értelmes
+                    if reszleg and len(reszleg.strip()) > 1: 
+                        final_note_parts.append(reszleg.strip())
+                    if extra_instructions and len(extra_instructions.strip()) > 1: 
+                        final_note_parts.append(extra_instructions.strip())
+                    
+                    # dict.fromkeys kiszűri, ha a részleg és az instrukció ugyanaz lett a radírozás után
+                    full_note = " | ".join(dict.fromkeys(final_note_parts))
+                    
+                    # 5. UTOLSÓ KOZMETIKA (dupla szóközök és szélsőséges írásjelek)
+                    full_note = re.sub(r'\s+', ' ', full_note)
+                    full_note = full_note.strip(" ,.-/|*")
+                    
                     # Rendelés szöveges formázása a CSV-hez
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
                     full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""

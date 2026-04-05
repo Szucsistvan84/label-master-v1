@@ -306,33 +306,36 @@ def parse_interfood_pdf(pdf_file):
                     admin_name = " ".join(final_parts).strip(" -/|.,*")
                     admin_name = " ".join(admin_name.split())
 
-                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (PRECIZÍÓS JAVÍTÁS) ---
+                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (STRUKTURÁLT JAVÍTÁS) ---
                     
-                    # 1. Összegyűjtjük a szavakat a jobb oldali sávból (x > 52.5)
-                    # A rendezésnél fontos a 'top', hogy a sorrend megmaradjon
+                    # 1. Minden szót begyűjtünk a jobb oldali sávból
                     order_words = sorted([w for w in line_words if (w['x0'] + w['x1'])/2 >= x52_5], key=lambda x: (x['top'], x['x0']))
                     
-                    # 2. Összefűzzük egy nyers szöveggé
-                    raw_text = " ".join([w['text'] for w in order_words])
-                    
-                    # 3. GYÓGYÍTÁS: Ha a PDF széttörte a kódot (pl. "1- " és a következő sorban "D14")
-                    # Ez a regex megkeresi a SZÁM-KÖTŐJEL utáni szóközöket/sortöréseket és TÖRÖLI őket.
-                    # Így a "1- D14" -> "1-D14", a "5- R4" -> "5-R4" lesz.
-                    fixed_text = re.sub(r'(\d+[-\u2013\u2014\u2212])\s+', r'\1', raw_text)
+                    # 2. Speciális összefűzés: Ha egy szó "-" jelre végződik, NE tegyünk utána szóközt!
+                    full_right_text = ""
+                    for i, w in enumerate(order_words):
+                        text = w['text']
+                        full_right_text += text
+                        # Csak akkor teszünk szóközt, ha nem kötőjellel végződik a szó
+                        if not text.endswith(('-', '\u2013', '\u2014', '\u2212')):
+                            if i < len(order_words) - 1:
+                                full_right_text += " "
 
-                    # 4. KERESÉS: Most már a régi, biztonságos regexedet használjuk a "meggyógyított" szövegen
-                    # Csak azt találja meg, ami VALÓBAN rendelés (szám-kötőjel-kód)
-                    raw_orders = re.findall(ORDER_PAT, fixed_text)
+                    # 3. Biztonsági "tapadás": Ha mégis maradt volna szóköz a kötőjel után (pl. "1 - D14")
+                    full_right_text = re.sub(r'(\d+)\s*([-\u2013\u2014\u2212])\s+', r'\1\2', full_right_text)
+
+                    # 4. KERESÉS: Most már az eredeti, precíz ORDER_PAT keres
+                    raw_orders = re.findall(ORDER_PAT, full_right_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     
-                    # 5. MEGJEGYZÉS: Kiindulunk a javított szövegből, és töröljük belőle a megtalált rendeléseket
-                    clean_comment = fixed_text
+                    # 5. MEGJEGYZÉS: Töröljük a felismert rendeléseket a szövegből
+                    clean_comment = full_right_text
                     for q, c in raw_orders:
-                        # Pontosan azt a mintát töröljük, amit rendelésnek vettünk
+                        # Ez pontosan a q-c párost veszi ki
                         pattern_to_remove = rf'{q}[-\u2013\u2014\u2212]{re.escape(c)}'
                         clean_comment = re.sub(pattern_to_remove, '', clean_comment, count=1)
                     
-                    # Végső csinosítás
+                    # Végső takarítás
                     megjegyzes = clean_comment.strip(", ").strip()
                     megjegyzes = re.sub(r'\s+', ' ', megjegyzes).strip()
 

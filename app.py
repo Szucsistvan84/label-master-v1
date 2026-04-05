@@ -145,7 +145,7 @@ def debug_pdf_layout(pdf_file):
         st.image(im.annotated, caption="Keresd meg, hol végződnek az oszlopok a szürke rács alapján!", use_container_width=True)
 
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
-def parse_interfood_pdf(pdf_file):
+def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None, 'jaratok': []}
     

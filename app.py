@@ -1206,7 +1206,7 @@ def main():
                 with st.spinner("PDF-ek beolvasása..."):
                     for f in up_files:
                         f.seek(0)
-                        rows, _ = parse_interfood_pdf(f)
+                        rows, _ = parse_interfood_pdf(f, napi_etlap_kodok)
                         if rows:
                             all_rows.extend(rows)
 

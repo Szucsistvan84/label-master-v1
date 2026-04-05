@@ -533,23 +533,37 @@ def parse_interfood_pdf(pdf_file):
                             reszleg = c_parts[0].strip()
                             extra_instructions = "/".join(c_parts[1:]).strip()
 
-                    # 5. Intelligens összefűzés (Dupla pipeline ellen)
+                    # --- 5. INTELLIGENS ÖSSZEFŰZÉS ÉS ÉTLAP ALAPJÚ TAKARÍTÁS ---
                     final_note_parts = []
                     r_clean = reszleg.strip(" ,.-/|*")
                     e_clean = extra_instructions.strip(" ,.-/|*")
                     
-                    # --- EZ AZ ÚJ TAKARÍTÓ RÉSZ ---
-                    # Kitöröljük a rendelés kódokat az extra utasításból, 
-                    # mert már megvannak a Rendelés oszlopban
-                    e_clean = re.sub(ORDER_PAT, '', e_clean)
-                    # A maradék dupla kötőjeleket és szemetet is eltüntetjük
-                    e_clean = re.sub(r'[-\u2013\u2014\u2212]{2,}', '-', e_clean)
+                    # --- OKOS TAKARÍTÁS: Itt használjuk a kapott napi_etlap_kodok-at ---
+                    # Sorba rendezzük hosszuk szerint csökkenőben (D14 előbb, mint D1)
+                    for kod in sorted(napi_etlap_kodok, key=len, reverse=True):
+                        if len(kod) > 1:
+                            # HOSSZÚ KÓDOK (pl. D14, REPA, E2K):
+                            # Töröljük, ha különálló egység (szóhatár: szóköz, kötőjel vagy sor vége)
+                            # A minta felismeri: "1-D14", "1 - D14", vagy simán "D14"
+                            minta = r'\d*\s*[-\u2013\u2014\u2212]?\s*\b' + re.escape(kod) + r'\b'
+                            e_clean = re.sub(minta, '', e_clean)
+                        else:
+                            # RÖVID KÓDOK (pl. A, P, I, C):
+                            # CSAK akkor töröljük, ha van előtte egy szám és egy kötőjel! (pl. 1-A)
+                            # Így a nevekben (pl. Attila) lévő betűk biztonságban maradnak.
+                            minta = r'\d+\s*[-\u2013\u2014\u2212]\s*\b' + re.escape(kod) + r'\b'
+                            e_clean = re.sub(minta, '', e_clean)
+
+                    # Utólagos szemétmentesítés a törlés után maradt jeleknek
+                    e_clean = re.sub(r'[-\u2013\u2014\u2212]{2,}', '-', e_clean) # Dupla kötőjel -> sima
                     e_clean = e_clean.replace('  ', ' ').strip(" ,.-/|*")
-                    # --- IDÁIG ---
-                    
+                    # --- TAKARÍTÁS VÉGE ---
+
+                    # Most már a megtisztított e_clean-t adjuk hozzá a megjegyzéshez
                     if r_clean and len(r_clean) > 1:
                         final_note_parts.append(r_clean)
                     if e_clean and len(e_clean) > 1:
+                        # Ellenőrizzük, hogy az extra ne legyen ugyanaz, mint a részleg
                         if not final_note_parts or e_clean.lower() != final_note_parts[0].lower():
                             final_note_parts.append(e_clean)
                     

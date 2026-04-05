@@ -306,36 +306,36 @@ def parse_interfood_pdf(pdf_file):
                     admin_name = " ".join(final_parts).strip(" -/|.,*")
                     admin_name = " ".join(admin_name.split())
 
-                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (A "SZUPER-FOLYOSÓ" LOGIKA) ---
+                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (DINAMIKUS SZŰRÉS) ---
                     
-                    # A 88-as skálád alapján számolt tűpontos határok
-                    # 65% (57.2 kocka) - 91% (80 kocka)
-                    width = page.width
-                    x_start_limit = width * 0.65  
+                    width = page.width 
+                    # Visszaállunk a biztos 60%-ra (52.5 / 88), hogy a rendelések eleje ne vesszen el
+                    x_start_limit = width * 0.596 
                     x_end_limit = width * 0.91    
 
-                    # 1. KIVÁGÁS: Csak a folyosó szavait gyűjtjük össze, sorrendben
+                    # 1. KIVÁGÁS: A folyosó szavai (most már a 60%-tól)
                     folyoso_words = sorted([
                         w for w in line_words 
                         if (w['x0'] + w['x1'])/2 >= x_start_limit and (w['x0'] + w['x1'])/2 <= x_end_limit
                     ], key=lambda x: (x['top'], x['x0']))
                     
-                    # 2. TISZTÍTÁS: Kidobjuk a zavaró szövegeket (pl. "gimnázium") a folyosóból
-                    # Csak azt tartjuk meg, ami kód-alkatrész: szám, kötőjel, kód-karakter, csillag
+                    # 2. TISZTÍTÁS: CSAK a kódok kellenek, a telefonszámot kidobjuk!
                     tiszta_elemek = []
                     for w in folyoso_words:
                         txt = w['text'].strip()
-                        # Ha van benne szám, kötőjel vagy nagybetűs kód/csillag, akkor kell nekünk
+                        # Ha a szó telefonszám formátumú (pl. 30/1234567), akkor átugorjuk
+                        if re.match(r'\d{2}/\d+', txt):
+                            continue
+                        # Csak azt tartjuk meg, ami rendeléshez kell: szám, kötőjel, kód, csillag
                         if re.search(r'[\d\-\u2013\u2014\u2212A-Z\*]', txt):
                             tiszta_elemek.append(txt)
 
-                    # 3. LEGO-RAGASZTÓ: Összefűzzük és összehúzzuk a szétesett darabokat
+                    # 3. LEGO-RAGASZTÓ: Összehúzzuk a szétesett darabokat
                     raw_folyoso_text = " ".join(tiszta_elemek)
-                    # Eltüntetjük a szóközöket a kötőjelek körül (pl. "1 - D14" -> "1-D14")
-                    # Ez a sor oldja meg a szerdai és csütörtöki hibát is egyszerre!
+                    # Itt tüntetjük el a szóközöket: "1 - D14" -> "1-D14"
                     fixed_text = re.sub(r'(\d+)\s*([-\u2013\u2014\u2212])\s*', r'\1\2', raw_folyoso_text)
 
-                    # 4. RENDELÉS KINYERÉSE: Most már a tiszta szövegen fut a regex
+                    # 4. KERESÉS: Most már a teljes, 60%-tól induló tiszta szövegen fut a regex
                     raw_orders = re.findall(ORDER_PAT, fixed_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     

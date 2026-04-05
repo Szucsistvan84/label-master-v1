@@ -1182,25 +1182,34 @@ def main():
                 meta_auto = extract_all_meta(up_files)
                 st.session_state.meta_data = meta_auto
 
-                # --- 2. EZ AZ ÚJ RÉSZ: ÉTLAP LEKÉRÉSE EGYSZER ---
+                # --- 2. ÉTLAP LEKÉRÉSE ÉS ELLENŐRZÉSE ---
                 napi_etlap_kodok = set()
                 if meta_auto['ev'] and meta_auto['het']:
-                    with st.spinner("Étlap kódok letöltése..."):
+                    with st.spinner("Étlap kódok letöltése az API-ról..."):
                         etlap_dict = get_etlap_dict(meta_auto['ev'], meta_auto['het'])
                         for kulcs in etlap_dict.keys():
                             # "P_D14" -> "D14"
                             parts = kulcs.split("_")
                             if len(parts) > 1:
                                 napi_etlap_kodok.add(parts[1])
+                
+                # Visszajelzés a Sidebar-ba, hogy látod-e a kódokat
+                with st.sidebar:
+                    st.divider()
+                    if napi_etlap_kodok:
+                        st.success(f"✅ {len(napi_etlap_kodok)} kód betöltve")
+                        st.write("### Aktuális étlap kódok:")
+                        st.caption(", ".join(sorted(napi_etlap_kodok)))
+                    else:
+                        st.error("❌ Nem sikerült kódokat letölteni az API-ról!")
                 # -----------------------------------------------
 
-                # 3. Feldolgozás indítása (most már átadjuk a kódokat is)
+                # 3. Feldolgozás indítása (átadjuk a kódokat a tisztításhoz)
                 all_data = []
                 for f in up_files:
-                    # Itt a parse_interfood_pdf-et úgy kell módosítanod, 
-                    # hogy fogadja a napi_etlap_kodok paramétert!
-                    df_page = parse_interfood_pdf(f, napi_etlap_kodok) 
-                    all_data.append(df_page)
+                    # Fontos: itt két értéket várunk vissza (rows, _)
+                    rows, _ = parse_interfood_pdf(f, napi_etlap_kodok) 
+                    all_data.append(rows)
                 
                 all_rows = []
                 with st.spinner("PDF-ek beolvasása..."):

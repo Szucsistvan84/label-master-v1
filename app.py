@@ -85,56 +85,54 @@ def register_fonts():
 
 def get_etlap_dict(year, week):
     if not year or not week: return {}
-
     url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     etlap_full = {}
 
     try:
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
-            # header=None-t használunk, hogy a legelső soroktól lássunk mindent
             df = pd.read_excel(BytesIO(response.content), header=None)
-
-            # Oszlop feltérképezés: B=1 (Hé), C=2 (Ke), D=3 (Sze), E=4 (Csü), F=5 (Pé), G=6 (Szo)
-            # Prefix térkép a raklista-logikához
+            
+            # A sziklaszilárd oszlopkiosztás
             prefix_map = {1: "H", 2: "K", 3: "S", 4: "C", 5: "P", 6: "Z"}
 
             for row_idx in range(len(df)):
-                # Az A oszlopban (0) keressük a kódokat (pl. "D14 - Ételnév")
                 val = str(df.iloc[row_idx, 0])
                 
                 if " - " in val:
-                    cikkszam = val.split(" - ")[0].strip().upper()
+                    # Szétválasztjuk: pl. "A - Főétel" -> cikkszam: "A", kategoria: "Főétel"
+                    parts = val.split(" - ", 1)
+                    cikkszam = parts[0].strip().upper()
+                    kategoria = parts[1].strip()
                     
-                    # Most végigmegyünk az összes nap oszlopán (1-től 6-ig)
                     for col_idx, day_prefix in prefix_map.items():
                         if col_idx < len(df.columns):
                             try:
-                                # Név kinyerése az aktuális napi oszlopból
-                                nev = str(df.iloc[row_idx, col_idx]).strip()
+                                # Név (pl. E140)
+                                nev_cell = df.iloc[row_idx, col_idx]
+                                nev = str(nev_cell).strip() if pd.notnull(nev_cell) else ""
                                 
-                                # Ár kinyerése a név alatti cellából (i + 1) - ez a te eredeti logikád
-                                # Csak akkor mentünk, ha van ott név és nem "nan"
-                                if nev != "nan" and nev != "" and "étlap" not in nev.lower():
-                                    
+                                if nev != "" and "étlap" not in nev.lower() and nev != "nan":
                                     ar = 0
-                                    # Megnézzük a következő sort az ár miatt
+                                    # Ár közvetlenül alatta (pl. E141)
                                     if row_idx + 1 < len(df):
                                         ar_val = df.iloc[row_idx + 1, col_idx]
                                         if pd.notnull(ar_val):
-                                            try:
-                                                # Csak a számokat tartjuk meg (pl. "1 345 Ft" -> 1345)
-                                                ar = int(re.sub(r'\D', '', str(ar_val)))
-                                            except:
-                                                ar = 0
-
-                                    # Egyedi kulcs: pl. "CS_D14", "P_D14", "Z_H1"
-                                    etlap_full[f"{day_prefix}_{cikkszam}"] = {'nev': nev, 'ar': ar}
+                                            ar_digits = re.sub(r'\D', '', str(ar_val))
+                                            if ar_digits:
+                                                ar = int(ar_digits)
+                                    
+                                    # Eltároljuk az összes infót a jövőbeli elvetemült ötletekhez
+                                    etlap_full[f"{day_prefix}_{cikkszam}"] = {
+                                        'nev': nev, 
+                                        'ar': ar,
+                                        'kat': kategoria 
+                                    }
                             except:
                                 continue
             return etlap_full
     except Exception as e:
-        st.error(f"Étlap letöltési hiba: {e}")
+        st.error(f"Étlap feldolgozási hiba: {e}")
     return {}
 
 def debug_pdf_layout(pdf_file):

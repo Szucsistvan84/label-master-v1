@@ -501,19 +501,20 @@ def parse_interfood_pdf(pdf_file):
                     # Ezek a PDF aljáról szöknek be, nincs helyük a megjegyzésben
                     full_note = re.sub(r'(Összesítés:|Csillagozott|Összesen:).*', '', full_note, flags=re.IGNORECASE)
 
-                    # B) MAGÁNYOS ELŐHÍVÓK ÉS SZÁMOK (ERZSÉBET-BIZTOS VERZIÓ)
-                    # 1. Ha két pipeline között csak egy szám van (pl. "| 20 |") -> egyetlen pipeline-ra cseréljük
-                    full_note = re.sub(r'\|\s*(20|30|70|06)\s*\|', '|', full_note)
+                    # B) MAGÁNYOS ELŐHÍVÓK ÉS SZÁMOK - ATOMBIZTOS VERZIÓ
+                    # 1. Konkrét szövegcsere a leggyakoribb hibákra (nem regex, sima replace)
+                    full_note = full_note.replace("| 20 |", "|")
+                    full_note = full_note.replace("| 30 |", "|")
+                    full_note = full_note.replace("| 70 |", "|")
+                    full_note = full_note.replace("| 06 |", "|")
                     
-                    # 2. Ha a szám előtt/után pipeline van, de a sor szélén (pl. "Erzsébet | 20")
+                    # 2. Szélek takarítása (ha a végén vagy elején maradt volna)
                     full_note = re.sub(r'\|\s*(20|30|70|06)\s*$', '', full_note)
                     full_note = re.sub(r'^\s*(20|30|70|06)\s*\|', '', full_note)
                     
-                    # 3. Biztonsági tartalék: ha a tisztítás után maradt " | | " (dupla elválasztó)
-                    full_note = full_note.replace("|  |", "|").replace("| |", "|")
-
-                    # 4. Magányos számok bárhol (telefonvédelemmel: csak ha nincs utána / vagy több szám)
-                    full_note = re.sub(r'\b(20|30|70|06)\b(?!\s*/|\s*\d)', '', full_note)
+                    # 3. Maradék magányos előhívók törlése (telefonvédelemmel)
+                    # Itt most a szóközökre is rálövünk a számok körül
+                    full_note = re.sub(r'\s\b(20|30|70|06)\b(?!\s*/|\s*\d)', '', full_note)
 
                     # C) NÉV-DUPLIKÁCIÓ ELLENI VÉDELEM (Globiz-effektus)
                     if "|" in full_note:

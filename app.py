@@ -330,30 +330,27 @@ def parse_interfood_pdf(pdf_file):
                         if address_parts and address_parts[-1].strip(" ,.|/-").lower() in ["dr", "dr.", "idősb", "ifj"]:
                             address_parts.pop()
 
-                    # --- 1. HORGONYOK ÉS ALAPADATOK ELŐKÉSZÍTÉSE ---
+# --- 1. HORGONYOK ELŐKÉSZÍTÉSE ---
                     raw_line = line_text_full 
-                    megj_resz_1 = "" # Cég/Név eltérés (Renáta-szabály)
-                    megj_resz_2 = "" # Cím és Telefon közötti extra infó (Szeletelés)
+                    megj_resz_1 = "" 
+                    megj_resz_2 = "" 
 
-                    # --- 2. LÉPÉS: SORSZÁM ÉS PREFIX ELŐTTI RÉSZ VÁGÁSA ---
-                    # Az ID a legbiztosabb pont (pl. S-123456)
+                    # --- 2. LÉPÉS: SORSZÁM LEVÁGÁSA (AZ ID-IG) ---
                     id_pattern = r'[HKSCPZ]-\d{6}'
                     id_match = re.search(id_pattern, raw_line)
-                    
                     working_line = raw_line
                     if id_match:
-                        # Levágjuk a sorszámot (mindent az ID elől)
                         working_line = raw_line[id_match.start():]
 
-                    # --- 3. LÉPÉS: ISMERT ADATOK KINYERÉSE A VÁGOTT SORBÓL ---
-                    # Cím keresése
+                    # --- 3. LÉPÉS: ADATOK KERESÉSE (Horgonyoknak) ---
+                    # Cím horgony
                     address_for_clean = ""
                     city_match = re.search(r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-z-áéíóöőúüű]*)', working_line)
                     if city_match:
-                        city_start = city_match.start()
-                        address_for_clean = working_line[city_start:].split("  ")[0].strip()
+                        # A várostól indulva keressük a cím végét (két szóközig)
+                        address_for_clean = working_line[city_match.start():].split("  ")[0].strip()
 
-                    # Telefon és Pénz keresése
+                    # Telefon és Pénz horgonyok
                     phone_for_clean = ""
                     p_match = re.search(PHONE_PAT, working_line)
                     if p_match: phone_for_clean = p_match.group(1)
@@ -362,61 +359,58 @@ def parse_interfood_pdf(pdf_file):
                     m_match = re.search(MONEY_PAT, working_line)
                     if m_match: money_for_clean = m_match.group(1)
 
-                    # --- 4. LÉPÉS: ID LEFEJTÉSE ---
-                    if full_id and working_line.startswith(full_id):
-                        working_line = working_line[len(full_id):].strip()
+                    # --- 4. LÉPÉS: MEGJEGYZÉS 1. FELE (ID ÉS ZIP KÖZÖTT) ---
+                    # Levágjuk az ID-t az elejéről a munkához
+                    temp_line = working_line
+                    if full_id and temp_line.startswith(full_id):
+                        temp_line = temp_line[len(full_id):].strip()
 
-                    # --- 5. LÉPÉS: IRÁNYÍTÓSZÁM (A BETONFAL) KERESÉSE ---
-                    zip_match = re.search(r'\b\d{4}\b', working_line)
-                    
+                    zip_match = re.search(r'\b\d{4}\b', temp_line)
                     if zip_match:
-                        # NÉV ZÓNA: Az ID és az Irányítószám között
-                        name_zone = working_line[:zip_match.start()].strip()
-                        # CÍM/TELEFON ZÓNA: Irányítószámtól a végéig
-                        address_phone_zone = working_line[zip_match.start():].strip()
-
-                        # --- 6. LÉPÉS: "RENÁTA-SZABÁLY" (Név/Cég eltérés) ---
+                        name_zone = temp_line[:zip_match.start()].strip()
+                        # "Renáta-szabály":
                         if name_zone:
                             if "/" in name_zone:
-                                # Ha van perjel, a cégnevet mentjük (pl. Fire Light Kft.)
                                 megj_resz_1 = name_zone.split("/")[0].strip()
                             else:
-                                # Ha nincs perjel, megnézzük a név-maradékot (pl. Ivett, Renáta)
-                                temp_megj = name_zone
+                                t_megj = name_zone
                                 if admin_name:
-                                    for word in admin_name.split():
-                                        if len(word) > 2:
-                                            temp_megj = re.sub(rf'\b{re.escape(word)}\b', '', temp_megj, flags=re.IGNORECASE)
-                                megj_resz_1 = temp_megj.strip()
+                                    for w in admin_name.split():
+                                        if len(w) > 2:
+                                            t_megj = re.sub(rf'\b{re.escape(w)}\b', '', t_megj, flags=re.IGNORECASE)
+                                megj_resz_1 = t_megj.strip()
 
-                        # --- 7. LÉPÉS: MEGJEGYZÉS 2. FELE (Cím és Telefon között) ---
-                        if address_for_clean:
-                            # Keressük a Telefon, Ft vagy Rendelés kód kezdetét mint záró horgonyt
-                            end_match = re.search(f"{re.escape(phone_for_clean)}|{re.escape(money_for_clean)}|Ft|{ORDER_PAT}", address_phone_zone)
-                            
-                            if end_match:
-                                middle_part = address_phone_zone[:end_match.start()].strip()
-                                # Kivonjuk a címet a "szendvics" közepéből
-                                if address_for_clean in middle_part:
-                                    megj_resz_2 = middle_part.replace(address_for_clean, "").strip()
-                                else:
-                                    temp_mid = middle_part
-                                    for word in address_for_clean.split():
-                                        if len(word) > 2:
-                                            temp_mid = temp_mid.replace(word, "")
-                                    megj_resz_2 = temp_mid.strip()
+                    # --- 5. LÉPÉS: MEGJEGYZÉS 2. FELE (A CÍM UTÁN) ---
+                    if address_for_clean and address_for_clean in working_line:
+                        # Megkeressük, hol ér véget a cím a sorban
+                        addr_end_pos = working_line.find(address_for_clean) + len(address_for_clean)
+                        # A cím utáni rész
+                        after_address = working_line[addr_end_pos:].strip()
+                        
+                        # Megkeressük a Telefon/Pénz/Rendelés kezdetét (ez a lezáró fal)
+                        end_pat = f"{re.escape(phone_for_clean)}|{re.escape(money_for_clean)}|Ft|{ORDER_PAT}"
+                        end_match = re.search(end_pat, after_address)
+                        
+                        if end_match:
+                            # Ami a cím vége és a telefon kezdete között van, az a tiszta megjegyzés
+                            megj_resz_2 = after_address[:end_match.start()].strip()
+                        else:
+                            # Ha nem találunk lezáró horgonyt, de maradt szöveg
+                            megj_resz_2 = after_address
 
-                    # --- 8. LÉPÉS: ÖSSZEFŰZÉS ÉS VÉGSŐ TAKARÍTÁS ---
+                    # --- 6. LÉPÉS: ÖSSZEFŰZÉS ÉS VÉGSŐ TAKARÍTÁS ---
                     parts = []
-                    # Csak akkor adjuk hozzá, ha értelmes infó (nem csak 1 karakter)
-                    if megj_resz_1 and len(megj_resz_1) > 1: parts.append(megj_resz_1)
-                    if megj_resz_2 and len(megj_resz_2) > 1: parts.append(megj_resz_2)
+                    # Csak a 2 karakternél hosszabb, nem csak írásjel részeket tartjuk meg
+                    for p in [megj_resz_1, megj_resz_2]:
+                        p_clean = p.strip(" ,.-/|*")
+                        if len(p_clean) > 1:
+                            parts.append(p_clean)
                     
                     final_megj = " | ".join(parts)
                     
-                    # Tisztító regex a legvégén
-                    final_megj = re.sub(r'[,\.\-/]{2,}', ' ', final_megj)
+                    # Dupla szóközök és írásjelek irtása
                     final_megj = re.sub(r'\s+', ' ', final_megj)
+                    final_megj = re.sub(r'([,|/\-])\s*\1+', r'\1', final_megj) 
                     
                     clean_megjegyzese = final_megj.strip(" ,.-/|*")
                     

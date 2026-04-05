@@ -308,11 +308,6 @@ def parse_interfood_pdf(pdf_file):
 
                     # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (DINAMIKUS SZŰRÉS) ---
                     
-                    full_row_text = " ".join([w['text'] for w in line_words])
-                    STOP_WORDS = ["Összesítés:", "Csilagozott", "Összesen:"]
-                    if any(stop in full_row_text for stop in STOP_WORDS):
-                        continue 
-                    
                     width = page.width 
                     # Visszaállunk a biztos 60%-ra (52.5 / 88), hogy a rendelések eleje ne vesszen el
                     x_start_limit = width * 0.596 
@@ -324,14 +319,20 @@ def parse_interfood_pdf(pdf_file):
                         if (w['x0'] + w['x1'])/2 >= x_start_limit and (w['x0'] + w['x1'])/2 <= x_end_limit
                     ], key=lambda x: (x['top'], x['x0']))
                     
-                    # 2. TISZTÍTÁS: CSAK a kódok kellenek, a telefonszámot kidobjuk!
+                    # 2. TISZTÍTÁS: CSAK a kódok kellenek, a telefonszámot és az összesítést kidobjuk!
                     tiszta_elemek = []
                     for w in folyoso_words:
                         txt = w['text'].strip()
+                        
+                        # --- ÚJ: CSAK ITT ÁLLÍTJUK MEG A RENDELÉSEK GYŰJTÉSÉT ---
+                        if any(stop in txt for stop in ["Összesítés:", "Csilagozott", "Összesen:"]):
+                            break # Itt megáll, de az ember megmarad!
+                        
                         # Ha a szó telefonszám formátumú (pl. 30/1234567), akkor átugorjuk
                         if re.match(r'\d{2}/\d+', txt):
                             continue
-                        # Csak azt tartjuk meg, ami rendeléshez kell: szám, kötőjel, kód, csillag
+                            
+                        # Csak azt tartjuk meg, ami kód-szerű
                         if re.search(r'[\d\-\u2013\u2014\u2212A-Z\*]', txt):
                             tiszta_elemek.append(txt)
 

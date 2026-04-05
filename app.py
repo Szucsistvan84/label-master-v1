@@ -306,11 +306,24 @@ def parse_interfood_pdf(pdf_file):
                     admin_name = " ".join(final_parts).strip(" -/|.,*")
                     admin_name = " ".join(admin_name.split())
 
-                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS ---
-                    order_words = [w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5]
-                    order_text = " ".join([w['text'] for w in sorted(order_words, key=lambda x: x['x0'])])
-                    raw_orders = re.findall(ORDER_PAT, order_text)
+                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA ---
+                    # Minden szó, ami a rendelés sávjában van
+                    order_words = sorted([w for w in row_words if (w['x0'] + w['x1'])/2 >= x52_5], key=lambda x: x['x0'])
+                    full_right_text = " ".join([w['text'] for w in order_words])
+                    
+                    # 1. Kinyerjük a konkrét kódokat (pl. 1-R4)
+                    raw_orders = re.findall(ORDER_PAT, full_right_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
+                    
+                    # 2. Megjegyzés: minden, ami NEM illeszkedik a rendelés mintára
+                    # Eltávolítjuk a kódokat a teljes szövegből, a maradék lesz a megjegyzés
+                    clean_comment = full_right_text
+                    for q, c in raw_orders:
+                        # Ez eltávolítja a konkrét "1-R4" szerű mintákat
+                        clean_comment = re.sub(rf'{q}\s*[-\u2013\u2014\u2212]\s*{re.escape(c)}', '', clean_comment)
+                    
+                    # Tisztítás: felesleges szóközök és vesszők eltávolítása
+                    megjegyzes = clean_comment.strip(", ").strip()
 
                     # CÍM meghatározása (v_lines[2] és x40 között)
                     address = " ".join([w['text'] for w in sorted([w for w in row_words if v_lines[2] <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()

@@ -306,31 +306,33 @@ def parse_interfood_pdf(pdf_file):
                     admin_name = " ".join(final_parts).strip(" -/|.,*")
                     admin_name = " ".join(admin_name.split())
 
-                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (A VALÓDI D14 JAVÍTÁS) ---
+                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (PRECIZÍÓS JAVÍTÁS) ---
                     
-                    # FIGYELEM: Itt a 'line_words' a kulcs! 
-                    # Ez tartalmazza a 2. és 3. sorba letört rendeléseket is (mint a D14)
-                    order_words = sorted([w for w in line_words if (w['x0'] + w['x1'])/2 >= x52_5], key=lambda x: (round(x['top'] / 4) * 4, x['x0']))
+                    # 1. Összegyűjtjük a szavakat a jobb oldali sávból (x > 52.5)
+                    # A rendezésnél fontos a 'top', hogy a sorrend megmaradjon
+                    order_words = sorted([w for w in line_words if (w['x0'] + w['x1'])/2 >= x52_5], key=lambda x: (x['top'], x['x0']))
                     
-                    full_right_text = " ".join([w['text'] for w in order_words])
+                    # 2. Összefűzzük egy nyers szöveggé
+                    raw_text = " ".join([w['text'] for w in order_words])
                     
-                    # Összehúzzuk a sorvégén letört kötőjeleket a következő szóval (pl. "1- D14" -> "1-D14")
-                    full_right_text = re.sub(r'([-\u2013\u2014\u2212])\s+', r'\1', full_right_text)
-                    
-                    # Kinyerjük a konkrét kódokat (Most már a 2. sor is benne van!)
-                    raw_orders = re.findall(ORDER_PAT, full_right_text)
+                    # 3. GYÓGYÍTÁS: Ha a PDF széttörte a kódot (pl. "1- " és a következő sorban "D14")
+                    # Ez a regex megkeresi a SZÁM-KÖTŐJEL utáni szóközöket/sortöréseket és TÖRÖLI őket.
+                    # Így a "1- D14" -> "1-D14", a "5- R4" -> "5-R4" lesz.
+                    fixed_text = re.sub(r'(\d+[-\u2013\u2014\u2212])\s+', r'\1', raw_text)
+
+                    # 4. KERESÉS: Most már a régi, biztonságos regexedet használjuk a "meggyógyított" szövegen
+                    # Csak azt találja meg, ami VALÓBAN rendelés (szám-kötőjel-kód)
+                    raw_orders = re.findall(ORDER_PAT, fixed_text)
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     
-                    # Megjegyzés tisztítása
-                    clean_comment = full_right_text
+                    # 5. MEGJEGYZÉS: Kiindulunk a javított szövegből, és töröljük belőle a megtalált rendeléseket
+                    clean_comment = fixed_text
                     for q, c in raw_orders:
-                        # Kivágjuk a felismert kódokat a szövegből
-                        pattern_to_remove = rf'{q}\s*[-\u2013\u2014\u2212]\s*{re.escape(c)}'
+                        # Pontosan azt a mintát töröljük, amit rendelésnek vettünk
+                        pattern_to_remove = rf'{q}[-\u2013\u2014\u2212]{re.escape(c)}'
                         clean_comment = re.sub(pattern_to_remove, '', clean_comment, count=1)
                     
-                    # Árva maradékok (pl. sor végi "1-") radírozása a megjegyzésből
-                    clean_comment = re.sub(r'\d+\s*[-\u2013\u2014\u2212](?!\w)', '', clean_comment)
-                    
+                    # Végső csinosítás
                     megjegyzes = clean_comment.strip(", ").strip()
                     megjegyzes = re.sub(r'\s+', ' ', megjegyzes).strip()
 

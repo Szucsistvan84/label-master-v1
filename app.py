@@ -330,7 +330,7 @@ def parse_interfood_pdf(pdf_file):
                         if address_parts and address_parts[-1].strip(" ,.|/-").lower() in ["dr", "dr.", "idősb", "ifj"]:
                             address_parts.pop()
 
-# --- 1. HORGONYOK ELŐKÉSZÍTÉSE ---
+                    # --- 1. HORGONYOK ELŐKÉSZÍTÉSE ---
                     raw_line = line_text_full 
                     megj_resz_1 = "" 
                     megj_resz_2 = "" 
@@ -380,24 +380,40 @@ def parse_interfood_pdf(pdf_file):
                                             t_megj = re.sub(rf'\b{re.escape(w)}\b', '', t_megj, flags=re.IGNORECASE)
                                 megj_resz_1 = t_megj.strip()
 
-                    # --- 5. LÉPÉS: MEGJEGYZÉS 2. FELE (A CÍM UTÁN) ---
-                    if address_for_clean and address_for_clean in working_line:
-                        # Megkeressük, hol ér véget a cím a sorban
-                        addr_end_pos = working_line.find(address_for_clean) + len(address_for_clean)
-                        # A cím utáni rész
-                        after_address = working_line[addr_end_pos:].strip()
+# --- 5. LÉPÉS: MEGJEGYZÉS 2. FELE (CÍM UTÁNI RÉSZ) ---
+                    # Először megpróbáljuk a házszám-horgonyt (ha van)
+                    house_num_match = re.search(r'\d+\.\s+', working_line)
+                    
+                    anchor_pos = -1
+                    if house_num_match:
+                        anchor_pos = house_num_match.end()
+                    elif address_for_clean and address_for_clean in working_line:
+                        # Ha nincs házszám (pl. CATL porta), akkor a kinyert cím vége a horgony
+                        anchor_pos = working_line.find(address_for_clean) + len(address_for_clean)
+
+                    if anchor_pos != -1:
+                        # A horgony (legyen az házszám vagy a kinyert cím vége) utáni rész
+                        after_address = working_line[anchor_pos:].strip()
                         
-                        # Megkeressük a Telefon/Pénz/Rendelés kezdetét (ez a lezáró fal)
+                        # Lezáró horgonyok: Telefon, Pénz, vagy Rendelés kódja
                         end_pat = f"{re.escape(phone_for_clean)}|{re.escape(money_for_clean)}|Ft|{ORDER_PAT}"
                         end_match = re.search(end_pat, after_address)
                         
                         if end_match:
-                            # Ami a cím vége és a telefon kezdete között van, az a tiszta megjegyzés
+                            # Ami a cím/házszám és a telefon/pénz között van
                             megj_resz_2 = after_address[:end_match.start()].strip()
                         else:
-                            # Ha nem találunk lezáró horgonyt, de maradt szöveg
                             megj_resz_2 = after_address
-
+                    
+                    # --- BIZTONSÁGI TISZTÍTÁS ---
+                    # Ha Norbi megjegyzése (15 perccel...) benne maradt a Címben, mert a PDF-ben 
+                    # egybefolyt a CATL portával, akkor azt itt még ki tudjuk menteni:
+                    if address_for_clean and "legyenek szívesek" in address_for_clean.lower():
+                         # Megkeressük hol kezdődik a gyanús rész a címben
+                         extra_info_match = re.search(r'(?i)(legyenek|érkezés|telefonálni|között)', address_for_clean)
+                         if extra_info_match:
+                             # Átemeljük a címből a megjegyzésbe azt, ami nem oda való
+                             megj_resz_2 = address_for_clean[extra_info_match.start():] + " " + megj_resz_2
                     # --- 6. LÉPÉS: ÖSSZEFŰZÉS ÉS VÉGSŐ TAKARÍTÁS ---
                     parts = []
                     # Csak a 2 karakternél hosszabb, nem csak írásjel részeket tartjuk meg

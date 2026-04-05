@@ -1213,7 +1213,12 @@ def main():
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
         df_to_edit = st.session_state.mdf.copy()
         
-        # KRITIKUS: Kényszerítjük a 'float' (tizedes) típust, különben a 88.5-ből 88 lesz!
+        # --- BIZTONSÁGI JAVÍTÁS: Ellenőrizzük, létezik-e az oszlop ---
+        if 'Sorrend' not in df_to_edit.columns:
+            # Ha nincs, létrehozzuk 1, 2, 3... sorszámokkal
+            df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
+        
+        # KRITIKUS: Kényszerítjük a 'float' típust, hogy a 88.5 is működjön
         df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999).astype(float)
         
         # Rendezés a táblázat megjelenítése előtt

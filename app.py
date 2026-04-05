@@ -1182,44 +1182,32 @@ def main():
                 meta_auto = extract_all_meta(up_files)
                 st.session_state.meta_data = meta_auto
 
-                # 1. Étlap kódok letöltése
-                napi_etlap_kodok = set()
-                if meta_auto['ev'] and meta_auto['het']:
-                    with st.spinner("Étlap letöltése..."):
-                        etlap_dict = get_etlap_dict(meta_auto['ev'], meta_auto['het'])
-                        for kulcs in etlap_dict.keys():
-                            parts = kulcs.split("_")
-                            if len(parts) > 1:
-                                napi_etlap_kodok.add(parts[1])
+                # Étlap kódok letöltése
+                napi_kodok = set()
+                with st.spinner("Étlap kódok letöltése..."):
+                    etlap_dict = get_etlap_dict(meta_auto['ev'], meta_auto['het'])
+                    for kulcs in etlap_dict.keys():
+                        parts = kulcs.split("_")
+                        if len(parts) > 1:
+                            napi_kodok.add(parts[1].strip().upper())
                 
-                # ELMENTJÜK a sidebarhoz
-                st.session_state.napi_etlap_kodok = napi_etlap_kodok
+                # ELMENTJÜK
+                st.session_state.napi_etlap_kodok = napi_kodok
 
-                # 2. PDF-ek beolvasása (CSAK EGYSZER fut le)
+                # PDF feldolgozás
                 all_rows = []
-                with st.spinner("PDF-ek beolvasása és tisztítása..."):
-                    for f in up_files:
-                        f.seek(0)
-                        # Itt már a letöltött kódokkal pucoljuk a megjegyzéseket!
-                        rows, _ = parse_interfood_pdf(f, napi_etlap_kodok)
-                        if rows:
-                            all_rows.extend(rows)
+                for f in up_files:
+                    f.seek(0)
+                    # Itt adjuk át a friss kódokat!
+                    rows, _ = parse_interfood_pdf(f, napi_kodok)
+                    if rows:
+                        all_rows.extend(rows)
 
                 if all_rows:
-                    current_meta = st.session_state.meta_data
-                    y = current_meta.get('ev') or current_meta.get('year') or '2026'
-                    w = current_meta.get('het') or current_meta.get('week') or '13'
-                    
-                    # Elmentjük a teljes étlap szótárat is az árakhoz/nevekhez
-                    st.session_state.etlap = get_etlap_dict(y, w) 
-                    
+                    # Táblázat generálása (a meglévő merge_data kódod)
                     df_temp = merge_data(all_rows)
-                    
-                    if not df_temp.empty:
-                        df_temp['Sorrend'] = range(1, len(df_temp) + 1)
-                        st.session_state.mdf = df_temp
-                        st.success(f"Sikeresen feldolgozva: {len(st.session_state.mdf)} ügyfél.")
-                        st.rerun() # Ez frissíti az oldalt és mutatja be a sidebart
+                    st.session_state.mdf = df_temp
+                    st.rerun()
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
@@ -1289,8 +1277,23 @@ def main():
         jaratok_listaja = meta.get('jaratok', [])
         aktualis_jaratok = ", ".join(jaratok_listaja) if jaratok_listaja else "N/A"
 
-        # KITEHETÜNK EGY VISSZAJELZÉST A GOMBOK FÖLÉ:
+        # 1. Alap járat és időpont információk (marad a st.info, de kicsit bővítve)
         st.info(f"Észlelt járatok a PDF-ekből: **{aktualis_jaratok}** | Időpont: **{meta.get('ev', '')}. {meta.get('het', '')}. hét**")
+
+        # 2. ÚJ: ÉTLAP KÓDOK MEGJELENÍTÉSE (Csak ha van adat a session_state-ben)
+        if 'napi_etlap_kodok' in st.session_state and st.session_state.napi_etlap_kodok:
+            with st.expander("🍱 Aktuális étlap kódok (ezek lesznek törölve a megjegyzésekből)"):
+                # Sorbarendezzük a kódokat ABC szerint
+                kodok_lista = sorted(list(st.session_state.napi_etlap_kodok))
+                
+                # 5 oszlopra bontjuk a megjelenítést, hogy ne legyen túl hosszú a lista függőlegesen
+                cols = st.columns(5)
+                for i, kod in enumerate(kodok_lista):
+                    # A kódokat kis "kódblokk" stílusban jelenítjük meg
+                    cols[i % 5].code(kod)
+        elif meta.get('ev') and meta.get('het'):
+            # Ha még nincs betöltve, egy tipp a felhasználónak
+            st.caption("💡 Az étlap kódok automatikusan frissülnek a '🚀 FELDOLGOZÁS' gomb megnyomásakor.")
 
         c1, c2, c3 = st.columns(3)
         

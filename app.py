@@ -308,6 +308,11 @@ def parse_interfood_pdf(pdf_file):
 
                     # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (DINAMIKUS SZŰRÉS) ---
                     
+                    full_row_text = " ".join([w['text'] for w in line_words])
+                    STOP_WORDS = ["Összesítés:", "Csilagozott", "Összesen:"]
+                    if any(stop in full_row_text for stop in STOP_WORDS):
+                        continue 
+                    
                     width = page.width 
                     # Visszaállunk a biztos 60%-ra (52.5 / 88), hogy a rendelések eleje ne vesszen el
                     x_start_limit = width * 0.596 

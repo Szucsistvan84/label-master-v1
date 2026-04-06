@@ -93,52 +93,46 @@ def get_etlap_dict(year, week):
         if response.status_code == 200:
             df = pd.read_excel(BytesIO(response.content), header=None)
             
-            # OSZLOPMAPPA: A=0(Kód), B=1(H), C=2(K), D=3(Sze), E=4(Csü), F=5(Pé), G=6(Szo)
-            # A tegnapi megállapításod alapján: 1. oszlop a kód, 2. a Hétfő...
+            # OSZLOPMAPPA (A=0, B=1, C=2, D=3, E=4, F=5, G=6)
+            # B=Hétfő, C=Kedd, D=Szerda, E=Csütörtök, F=Péntek, G=Szombat
             prefix_map = {1: "H", 2: "K", 3: "S", 4: "C", 5: "P", 6: "Z"}
 
             for row_idx in range(len(df)):
-                # Az első oszlopot (index 0) nézzük, itt vannak a kódok: "A - LEVESEK"
+                # Az A oszlopot (index 0) nézzük
                 val = str(df.iloc[row_idx, 0]) 
                 
+                # 1. LÉPÉS: Megkeressük a " - " elválasztót (pl. "A - Főételek")
                 if " - " in val:
-                    # Kettévágjuk a " - " mentén, és levágjuk a szóközöket
                     parts = val.split(" - ", 1)
                     cikkszam = parts[0].strip().upper() # Ebből lesz a tiszta "A"
+                    kategoria = parts[1].strip()         # Ebből a "Főételek"
                     
+                    # 2. LÉPÉS: Ha megvan a sor (pl. 140), végigmegyünk a napokon
                     for col_idx, day_prefix in prefix_map.items():
                         if col_idx < len(df.columns):
-                            # Szimatolunk a kód alatti 3 sorban a név és az ár után
-                            potential_name = ""
-                            potential_price = 0
+                            # NÉV: Pontosan abban a sorban van, ahol a kód (row_idx)
+                            nev_cell = df.iloc[row_idx, col_idx]
                             
-                            for offset in range(1, 4):
-                                if row_idx + offset < len(df):
-                                    cell_val = df.iloc[row_idx + offset, col_idx]
-                                    s_val = str(cell_val).strip()
-                                    
-                                    # Ha nem üres és nem csak szám (tehát ez a név)
-                                    if s_val and s_val.lower() != "nan" and not s_val.replace(" ","").isdigit():
-                                        potential_name = s_val
-                                        
-                                        # Ha megvan a név, az ALATTA lévő cellában keressük az árat
-                                        if row_idx + offset + 1 < len(df):
-                                            p_cell = df.iloc[row_idx + offset + 1, col_idx]
-                                            p_digits = "".join(filter(str.isdigit, str(p_cell)))
-                                            if p_digits:
-                                                potential_price = int(p_digits)
-                                                break
-                            
-                            if potential_name and potential_price > 0:
-                                # Ez a "Szent Grál" kulcs: pl. "C_A"
-                                key = f"{day_prefix}_{cikkszam}"
-                                etlap_full[key] = {
-                                    'nev': potential_name,
-                                    'ar': potential_price
-                                }
+                            # ÁR: Pontosan eggyel alatta (row_idx + 1)
+                            if row_idx + 1 < len(df):
+                                ar_cell = df.iloc[row_idx + 1, col_idx]
+                                
+                                # Tisztítás
+                                nev = str(nev_cell).strip() if pd.notnull(nev_cell) else ""
+                                ar_str = "".join(filter(str.isdigit, str(ar_cell)))
+                                
+                                # Mentés, ha van értelmezhető adat
+                                if nev and nev.lower() != "nan" and ar_str:
+                                    ar = int(ar_str)
+                                    key = f"{day_prefix}_{cikkszam}"
+                                    etlap_full[key] = {
+                                        'nev': nev,
+                                        'ar': ar,
+                                        'kat': kategoria
+                                    }
             return etlap_full
     except Exception as e:
-        st.error(f"Hiba az étlap beolvasásakor: {e}")
+        st.error(f"Excel beolvasási hiba: {e}")
     return {}
 
 def debug_pdf_layout(pdf_file):

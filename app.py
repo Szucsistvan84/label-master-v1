@@ -93,55 +93,52 @@ def get_etlap_dict(year, week):
         if response.status_code == 200:
             df = pd.read_excel(BytesIO(response.content), header=None)
             
-            # OSZLOPMAPPA: 1=Hétfő (Excel B oszlop), 4=Csütörtök (Excel E oszlop), stb.
+            # OSZLOPMAPPA: A=0(Kód), B=1(H), C=2(K), D=3(Sze), E=4(Csü), F=5(Pé), G=6(Szo)
+            # A tegnapi megállapításod alapján: 1. oszlop a kód, 2. a Hétfő...
             prefix_map = {1: "H", 2: "K", 3: "S", 4: "C", 5: "P", 6: "Z"}
 
             for row_idx in range(len(df)):
-                # Az A oszlopot (0. index) nézzük, itt vannak a kódok
+                # Az első oszlopot (index 0) nézzük, itt vannak a kódok: "A - LEVESEK"
                 val = str(df.iloc[row_idx, 0]) 
                 
                 if " - " in val:
-                    # Kinyerjük a kódot (pl. "A")
+                    # Kettévágjuk a " - " mentén, és levágjuk a szóközöket
                     parts = val.split(" - ", 1)
-                    cikkszam = parts[0].strip().upper()
+                    cikkszam = parts[0].strip().upper() # Ebből lesz a tiszta "A"
                     
                     for col_idx, day_prefix in prefix_map.items():
                         if col_idx < len(df.columns):
-                            # MEGOLDÁS A SOROKRA:
-                            # Megnézzük a következő 3 sort, hátha van benne üres
+                            # Szimatolunk a kód alatti 3 sorban a név és az ár után
                             potential_name = ""
                             potential_price = 0
                             
-                            # Keressük a nevet a következő sorokban
                             for offset in range(1, 4):
                                 if row_idx + offset < len(df):
                                     cell_val = df.iloc[row_idx + offset, col_idx]
-                                    if pd.notnull(cell_val) and str(cell_val).strip() != "" and not str(cell_val).replace(" ","").isdigit():
-                                        potential_name = str(cell_val).strip()
+                                    s_val = str(cell_val).strip()
+                                    
+                                    # Ha nem üres és nem csak szám (tehát ez a név)
+                                    if s_val and s_val.lower() != "nan" and not s_val.replace(" ","").isdigit():
+                                        potential_name = s_val
                                         
-                                        # Ha megvan a név, az ALATTA lévő sorban keressük az árat
+                                        # Ha megvan a név, az ALATTA lévő cellában keressük az árat
                                         if row_idx + offset + 1 < len(df):
-                                            price_cell = df.iloc[row_idx + offset + 1, col_idx]
-                                            price_str = "".join(filter(str.isdigit, str(price_cell)))
-                                            if price_str:
-                                                potential_price = int(price_str)
-                                                break # Megvan a név és az ár is
+                                            p_cell = df.iloc[row_idx + offset + 1, col_idx]
+                                            p_digits = "".join(filter(str.isdigit, str(p_cell)))
+                                            if p_digits:
+                                                potential_price = int(p_digits)
+                                                break
                             
                             if potential_name and potential_price > 0:
+                                # Ez a "Szent Grál" kulcs: pl. "C_A"
                                 key = f"{day_prefix}_{cikkszam}"
                                 etlap_full[key] = {
                                     'nev': potential_name,
                                     'ar': potential_price
                                 }
-            
-            # DEBUG: Ha Streamlitben futtatod, ez kiírja neked a bal oldali sávba, hogy lát-e csütörtököt
-            # st.sidebar.write(f"Betöltve: {len(etlap_full)} étel")
-            # csuti = [k for k in etlap_full.keys() if k.startswith("C_")]
-            # st.sidebar.write(f"Csütörtöki kódok: {len(csuti)} db")
-            
             return etlap_full
     except Exception as e:
-        st.error(f"Excel hiba: {e}")
+        st.error(f"Hiba az étlap beolvasásakor: {e}")
     return {}
 
 def debug_pdf_layout(pdf_file):

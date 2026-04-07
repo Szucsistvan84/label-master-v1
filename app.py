@@ -365,20 +365,20 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     # CÍM meghatározása (v_lines[2] és x40 között)
                     address = " ".join([w['text'] for w in sorted([w for w in row_words if v_lines[2] <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
 
-                    # --- DINAMIKUS CÍMTISZTÍTÁS (Az Ügyintéző neve alapján) ---
+                    # --- DINAMIKUS CÍMTISZTÍTÁS ---
                     if admin_name and address:
-                        # Az ügyintéző nevét tiszta szavakra bontjuk, csak a 1 karakternél hosszabbakat tartjuk meg
-                        name_parts_to_erase = [n.strip(" ,.|/-").lower() for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
-                        
+                        # 1. A név-részeket és a "törlendő" titulusokat egy közös listába tesszük, kisbetűvel, tisztítva
+                        blacklist = [n.strip(" ,.|/-").lower() for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
+                        blacklist.extend(["dr", "idősb", "ifj", "özv"]) # Itt a 'dr' pont nélkül szerepeljen!
+                    
                         address_parts = address.split()
                         
-                        # Amíg a cím utolsó szava (tisztítva) egyezik valamelyik név-taggal, levágjuk
-                        while address_parts and address_parts[-1].strip(" ,.|/-").lower() in name_parts_to_erase:
+                        # 2. A ciklus addig megy, amíg a cím VÉGÉN olyan szó van, ami a blacklistben szerepel
+                        # Fontos: a cím szavát is ugyanúgy tisztítjuk (strip + lower), mint a blacklist elemeit
+                        while address_parts and address_parts[-1].strip(" ,.|/-").lower() in blacklist:
                             address_parts.pop()
                         
-                        # Extra biztonsági kör: Dr. és egyéb maradékok
-                        if address_parts and address_parts[-1].strip(" ,.|/-").lower() in ["dr", "dr.", "idősb", "ifj"]:
-                            address_parts.pop()
+                        address = " ".join(address_parts).strip(" ,.|/-")
 
                     # --- 1. HORGONYOK ELŐKÉSZÍTÉSE ---
                     raw_line = line_text_full 

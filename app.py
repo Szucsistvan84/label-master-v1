@@ -85,15 +85,26 @@ def register_fonts():
 
 
 def get_etlap_dict(ev, het):
-    # A helyes API végpont, amit küldtél:
-    url = f"https://ia.interfood.hu/api/v3/excel-export?year={ev}&week={het}"
+    # Kényszerítsük a típusokat, hogy biztosan számok legyenek
+    ev_str = str(ev)
+    het_str = str(het)
+    
+    # Az általad küldött pontos URL struktúra
+    url = f"https://ia.interfood.hu/api/v3/excel-export?year={ev_str}&week={het_str}"
     
     try:
-        response = requests.get(url)
+        # User-agent hozzáadása, hogy ne tiltsa le a kérést az API
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         
-        # Az API-ról érkező Excel beolvasása a memóriából
-        df = pd.read_excel(BytesIO(response.content), header=None)
+        # Ellenőrizzük, hogy kaptunk-e adatot
+        if not response.content:
+            st.error("Az API válasza üres.")
+            return {}
+
+        # Excel beolvasása
+        df = pd.read_excel(BytesIO(response.content), header=None, engine='openpyxl')
         
         etlap = {}
         # ... innen jön a már letesztelt "i" és "i+1" soros logikánk ...

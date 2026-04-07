@@ -85,23 +85,20 @@ def register_fonts():
 
 
 def get_etlap_dict(ev, het):
-    # Kényszerítjük a szám formátumot
-    ev = int(ev)
-    het = int(het)
-    
-    # A pontos URL, amit küldtél
+    # A pontos URL struktúra, amit küldtél
     url = f"https://ia.interfood.hu/api/v3/excel-export?year={ev}&week={het}"
     
     try:
-        # A 'User-Agent' segít, hogy az API ne dobja vissza a kérést
+        # User-Agent nélkül az API gyakran blokkolja a Python kéréseket
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         
-        # Beolvasás Excelként
+        # Excel beolvasása memóriából
         df = pd.read_excel(BytesIO(response.content), header=None, engine='openpyxl')
         
         etlap = {}
+        # A közösen kidolgozott "i" (név) és "i+1" (ár) logika
         for i in range(len(df)):
             elso_cella = str(df.iloc[i, 0]).strip()
             
@@ -113,17 +110,21 @@ def get_etlap_dict(ev, het):
                 
                 if i + 1 < len(df):
                     arak = df.iloc[i + 1].values
-                    for nap_idx in range(1, 6):
+                    for nap_idx in range(1, 6): # H-P
                         nev = str(nevek[nap_idx]).strip() if pd.notna(nevek[nap_idx]) else ""
                         ar = str(arak[nap_idx]).strip() if pd.notna(arak[nap_idx]) else ""
                         
                         if nev and ar and nev.lower() != "nan" and ar.lower() != "nan":
                             if kod not in etlap:
                                 etlap[kod] = {}
-                            etlap[kod][nap_idx] = {"nev": nev, "ar": ar, "kategoria": kategoria}
+                            etlap[kod][nap_idx] = {
+                                "nev": nev, 
+                                "ar": ar, 
+                                "kategoria": kategoria
+                            }
         return etlap
     except Exception as e:
-        st.error(f"⚠️ Hiba az étlap letöltésekor ({ev}/{het}): {e}")
+        st.error(f"Hiba az étlap letöltésekor ({ev}/{het}): {e}")
         return {}
     
 def debug_pdf_layout(pdf_file):

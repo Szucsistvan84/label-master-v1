@@ -1212,14 +1212,19 @@ def main():
                 # Étlap kódok letöltése
                 napi_kodok = set()
                 with st.spinner("Étlap kódok letöltése..."):
+                    # Meghívjuk a függvényt az évvel és héttel
                     etlap_dict = get_etlap_dict(meta_auto['ev'], meta_auto['het'])
+                    
+                    # Elmentjük a teljes szótárat is, mert később kelleni fognak a nevek és árak!
+                    st.session_state.etlap_adatok = etlap_dict
+                    
+                    # A kódokat (pl. D6, UK, A) egyszerűen betesszük a halmazba
                     for kulcs in etlap_dict.keys():
-                        parts = kulcs.split("_")
-                        if len(parts) > 1:
-                            napi_kodok.add(parts[1].strip().upper())
+                        napi_kodok.add(kulcs.strip().upper())
                 
                 # ELMENTJÜK
                 st.session_state.napi_etlap_kodok = napi_kodok
+                st.success(f"Sikeresen betöltve {len(napi_kodok)} féle étel kódja!")
 
                 # PDF feldolgozás
                 all_rows = []

@@ -85,41 +85,35 @@ def register_fonts():
 
 
 def get_etlap_dict(ev, het):
-    # 1. API URL összeállítása (ahogy eddig is volt)
-    url = f"https://www.interfood.hu/menus/export/xlsx/{ev}/{het}"
+    # A helyes API végpont, amit küldtél:
+    url = f"https://ia.interfood.hu/api/v3/excel-export?year={ev}&week={het}"
     
     try:
-        # 2. Letöltés
         response = requests.get(url)
         response.raise_for_status()
         
-        # 3. Beolvasás Excelként (ez felel meg a CSV-nk szerkezetének)
-        # Az Excel fájlt úgy kezeljük, mintha a nyers táblázat lenne
+        # Az API-ról érkező Excel beolvasása a memóriából
         df = pd.read_excel(BytesIO(response.content), header=None)
         
         etlap = {}
-        # Végigmegyünk a sorokon (pontosan úgy, ahogy a CSV-nél beszéltük)
+        # ... innen jön a már letesztelt "i" és "i+1" soros logikánk ...
         for i in range(len(df)):
             elso_cella = str(df.iloc[i, 0]).strip()
             
-            # Kód-sor keresése (pl. "TW - Tortilla")
             if " - " in elso_cella:
                 parts = elso_cella.split(" - ", 1)
                 kod = parts[0].strip()
                 kategoria = parts[1].strip()
                 
-                # A nevek az aktuális sorban vannak (B-F oszlop = 1-5 index)
                 nevek = df.iloc[i].values
                 
-                # Az árak a KÖVETKEZŐ sorban vannak
                 if i + 1 < len(df):
                     arak = df.iloc[i + 1].values
                     
-                    for nap_idx in range(1, 6): # Hétfőtől Péntekig
+                    for nap_idx in range(1, 6):
                         nev = str(nevek[nap_idx]).strip() if pd.notna(nevek[nap_idx]) else ""
                         ar = str(arak[nap_idx]).strip() if pd.notna(arak[nap_idx]) else ""
                         
-                        # Csak ha van adat (nem üres az egyesített cella alja)
                         if nev and ar and nev.lower() != "nan" and ar.lower() != "nan":
                             if kod not in etlap:
                                 etlap[kod] = {}
@@ -130,7 +124,7 @@ def get_etlap_dict(ev, het):
                             }
         return etlap
     except Exception as e:
-        st.error(f"Hiba az étlap letöltésekor ({ev}/{het}): {e}")
+        st.error(f"Hiba az étlap letöltésekor: {e}")
         return {}
     
 def debug_pdf_layout(pdf_file):

@@ -484,8 +484,8 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     # Junk szavak ÉS mondatok törlése
                     junk_list = [
                         "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj",
-                        "Csillagozott betűnél kiegészítő is van!!!",  # <--- Pontosan így
-                        "Csillagozott betűnél kiegészítő is van"      # Biztonság kedvéért felkiáltójel nélkül is
+                        "Csilagozott betűnél kiegészítő is van!!!",  # <--- Pontosan így
+                        "Csilagozott betűnél kiegészítő is van"      # Biztonság kedvéért felkiáltójel nélkül is
                     ]
                     
                     for junk in junk_list:

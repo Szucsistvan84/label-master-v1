@@ -1218,7 +1218,7 @@ def main():
                 # Étlap kódok letöltése
                 napi_kodok = set()
                 with st.spinner("Étlap kódok letöltése..."):
-                    etlap_dict = get_etlap_dict(uploaded_file_path)
+                    etlap_dict = get_etlap_dict(meta_auto['ev'], meta_auto['het'])
                     for kulcs in etlap_dict.keys():
                         parts = kulcs.split("_")
                         if len(parts) > 1:

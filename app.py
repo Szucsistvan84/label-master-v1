@@ -5,7 +5,6 @@ import re
 import math
 import requests
 import PIL.ImageDraw
-import openpyxl
 from io import BytesIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -84,54 +83,53 @@ def register_fonts():
         return 'Helvetica', 'Helvetica-Bold'
 
 
-def get_etlap_dict(ev, het):
-    # 1. API URL összeállítása (ahogy eddig is volt)
-    url = f"https://www.interfood.hu/menus/export/xlsx/{ev}/{het}"
+def get_etlap_dict(csv_path):
+    # A fájl beolvasása pontosvesszővel, ahogy a Jegyzettömbben láttuk
+    df = pd.read_csv(csv_path, sep=';', header=None, encoding='utf-8')
     
-    try:
-        # 2. Letöltés
-        response = requests.get(url)
-        response.raise_for_status()
+    etlap = {}
+    utolso_kod = None
+    utolso_kategoria = None
+
+    for i in range(len(df)):
+        elso_cella = str(df.iloc[i, 0]).strip()
         
-        # 3. Beolvasás Excelként (ez felel meg a CSV-nk szerkezetének)
-        # Az Excel fájlt úgy kezeljük, mintha a nyers táblázat lenne
-        df = pd.read_excel(BytesIO(response.content), header=None)
-        
-        etlap = {}
-        # Végigmegyünk a sorokon (pontosan úgy, ahogy a CSV-nél beszéltük)
-        for i in range(len(df)):
-            elso_cella = str(df.iloc[i, 0]).strip()
+        # 1. SZABÁLY: Ha a sor "Kód - Kategória" formátumú
+        if " - " in elso_cella:
+            parts = elso_cella.split(" - ", 1)
+            utolso_kod = parts[0].strip()
+            utolso_kategoria = parts[1].strip()
             
-            # Kód-sor keresése (pl. "TW - Tortilla")
-            if " - " in elso_cella:
-                parts = elso_cella.split(" - ", 1)
-                kod = parts[0].strip()
-                kategoria = parts[1].strip()
+            # Ez a név sora
+            nevek = df.iloc[i].values
+            
+            # 2. SZABÁLY: Megkeressük az árat (mindig a következő sorban)
+            # Biztosítjuk, hogy ne fussunk ki a táblázatból
+            if i + 1 < len(df):
+                arak = df.iloc[i + 1].values
                 
-                # A nevek az aktuális sorban vannak (B-F oszlop = 1-5 index)
-                nevek = df.iloc[i].values
-                
-                # Az árak a KÖVETKEZŐ sorban vannak
-                if i + 1 < len(df):
-                    arak = df.iloc[i + 1].values
+                # Napok bejárása (Hétfő=1, Kedd=2, Szerda=3, Csütörtök=4, Péntek=5)
+                for nap_idx in range(1, 6):
+                    etel_neve = str(nevek[nap_idx]).strip() if pd.notna(nevek[nap_idx]) else ""
+                    ar_ertek = str(arak[nap_idx]).strip() if pd.notna(arak[nap_idx]) else ""
                     
-                    for nap_idx in range(1, 6): # Hétfőtől Péntekig
-                        nev = str(nevek[nap_idx]).strip() if pd.notna(nevek[nap_idx]) else ""
-                        ar = str(arak[nap_idx]).strip() if pd.notna(arak[nap_idx]) else ""
+                    # 3. SZABÁLY: Csak akkor mentjük, ha van név ÉS ár is
+                    if etel_neve and ar_ertek and etel_neve.lower() != "nan" and ar_ertek.lower() != "nan":
+                        if utolso_kod not in etlap:
+                            etlap[utolso_kod] = {}
                         
-                        # Csak ha van adat (nem üres az egyesített cella alja)
-                        if nev and ar and nev.lower() != "nan" and ar.lower() != "nan":
-                            if kod not in etlap:
-                                etlap[kod] = {}
-                            etlap[kod][nap_idx] = {
-                                "nev": nev,
-                                "ar": ar,
-                                "kategoria": kategoria
-                            }
-        return etlap
-    except Exception as e:
-        st.error(f"Hiba az étlap letöltésekor ({ev}/{het}): {e}")
-        return {}
+                        # Eltároljuk az adatokat pontosan úgy, ahogy a fájlban vannak
+                        etlap[utolso_kod][nap_idx] = {
+                            "nev": etel_neve,
+                            "ar": ar_ertek,
+                            "kategoria": utolso_kategoria
+                        }
+        
+        # 4. SZABÁLY: Ha teljesen üres a sor (;;;;;;), nullázzuk a kódot (opcionális)
+        elif elso_cella == "nan" or elso_cella == "":
+            continue 
+
+    return etlap
     
 def debug_pdf_layout(pdf_file):
     with pdfplumber.open(pdf_file) as pdf:
@@ -1218,7 +1216,7 @@ def main():
                 # Étlap kódok letöltése
                 napi_kodok = set()
                 with st.spinner("Étlap kódok letöltése..."):
-                    etlap_dict = get_etlap_dict(uploaded_file_path)
+                    etlap_dict = get_etlap_dict(meta_auto['ev'], meta_auto['het'])
                     for kulcs in etlap_dict.keys():
                         parts = kulcs.split("_")
                         if len(parts) > 1:

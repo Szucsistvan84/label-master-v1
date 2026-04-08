@@ -186,16 +186,16 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 if anchor['top'] >= page_cutoff:
                     continue
 
-                # 1. VISSZAÁLLÍTÁS: Így nem folynak össze a nevek (a -35-öt erre cseréld)
+                # 1. Függőleges határok - Nem engedjük le a lap legaljáig, hogy ne húzza be a láblécet
                 y_top = anchor['top'] - 5
-                y_bottom = anchors[i+1]['top'] - 2 if i+1 < len(anchors) else page.height
+                # Ha ez az utolsó ID, akkor nem a lap aljáig (page.height), hanem csak 100 pixelre nézünk le
+                y_bottom = anchors[i+1]['top'] - 2 if i+1 < len(anchors) else anchor['top'] + 100
         
-                # 2. SZÉLESÍTÉS: Hogy a 4002-es PDF-en is megtalálja a megjegyzést és a rendelést
-                # Az info_box vége (x1) legyen 400 a 250 helyett
-                info_box = page.within_bbox((20, y_top, 400, y_bottom))
-                
-                # Az order_box eleje (x0) legyen 380 a 250 helyett
-                order_box = page.within_bbox((380, y_top, 585, y_bottom))
+                # 2. Vízszintes határok - Ildikó megjegyzéseinek megmentése
+                # Az info_box-ot hagyjuk szélesen, de az order_box-ot (ahol a pénzt és telót keresi) 
+                # toljuk még kijjebb, hogy ne "lopja el" a szöveget a megjegyzés elől
+                info_box = page.within_bbox((20, y_top, 390, y_bottom))
+                order_box = page.within_bbox((350, y_top, 585, y_bottom)) # Átfedés kell, de legyen fókuszáltabb
             
                 # A blokk vége: vagy a következő ID, vagy a lap alja (sorompó)
                 next_anchor_top = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else page_cutoff

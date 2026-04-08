@@ -85,41 +85,47 @@ def register_fonts():
 
 
 def get_etlap_dict(ev, het):
-    # A pontos URL struktúra, amit küldtél
-    url = f"https://ia.interfood.hu/api/v3/excel-export?year={ev}&week={het}"
+    # 1. API URL összeállítása (ahogy eddig is volt)
+    url = f"https://www.interfood.hu/menus/export/xlsx/{ev}/{het}"
     
     try:
-        # User-Agent nélkül az API gyakran blokkolja a Python kéréseket
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=15)
+        # 2. Letöltés
+        response = requests.get(url)
         response.raise_for_status()
         
-        # Excel beolvasása memóriából
-        df = pd.read_excel(BytesIO(response.content), header=None, engine='openpyxl')
+        # 3. Beolvasás Excelként (ez felel meg a CSV-nk szerkezetének)
+        # Az Excel fájlt úgy kezeljük, mintha a nyers táblázat lenne
+        df = pd.read_excel(BytesIO(response.content), header=None)
         
         etlap = {}
-        # A közösen kidolgozott "i" (név) és "i+1" (ár) logika
+        # Végigmegyünk a sorokon (pontosan úgy, ahogy a CSV-nél beszéltük)
         for i in range(len(df)):
             elso_cella = str(df.iloc[i, 0]).strip()
             
+            # Kód-sor keresése (pl. "TW - Tortilla")
             if " - " in elso_cella:
                 parts = elso_cella.split(" - ", 1)
                 kod = parts[0].strip()
                 kategoria = parts[1].strip()
+                
+                # A nevek az aktuális sorban vannak (B-F oszlop = 1-5 index)
                 nevek = df.iloc[i].values
                 
+                # Az árak a KÖVETKEZŐ sorban vannak
                 if i + 1 < len(df):
                     arak = df.iloc[i + 1].values
-                    for nap_idx in range(1, 6): # H-P
+                    
+                    for nap_idx in range(1, 6): # Hétfőtől Péntekig
                         nev = str(nevek[nap_idx]).strip() if pd.notna(nevek[nap_idx]) else ""
                         ar = str(arak[nap_idx]).strip() if pd.notna(arak[nap_idx]) else ""
                         
+                        # Csak ha van adat (nem üres az egyesített cella alja)
                         if nev and ar and nev.lower() != "nan" and ar.lower() != "nan":
                             if kod not in etlap:
                                 etlap[kod] = {}
                             etlap[kod][nap_idx] = {
-                                "nev": nev, 
-                                "ar": ar, 
+                                "nev": nev,
+                                "ar": ar,
                                 "kategoria": kategoria
                             }
         return etlap
@@ -365,20 +371,20 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     # CÍM meghatározása (v_lines[2] és x40 között)
                     address = " ".join([w['text'] for w in sorted([w for w in row_words if v_lines[2] <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
 
-                    # --- DINAMIKUS CÍMTISZTÍTÁS ---
+                    # --- DINAMIKUS CÍMTISZTÍTÁS (Az Ügyintéző neve alapján) ---
                     if admin_name and address:
-                        # 1. A név-részeket és a "törlendő" titulusokat egy közös listába tesszük, kisbetűvel, tisztítva
-                        blacklist = [n.strip(" ,.|/-").lower() for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
-                        blacklist.extend(["dr", "idősb", "ifj", "özv"]) # Itt a 'dr' pont nélkül szerepeljen!
-                    
+                        # Az ügyintéző nevét tiszta szavakra bontjuk, csak a 1 karakternél hosszabbakat tartjuk meg
+                        name_parts_to_erase = [n.strip(" ,.|/-").lower() for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
+                        
                         address_parts = address.split()
                         
-                        # 2. A ciklus addig megy, amíg a cím VÉGÉN olyan szó van, ami a blacklistben szerepel
-                        # Fontos: a cím szavát is ugyanúgy tisztítjuk (strip + lower), mint a blacklist elemeit
-                        while address_parts and address_parts[-1].strip(" ,.|/-").lower() in blacklist:
+                        # Amíg a cím utolsó szava (tisztítva) egyezik valamelyik név-taggal, levágjuk
+                        while address_parts and address_parts[-1].strip(" ,.|/-").lower() in name_parts_to_erase:
                             address_parts.pop()
                         
-                        address = " ".join(address_parts).strip(" ,.|/-")
+                        # Extra biztonsági kör: Dr. és egyéb maradékok
+                        if address_parts and address_parts[-1].strip(" ,.|/-").lower() in ["dr", "dr.", "idősb", "ifj"]:
+                            address_parts.pop()
 
                     # --- 1. HORGONYOK ELŐKÉSZÍTÉSE ---
                     raw_line = line_text_full 
@@ -416,32 +422,16 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         else:
                             address_for_clean = working_line[start_idx:].strip()
 
-                    # --- 4. LÉPÉS: KONTEXTUS BŐVÍTÉSE (JAVÍTOTT PORSZÍVÓ) ---
-                    # Keressük meg az aktuális ügyfél ID-jának vizuális helyét az oldalon
-                    current_id_obj = next((w for w in words if full_id in w['text']), None)
+                    # --- 4. LÉPÉS: KONTEXTUS BŐVÍTÉSE (PORSZÍVÓ) ---
+                    # Toleranciát használunk a rendezésnél, hogy az egy sorban lévő szavak ne cserélődjenek fel
+                    # A 'top' értéket 3 pixelre kerekítjük, így az egy vonalban lévők azonos 'top'-ot kapnak
+                    line_words_sorted = sorted(line_words, key=lambda x: (round(x['top'] / 3) * 3, x['x0']))
+                    full_block_text = " ".join([w['text'] for w in line_words_sorted])
+                    
+                    # Levágjuk az elejéről a sorszámot az ID-ig
+                    id_match_context = re.search(id_pattern, full_block_text)
+                    working_context = full_block_text[id_match_context.start():] if id_match_context else full_block_text
 
-                    if current_id_obj:
-                        # Beolvasunk minden szót, ami az ID sorában van, vagy alatta max 100 pixellel
-                        # De nem megyünk lejjebb a page_cutoff-nál (a láblécnél)
-                        context_words = [
-                            w for w in words 
-                            if w['top'] >= current_id_obj['top'] - 2 
-                            and w['top'] < min(current_id_obj['top'] + 100, page_cutoff)
-                        ]
-                        
-                        # Fontos: Sorba rendezzük őket olvasási irány szerint (fentről le, balról jobbra)
-                        context_words_sorted = sorted(context_words, key=lambda x: (round(x['top'] / 3) * 3, x['x0']))
-                        working_context = " ".join([w['text'] for w in context_words_sorted])
-                    else:
-                        # Biztonsági tartalék, ha az ID-t valamiért nem találjuk a szavak között
-                        line_words_sorted = sorted(line_words, key=lambda x: (round(x['top'] / 3) * 3, x['x0']))
-                        working_context = " ".join([w['text'] for w in line_words_sorted])
-
-                    # Levágjuk az elejéről a felesleget az ID-ig
-                    id_match_context = re.search(id_pattern, working_context)
-                    if id_match_context:
-                        working_context = working_context[id_match_context.start():]
-                        
                     # --- 5. LÉPÉS: TISZTÍTOTT KONTEXTUS LÉTREHOZÁSA ---
                     # Csak itt inicializálunk, és rögtön takarítunk
                     megj_resz_1 = "" 
@@ -472,23 +462,14 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                 megj_resz_1 = t_megj.strip()
 
                     # --- 7. LÉPÉS: MEGJEGYZÉS 2. FELE (CÍM UTÁNI RÉSZ) ---
+                    # Ez találja meg a "Sörfőzde", "Porta" stb. infókat a cím után
                     if address in clean_context:
                         anchor_pos = clean_context.find(address) + len(address)
                         after_address = clean_context[anchor_pos:].strip()
                         
-                        # Itt volt a hiba: a telefonszám keresése túl korán megállította a beolvasást
-                        # Keressük meg a telefonszámot, de csak ha valóban ott van
-                        phone_match = re.search(re.escape(phone_val), after_address)
-                        
-                        if phone_match:
-                            # Ha megvan a telefon, megnézzük mi van előtte ÉS utána
-                            # Murza Ildikónál az infó gyakran a telefon UTÁN vagy környékén ragad be
-                            megj_resz_2 = after_address.replace(phone_val, "").strip()
-                        else:
-                            megj_resz_2 = after_address
-                        
-                        # Itt egy extra biztosíték: ne engedjük, hogy a "Ft" vagy "Össz" szavak bekerüljenek
-                        megj_resz_2 = re.sub(r'\d+\s*Ft.*', '', megj_resz_2, flags=re.IGNORECASE).strip()
+                        # A végét a telefon vagy a sor vége jelzi (a pénzt/rendelést már töröltük)
+                        end_m = re.search(re.escape(phone_val), after_address)
+                        megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
 
                     # --- 8. ÖSSZEFŰZÉS ÉS RADÍROZÁS ---
                     parts = []
@@ -506,18 +487,10 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     raw_combined = " | ".join(dict.fromkeys(parts))
                     clean_customer = re.sub(r'\s+', ' ', raw_combined)
                     
-                    # Junk szavak ÉS mondatok törlése
-                    junk_list = [
-                        "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj",
-                        "Csilagozott betűnél kiegészítő is van!!!",  # <--- Pontosan így
-                        "Csilagozott betűnél kiegészítő is van"      # Biztonság kedvéért felkiáltójel nélkül is
-                    ]
-                    
-                    for junk in junk_list:
+                    # Junk szavak törlése (Felnőtt, Dr. stb)
+                    for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj"]:
                         clean_customer = clean_customer.replace(junk, "")
-                    
-                    # Extra takarítás: ha a törlés után dupla szóközök vagy felesleges elválasztók maradnának
-                    clean_customer = re.sub(r'\s+', ' ', clean_customer).strip(" -/|.,")
+
                     # --- 9. RÉSZLEG ÉS INSTRUKCIÓ SZÉTVÁLASZTÁSA ---
                     reszleg = ""
                     if "/" in clean_customer:
@@ -1245,19 +1218,14 @@ def main():
                 # Étlap kódok letöltése
                 napi_kodok = set()
                 with st.spinner("Étlap kódok letöltése..."):
-                    # Meghívjuk a függvényt az évvel és héttel
-                    etlap_dict = get_etlap_dict(meta_auto['ev'], meta_auto['het'])
-                    
-                    # Elmentjük a teljes szótárat is, mert később kelleni fognak a nevek és árak!
-                    st.session_state.etlap_adatok = etlap_dict
-                    
-                    # A kódokat (pl. D6, UK, A) egyszerűen betesszük a halmazba
+                    etlap_dict = get_etlap_dict(uploaded_file_path)
                     for kulcs in etlap_dict.keys():
-                        napi_kodok.add(kulcs.strip().upper())
+                        parts = kulcs.split("_")
+                        if len(parts) > 1:
+                            napi_kodok.add(parts[1].strip().upper())
                 
                 # ELMENTJÜK
                 st.session_state.napi_etlap_kodok = napi_kodok
-                st.success(f"Sikeresen betöltve {len(napi_kodok)} féle étel kódja!")
 
                 # PDF feldolgozás
                 all_rows = []

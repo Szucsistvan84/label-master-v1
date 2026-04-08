@@ -417,26 +417,27 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                             address_for_clean = working_line[start_idx:].strip()
 
                     # --- 4. LÉPÉS: KONTEXTUS BŐVÍTÉSE (JAVÍTOTT PORSZÍVÓ) ---
-                    
-                    # Ahelyett, hogy csak a 'line_words'-t (egy sort) néznénk, 
-                    # vegyük az oldal összes szavát ('all_words'), ami az aktuális ID után következik.
-                    # Keressük meg az aktuális ügyfél ID-jának helyét az oldalon
-                    current_id_obj = next((w for w in line_words if full_id in w['text']), None)
-                    
+                    # Keressük meg az aktuális ügyfél ID-jának vizuális helyét az oldalon
+                    current_id_obj = next((w for w in words if full_id in w['text']), None)
+
                     if current_id_obj:
-                        # Kivesszük az összes szót az oldalról, ami az ID 'top' pozíciója alatt van (vagy egy vonalban vele)
-                        # és adunk neki egy 1500 pixeles "látóteret" lefelé
-                        context_words = [w for w in all_words if w['top'] >= current_id_obj['top'] - 2 and w['top'] < current_id_obj['top'] + 100]
+                        # Beolvasunk minden szót, ami az ID sorában van, vagy alatta max 100 pixellel
+                        # De nem megyünk lejjebb a page_cutoff-nál (a láblécnél)
+                        context_words = [
+                            w for w in words 
+                            if w['top'] >= current_id_obj['top'] - 2 
+                            and w['top'] < min(current_id_obj['top'] + 100, page_cutoff)
+                        ]
                         
-                        # Sorbarendezzük őket (fentről le, balról jobbra)
+                        # Fontos: Sorba rendezzük őket olvasási irány szerint (fentről le, balról jobbra)
                         context_words_sorted = sorted(context_words, key=lambda x: (round(x['top'] / 3) * 3, x['x0']))
                         working_context = " ".join([w['text'] for w in context_words_sorted])
                     else:
-                        # Ha valamiért nem találjuk az ID-t a szavak között, marad a régi módszer biztonsági tartaléknak
+                        # Biztonsági tartalék, ha az ID-t valamiért nem találjuk a szavak között
                         line_words_sorted = sorted(line_words, key=lambda x: (round(x['top'] / 3) * 3, x['x0']))
                         working_context = " ".join([w['text'] for w in line_words_sorted])
-                    
-                    # Az ID-tól kezdve vágunk (hogy a sorszám ne zavarjon be)
+
+                    # Levágjuk az elejéről a felesleget az ID-ig
                     id_match_context = re.search(id_pattern, working_context)
                     if id_match_context:
                         working_context = working_context[id_match_context.start():]

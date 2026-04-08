@@ -186,25 +186,32 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 if anchor['top'] >= page_cutoff:
                     continue
 
-                # 1. BIZTONSÁGOS határok kiszámítása
-                # y_top nem lehet kisebb, mint 0 (a lap teteje)
-                y_top = max(0, anchor['top'] - 5)
-                
-                # y_bottom meghatározása
+                # 1. Meghatározzuk a sáv alját (y_bottom)
                 if i + 1 < len(anchors):
-                    # Ha van következő ID, annak a tetejéig nézünk
+                    # Ha van következő ember, az ő ID-jáig nézünk
                     y_bottom = anchors[i+1]['top'] - 2
                 else:
-                    # Ha ez az utolsó, 100 pixelt nézünk le, de nem megyünk túl a lap alján
-                    y_bottom = min(page.height, anchor['top'] + 100)
-        
-                # Ellenőrzés: Ha valamiért az alja feljebb lenne mint a teteje, korrigáljuk
-                if y_bottom <= y_top:
-                    y_bottom = y_top + 20
-        
-                # 2. Vízszintes határok - Ildikó és a többiek mentése
-                info_box = page.within_bbox((20, y_top, 390, y_bottom))
-                order_box = page.within_bbox((350, y_top, 585, y_bottom))
+                    # Ha ő az utolsó, a page_cutoff-ig nézünk le (ez a biztos kerítés!)
+                    # De maximum 80 pixelt, hogy ne legyen túl sok felesleges hely
+                    y_bottom = min(page_cutoff, anchor['top'] + 80)
+    
+                y_top = max(0, anchor['top'] - 12)
+    
+                # 2. Olvasás teljes szélességben (hogy Ildikó megjegyzése ne vesszen el)
+                full_row_box = page.within_bbox((20, y_top, 585, y_bottom))
+                full_text = full_row_box.extract_text() or ""
+                
+                # 3. Szűrés: kidobjuk a lábléc szemetet (ez takarítja ki Ibolyát)
+                lines = [l.strip() for l in full_text.split('\n') if l.strip()]
+                cleaned_lines = []
+                for line in lines:
+                    # Ha a sor tartalmazza ezeket, átugorjuk
+                    if any(x in line for x in ["Optipont", "Nyomtatva:", "oldal", "Nyomtatta:"]):
+                        continue
+                    cleaned_lines.append(line)
+                
+                info_text = "\n".join(cleaned_lines)
+                order_text = info_text
             
                 # A blokk vége: vagy a következő ID, vagy a lap alja (sorompó)
                 next_anchor_top = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else page_cutoff

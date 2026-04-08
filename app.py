@@ -456,23 +456,14 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                 megj_resz_1 = t_megj.strip()
 
                     # --- 7. LÉPÉS: MEGJEGYZÉS 2. FELE (CÍM UTÁNI RÉSZ) ---
+                    # Ez találja meg a "Sörfőzde", "Porta" stb. infókat a cím után
                     if address in clean_context:
                         anchor_pos = clean_context.find(address) + len(address)
                         after_address = clean_context[anchor_pos:].strip()
                         
-                        # Itt volt a hiba: a telefonszám keresése túl korán megállította a beolvasást
-                        # Keressük meg a telefonszámot, de csak ha valóban ott van
-                        phone_match = re.search(re.escape(phone_val), after_address)
-                        
-                        if phone_match:
-                            # Ha megvan a telefon, megnézzük mi van előtte ÉS utána
-                            # Murza Ildikónál az infó gyakran a telefon UTÁN vagy környékén ragad be
-                            megj_resz_2 = after_address.replace(phone_val, "").strip()
-                        else:
-                            megj_resz_2 = after_address
-                        
-                        # Itt egy extra biztosíték: ne engedjük, hogy a "Ft" vagy "Össz" szavak bekerüljenek
-                        megj_resz_2 = re.sub(r'\d+\s*Ft.*', '', megj_resz_2, flags=re.IGNORECASE).strip()
+                        # A végét a telefon vagy a sor vége jelzi (a pénzt/rendelést már töröltük)
+                        end_m = re.search(re.escape(phone_val), after_address)
+                        megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
 
                     # --- 8. ÖSSZEFŰZÉS ÉS RADÍROZÁS ---
                     parts = []
@@ -490,18 +481,9 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     raw_combined = " | ".join(dict.fromkeys(parts))
                     clean_customer = re.sub(r'\s+', ' ', raw_combined)
                     
-                    # Junk szavak ÉS mondatok törlése
-                    junk_list = [
-                        "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj",
-                        "Csilagozott betűnél kiegészítő is van!!!",  # <--- Pontosan így
-                        "Csilagozott betűnél kiegészítő is van"      # Biztonság kedvéért felkiáltójel nélkül is
-                    ]
-                    
-                    for junk in junk_list:
+                    # Junk szavak törlése (Felnőtt, Dr. stb)
+                    for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj"]:
                         clean_customer = clean_customer.replace(junk, "")
-                    
-                    # Extra takarítás: ha a törlés után dupla szóközök vagy felesleges elválasztók maradnának
-                    clean_customer = re.sub(r'\s+', ' ', clean_customer).strip(" -/|.,")
 
                     # --- 9. RÉSZLEG ÉS INSTRUKCIÓ SZÉTVÁLASZTÁSA ---
                     reszleg = ""

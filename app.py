@@ -218,52 +218,37 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 info_text = full_content
                 order_text = full_content
     
-# --- 4. EXTRÁCIÓ: A MEGJEGYZÉS ÖSSZEGYŰJTÉSE (Precíziós verzió) ---
-                final_megj_parts = []
+                # --- 4. EXTRÁCIÓ: CÉGNÉV (Part 1) ÉS INSTRUKCIÓ (Part 2) ---
+                reszleg_ceg_lista = []  # Ez lesz a Part 1
+                hosszu_megj_lista = []  # Ez lesz a Part 2
+
                 for line in cleaned_lines:
                     l_strip = line.strip()
-                    if not l_strip:
-                        continue
+                    if not l_strip or len(l_strip) < 2: continue
 
-                    # 1. Címek és Telefon/Rendelés azonnali átugrása (ezeket máshol már elmentettük)
-                    if any(city in l_strip for city in ["Debrecen", "Ebes", "Hajdú"]):
-                        continue
-                    if re.search(PHONE_PAT, l_strip) or re.search(ORDER_PAT, l_strip):
-                        continue
+                    # Szűrések (Cím, Telefon, Rendelés, Ügyintéző)
+                    if any(city in l_strip for city in ["Debrecen", "Ebes", "Hajdú"]): continue
+                    if re.search(PHONE_PAT, l_strip) or re.search(ORDER_PAT, l_strip): continue
+                    if admin_name and l_strip == admin_name.strip(): continue
 
-                    # 2. Ügyintéző nevének kiszűrése (ha pontosan megegyezik a sorral)
-                    if admin_name and l_strip == admin_name.strip():
-                        continue
-
-                    # 3. A név és ID sorának tisztítása, de CSAK a megjegyzés számára
-                    # Megkeressük a nap jelét és az ID-t (pl. S-495196 vagy C-428867)
-                    id_match = re.search(r'([HKS-Z])-\d+', l_strip)
+                    # ID keresése a megadott napokkal (H, K, S, C, P, Z)
+                    id_match = re.search(r'[HKSCPZ]-\d+', l_strip)
                     
                     if id_match:
-                        # Ha a sorban van ID, akkor ez az a sor, ahol a Név is van.
-                        # Itt CSAK akkor tartjuk meg a sor maradékát, ha az ID és a Név után 
-                        # még van legalább 4 karakter (ez lesz a megjegyzés).
-                        
-                        # Eltávolítjuk az ID-t a sorból
-                        temp_line = re.sub(r'([HKS-Z])-\d+', '', l_strip).strip()
-                        
-                        # Eltávolítjuk a nevet is a sorból (ha sikerült kinyerni korábban)
+                        # Ha van ID, akkor ez a "Part 1" helye (Cégnév / Részleg)
+                        temp = re.sub(r'[HKSCPZ]-\d+', '', l_strip).strip()
                         if customer_name:
-                            temp_line = temp_line.replace(customer_name, "").strip()
+                            temp = temp.replace(customer_name, "").strip()
                         
-                        # Ami maradt a takarítás után, az a sor végi megjegyzés
-                        if len(temp_line) > 2:
-                            final_megj_parts.append(temp_line)
+                        if len(temp) > 1:
+                            reszleg_ceg_lista.append(temp)
                     else:
-                        # Ha NINCS ID a sorban, de nem cím és nem telefon, 
-                        # akkor ez egy tiszta megjegyzés sor (mint Murza Ildikónál)!
-                        final_megj_parts.append(l_strip)
+                        # Ha NINCS ID, ez a tiszta instrukció (Part 2) -> Ide kerül Ildikó is!
+                        hosszu_megj_lista.append(l_strip)
 
-                # Összefűzés (Ildikó megjegyzései itt már benne lesznek)
-                megj_resz_1 = " | ".join(final_megj_parts)
-                
-                # KRITIKUS: Kényszerítjük, hogy a clean_customer változó ezt használja
-                clean_customer = megj_resz_1
+                # Elmentjük a két külön részt
+                megj_resz_1 = " | ".join(reszleg_ceg_lista)
+                megj_resz_2 = " | ".join(hosszu_megj_lista)
             
                 # A blokk vége: vagy a következő ID, vagy a lap alja (sorompó)
                 next_anchor_top = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else page_cutoff
@@ -550,47 +535,52 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         end_m = re.search(re.escape(phone_val), after_address)
                         megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
 
-                    # --- 8. ÖSSZEFŰZÉS ÉS TISZTÍTÁS ---
-                    # Minden lehetséges forrást egy listába teszünk
+                    # --- 8. ÖSSZEFŰZÉS ÉS TISZTÍTÁS (Végleges, Ildikó-biztos verzió) ---
                     all_notes = []
                     
-                    # 1. Az Ügyfél cellából kinyert extra sorok (Ildikó megjegyzése)
-                    if megj_resz_1:
-                        all_notes.append(megj_resz_1)
+                    # 1. Megjegyzés part 1 (Cégnév, részleg az ID mellől)
+                    if megj_resz_1.strip():
+                        all_notes.append(megj_resz_1.strip())
                     
-                    # 2. A korábban (pl. 7. pontban) gyűjtött egyéb részek
+                    # 2. Megjegyzés part 2 (Hosszú instrukciók új sorokból - EZ HIÁNYZOTT!)
+                    if megj_resz_2.strip():
+                        all_notes.append(megj_resz_2.strip())
+                    
+                    # 3. Egyéb gyűjtött részek (pl. Ügyintéző cellából vagy cím végéről)
                     all_notes.extend(parts)
 
-                    # Duplikátumok szűrése, sorrend megtartásával
+                    # Duplikátumok szűrése az eredeti sorrend megtartásával
                     seen = set()
                     final_parts = []
                     for n in all_notes:
                         n_clean = n.strip()
-                        if n_clean.lower() not in seen and n_clean:
+                        if not n_clean:
+                            continue
+                        # Kis/nagybetű különbség ne okozzon duplázást
+                        if n_clean.lower() not in seen:
                             final_parts.append(n_clean)
                             seen.add(n_clean.lower())
 
+                    # Összefűzés elegáns elválasztóval
                     clean_customer = " | ".join(final_parts)
 
-                    # Végső szóköz-tisztítás
-                    clean_customer = re.sub(r'\s+', ' ', clean_customer).strip()
-                    
-                    # Ha véletlenül csak egy magányos "|" maradt volna, azt lecsípjük
-                    clean_customer = clean_customer.strip(" |")
-                    
-                    # Junk szavak ÉS mondatok törlése
+                    # Junk (felesleges) szavak és mondatok kitakarítása
                     junk_list = [
                         "Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj",
-                        "Csilagozott betűnél kiegészítő is van!!!",  # <--- Pontosan így
-                        "Csilagozott betűnél kiegészítő is van"      # Biztonság kedvéért felkiáltójel nélkül is
+                        "Csilagozott betűnél kiegészítő is van!!!",
+                        "Csilagozott betűnél kiegészítő is van"
                     ]
                     
                     for junk in junk_list:
+                        # Csak akkor cseréljük, ha pontos egyezés van vagy határolt szó, 
+                        # hogy ne rontson bele értelmes szavakba
                         clean_customer = clean_customer.replace(junk, "")
-                    
-                    # Extra takarítás: ha a törlés után dupla szóközök vagy felesleges elválasztók maradnának
-                    clean_customer = re.sub(r'\s+', ' ', clean_customer).strip(" -/|.,")
 
+                    # Végső kozmetika: dupla szóközök és felesleges írásjelek eltávolítása a szélekről
+                    clean_customer = re.sub(r'\s+', ' ', clean_customer)
+                    # Tisztítjuk a maradék elválasztókat, amik a junk törlése után maradtak
+                    clean_customer = clean_customer.strip(" -/|.,")
+                    
                     # --- 9. RÉSZLEG ÉS INSTRUKCIÓ SZÉTVÁLASZTÁSA ---
                     reszleg = ""
                     if "/" in clean_customer:

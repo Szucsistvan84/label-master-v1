@@ -719,9 +719,23 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         "Prefix": prefix, "Csoport": current_group_id if 'current_group_id' in locals() else 0
                     })
     
-    if not rows: return [], metadata
+    if not rows: 
+        return [], metadata
+        
     df = pd.DataFrame(rows)
+
+    # --- GOLYÓÁLLÓ MEGOLDÁS ---
+    # Ha valamiért az append során kimaradt volna, itt utólag pótoljuk az ID-ból
+    if 'temp_id' not in df.columns and 'ID' in df.columns:
+        df['temp_id'] = df['ID'].apply(lambda x: str(x).split('-')[-1] if '-' in str(x) else str(x))
+
+    # Ha még így sincs meg (üres a táblázat vagy nincs ID), adunk neki egy alapértéket
+    if 'temp_id' not in df.columns:
+        df['temp_id'] = range(len(df))
+
+    # Így a 724. sor már soha nem fog hibát dobni
     df['Csoport'] = df.groupby('temp_id').ngroup() + 1
+    
     return df.to_dict('records'), metadata
     
 def merge_data(all_rows):

@@ -186,8 +186,11 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                 # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA ---
                 y_top = max(0, anchor['top'] - 12)
-                y_bottom = anchors[i+1]['top'] - 2 if i + 1 < len(anchors) else min(page_cutoff, anchor['top'] + 100)
-                if y_bottom <= y_top: y_bottom = y_top + 30
+                
+                # Növeljük a 100-as limitet 150-re, hogy a hosszú megjegyzések alja se maradjon le
+                y_bottom = anchors[i+1]['top'] - 2 if i + 1 < len(anchors) else min(page_cutoff, anchor['top'] + 150)
+                
+                if y_bottom <= y_top: y_bottom = y_top + 40 # Itt is adhatunk neki kicsit több helyet
 
                 full_row_box = page.within_bbox((20, y_top, 585, y_bottom))
                 raw_text = full_row_box.extract_text() or ""

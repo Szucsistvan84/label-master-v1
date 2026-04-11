@@ -742,9 +742,7 @@ def merge_data(all_rows):
     if not all_rows: 
         return pd.DataFrame()
     
-    # --- HIBA JAVÍTÁSA ITT ---
-    # Ha az all_rows nem DataFrame-ek listája, hanem soroké, 
-    # akkor előbb csinálunk belőle egy nagy táblázatot.
+    # --- 1. ADATOK ÖSSZEFÉSÜLÉSE TÁBLÁZATTÁ ---
     if isinstance(all_rows, list) and len(all_rows) > 0:
         if not isinstance(all_rows[0], pd.DataFrame):
             combined = pd.DataFrame(all_rows)
@@ -752,10 +750,20 @@ def merge_data(all_rows):
             combined = pd.concat(all_rows, ignore_index=True)
     else:
         combined = all_rows
-    # -------------------------
 
+    # --- 2. BIZTONSÁGI ELLENŐRZÉS (KeyError ellen) ---
+    # Ez biztosítja, hogy Ildikó és Tamás adatai akkor se okozzanak hibát, 
+    # ha valamelyik mező üres maradt a PDF-ben.
+    for col in ['Cím', 'ID', 'Ügyintéző', 'Megjegyzés', 'temp_id']:
+        if col not in combined.columns:
+            combined[col] = "" # Ha nincs ilyen oszlop, létrehozzuk üresen
+
+    # --- 3. CSOPORTOSÍTÁS ÉS MERGE INDÍTÁSA ---
     merged = []
+    # Most már biztosan nem lesz KeyError a temp_id-nél:
     unique_ids = combined['temp_id'].unique()
+    
+    # ... innen jön a többi részed a for ciklussal ...
     
     for tid in unique_ids:
         subset = combined[combined['temp_id'] == tid]

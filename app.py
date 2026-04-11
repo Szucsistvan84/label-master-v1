@@ -507,9 +507,18 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     raw_combined = " | ".join(dict.fromkeys(parts))
                     clean_customer = re.sub(r'\s+', ' ', raw_combined)
                     
-                    # Junk szavak törlése (Felnőtt, Dr. stb)
-                    for junk in ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj"]:
+                    # Junk szavak ÉS mondatok törlése
+                    junk_list = [
+                        "Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj",
+                        "Csilagozott betűnél kiegészítő is van!!!",  # <--- Pontosan így
+                        "Csilagozott betűnél kiegészítő is van"      # Biztonság kedvéért felkiáltójel nélkül is
+                    ]
+                    
+                    for junk in junk_list:
                         clean_customer = clean_customer.replace(junk, "")
+                    
+                    # Extra takarítás: ha a törlés után dupla szóközök vagy felesleges elválasztók maradnának
+                    clean_customer = re.sub(r'\s+', ' ', clean_customer).strip(" -/|.,")
 
                     # --- 9. RÉSZLEG ÉS INSTRUKCIÓ SZÉTVÁLASZTÁSA ---
                     reszleg = ""

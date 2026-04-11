@@ -513,14 +513,12 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         all_other_notes.append(megj_resz_1)
                     
                     for line in context_lines:
-                        # Ami nem ID, nem Név, nem Cím és nem Telefon, az mind Megjegyzés!
                         if full_id not in line and final_name not in line and address_val not in line and phone_val not in line:
                             if "Ft" not in line and order_val not in line:
                                 l_clean = line.strip()
                                 if len(l_clean) > 1:
                                     all_other_notes.append(l_clean)
                     
-                    # Tisztítás (VÁLTOZÓNÉV: final_megj_text)
                     final_megj_text = " | ".join(all_other_notes)
                     junk_words = ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Csilagozott betűnél kiegészítő is van!!!"]
                     for j in junk_words:
@@ -529,7 +527,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     final_megj_text = re.sub(r'\s+', ' ', final_megj_text).strip(" |-/.,")
 
                     # --- 8. ADATOK BEÍRÁSA A LISTÁBA (VÉGLEGES) ---
-                    # Itt 'rows.append' kell, mert a függvény elején 'rows = []' van!
                     rows.append({
                         "ID": full_id,
                         "Ügyintéző": final_name,
@@ -542,6 +539,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         "Sorrend": float(i + 1),
                         "Csoport": 0
                     })
+                    # FIGYELEM: Itt ne legyen több kód, ami a clean_customer-t vagy a "/" jelet vizsgálná!
                     
                     # --- 9. RÉSZLEG ÉS INSTRUKCIÓ SZÉTVÁLASZTÁSA ---
                     reszleg = ""

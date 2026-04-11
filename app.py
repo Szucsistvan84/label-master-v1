@@ -458,121 +458,88 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         else:
                             address_for_clean = working_line[start_idx:].strip()
 
-                    # --- 4. LÉPÉS: KONTEXTUS BŐVÍTÉSE (FINOMHANGOLT PORSZÍVÓ) ---
-                    # A kerekítést 5-re emeljük, hogy a picit hullámosabb sorok is egyben maradjanak
-                    line_words_sorted = sorted(line_words, key=lambda x: (round(x['top'] / 5) * 5, x['x0']))
+# --- 4. PORSZÍVÓZÁS (STABILIZÁLT VERZIÓ) ---
+                    # Kiszámoljuk meddig tart az aktuális blokk
+                    y_bottom = anchors[i+1]['top'] - 2 if i + 1 < len(anchors) else min(page_cutoff, anchor['top'] + 250)
                     
-                    # Nem egyetlen hosszú szőnyeget csinálunk, hanem megtartjuk a sorok elválasztását
-                    # Ez kulcsfontosságú Murza Ildikó miatt, akinek külön sorban van a megjegyzése!
-                    lines_dict = {}
-                    for w in line_words_sorted:
-                        t = round(w['top'] / 5) * 5
-                        lines_dict.setdefault(t, []).append(w['text'])
+                    # Beszippantjuk a szöveget
+                    raw_context = page.within_bbox((0, anchor['top'] - 2, page.width, y_bottom)).extract_text() or ""
                     
-                    # Soronként összefűzzük, majd a sorokat újsorral kapcsoljuk össze
-                    rows = [" ".join(lines_dict[t]) for t in sorted(lines_dict.keys())]
-                    working_context = "\n".join(rows)
-
-                    # FONTOS: Nem vágjuk le az ID elejét! 
-                    # Korábban itt volt egy id_match_context vágás, ami kidobta az ID feletti sorokat.
-                    # Inkább csak tisztítjuk a felesleges sorszámokat a sorok elejéről, ha vannak:
-                    working_context = re.sub(r'^\d+\s+', '', working_context, flags=re.MULTILINE)
-
-                    # --- 5. LÉPÉS: TISZTÍTOTT KONTEXTUS LÉTREHOZÁSA ---
-                    # Csak itt inicializálunk, és rögtön takarítunk
-                    megj_resz_1 = "" 
-                    megj_resz_2 = "" 
-
-                    # Kiszűrjük a rendelési kódokat és a pénzt, hogy ne zavarják a megjegyzés keresését
-                    clean_context = re.sub(ORDER_PAT, '', working_context)
-                    clean_context = re.sub(MONEY_PAT, '', clean_context)
-                    # A telefonszámot is érdemes kivenni a clean_context-ből, hogy ne zavarjon be megjegyzésként
-                    if 'phone_val' in locals() and phone_val:
-                        clean_context = clean_context.replace(phone_val, "")
-
-                    # --- 6. ÉS 7. LÉPÉS ÖSSZEVONT JAVÍTÁSA ---
+                    # Összesítés-védelem: levágjuk a táblázat alját, ha belelógna
+                    clean_context = raw_context.split("Összesítés:")[0].strip()
                     context_lines = [l.strip() for l in clean_context.split('\n') if l.strip()]
-                    megj_resz_full = ""
+
+                    # --- 5. ADATOK KINYERÉSE (OSZLOPONKÉNT) ---
+                    address_val = ""
+                    phone_val = ""
+                    money_val = ""
+                    order_val = ""
+                    
+                    # Pénz és Rendelés kinyerése regex-szel
+                    m_money = re.search(MONEY_PAT, clean_context)
+                    if m_money: money_val = m_money.group(1).strip()
+                    
+                    m_order = re.search(ORDER_PAT, clean_context)
+                    if m_order: order_val = f"{m_order.group(1)}-{m_order.group(2)}"
+
+                    # Cím és Telefon megkeresése a sorok között
+                    for line in context_lines:
+                        # Ha van benne 4 jegyű szám (irányítószám), az a cím
+                        if not address_val and re.search(r'\b\d{4}\b', line):
+                            address_val = line
+                        # Ha telefonszám formátum, az a telefon
+                        if not phone_val and re.search(PHONE_PAT, line):
+                            phone_val = re.search(PHONE_PAT, line).group(1)
+
+                    # --- 6. NÉV ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA ---
+                    final_name = ""
+                    megj_resz_1 = ""
                     
                     if context_lines:
-                        # --- NÉV UTÁNI MEGJEGYZÉS (Ildikó-fix) ---
                         first_line = context_lines[0]
-                        clean_name_line = first_line.replace(full_id, "").strip()
+                        # Az ID-t levágjuk, ami marad, az a név + esetleges megjegyzés
+                        name_part = first_line.replace(full_id, "").strip()
                         
-                        if "/" in clean_name_line:
-                            parts_name = clean_name_line.split("/", 1)
-                            # Megtartjuk a perjel utáni részt (pl. ajtókilincs)
-                            megj_resz_full = parts_name[1].strip()
-                        
-                        # --- CÍM UTÁNI MEGJEGYZÉS ÉS ÖSSZESÍTÉS-VÉDELEM ---
-                        if address in clean_context:
-                            anchor_pos = clean_context.find(address) + len(address)
-                            after_address = clean_context[anchor_pos:].strip()
-                            
-                            # Megkeressük a telefon végét, mert utána jöhet még megjegyzés
-                            end_m = re.search(re.escape(phone_val), after_address)
-                            megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
-                            
-                            # --- KRITIKUS: Itt vágjuk le az Összesítést, hogy ne essen szét a táblázat! ---
-                            if "Összesítés:" in megj_resz_2:
-                                megj_resz_2 = megj_resz_2.split("Összesítés:")[0].strip()
-                            
-                            # Összefűzzük a két részt egy szép elválasztóval
-                            if megj_resz_2:
-                                if megj_resz_full:
-                                    megj_resz_full += " | " + megj_resz_2
-                                else:
-                                    megj_resz_full = megj_resz_2
+                        if "/" in name_part:
+                            p = name_part.split("/", 1)
+                            final_name = p[0].strip()
+                            megj_resz_1 = p[1].strip() # Pl. "ajtókilincs"
+                        else:
+                            final_name = name_part
 
-                    # Végül elmentjük a tiszta, összesítés-mentes megjegyzést
-                    final_megj = megj_resz_full.strip()
-
-                    # --- 8. ÖSSZEFŰZÉS ÉS TISZTÍTÁS (Ildikó és Tamás fix) ---
-                    all_notes = []
+                    # --- 7. MINDEN EGYÉB MEGJEGYZÉS ÖSSZEGYŰJTÉSE ---
+                    all_other_notes = []
+                    if megj_resz_1: all_other_notes.append(megj_resz_1)
                     
-                    # 1. Megjegyzés part 1 (Cégnév, részleg az ID mellől)
-                    if megj_resz_1.strip():
-                        all_notes.append(megj_resz_1.strip())
+                    for line in context_lines:
+                        # Ami nem ID, nem Név, nem Cím és nem Telefon, az mind Megjegyzés!
+                        if full_id not in line and final_name not in line and address_val not in line and phone_val not in line:
+                            # A pénzt és rendelést is kihagyjuk a szövegből
+                            if "Ft" not in line and order_val not in line:
+                                if len(line.strip()) > 1: # Üres karaktereket ne
+                                    all_other_notes.append(line.strip())
                     
-                    # 2. Megjegyzés part 2 (Hosszú instrukciók - ide kerül Ildikó üzenete)
-                    if megj_resz_2.strip():
-                        all_notes.append(megj_resz_2.strip())
+                    # Tisztítás a junk szavaktól
+                    final_megj_text = " | ".join(all_other_notes)
+                    junk_words = ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Csilagozott betűnél kiegészítő is van!!!"]
+                    for j in junk_words:
+                        final_megj_text = final_megj_text.replace(j, "")
                     
-                    # 3. Egyéb gyűjtött részek
-                    all_notes.extend(parts)
+                    final_megj_text = re.sub(r'\s+', ' ', final_megj_text).strip(" |-/.,")
 
-                    # Duplikátumok szűrése az eredeti sorrend megtartásával
-                    seen = set()
-                    final_parts = []
-                    for n in all_notes:
-                        n_clean = n.strip()
-                        if not n_clean:
-                            continue
-                        if n_clean.lower() not in seen:
-                            final_parts.append(n_clean)
-                            seen.add(n_clean.lower())
-
-                    # Összefűzés elegáns elválasztóval
-                    clean_customer = " | ".join(final_parts)
-
-                    # --- HAJDU TAMÁS ÉS ILDIKÓ SPECIÁLIS TISZTÍTÁSA ---
-                    
-                    # 1. Csak akkor törlünk számot a sor végéről, ha előtte szóköz van.
-                    # Ez megvédi a "13#1957"-et (mert ott # van), de törli a magányos "3"-ast (darabszám).
-                    clean_customer = re.sub(r'(?<=\s)\d+$', '', clean_customer)
-
-                    # 2. Junk szavak eltávolítása
-                    junk_list = [
-                        "Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj",
-                        "Csilagozott betűnél kiegészítő is van!!!",
-                        "Csilagozott betűnél kiegészítő is van"
-                    ]
-                    for junk in junk_list:
-                        clean_customer = clean_customer.replace(junk, "")
-
-                    # 3. Végső kozmetika: dupla szóközök és felesleges írásjelek a szélekről
-                    clean_customer = re.sub(r'\s+', ' ', clean_customer)
-                    clean_customer = clean_customer.strip(" -/|.,")
+                    # --- 8. ADATOK BEÍRÁSA A LISTÁBA (VÉGLEGES) ---
+                    data.append({
+                        "ID": full_id,
+                        "Ügyintéző": final_name,
+                        "Cím": address_val,
+                        "Telefon": phone_val,
+                        "Pénz": money_val,
+                        "Rendelés": order_val,
+                        "Megjegyzés": final_megj_text,
+                        "Összesen": 1,
+                        "Sorrend": float(i + 1),
+                        "Csoport": 0
+                    })
                     
                     # --- 9. RÉSZLEG ÉS INSTRUKCIÓ SZÉTVÁLASZTÁSA ---
                     reszleg = ""

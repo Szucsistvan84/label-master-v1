@@ -519,14 +519,43 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                 if len(l_clean) > 1:
                                     all_other_notes.append(l_clean)
                     
+                    # Itt jön létre a kiinduló szöveg
                     final_megj_text = " | ".join(all_other_notes)
+
+                    # --- IDE KERÜLTEK A HETEKIG CSISZOLT FINOMHANGOLÁSOK (ÁTVEZETVE) ---
+                    
+                    # 1. Junk szavak és Optipont/Összesítő törlése
                     junk_words = ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Csilagozott betűnél kiegészítő is van!!!"]
                     for j in junk_words:
                         final_megj_text = final_megj_text.replace(j, "")
-                    
-                    final_megj_text = re.sub(r'\s+', ' ', final_megj_text).strip(" |-/.,")
+                    final_megj_text = re.sub(r'(Összesítés:|Csillagozott|Összesen:).*', '', final_megj_text, flags=re.IGNORECASE)
 
-                    # --- 8. ADATOK BEÍRÁSA A LISTÁBA (VÉGLEGES) ---
+                    # 2. Telefonszám előhívók (20/30/70) és admin név radírozása
+                    final_megj_text = re.sub(r'\b(20|30|70|06)\b(?!\s*/|\s*\d)', '', final_megj_text)
+                    if final_name:
+                        for n_part in final_name.split():
+                            if len(n_part) > 2:
+                                final_megj_text = re.sub(rf'\b{re.escape(n_part)}\b', '', final_megj_text, flags=re.IGNORECASE)
+
+                    # 3. Étlap kódok alapú okos takarítás (napi_kodok alapján)
+                    for kod in sorted(napi_kodok, key=len, reverse=True):
+                        if len(kod) > 1:
+                            minta = r'\d*\s*[-\u2013\u2014\u2212]?\s*\b' + re.escape(kod) + r'\b'
+                            final_megj_text = re.sub(minta, '', final_megj_text)
+                        else:
+                            minta = r'\d+\s*[-\u2013\u2014\u2212]\s*\b' + re.escape(kod) + r'\b'
+                            final_megj_text = re.sub(minta, '', final_megj_text)
+
+                    # 4. Írásjelek, Pipeline-ok és duplikációk polírozása
+                    final_megj_text = re.sub(r'([ ,.]*[,.][ ,.]*){2,}', ' ', final_megj_text) # Vesszőtenger ellen
+                    if "|" in final_megj_text:
+                        parts = [p.strip() for p in final_megj_text.split("|")]
+                        final_megj_text = " | ".join(dict.fromkeys([p for p in parts if p])) # Duplikált blokkok ki
+                    
+                    final_megj_text = re.sub(r'(\|[ \t]*)+', ' | ', final_megj_text) # Pipeline polír
+                    final_megj_text = re.sub(r'\s+', ' ', final_megj_text).strip(" ,.-/|*")
+
+                    # --- 8. ADATOK BEÍRÁSA A LISTÁBA (VÉGLEGES ÉS EGYSZERI) ---
                     rows.append({
                         "ID": full_id,
                         "Ügyintéző": final_name,
@@ -538,146 +567,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         "Összesen": 1,
                         "Sorrend": float(i + 1),
                         "Csoport": 0
-                    })
-                    # FIGYELEM: Itt ne legyen több kód, ami a clean_customer-t vagy a "/" jelet vizsgálná!
-                    
-                    # --- 9. RÉSZLEG ÉS INSTRUKCIÓ SZÉTVÁLASZTÁSA ---
-                    reszleg = ""
-                    if "/" in clean_customer:
-                        c_parts = clean_customer.split("/")
-                        potential_reszleg = c_parts[0].strip()
-                        if admin_name and potential_reszleg.lower() != admin_name.lower():
-                            reszleg = potential_reszleg
-                    
-                    # Ami maradt, az az extra instrukció
-                    extra_instructions = clean_customer
-                    if reszleg: extra_instructions = extra_instructions.replace(reszleg, "")
-                    if admin_name:
-                        for n_part in admin_name.split():
-                            if len(n_part) > 2:
-                                extra_instructions = re.sub(rf'\b{re.escape(n_part)}\b', '', extra_instructions, flags=re.IGNORECASE)
-
-                    extra_instructions = extra_instructions.replace("/", "").strip(" -/|.,")
-
-                    # --- TELEFONSZÁM- ÉS KAPUKÓD-BIZTOS TISZTÍTÁS ---
-                    
-                    # 1. CSAK a magányos előhívókat bántjuk (pl. "Név 30")
-                    # Megnézzük, hogy a 20/30/70 után NINCS-E perjel vagy több számjegy
-                    clean_customer = re.sub(r'\b(20|30|70)\b(?![/\d])', '', clean_customer)
-
-                    # 2. Ügyintéző nevének radírozása (finomítva)
-                    if admin_name:
-                        # Teljes név törlése
-                        clean_customer = re.sub(rf'\b{re.escape(admin_name)}\b', '', clean_customer, flags=re.IGNORECASE)
-                        # Név részei (pl. Kiss, János), de csak ha önálló szavak
-                        for name_part in admin_name.split():
-                            if len(name_part) > 2:
-                                clean_customer = re.sub(rf'\b{re.escape(name_part)}\b', '', clean_customer, flags=re.IGNORECASE)
-
-                    # 3. Vesszőhegyek takarítása (a # és / jeleket békén hagyja!)
-                    # Csak a halmozott vesszőt, pontot és szóközt cseréli egyetlen szóközre
-                    clean_customer = re.sub(r'[,.;:|*]{2,}', ' ', clean_customer)
-
-                    # 4. Részleg és Instrukció szétválasztása
-                    reszleg = ""
-                    extra_instructions = clean_customer
-                    if "/" in clean_customer:
-                        # Ha a perjel telefonszám része (szám van előtte és utána), nem vágjuk szét!
-                        if not re.search(r'\d/\d', clean_customer):
-                            c_parts = clean_customer.split("/")
-                            reszleg = c_parts[0].strip()
-                            extra_instructions = "/".join(c_parts[1:]).strip()
-
-                    # --- 5. INTELLIGENS ÖSSZEFŰZÉS ÉS ÉTLAP ALAPJÚ TAKARÍTÁS ---
-                    final_note_parts = []
-                    r_clean = reszleg.strip(" ,.-/|*")
-                    e_clean = extra_instructions.strip(" ,.-/|*")
-                    
-                    # --- OKOS TAKARÍTÁS: Itt használjuk a kapott napi_etlap_kodok-at ---
-                    # Sorba rendezzük hosszuk szerint csökkenőben (D14 előbb, mint D1)
-                    for kod in sorted(napi_etlap_kodok, key=len, reverse=True):
-                        if len(kod) > 1:
-                            # HOSSZÚ KÓDOK (pl. D14, REPA, E2K):
-                            # Töröljük, ha különálló egység (szóhatár: szóköz, kötőjel vagy sor vége)
-                            # A minta felismeri: "1-D14", "1 - D14", vagy simán "D14"
-                            minta = r'\d*\s*[-\u2013\u2014\u2212]?\s*\b' + re.escape(kod) + r'\b'
-                            e_clean = re.sub(minta, '', e_clean)
-                        else:
-                            # RÖVID KÓDOK (pl. A, P, I, C):
-                            # CSAK akkor töröljük, ha van előtte egy szám és egy kötőjel! (pl. 1-A)
-                            # Így a nevekben (pl. Attila) lévő betűk biztonságban maradnak.
-                            minta = r'\d+\s*[-\u2013\u2014\u2212]\s*\b' + re.escape(kod) + r'\b'
-                            e_clean = re.sub(minta, '', e_clean)
-
-                    # Utólagos szemétmentesítés a törlés után maradt jeleknek
-                    e_clean = re.sub(r'[-\u2013\u2014\u2212]{2,}', '-', e_clean) # Dupla kötőjel -> sima
-                    e_clean = e_clean.replace('  ', ' ').strip(" ,.-/|*")
-                    # --- TAKARÍTÁS VÉGE ---
-
-                    # Most már a megtisztított e_clean-t adjuk hozzá a megjegyzéshez
-                    if r_clean and len(r_clean) > 1:
-                        final_note_parts.append(r_clean)
-                    if e_clean and len(e_clean) > 1:
-                        # Ellenőrizzük, hogy az extra ne legyen ugyanaz, mint a részleg
-                        if not final_note_parts or e_clean.lower() != final_note_parts[0].lower():
-                            final_note_parts.append(e_clean)
-                    
-                    full_note = " | ".join(final_note_parts)
-                    
-                    # --- 6. UTOLSÓ FINOMHANGOLÁS (JAVÍTOTT, HIBAMENTES) ---
-                    
-                    # 1. OPTIPONT ÉS ÖSSZESÍTŐK AZONNALI TÖRLÉSE
-                    full_note = re.sub(r'(Összesítés:|Csillagozott|Összesen:).*', '', full_note, flags=re.IGNORECASE)
-
-                    # 2. MAGÁNYOS ELŐHÍVÓK IRTÁSA (Fix cserékkel a legbiztosabb)
-                    # Előbb a fix elválasztós formák (Erzsébet-ügy megoldása)
-                    for num in ["20", "30", "70", "06"]:
-                        full_note = full_note.replace(f"| {num} |", "|")
-                        full_note = full_note.replace(f"|{num}|", "|")
-                        full_note = full_note.replace(f"| {num}", "|")
-                        full_note = full_note.replace(f"{num} |", "|")
-                    
-                    # 3. MAGÁNYOS SZÁMOK TÖRLÉSE (Regex hiba nélkül)
-                    # Olyan 20, 30, 70, 06 amiket szóköz vesz körül, de NEM telefonszámok (nincs / utánuk)
-                    # A \b (szóhatár) használata biztonságosabb itt
-                    full_note = re.sub(r'\b(20|30|70|06)\b(?!\s*/|\s*\d)', '', full_note)
-
-                    # 4. NÉV-DUPLIKÁCIÓ (Globiz-effektus)
-                    if "|" in full_note:
-                        parts = [p.strip() for p in full_note.split("|")]
-                        if len(parts) > 1 and parts[1].lower().startswith(parts[0].lower()):
-                            parts[1] = parts[1][len(parts[0]):].strip()
-                        # dict.fromkeys kiszűri a duplikált blokkokat
-                        full_note = " | ".join(dict.fromkeys([p for p in parts if p]))
-
-                    # 5. ÍRÁSJEL-HALMOZÓDÁS ÉS ÁRVA VESSZŐK
-                    # Kenézy-féle vesszőtenger: több vessző/pont/szóköz -> egy szóköz
-                    full_note = re.sub(r'([ ,.]*[,.][ ,.]*){2,}', ' ', full_note)
-                    # Pipeline melletti szemét takarítása
-                    full_note = re.sub(r'\|\s*[,. ]+', '| ', full_note)
-                    full_note = re.sub(r'[,. ]+\s*\|', ' |', full_note)
-
-                    # 6. PIPELINE POLÍROZÁS ÉS VÉGSŐ TISZTÍTÁS
-                    # Több pipeline egymás után -> egy pipeline
-                    full_note = re.sub(r'(\|[ \t]*)+', ' | ', full_note)
-                    # Dupla szóközök ki
-                    full_note = re.sub(r'\s+', ' ', full_note)
-                    # Szélekről minden maradék le (vessző, pont, pipeline, perjel)
-                    full_note = full_note.strip(" ,.-/|*")
-                    
-                    # Rendelés szöveges formázása a CSV-hez
-                    mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
-                    full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
-
-                    mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
-                    full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
-
-                    rows.append({
-                        "ID": full_id, "Ügyintéző": admin_name, "Cím": address, "Telefon": phone_val,
-                        "Pénz": money_val, "Rendelés": rendeles_str, "Megjegyzés": full_note,
-                        "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
-                        "Rendelés_Full": full_rendeles_text, "temp_id": full_id.split('-')[-1],
-                        "Prefix": prefix, "Csoport": current_group_id if 'current_group_id' in locals() else 0
                     })
     
     if not rows: 

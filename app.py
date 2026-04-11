@@ -1272,18 +1272,18 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
 
         st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
         
+        # --- BIZTONSÁGOS OSZLOPREND MEGHATÁROZÁSA ---
+        # Csak azokat jelenítjük meg, amik tényleg léteznek a táblázatban
+        wanted_cols = ["Sorrend", "ID", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Megjegyzés", "Összesen"]
+        actual_order = [c for c in wanted_cols if c in st.session_state.mdf.columns]
+
         edited_df = st.data_editor(
             st.session_state.mdf,
             key=f"editor_{st.session_state.get('editor_key', 0)}", 
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
-            # --- EZ A RÉSZ OLDJA MEG A HIBÁT ---
-            column_order=[
-                "Sorrend", "ID", "Ügyintéző", "Cím", 
-                "Telefon", "Pénz", "Rendelés", "Megjegyzés", "Összesen"
-            ],
-            # ----------------------------------
+            column_order=actual_order, # Itt használjuk a szűrt listát
             column_config={
                 "Csoport": st.column_config.TextColumn(
                     "Csoport",

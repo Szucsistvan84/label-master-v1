@@ -218,27 +218,48 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 info_text = full_content
                 order_text = full_content
     
-                # --- 4. EXTRÁCIÓ: A MEGJEGYZÉS ÖSSZEGYŰJTÉSE ---
+# --- 4. EXTRÁCIÓ: A MEGJEGYZÉS ÖSSZEGYŰJTÉSE (Precíziós verzió) ---
                 final_megj_parts = []
                 for line in cleaned_lines:
-                    # Cím kiszűrése
-                    if any(city in line for city in ["Debrecen", "Ebes", "Hajdú"]):
+                    l_strip = line.strip()
+                    if not l_strip:
                         continue
-                    # Ügyfél neve (ID-vel) kiszűrése
-                    if re.search(r'[CPK]-\d+', line):
+
+                    # 1. Címek és Telefon/Rendelés azonnali átugrása (ezeket máshol már elmentettük)
+                    if any(city in l_strip for city in ["Debrecen", "Ebes", "Hajdú"]):
                         continue
-                    # Telefon és Rendelés kiszűrése
-                    if re.search(PHONE_PAT, line) or re.search(ORDER_PAT, line):
+                    if re.search(PHONE_PAT, l_strip) or re.search(ORDER_PAT, l_strip):
                         continue
-                    # Ügyintéző nevének pontos egyezése (hogy ne duplázzunk)
-                    if admin_name and line.strip() == admin_name.strip():
+
+                    # 2. Ügyintéző nevének kiszűrése (ha pontosan megegyezik a sorral)
+                    if admin_name and l_strip == admin_name.strip():
                         continue
+
+                    # 3. A név és ID sorának tisztítása, de CSAK a megjegyzés számára
+                    # Megkeressük a nap jelét és az ID-t (pl. S-495196 vagy C-428867)
+                    id_match = re.search(r'([HKS-Z])-\d+', l_strip)
                     
-                    # Ami maradt, az a megjegyzés
-                    if len(line.strip()) > 1:
-                        final_megj_parts.append(line.strip())
-    
-                # Ez a változó viszi tovább a megjegyzést
+                    if id_match:
+                        # Ha a sorban van ID, akkor ez az a sor, ahol a Név is van.
+                        # Itt CSAK akkor tartjuk meg a sor maradékát, ha az ID és a Név után 
+                        # még van legalább 4 karakter (ez lesz a megjegyzés).
+                        
+                        # Eltávolítjuk az ID-t a sorból
+                        temp_line = re.sub(r'([HKS-Z])-\d+', '', l_strip).strip()
+                        
+                        # Eltávolítjuk a nevet is a sorból (ha sikerült kinyerni korábban)
+                        if customer_name:
+                            temp_line = temp_line.replace(customer_name, "").strip()
+                        
+                        # Ami maradt a takarítás után, az a sor végi megjegyzés
+                        if len(temp_line) > 2:
+                            final_megj_parts.append(temp_line)
+                    else:
+                        # Ha NINCS ID a sorban, de nem cím és nem telefon, 
+                        # akkor ez egy tiszta megjegyzés sor (mint Murza Ildikónál)!
+                        final_megj_parts.append(l_strip)
+
+                # Összefűzés (Ildikó megjegyzései itt már benne lesznek)
                 megj_resz_1 = " | ".join(final_megj_parts)
                 
                 # KRITIKUS: Kényszerítjük, hogy a clean_customer változó ezt használja
@@ -529,37 +550,25 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         end_m = re.search(re.escape(phone_val), after_address)
                         megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
 
-                    # --- 8. ÖSSZEFŰZÉS ÉS BIZTONSÁGI JAVÍTÁS (Ildikó-fix) ---
+                    # --- 8. ÖSSZEFŰZÉS ÉS TISZTÍTÁS ---
+                    # Minden lehetséges forrást egy listába teszünk
+                    all_notes = []
                     
-                    # Biztonsági ellenőrzés: ha valamiért nem jött volna létre a parts lista korábban
-                    if 'parts' not in locals():
-                        parts = []
+                    # 1. Az Ügyfél cellából kinyert extra sorok (Ildikó megjegyzése)
+                    if megj_resz_1:
+                        all_notes.append(megj_resz_1)
                     
-                    # Szanyi Norbi és egyéb speciális kulcsszavak a címből
-                    if address:
-                        for keyword in ["legyenek", "perccel", "érkezés", "kapucsengő"]:
-                            if keyword in address.lower():
-                                # Ellenőrizzük, hogy a megj_resz_1-ben vagy a parts-ban benne van-e már
-                                current_all_text = (megj_resz_1 + " " + " ".join(parts)).lower()
-                                if keyword not in current_all_text:
-                                    extra_s = re.search(rf'\b{keyword}\b.*', address, re.IGNORECASE)
-                                    if extra_s: 
-                                        parts.append(extra_s.group().strip())
+                    # 2. A korábban (pl. 7. pontban) gyűjtött egyéb részek
+                    all_notes.extend(parts)
 
-                    # Összegyűjtjük az összes forrást
-                    all_potential_notes = []
-                    if megj_resz_1.strip(): all_potential_notes.append(megj_resz_1.strip())
-                    if megj_resz_2.strip(): all_potential_notes.append(megj_resz_2.strip())
-                    all_potential_notes.extend(parts) # Itt már nem fog hibát dobni
-
-                    # Duplikátumok kiszűrése sorrend megtartásával
+                    # Duplikátumok szűrése, sorrend megtartásával
                     seen = set()
                     final_parts = []
-                    for p in all_potential_notes:
-                        p_clean = p.strip()
-                        if p_clean.lower() not in seen and p_clean:
-                            final_parts.append(p_clean)
-                            seen.add(p_clean.lower())
+                    for n in all_notes:
+                        n_clean = n.strip()
+                        if n_clean.lower() not in seen and n_clean:
+                            final_parts.append(n_clean)
+                            seen.add(n_clean.lower())
 
                     clean_customer = " | ".join(final_parts)
 

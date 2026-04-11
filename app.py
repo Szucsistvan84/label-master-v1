@@ -204,42 +204,45 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 full_row_box = page.within_bbox((20, y_top, 585, y_bottom))
                 full_text = full_row_box.extract_text() or ""
                 
-                # --- 3. TISZTÍTÁS ÉS SZÉTVÁLOGATÁS (Ildikó-biztos verzió) ---
+                # --- 3. TISZTÍTÁS ÉS SZÉTVÁLOGATÁS (Végleges Ildikó-fix) ---
                 lines = [l.strip() for l in full_text.split('\n') if l.strip()]
                 
+                # Alapvető szemét kiszűrése (lábléc/fejléc)
                 cleaned_lines = []
                 for line in lines:
-                    # Alapvető szemét kiszűrése (lábléc/fejléc)
                     if any(x in line for x in ["Optipont", "Nyomtatva:", "oldal", "Nyomtatta:", "Sor", "Ügyfél", "Össz."]):
                         continue
                     cleaned_lines.append(line)
     
-                # EGYRE JAVÍTJUK: Mindent ebbe a közös változóba teszünk
                 full_content = "\n".join(cleaned_lines)
-                
-                # Ez a két sor kulcsfontosságú: a későbbi regexek ebből fognak dolgozni
                 info_text = full_content
                 order_text = full_content
     
-                # --- 4. EXTRÁCIÓ: KIFEJEZETTEN A MEGJEGYZÉSRE VADÁSZUNK ---
-                # Itt egy új listát indítunk csak a megjegyzésnek
-                megj_lines = []
+                # --- 4. EXTRÁCIÓ: A MEGJEGYZÉS ÖSSZEGYŰJTÉSE ---
+                final_megj_parts = []
                 for line in cleaned_lines:
-                    # Ha a sorban van város (Debrecen/Ebes/Hajdú), az a cím -> NEM megjegyzés
+                    # Cím kiszűrése
                     if any(city in line for city in ["Debrecen", "Ebes", "Hajdú"]):
                         continue
-                    # Ha az ID-vel kezdődik (P-123456), az az ügyfél neve -> NEM megjegyzés
+                    # Ügyfél neve (ID-vel) kiszűrése
                     if re.search(r'[CPK]-\d+', line):
                         continue
-                    # Ha tiszta telefonszám vagy rendelési kód (1-R2), az is adat -> NEM megjegyzés
+                    # Telefon és Rendelés kiszűrése
                     if re.search(PHONE_PAT, line) or re.search(ORDER_PAT, line):
                         continue
+                    # Ügyintéző nevének pontos egyezése (hogy ne duplázzunk)
+                    if admin_name and line.strip() == admin_name.strip():
+                        continue
                     
-                    # Ami maradt (pl. "ajtókilincsre"), az MEGYJEGYZÉS!
-                    megj_lines.append(line)
+                    # Ami maradt, az a megjegyzés
+                    if len(line.strip()) > 1:
+                        final_megj_parts.append(line.strip())
     
-                # Ezt a változót fogja a kódod később clean_customer-nek hívni
-                megj_resz_1 = " | ".join(megj_lines)
+                # Ez a változó viszi tovább a megjegyzést
+                megj_resz_1 = " | ".join(final_megj_parts)
+                
+                # KRITIKUS: Kényszerítjük, hogy a clean_customer változó ezt használja
+                clean_customer = megj_resz_1
             
                 # A blokk vége: vagy a következő ID, vagy a lap alja (sorompó)
                 next_anchor_top = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else page_cutoff

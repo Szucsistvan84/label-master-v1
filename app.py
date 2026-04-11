@@ -1272,20 +1272,22 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
 
         st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
         
-        # --- DINAMIKUS OSZLOPREND (MEGELŐZI A TYPEERROR-T) ---
-        # Itt felsoroljuk az összes oszlopot, amit látni szeretnénk, ha léteznek
-        preferred_order = ["Sorrend", "ID", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Megjegyzés", "Összesen"]
+        # --- DINAMIKUS OSZLOPKEZELÉS A HIBA ELLEN ---
+        df_to_edit = st.session_state.mdf.copy()
         
-        # Csak azokat tartjuk meg, amik tényleg benne vannak a session_state.mdf-ben
-        available_columns = [col for col in preferred_order if col in st.session_state.mdf.columns]
+        # Meghatározzuk, mely oszlopokat SZERETNÉNK látni
+        desired_cols = ["Sorrend", "ID", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Megjegyzés", "Összesen"]
+        
+        # Csak azokat tartjuk meg, amik TÉNYLEG benne vannak a táblázatban
+        final_column_order = [c for c in desired_cols if c in df_to_edit.columns]
 
         edited_df = st.data_editor(
-            st.session_state.mdf,
+            df_to_edit,
             key=f"editor_{st.session_state.get('editor_key', 0)}", 
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
-            column_order=available_columns, # Csak a létező oszlopokat kérjük le
+            column_order=final_column_order, # Itt a garantáltan létező lista
             column_config={
                 "Csoport": st.column_config.TextColumn("Csoport", width="small"),
                 "Sorrend": st.column_config.NumberColumn("Sor", format="%.1f", width="small"),

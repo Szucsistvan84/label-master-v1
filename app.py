@@ -474,15 +474,25 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         else:
                             address_for_clean = working_line[start_idx:].strip()
 
-                    # --- 4. LÉPÉS: KONTEXTUS BŐVÍTÉSE (PORSZÍVÓ) ---
-                    # Toleranciát használunk a rendezésnél, hogy az egy sorban lévő szavak ne cserélődjenek fel
-                    # A 'top' értéket 3 pixelre kerekítjük, így az egy vonalban lévők azonos 'top'-ot kapnak
-                    line_words_sorted = sorted(line_words, key=lambda x: (round(x['top'] / 3) * 3, x['x0']))
-                    full_block_text = " ".join([w['text'] for w in line_words_sorted])
+                    # --- 4. LÉPÉS: KONTEXTUS BŐVÍTÉSE (FINOMHANGOLT PORSZÍVÓ) ---
+                    # A kerekítést 5-re emeljük, hogy a picit hullámosabb sorok is egyben maradjanak
+                    line_words_sorted = sorted(line_words, key=lambda x: (round(x['top'] / 5) * 5, x['x0']))
                     
-                    # Levágjuk az elejéről a sorszámot az ID-ig
-                    id_match_context = re.search(id_pattern, full_block_text)
-                    working_context = full_block_text[id_match_context.start():] if id_match_context else full_block_text
+                    # Nem egyetlen hosszú szőnyeget csinálunk, hanem megtartjuk a sorok elválasztását
+                    # Ez kulcsfontosságú Murza Ildikó miatt, akinek külön sorban van a megjegyzése!
+                    lines_dict = {}
+                    for w in line_words_sorted:
+                        t = round(w['top'] / 5) * 5
+                        lines_dict.setdefault(t, []).append(w['text'])
+                    
+                    # Soronként összefűzzük, majd a sorokat újsorral kapcsoljuk össze
+                    rows = [" ".join(lines_dict[t]) for t in sorted(lines_dict.keys())]
+                    working_context = "\n".join(rows)
+
+                    # FONTOS: Nem vágjuk le az ID elejét! 
+                    # Korábban itt volt egy id_match_context vágás, ami kidobta az ID feletti sorokat.
+                    # Inkább csak tisztítjuk a felesleges sorszámokat a sorok elejéről, ha vannak:
+                    working_context = re.sub(r'^\d+\s+', '', working_context, flags=re.MULTILINE)
 
                     # --- 5. LÉPÉS: TISZTÍTOTT KONTEXTUS LÉTREHOZÁSA ---
                     # Csak itt inicializálunk, és rögtön takarítunk
@@ -523,18 +533,18 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         end_m = re.search(re.escape(phone_val), after_address)
                         megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
 
-                    # --- 8. ÖSSZEFŰZÉS ÉS TISZTÍTÁS (Végleges, Ildikó-biztos verzió) ---
+                    # --- 8. ÖSSZEFŰZÉS ÉS TISZTÍTÁS (Ildikó és Tamás fix) ---
                     all_notes = []
                     
                     # 1. Megjegyzés part 1 (Cégnév, részleg az ID mellől)
                     if megj_resz_1.strip():
                         all_notes.append(megj_resz_1.strip())
                     
-                    # 2. Megjegyzés part 2 (Hosszú instrukciók új sorokból - EZ HIÁNYZOTT!)
+                    # 2. Megjegyzés part 2 (Hosszú instrukciók - ide kerül Ildikó üzenete)
                     if megj_resz_2.strip():
                         all_notes.append(megj_resz_2.strip())
                     
-                    # 3. Egyéb gyűjtött részek (pl. Ügyintéző cellából vagy cím végéről)
+                    # 3. Egyéb gyűjtött részek
                     all_notes.extend(parts)
 
                     # Duplikátumok szűrése az eredeti sorrend megtartásával
@@ -544,7 +554,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         n_clean = n.strip()
                         if not n_clean:
                             continue
-                        # Kis/nagybetű különbség ne okozzon duplázást
                         if n_clean.lower() not in seen:
                             final_parts.append(n_clean)
                             seen.add(n_clean.lower())
@@ -552,21 +561,23 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     # Összefűzés elegáns elválasztóval
                     clean_customer = " | ".join(final_parts)
 
-                    # Junk (felesleges) szavak és mondatok kitakarítása
+                    # --- HAJDU TAMÁS ÉS ILDIKÓ SPECIÁLIS TISZTÍTÁSA ---
+                    
+                    # 1. Csak akkor törlünk számot a sor végéről, ha előtte szóköz van.
+                    # Ez megvédi a "13#1957"-et (mert ott # van), de törli a magányos "3"-ast (darabszám).
+                    clean_customer = re.sub(r'(?<=\s)\d+$', '', clean_customer)
+
+                    # 2. Junk szavak eltávolítása
                     junk_list = [
                         "Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj",
                         "Csilagozott betűnél kiegészítő is van!!!",
                         "Csilagozott betűnél kiegészítő is van"
                     ]
-                    
                     for junk in junk_list:
-                        # Csak akkor cseréljük, ha pontos egyezés van vagy határolt szó, 
-                        # hogy ne rontson bele értelmes szavakba
                         clean_customer = clean_customer.replace(junk, "")
 
-                    # Végső kozmetika: dupla szóközök és felesleges írásjelek eltávolítása a szélekről
+                    # 3. Végső kozmetika: dupla szóközök és felesleges írásjelek a szélekről
                     clean_customer = re.sub(r'\s+', ' ', clean_customer)
-                    # Tisztítjuk a maradék elválasztókat, amik a junk törlése után maradtak
                     clean_customer = clean_customer.strip(" -/|.,")
                     
                     # --- 9. RÉSZLEG ÉS INSTRUKCIÓ SZÉTVÁLASZTÁSA ---

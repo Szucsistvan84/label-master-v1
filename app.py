@@ -185,31 +185,36 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 # Ha az ID eleve a cutoff alatt van (téves találat), kihagyjuk
                 if anchor['top'] >= page_cutoff:
                     continue
-
-                # 1. Meghatározzuk a sáv alját (y_bottom)
+    
+                # 1. ZÓNA MEGHATÁROZÁSA (A-verzió: Széles ablak)
+                y_top = max(0, anchor['top'] - 12)
+                
                 if i + 1 < len(anchors):
                     # Ha van következő ember, az ő ID-jáig nézünk
                     y_bottom = anchors[i+1]['top'] - 2
                 else:
-                    # Ha ő az utolsó, a page_cutoff-ig nézünk le (ez a biztos kerítés!)
-                    # De maximum 80 pixelt, hogy ne legyen túl sok felesleges hely
-                    y_bottom = min(page_cutoff, anchor['top'] + 80)
+                    # Ha ő az utolsó, a page_cutoff-ig nézünk le, max 100 pixelt
+                    y_bottom = min(page_cutoff, anchor['top'] + 100)
     
-                y_top = max(0, anchor['top'] - 12)
+                if y_bottom <= y_top:
+                    y_bottom = y_top + 30
     
-                # 2. Olvasás teljes szélességben (hogy Ildikó megjegyzése ne vesszen el)
+                # 2. OLVASÁS (Faltól-falig: 20-tól 585 pixelig)
+                # Így teljesen mindegy, hová vándorol az Ügyfél oszlop, Ildikó megjegyzése benne lesz.
                 full_row_box = page.within_bbox((20, y_top, 585, y_bottom))
                 full_text = full_row_box.extract_text() or ""
                 
-                # 3. Szűrés: kidobjuk a lábléc szemetet (ez takarítja ki Ibolyát)
+                # 3. TISZTÍTÁS ÉS SZÉTVÁLOGATÁS
                 lines = [l.strip() for l in full_text.split('\n') if l.strip()]
                 cleaned_lines = []
                 for line in lines:
-                    # Ha a sor tartalmazza ezeket, átugorjuk
-                    if any(x in line for x in ["Optipont", "Nyomtatva:", "oldal", "Nyomtatta:"]):
+                    # Kiszűrjük a láblécet és a fejléc maradványokat
+                    if any(x in line for x in ["Optipont", "Nyomtatva:", "oldal", "Nyomtatta:", "Sor", "Ügyfél"]):
                         continue
                     cleaned_lines.append(line)
                 
+                # Mindkét szöveges változó a teljes (tisztított) sávot kapja meg
+                # A lenti Regex-ek ebből fogják kiválogatni a telefonokat és a rendeléseket
                 info_text = "\n".join(cleaned_lines)
                 order_text = info_text
             

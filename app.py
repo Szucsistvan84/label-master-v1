@@ -458,7 +458,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         else:
                             address_for_clean = working_line[start_idx:].strip()
 
-# --- 4. PORSZÍVÓZÁS (STABILIZÁLT VERZIÓ) ---
+                    # --- 4. PORSZÍVÓZÁS (STABILIZÁLT VERZIÓ) ---
                     # Kiszámoljuk meddig tart az aktuális blokk
                     y_bottom = anchors[i+1]['top'] - 2 if i + 1 < len(anchors) else min(page_cutoff, anchor['top'] + 250)
                     
@@ -491,41 +491,44 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         if not phone_val and re.search(PHONE_PAT, line):
                             phone_val = re.search(PHONE_PAT, line).group(1)
 
-                    # --- 6. NÉV ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA ---
+# --- 6. NÉV ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA ---
                     final_name = ""
                     megj_resz_1 = ""
                     
                     if context_lines:
                         first_line = context_lines[0]
-                        # Az ID-t levágjuk, ami marad, az a név + esetleges megjegyzés
+                        # Levágjuk az ID-t az elejéről
                         name_part = first_line.replace(full_id, "").strip()
                         
                         if "/" in name_part:
                             p = name_part.split("/", 1)
                             final_name = p[0].strip()
-                            megj_resz_1 = p[1].strip() # Pl. "ajtókilincs"
+                            megj_resz_1 = p[1].strip() # Ez az "ajtókilincs" rész
                         else:
                             final_name = name_part
 
                     # --- 7. MINDEN EGYÉB MEGJEGYZÉS ÖSSZEGYŰJTÉSE ---
                     all_other_notes = []
-                    if megj_resz_1: all_other_notes.append(megj_resz_1)
+                    if megj_resz_1: 
+                        all_other_notes.append(megj_resz_1)
                     
                     for line in context_lines:
-                        # Ami nem ID, nem Név, nem Cím és nem Telefon, az mind Megjegyzés!
+                        # Csak azokat adjuk hozzá, amik nem alap adatok (ID, név, cím, telefon)
                         if full_id not in line and final_name not in line and address_val not in line and phone_val not in line:
-                            # A pénzt és rendelést is kihagyjuk a szövegből
+                            # A pénzt és rendelési kódot is kihagyjuk a szöveges megjegyzésből
                             if "Ft" not in line and order_val not in line:
-                                if len(line.strip()) > 1: # Üres karaktereket ne
-                                    all_other_notes.append(line.strip())
+                                l_clean = line.strip()
+                                if len(l_clean) > 1:
+                                    all_other_notes.append(l_clean)
                     
-                    # Tisztítás a junk szavaktól
-                    final_megj_text = " | ".join(all_other_notes)
+                    # Tisztítás a felesleges szavaktól
+                    final_megjegyzés = " | ".join(all_other_notes)
                     junk_words = ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Csilagozott betűnél kiegészítő is van!!!"]
                     for j in junk_words:
-                        final_megj_text = final_megj_text.replace(j, "")
+                        final_megjegyzés = final_megjegyzés.replace(j, "")
                     
-                    final_megj_text = re.sub(r'\s+', ' ', final_megj_text).strip(" |-/.,")
+                    # Dupla szóközök és felesleges írásjelek takarítása
+                    final_megjegyzés = re.sub(r'\s+', ' ', final_megjegyzés).strip(" |-/.,")
 
                     # --- 8. ADATOK BEÍRÁSA A LISTÁBA (VÉGLEGES) ---
                     data.append({
@@ -535,7 +538,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         "Telefon": phone_val,
                         "Pénz": money_val,
                         "Rendelés": order_val,
-                        "Megjegyzés": final_megj_text,
+                        "Megjegyzés": final_megjegyzés,  # Ez a név legyen itt is, mint fent!
                         "Összesen": 1,
                         "Sorrend": float(i + 1),
                         "Csoport": 0

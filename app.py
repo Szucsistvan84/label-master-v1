@@ -530,15 +530,16 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     # Dupla szóközök és felesleges írásjelek takarítása
                     final_megjegyzés = re.sub(r'\s+', ' ', final_megjegyzés).strip(" |-/.,")
 
-                    # --- 8. ADATOK BEÍRÁSA A LISTÁBA (VÉGLEGES) ---
-                    data.append({
+# --- 8. ADATOK BEÍRÁSA A LISTÁBA (VÉGLEGES) ---
+                    # Itt 'rows.append' kell, mert a függvény elején 'rows = []' van!
+                    rows.append({
                         "ID": full_id,
                         "Ügyintéző": final_name,
                         "Cím": address_val,
                         "Telefon": phone_val,
                         "Pénz": money_val,
                         "Rendelés": order_val,
-                        "Megjegyzés": final_megjegyzés,  # Ez a név legyen itt is, mint fent!
+                        "Megjegyzés": final_megj_text,
                         "Összesen": 1,
                         "Sorrend": float(i + 1),
                         "Csoport": 0

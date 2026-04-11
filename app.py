@@ -491,21 +491,33 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         if not phone_val and re.search(PHONE_PAT, line):
                             phone_val = re.search(PHONE_PAT, line).group(1)
 
-# --- 6. NÉV ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA ---
+# --- 6. ADATOK SZÉTVÁLOGATÁSA (JAVÍTOTT) ---
                     final_name = ""
                     megj_resz_1 = ""
                     
                     if context_lines:
                         first_line = context_lines[0]
-                        # Levágjuk az ID-t az elejéről
+                        # Levágjuk az ID-t az elejéről a név kereséséhez
                         name_part = first_line.replace(full_id, "").strip()
                         
                         if "/" in name_part:
                             p = name_part.split("/", 1)
                             final_name = p[0].strip()
-                            megj_resz_1 = p[1].strip() # Ez az "ajtókilincs" rész
+                            megj_resz_1 = p[1].strip()
                         else:
                             final_name = name_part
+
+                    # OSZLOPOK ADATAINAK FIXÁLÁSA
+                    # 1. Cím: a kinyert 'address' változót használjuk
+                    address_val = address if 'address' in locals() and address else "Nincs cím"
+                    
+                    # 2. Rendelés: a 'rendeles_str' (pl. 1-L2K) kerül ide
+                    order_val = rendeles_str if 'rendeles_str' in locals() and rendeles_str else ""
+                    
+                    # 3. Telefonszám és Pénz
+                    # Ezeket már kinyertük korábban, csak fixáljuk a neveket
+                    phone_val = phone_val if 'phone_val' in locals() else ""
+                    money_val = money_val if 'money_val' in locals() else ""
 
 # --- 7. MINDEN EGYÉB MEGJEGYZÉS ÖSSZEGYŰJTÉSE ---
                     all_other_notes = []

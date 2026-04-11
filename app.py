@@ -507,30 +507,28 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         else:
                             final_name = name_part
 
-                    # --- 7. MINDEN EGYÉB MEGJEGYZÉS ÖSSZEGYŰJTÉSE ---
+# --- 7. MINDEN EGYÉB MEGJEGYZÉS ÖSSZEGYŰJTÉSE ---
                     all_other_notes = []
                     if megj_resz_1: 
                         all_other_notes.append(megj_resz_1)
                     
                     for line in context_lines:
-                        # Csak azokat adjuk hozzá, amik nem alap adatok (ID, név, cím, telefon)
+                        # Ami nem ID, nem Név, nem Cím és nem Telefon, az mind Megjegyzés!
                         if full_id not in line and final_name not in line and address_val not in line and phone_val not in line:
-                            # A pénzt és rendelési kódot is kihagyjuk a szöveges megjegyzésből
                             if "Ft" not in line and order_val not in line:
                                 l_clean = line.strip()
                                 if len(l_clean) > 1:
                                     all_other_notes.append(l_clean)
                     
-                    # Tisztítás a felesleges szavaktól
-                    final_megjegyzés = " | ".join(all_other_notes)
+                    # Tisztítás (VÁLTOZÓNÉV: final_megj_text)
+                    final_megj_text = " | ".join(all_other_notes)
                     junk_words = ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Csilagozott betűnél kiegészítő is van!!!"]
                     for j in junk_words:
-                        final_megjegyzés = final_megjegyzés.replace(j, "")
+                        final_megj_text = final_megj_text.replace(j, "")
                     
-                    # Dupla szóközök és felesleges írásjelek takarítása
-                    final_megjegyzés = re.sub(r'\s+', ' ', final_megjegyzés).strip(" |-/.,")
+                    final_megj_text = re.sub(r'\s+', ' ', final_megj_text).strip(" |-/.,")
 
-# --- 8. ADATOK BEÍRÁSA A LISTÁBA (VÉGLEGES) ---
+                    # --- 8. ADATOK BEÍRÁSA A LISTÁBA (VÉGLEGES) ---
                     # Itt 'rows.append' kell, mert a függvény elején 'rows = []' van!
                     rows.append({
                         "ID": full_id,

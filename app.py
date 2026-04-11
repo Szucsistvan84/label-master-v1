@@ -1278,6 +1278,12 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
+            # --- EZ A RÉSZ OLDJA MEG A HIBÁT ---
+            column_order=[
+                "Sorrend", "ID", "Ügyintéző", "Cím", 
+                "Telefon", "Pénz", "Rendelés", "Megjegyzés", "Összesen"
+            ],
+            # ----------------------------------
             column_config={
                 "Csoport": st.column_config.TextColumn(
                     "Csoport",
@@ -1286,9 +1292,11 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
                 ),
                 "Sorrend": st.column_config.NumberColumn("Sor", format="%.1f", width="small"),
                 "Ügyintéző": "Név",
+                "Cím": st.column_config.TextColumn("Cím", width="medium"),
                 "Telefon": "Tel",
                 "Pénz": "Összeg",
-                "Megjegyzés": "Infó"
+                "Megjegyzés": "Infó",
+                "Összesen": st.column_config.NumberColumn("Db", width="small")
             }
         )
 

@@ -182,73 +182,58 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
             anchors = [w for w in words if re.search(r'[HKSCPZ]-\d{5,7}', w['text'])]
             
             for i, anchor in enumerate(anchors):
-                # Ha az ID eleve a cutoff alatt van (téves találat), kihagyjuk
-                if anchor['top'] >= page_cutoff:
-                    continue
-    
-                # 1. ZÓNA MEGHATÁROZÁSA (A-verzió: Széles ablak)
+                if anchor['top'] >= page_cutoff: continue
+
+                # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA ---
                 y_top = max(0, anchor['top'] - 12)
-                
-                if i + 1 < len(anchors):
-                    # Ha van következő ember, az ő ID-jáig nézünk
-                    y_bottom = anchors[i+1]['top'] - 2
-                else:
-                    # Ha ő az utolsó, a page_cutoff-ig nézünk le, max 100 pixelt
-                    y_bottom = min(page_cutoff, anchor['top'] + 100)
-    
-                if y_bottom <= y_top:
-                    y_bottom = y_top + 30
-    
-                # 2. OLVASÁS (Faltól-falig: 20-tól 585 pixelig)
-                # Így teljesen mindegy, hová vándorol az Ügyfél oszlop, Ildikó megjegyzése benne lesz.
+                y_bottom = anchors[i+1]['top'] - 2 if i + 1 < len(anchors) else min(page_cutoff, anchor['top'] + 100)
+                if y_bottom <= y_top: y_bottom = y_top + 30
+
                 full_row_box = page.within_bbox((20, y_top, 585, y_bottom))
-                full_text = full_row_box.extract_text() or ""
+                raw_text = full_row_box.extract_text() or ""
+                lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
+
+                # --- 2. AZONOSÍTÁS (Név és ID fixálása a szűrés előtt) ---
+                current_id = anchor['text'] # Pl. P-44567
+                local_customer_name = ""
                 
-                # --- 3. TISZTÍTÁS ÉS SZÉTVÁLOGATÁS (Végleges Ildikó-fix) ---
-                lines = [l.strip() for l in full_text.split('\n') if l.strip()]
-                
-                # Alapvető szemét kiszűrése (lábléc/fejléc)
-                cleaned_lines = []
-                for line in lines:
-                    if any(x in line for x in ["Optipont", "Nyomtatva:", "oldal", "Nyomtatta:", "Sor", "Ügyfél", "Össz."]):
+                # Megkeressük melyik sorban van az ID, abból kinyerjük a nevet
+                for l in lines:
+                    if current_id in l:
+                        # Levágjuk az ID-t, a maradék a név (pl. "Murza Ildikó")
+                        local_customer_name = l.replace(current_id, "").strip()
+                        break
+
+                # --- 3. SZÉTVÁLOGATÁS (Ildikó-biztos logika) ---
+                reszleg_ceg_lista = []  # Megjegyzés part 1
+                hosszu_megj_lista = []  # Megjegyzés part 2
+
+                for l_strip in lines:
+                    # Technikai szűrések (nevek, fejléc, város)
+                    if any(x in l_strip for x in ["Debrecen", "Ebes", "Hajdú", "Sor", "Ügyfél", "Össz.", "Nyomtatva:"]): 
                         continue
-                    cleaned_lines.append(line)
-    
-                full_content = "\n".join(cleaned_lines)
-                info_text = full_content
-                order_text = full_content
-    
-                # --- 4. EXTRÁCIÓ: CÉGNÉV (Part 1) ÉS INSTRUKCIÓ (Part 2) ---
-                reszleg_ceg_lista = []  # Ez lesz a Part 1
-                hosszu_megj_lista = []  # Ez lesz a Part 2
-
-                for line in cleaned_lines:
-                    l_strip = line.strip()
-                    if not l_strip or len(l_strip) < 2: continue
-
-                    # Szűrések (Cím, Telefon, Rendelés, Ügyintéző)
-                    if any(city in l_strip for city in ["Debrecen", "Ebes", "Hajdú"]): continue
-                    if re.search(PHONE_PAT, l_strip) or re.search(ORDER_PAT, l_strip): continue
-                    if admin_name and l_strip == admin_name.strip(): continue
-
-                    # ID keresése a megadott napokkal (H, K, S, C, P, Z)
-                    id_match = re.search(r'[HKSCPZ]-\d+', l_strip)
                     
-                    if id_match:
-                        # Ha van ID, akkor ez a "Part 1" helye (Cégnév / Részleg)
-                        temp = re.sub(r'[HKSCPZ]-\d+', '', l_strip).strip()
-                        if customer_name:
-                            temp = temp.replace(customer_name, "").strip()
-                        
+                    # Ha ez a sor tartalmazza a telefon számot vagy a pénzt, azt máshol kezeljük
+                    if re.search(PHONE_PAT, l_strip) or re.search(MONEY_PAT, l_strip):
+                        continue
+
+                    # Ha ebben a sorban van az ID (ez a név sora)
+                    if current_id in l_strip:
+                        # Ami a név mellett maradt, az megy a Part 1-be (Cégnév/Részleg)
+                        temp = l_strip.replace(current_id, "").replace(local_customer_name, "").strip()
                         if len(temp) > 1:
                             reszleg_ceg_lista.append(temp)
                     else:
-                        # Ha NINCS ID, ez a tiszta instrukció (Part 2) -> Ide kerül Ildikó is!
+                        # Ha nincs benne ID és nem szűrtük ki fent, akkor ez tiszta instrukció!
+                        # Ide kerül: "kcs: 4, ne csengess!..."
                         hosszu_megj_lista.append(l_strip)
 
-                # Elmentjük a két külön részt
+                # --- 4. MENTÉS A VÁLTOZÓKBA ---
                 megj_resz_1 = " | ".join(reszleg_ceg_lista)
                 megj_resz_2 = " | ".join(hosszu_megj_lista)
+                
+                # Fontos: frissítsük a globális nevet is, ha a későbbi pontoknak kell
+                customer_name = local_customer_name
             
                 # A blokk vége: vagy a következő ID, vagy a lap alja (sorompó)
                 next_anchor_top = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else page_cutoff

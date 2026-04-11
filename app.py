@@ -1272,22 +1272,29 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
 
         st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
         
-        # --- DINAMIKUS OSZLOPKEZELÉS A HIBA ELLEN ---
+# --- 1. ADATOK ELŐKÉSZÍTÉSE (A HIBA ELLEN) ---
         df_to_edit = st.session_state.mdf.copy()
         
-        # Meghatározzuk, mely oszlopokat SZERETNÉNK látni
+        # Meghatározzuk a kívánt oszlopokat
         desired_cols = ["Sorrend", "ID", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Megjegyzés", "Összesen"]
         
-        # Csak azokat tartjuk meg, amik TÉNYLEG benne vannak a táblázatban
-        final_column_order = [c for c in desired_cols if c in df_to_edit.columns]
+        # Csak azokat tartjuk meg, amik TÉNYLEG léteznek
+        existing_cols = [c for c in desired_cols if c in df_to_edit.columns]
+        
+        # A többi maradék oszlopot (pl. Csoport, temp_id) a végére tesszük
+        other_cols = [c for c in df_to_edit.columns if c not in existing_cols]
+        
+        # Átrendezzük magát a DataFrame-et (így nem kell column_order paraméter!)
+        df_to_edit = df_to_edit[existing_cols + other_cols]
 
+        # --- 2. MEGJELENÍTÉS ---
         edited_df = st.data_editor(
             df_to_edit,
             key=f"editor_{st.session_state.get('editor_key', 0)}", 
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
-            column_order=final_column_order, # Itt a garantáltan létező lista
+            # A column_order-t TÖRÖLTÜK, mert a df_to_edit már jó sorrendben van
             column_config={
                 "Csoport": st.column_config.TextColumn("Csoport", width="small"),
                 "Sorrend": st.column_config.NumberColumn("Sor", format="%.1f", width="small"),
@@ -1296,7 +1303,11 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
                 "Telefon": "Tel",
                 "Pénz": "Összeg",
                 "Megjegyzés": "Infó",
-                "Összesen": st.column_config.NumberColumn("Db", width="small")
+                "Összesen": st.column_config.NumberColumn("Db", width="small"),
+                # Elrejtjük a technikai oszlopokat, amiket nem akarunk látni
+                "temp_id": None,
+                "Prefix": None,
+                "Rendelés_Full": None
             }
         )
 

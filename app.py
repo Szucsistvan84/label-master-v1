@@ -391,20 +391,26 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     # CÍM meghatározása (v_lines[2] és x40 között)
                     address = " ".join([w['text'] for w in sorted([w for w in row_words if v_lines[2] <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
 
-                    # --- DINAMIKUS CÍMTISZTÍTÁS (Az Ügyintéző neve alapján) ---
+                    # --- DINAMIKUS CÍMTISZTÍTÁS (Frissített verzió) ---
                     if admin_name and address:
-                        # Az ügyintéző nevét tiszta szavakra bontjuk, csak a 1 karakternél hosszabbakat tartjuk meg
+                        # 1. Előkészítjük a neveket és a cím szavait
                         name_parts_to_erase = [n.strip(" ,.|/-").lower() for n in admin_name.split() if len(n.strip(" ,.|/-")) > 1]
+                        # Hozzáadjuk a listához a tiltott titulusokat is, így a while ciklus ezeket is kitakarítja
+                        name_parts_to_erase.extend(["dr", "dr.", "idősb", "ifj", "id", "ifj."])
                         
                         address_parts = address.split()
                         
-                        # Amíg a cím utolsó szava (tisztítva) egyezik valamelyik név-taggal, levágjuk
-                        while address_parts and address_parts[-1].strip(" ,.|/-").lower() in name_parts_to_erase:
-                            address_parts.pop()
+                        # 2. Hátulról előre haladva levágjuk a névmaradványokat ÉS a titulusokat
+                        # A ciklus addig fut, amíg a cím utolsó szava szerepel a "tiltólistán"
+                        while address_parts:
+                            last_word_clean = address_parts[-1].strip(" ,.|/-").lower()
+                            if last_word_clean in name_parts_to_erase:
+                                address_parts.pop()
+                            else:
+                                break # Ha olyan szót találunk, ami nem név/titulus, megállunk
                         
-                        # Extra biztonsági kör: Dr. és egyéb maradékok
-                        if address_parts and address_parts[-1].strip(" ,.|/-").lower() in ["dr", "dr.", "idősb", "ifj"]:
-                            address_parts.pop()
+                        # 3. Cím visszaállítása
+                        address = " ".join(address_parts).strip(" ,.|/-")
 
                     # --- 1. HORGONYOK ELŐKÉSZÍTÉSE ---
                     raw_line = line_text_full 

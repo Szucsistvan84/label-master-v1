@@ -519,10 +519,11 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         # Tisztítjuk: levágjuk az ID-t a sor elejéről
                         clean_name_line = first_line.replace(full_id, "").strip()
                         
-                        # Ha van benne perjel (pl. Pharmaflight / Ildikó), a perjel előtti a cégnév/megjegyzés
+                        # Ha van benne perjel (pl. Pharmaflight / Ildikó), a perjel UTÁNI rész a megjegyzés
                         if "/" in clean_name_line:
                             parts_name = clean_name_line.split("/", 1)
-                            megj_resz_1 = parts_name[0].strip()
+                            # JAVÍTÁS: [0] helyett [1]-et kérünk, hogy az "ajtókilincses" rész jöjjön át
+                            megj_resz_1 = parts_name[1].strip()
                         else:
                             # Ha nincs perjel, megnézzük, hogy a név különbözik-e az admin_name-től
                             # Ha igen, akkor a maradék szöveg a megjegyzés
@@ -1263,54 +1264,6 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     buf.seek(0)
     return buf
     
-    # --- FŐ PROGRAMFUTÁS JAVÍTVA ---
-    
-    if st.session_state.mdf is not None:
-        # Biztosítjuk, hogy legyen Csoport oszlop
-        if 'Csoport' not in st.session_state.mdf.columns:
-            st.session_state.mdf['Csoport'] = ""
-
-        st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
-        
-# --- 1. ADATOK ELŐKÉSZÍTÉSE (A HIBA ELLEN) ---
-        df_to_edit = st.session_state.mdf.copy()
-        
-        # Meghatározzuk a kívánt oszlopokat
-        desired_cols = ["Sorrend", "ID", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Megjegyzés", "Összesen"]
-        
-        # Csak azokat tartjuk meg, amik TÉNYLEG léteznek
-        existing_cols = [c for c in desired_cols if c in df_to_edit.columns]
-        
-        # A többi maradék oszlopot (pl. Csoport, temp_id) a végére tesszük
-        other_cols = [c for c in df_to_edit.columns if c not in existing_cols]
-        
-        # Átrendezzük magát a DataFrame-et (így nem kell column_order paraméter!)
-        df_to_edit = df_to_edit[existing_cols + other_cols]
-
-        # --- 2. MEGJELENÍTÉS ---
-        edited_df = st.data_editor(
-            df_to_edit,
-            key=f"editor_{st.session_state.get('editor_key', 0)}", 
-            hide_index=True,
-            use_container_width=True,
-            num_rows="dynamic",
-            # A column_order-t TÖRÖLTÜK, mert a df_to_edit már jó sorrendben van
-            column_config={
-                "Csoport": st.column_config.TextColumn("Csoport", width="small"),
-                "Sorrend": st.column_config.NumberColumn("Sor", format="%.1f", width="small"),
-                "Ügyintéző": "Név",
-                "Cím": st.column_config.TextColumn("Cím", width="medium"),
-                "Telefon": "Tel",
-                "Pénz": "Összeg",
-                "Megjegyzés": "Infó",
-                "Összesen": st.column_config.NumberColumn("Db", width="small"),
-                # Elrejtjük a technikai oszlopokat, amiket nem akarunk látni
-                "temp_id": None,
-                "Prefix": None,
-                "Rendelés_Full": None
-            }
-        )
-
 def main():
     st.set_page_config(page_title="Interfood Label Master", layout="wide")
     register_fonts()
@@ -1414,29 +1367,40 @@ def main():
     
         st.subheader("Szállítási lista")
         
-        # Oszloprend beállítása
+        # --- A TYPEERROR VÉGLEGES MEGOLDÁSA ---
+        df_to_edit = st.session_state.mdf.copy()
+        
+        # 1. Biztonsági szűrés: duplikált oszlopok eltávolítása
+        df_to_edit = df_to_edit.loc[:, ~df_to_edit.columns.duplicated()]
+
+        # 2. Fizikai átrendezés (hogy a 'Sorrend' legyen az első)
         all_cols = df_to_edit.columns.tolist()
         if 'Sorrend' in all_cols:
             all_cols.remove('Sorrend')
-            new_column_order = ['Sorrend'] + all_cols
-        else:
-            new_column_order = all_cols
+            df_to_edit = df_to_edit[['Sorrend'] + all_cols]
         
+        # 3. Megjelenítés column_order NÉLKÜL
         edited_df = st.data_editor(
             df_to_edit,
-            column_order=new_column_order,
             column_config={
                 "Sorrend": st.column_config.NumberColumn(
                     "Sorrend",
                     help="Írj be tizedest (pl. 88.5), majd nyomj a lenti gombra!",
-                    format="%.1f", # Ez mutatja a tizedest a táblázatban!
+                    format="%.1f", 
                     step=0.1,
                 ),
                 "Pénz": st.column_config.TextColumn("Pénz", disabled=False),
+                # Elrejtjük a technikai oszlopokat, amiket nem akarunk látni
+                "temp_id": None,
+                "Prefix": None,
+                "Rendelés_Full": None,
+                "Csoport": st.column_config.TextColumn("Csoport", width="small")
             },
             num_rows="dynamic",
-            key=st.session_state.editor_key,
-            use_container_width=True
+            # Használjuk a biztonságos lekérést a kulcshoz
+            key=f"editor_{st.session_state.get('editor_key', 0)}",
+            use_container_width=True,
+            hide_index=True
         )
     
         # MENTÉS ÉS ÚJRARANKEZÉS GOMB

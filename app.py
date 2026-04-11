@@ -519,12 +519,12 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                 if len(l_clean) > 1:
                                     all_other_notes.append(l_clean)
                     
-                    # Itt jön létre a kiinduló szöveg
+                    # Alapszöveg létrehozása
                     final_megj_text = " | ".join(all_other_notes)
 
-                    # --- IDE KERÜLTEK A HETEKIG CSISZOLT FINOMHANGOLÁSOK (ÁTVEZETVE) ---
+                    # --- FINOMHANGOLT TISZTÍTÁSOK (MEGTARTVA ÉS JAVÍTVA) ---
                     
-                    # 1. Junk szavak és Optipont/Összesítő törlése
+                    # 1. Junk szavak és összesítők törlése
                     junk_words = ["Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Csilagozott betűnél kiegészítő is van!!!"]
                     for j in junk_words:
                         final_megj_text = final_megj_text.replace(j, "")
@@ -537,25 +537,32 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                             if len(n_part) > 2:
                                 final_megj_text = re.sub(rf'\b{re.escape(n_part)}\b', '', final_megj_text, flags=re.IGNORECASE)
 
-                    # 3. Étlap kódok alapú okos takarítás (napi_kodok alapján)
-                    for kod in sorted(napi_kodok, key=len, reverse=True):
-                        if len(kod) > 1:
-                            minta = r'\d*\s*[-\u2013\u2014\u2212]?\s*\b' + re.escape(kod) + r'\b'
-                            final_megj_text = re.sub(minta, '', final_megj_text)
-                        else:
-                            minta = r'\d+\s*[-\u2013\u2014\u2212]\s*\b' + re.escape(kod) + r'\b'
-                            final_megj_text = re.sub(minta, '', final_megj_text)
+                    # 3. Étlap kódok alapú okos takarítás (Névellenőrzéssel: napi_kodok vagy napi_etlap_kodok)
+                    # Megnézzük melyik változó létezik, hogy ne legyen NameError
+                    current_codes = []
+                    if 'napi_kodok' in locals() or 'napi_kodok' in globals(): current_codes = napi_kodok
+                    elif 'napi_etlap_kodok' in locals() or 'napi_etlap_kodok' in globals(): current_codes = napi_etlap_kodok
+                    
+                    if current_codes:
+                        for kod in sorted(current_codes, key=len, reverse=True):
+                            if len(kod) > 1:
+                                minta = r'\d*\s*[-\u2013\u2014\u2212]?\s*\b' + re.escape(kod) + r'\b'
+                                final_megj_text = re.sub(minta, '', final_megj_text)
+                            else:
+                                minta = r'\d+\s*[-\u2013\u2014\u2212]\s*\b' + re.escape(kod) + r'\b'
+                                final_megj_text = re.sub(minta, '', final_megj_text)
 
                     # 4. Írásjelek, Pipeline-ok és duplikációk polírozása
-                    final_megj_text = re.sub(r'([ ,.]*[,.][ ,.]*){2,}', ' ', final_megj_text) # Vesszőtenger ellen
+                    final_megj_text = re.sub(r'([ ,.]*[,.][ ,.]*){2,}', ' ', final_megj_text)
                     if "|" in final_megj_text:
                         parts = [p.strip() for p in final_megj_text.split("|")]
-                        final_megj_text = " | ".join(dict.fromkeys([p for p in parts if p])) # Duplikált blokkok ki
+                        # Duplikált blokkok kiszűrése (pl. ha kétszer szerepelne ugyanaz a megjegyzés)
+                        final_megj_text = " | ".join(dict.fromkeys([p for p in parts if p]))
                     
-                    final_megj_text = re.sub(r'(\|[ \t]*)+', ' | ', final_megj_text) # Pipeline polír
+                    final_megj_text = re.sub(r'(\|[ \t]*)+', ' | ', final_megj_text)
                     final_megj_text = re.sub(r'\s+', ' ', final_megj_text).strip(" ,.-/|*")
 
-                    # --- 8. ADATOK BEÍRÁSA A LISTÁBA (VÉGLEGES ÉS EGYSZERI) ---
+                    # --- 8. ADATOK BEÍRÁSA A LISTÁBA (EGYSZERI ÉS VÉGLEGES) ---
                     rows.append({
                         "ID": full_id,
                         "Ügyintéző": final_name,

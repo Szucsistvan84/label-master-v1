@@ -446,7 +446,8 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     # --- 1. HORGONYOK ELŐKÉSZÍTÉSE ---
                     raw_line = line_text_full 
                     megj_resz_1 = "" 
-                    megj_resz_2 = "" 
+                    megj_resz_2 = ""
+                    parts = []  # <--- IDE KERÜLJÖN
 
                     # --- 2. LÉPÉS: SORSZÁM LEVÁGÁSA (AZ ID-IG) ---
                     id_pattern = r'[HKSCPZ]-\d{6}'
@@ -529,7 +530,10 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
 
                     # --- 8. ÖSSZEFŰZÉS ÉS BIZTONSÁGI JAVÍTÁS (Ildikó-fix) ---
-                    # FONTOS: A parts = [] sort TÖRÖLTÜK, hogy ne vesszenek el a korábbi adatok!
+                    
+                    # Biztonsági ellenőrzés: ha valamiért nem jött volna létre a parts lista korábban
+                    if 'parts' not in locals():
+                        parts = []
                     
                     # Szanyi Norbi és egyéb speciális kulcsszavak a címből
                     if address:
@@ -542,13 +546,13 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                     if extra_s: 
                                         parts.append(extra_s.group().strip())
 
-                    # Összegyűjtjük az összes forrást (Név alatti 1-2. sor + korábbi parts)
+                    # Összegyűjtjük az összes forrást
                     all_potential_notes = []
                     if megj_resz_1.strip(): all_potential_notes.append(megj_resz_1.strip())
                     if megj_resz_2.strip(): all_potential_notes.append(megj_resz_2.strip())
-                    all_potential_notes.extend(parts)
+                    all_potential_notes.extend(parts) # Itt már nem fog hibát dobni
 
-                    # Duplikátumok kiszűrése (kis/nagybetű nem számít), sorrend megtartásával
+                    # Duplikátumok kiszűrése sorrend megtartásával
                     seen = set()
                     final_parts = []
                     for p in all_potential_notes:
@@ -557,7 +561,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                             final_parts.append(p_clean)
                             seen.add(p_clean.lower())
 
-                    # Végső összefűzés
                     clean_customer = " | ".join(final_parts)
 
                     # Végső szóköz-tisztítás

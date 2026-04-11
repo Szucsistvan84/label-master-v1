@@ -528,21 +528,34 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         end_m = re.search(re.escape(phone_val), after_address)
                         megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
 
-                    # --- 8. ÖSSZEFŰZÉS ÉS RADÍROZÁS ---
+                    # --- 8. ÖSSZEFŰZÉS ÉS BIZTONSÁGI MENTÉS (Ildikó-Proof v4) ---
                     parts = []
-                    # Szanyi Norbi speciális esete
+                    
+                    # Szanyi Norbi és egyéb speciális esetek a címből
                     if address:
                         for keyword in ["legyenek", "perccel", "érkezés", "kapucsengő"]:
-                            if keyword in address.lower() and keyword not in (megj_resz_1 + megj_resz_2).lower():
-                                extra_s = re.search(rf'\b{keyword}\b.*', address, re.IGNORECASE)
-                                if extra_s: parts.append(extra_s.group().strip())
+                            if keyword in address.lower():
+                                # Csak akkor adjuk hozzá, ha még nincs benne a megjegyzésben
+                                if keyword not in (megj_resz_1).lower():
+                                    extra_s = re.search(rf'\b{keyword}\b.*', address, re.IGNORECASE)
+                                    if extra_s: parts.append(extra_s.group().strip())
 
-                    if megj_resz_1 and len(megj_resz_1) > 1: parts.append(megj_resz_1)
-                    if megj_resz_2 and len(megj_resz_2) > 1: parts.append(megj_resz_2)
+                    # Összegyűjtjük az adatokat, de a megj_resz_1 az elsődleges!
+                    raw_parts_text = " | ".join(dict.fromkeys(parts))
                     
-                    # Duplikátumok kiszűrése és tisztítás
-                    raw_combined = " | ".join(dict.fromkeys(parts))
-                    clean_customer = re.sub(r'\s+', ' ', raw_combined)
+                    if megj_resz_1.strip():
+                        if raw_parts_text.strip():
+                            clean_customer = megj_resz_1 + " | " + raw_parts_text
+                        else:
+                            clean_customer = megj_resz_1
+                    else:
+                        clean_customer = raw_parts_text
+
+                    # Végső szóköz-tisztítás
+                    clean_customer = re.sub(r'\s+', ' ', clean_customer).strip()
+                    
+                    # Ha véletlenül csak egy magányos "|" maradt volna, azt lecsípjük
+                    clean_customer = clean_customer.strip(" |")
                     
                     # Junk szavak ÉS mondatok törlése
                     junk_list = [

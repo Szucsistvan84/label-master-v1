@@ -528,28 +528,37 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         end_m = re.search(re.escape(phone_val), after_address)
                         megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
 
-                    # --- 8. ÖSSZEFŰZÉS ÉS BIZTONSÁGI MENTÉS (Ildikó-Proof v4) ---
-                    parts = []
+                    # --- 8. ÖSSZEFŰZÉS ÉS BIZTONSÁGI JAVÍTÁS (Ildikó-fix) ---
+                    # FONTOS: A parts = [] sort TÖRÖLTÜK, hogy ne vesszenek el a korábbi adatok!
                     
-                    # Szanyi Norbi és egyéb speciális esetek a címből
+                    # Szanyi Norbi és egyéb speciális kulcsszavak a címből
                     if address:
                         for keyword in ["legyenek", "perccel", "érkezés", "kapucsengő"]:
                             if keyword in address.lower():
-                                # Csak akkor adjuk hozzá, ha még nincs benne a megjegyzésben
-                                if keyword not in (megj_resz_1).lower():
+                                # Ellenőrizzük, hogy a megj_resz_1-ben vagy a parts-ban benne van-e már
+                                current_all_text = (megj_resz_1 + " " + " ".join(parts)).lower()
+                                if keyword not in current_all_text:
                                     extra_s = re.search(rf'\b{keyword}\b.*', address, re.IGNORECASE)
-                                    if extra_s: parts.append(extra_s.group().strip())
+                                    if extra_s: 
+                                        parts.append(extra_s.group().strip())
 
-                    # Összegyűjtjük az adatokat, de a megj_resz_1 az elsődleges!
-                    raw_parts_text = " | ".join(dict.fromkeys(parts))
-                    
-                    if megj_resz_1.strip():
-                        if raw_parts_text.strip():
-                            clean_customer = megj_resz_1 + " | " + raw_parts_text
-                        else:
-                            clean_customer = megj_resz_1
-                    else:
-                        clean_customer = raw_parts_text
+                    # Összegyűjtjük az összes forrást (Név alatti 1-2. sor + korábbi parts)
+                    all_potential_notes = []
+                    if megj_resz_1.strip(): all_potential_notes.append(megj_resz_1.strip())
+                    if megj_resz_2.strip(): all_potential_notes.append(megj_resz_2.strip())
+                    all_potential_notes.extend(parts)
+
+                    # Duplikátumok kiszűrése (kis/nagybetű nem számít), sorrend megtartásával
+                    seen = set()
+                    final_parts = []
+                    for p in all_potential_notes:
+                        p_clean = p.strip()
+                        if p_clean.lower() not in seen and p_clean:
+                            final_parts.append(p_clean)
+                            seen.add(p_clean.lower())
+
+                    # Végső összefűzés
+                    clean_customer = " | ".join(final_parts)
 
                     # Végső szóköz-tisztítás
                     clean_customer = re.sub(r'\s+', ' ', clean_customer).strip()

@@ -1394,7 +1394,7 @@ def main():
                 "temp_id": None,
                 "Prefix": None,
                 "Rendelés_Full": None,
-                "Csoport": st.column_config.TextColumn("Csoport", width="small")
+                "Csoport": st.column_config.NumberColumn("Csoport", format="%d", width="small")
             },
             num_rows="dynamic",
             # Használjuk a biztonságos lekérést a kulcshoz

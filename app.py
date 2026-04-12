@@ -1340,23 +1340,28 @@ def main():
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
         # --- BIZTONSÁGI JAVÍTÁS (A REGGELI NYOMTATÁSHOZ) ---
+# --- TŰZBIZTOS JAVÍTÁS A REGGELI INDÍTÁSHOZ ---
         df_to_edit = st.session_state.mdf.copy()
         
-        # 1. Minden oszlopot kényszerítünk szöveggé vagy számmá (kiszűrjük a listákat/hibákat)
+        # BIZTONSÁGI ÖV: Ha nincs 'Sorrend' oszlop, létrehozzuk, hogy ne legyen KeyError
+        if 'Sorrend' not in df_to_edit.columns:
+            # Sima sorszámokat adunk neki: 1, 2, 3...
+            df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
+        
+        # Típus kényszerítése (hogy a rendezés és a tizedesek működjenek)
+        df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999).astype(float)
+
+        # Minden más oszlopot kényszerítünk szöveggé, hogy a táblázat ne akadjon ki
         for col in df_to_edit.columns:
-            if col == 'Sorrend':
-                df_to_edit[col] = pd.to_numeric(df_to_edit[col], errors='coerce').fillna(999).astype(float)
-            else:
-                # Minden mást kényszerítünk sima szöveggé, hogy ne dobjon TypeError-t a táblázat
+            if col != 'Sorrend':
                 df_to_edit[col] = df_to_edit[col].astype(str).replace('nan', '')
 
-        # 2. Rendezés a Sorrend szerint
+        # Most már biztosan lefut a rendezés, mert fent ellenőriztük az oszlopot
         df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
         
         st.subheader("Szállítási lista")
         
-        # 3. LECSUPASZÍTOTT SZERKESZTŐ (Biztonság mindenekelőtt)
-        # Kivettük a column_order-t és a bonyolult konfigurációt, hogy biztosan lefusson
+        # MEGJELENÍTÉS
         edited_df = st.data_editor(
             df_to_edit,
             num_rows="dynamic",

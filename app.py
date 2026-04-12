@@ -127,22 +127,6 @@ def get_etlap_dict(ev, het):
         st.error(f"Hiba az étlap letöltésekor ({ev}/{het}): {e}")
         return {}
     
-def debug_pdf_layout(pdf_file):
-    with pdfplumber.open(pdf_file) as pdf:
-        page = pdf.pages[0]
-        im = page.to_image(resolution=150)
-        
-        # Rajzoljunk egy rácsot 50 pontonként, és írjuk rá a számokat
-        for x in range(0, int(page.width), 50):
-            im.draw_vlines([x], stroke="lightgray", stroke_width=1)
-            # Ez a rész vizuálisan segít beazonosítani a pontos helyet
-        
-        # A jelenlegi (még rossz) vonalaid pirossal
-        current_v_lines = [0, 50, 140, 360, 510, 580, 780, 842]
-        im.draw_vlines(current_v_lines, stroke="red", stroke_width=2)
-        
-        st.image(im.annotated, caption="Keresd meg, hol végződnek az oszlopok a szürke rács alapján!", use_container_width=True)
-
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
     rows = []
@@ -742,9 +726,7 @@ def merge_data(all_rows):
     if not all_rows: 
         return pd.DataFrame()
     
-    # --- HIBA JAVÍTÁSA ITT ---
-    # Ha az all_rows nem DataFrame-ek listája, hanem soroké, 
-    # akkor előbb csinálunk belőle egy nagy táblázatot.
+    # --- 1. ADATOK ÖSSZEFÉSÜLÉSE TÁBLÁZATTÁ ---
     if isinstance(all_rows, list) and len(all_rows) > 0:
         if not isinstance(all_rows[0], pd.DataFrame):
             combined = pd.DataFrame(all_rows)
@@ -752,10 +734,20 @@ def merge_data(all_rows):
             combined = pd.concat(all_rows, ignore_index=True)
     else:
         combined = all_rows
-    # -------------------------
 
+    # --- 2. BIZTONSÁGI ELLENŐRZÉS (KeyError ellen) ---
+    # Ez biztosítja, hogy Ildikó és Tamás adatai akkor se okozzanak hibát, 
+    # ha valamelyik mező üres maradt a PDF-ben.
+    for col in ['Cím', 'ID', 'Ügyintéző', 'Megjegyzés', 'temp_id']:
+        if col not in combined.columns:
+            combined[col] = "" # Ha nincs ilyen oszlop, létrehozzuk üresen
+
+    # --- 3. CSOPORTOSÍTÁS ÉS MERGE INDÍTÁSA ---
     merged = []
+    # Most már biztosan nem lesz KeyError a temp_id-nél:
     unique_ids = combined['temp_id'].unique()
+    
+    # ... innen jön a többi részed a for ciklussal ...
     
     for tid in unique_ids:
         subset = combined[combined['temp_id'] == tid]

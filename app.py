@@ -1339,46 +1339,34 @@ def main():
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
+        # --- BIZTONSÁGI JAVÍTÁS (A REGGELI NYOMTATÁSHOZ) ---
         df_to_edit = st.session_state.mdf.copy()
         
-        # --- BIZTONSÁGI JAVÍTÁS: Ellenőrizzük, létezik-e az oszlop ---
-        if 'Sorrend' not in df_to_edit.columns:
-            # Ha nincs, létrehozzuk 1, 2, 3... sorszámokkal
-            df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
-        
-        # KRITIKUS: Kényszerítjük a 'float' típust, hogy a 88.5 is működjön
-        df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999).astype(float)
-        
-        # Rendezés a táblázat megjelenítése előtt
+        # 1. Minden oszlopot kényszerítünk szöveggé vagy számmá (kiszűrjük a listákat/hibákat)
+        for col in df_to_edit.columns:
+            if col == 'Sorrend':
+                df_to_edit[col] = pd.to_numeric(df_to_edit[col], errors='coerce').fillna(999).astype(float)
+            else:
+                # Minden mást kényszerítünk sima szöveggé, hogy ne dobjon TypeError-t a táblázat
+                df_to_edit[col] = df_to_edit[col].astype(str).replace('nan', '')
+
+        # 2. Rendezés a Sorrend szerint
         df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
-    
+        
         st.subheader("Szállítási lista")
         
-        # Oszloprend beállítása
-        all_cols = df_to_edit.columns.tolist()
-        if 'Sorrend' in all_cols:
-            all_cols.remove('Sorrend')
-            new_column_order = ['Sorrend'] + all_cols
-        else:
-            new_column_order = all_cols
-        
+        # 3. LECSUPASZÍTOTT SZERKESZTŐ (Biztonság mindenekelőtt)
+        # Kivettük a column_order-t és a bonyolult konfigurációt, hogy biztosan lefusson
         edited_df = st.data_editor(
             df_to_edit,
-            column_order=new_column_order,
-            column_config={
-                "Sorrend": st.column_config.NumberColumn(
-                    "Sorrend",
-                    help="Írj be tizedest (pl. 88.5), majd nyomj a lenti gombra!",
-                    format="%.1f", # Ez mutatja a tizedest a táblázatban!
-                    step=0.1,
-                ),
-                "Pénz": st.column_config.TextColumn("Pénz", disabled=False),
-            },
             num_rows="dynamic",
             key=st.session_state.editor_key,
-            use_container_width=True
+            use_container_width=True,
+            column_config={
+                "Sorrend": st.column_config.NumberColumn("Sor", format="%.1f")
+            }
         )
-    
+        
         # MENTÉS ÉS ÚJRARANKEZÉS GOMB
         if st.button("💾 SORREND VÉGLEGESÍTÉSE (Újraszámozás)"):
             # Itt már az edited_df-et használjuk, mert a fenti editor már létrehozta

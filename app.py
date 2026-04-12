@@ -127,6 +127,22 @@ def get_etlap_dict(ev, het):
         st.error(f"Hiba az étlap letöltésekor ({ev}/{het}): {e}")
         return {}
     
+def debug_pdf_layout(pdf_file):
+    with pdfplumber.open(pdf_file) as pdf:
+        page = pdf.pages[0]
+        im = page.to_image(resolution=150)
+        
+        # Rajzoljunk egy rácsot 50 pontonként, és írjuk rá a számokat
+        for x in range(0, int(page.width), 50):
+            im.draw_vlines([x], stroke="lightgray", stroke_width=1)
+            # Ez a rész vizuálisan segít beazonosítani a pontos helyet
+        
+        # A jelenlegi (még rossz) vonalaid pirossal
+        current_v_lines = [0, 50, 140, 360, 510, 580, 780, 842]
+        im.draw_vlines(current_v_lines, stroke="red", stroke_width=2)
+        
+        st.image(im.annotated, caption="Keresd meg, hol végződnek az oszlopok a szürke rács alapján!", use_container_width=True)
+
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
     rows = []
@@ -703,30 +719,18 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         "Prefix": prefix, "Csoport": current_group_id if 'current_group_id' in locals() else 0
                     })
     
-    if not rows: 
-        return [], metadata
-        
+    if not rows: return [], metadata
     df = pd.DataFrame(rows)
-
-    # --- GOLYÓÁLLÓ MEGOLDÁS ---
-    # Ha valamiért az append során kimaradt volna, itt utólag pótoljuk az ID-ból
-    if 'temp_id' not in df.columns and 'ID' in df.columns:
-        df['temp_id'] = df['ID'].apply(lambda x: str(x).split('-')[-1] if '-' in str(x) else str(x))
-
-    # Ha még így sincs meg (üres a táblázat vagy nincs ID), adunk neki egy alapértéket
-    if 'temp_id' not in df.columns:
-        df['temp_id'] = range(len(df))
-
-    # Így a 724. sor már soha nem fog hibát dobni
     df['Csoport'] = df.groupby('temp_id').ngroup() + 1
-    
     return df.to_dict('records'), metadata
     
 def merge_data(all_rows):
     if not all_rows: 
         return pd.DataFrame()
     
-    # --- 1. ADATOK ÖSSZEFÉSÜLÉSE TÁBLÁZATTÁ ---
+    # --- HIBA JAVÍTÁSA ITT ---
+    # Ha az all_rows nem DataFrame-ek listája, hanem soroké, 
+    # akkor előbb csinálunk belőle egy nagy táblázatot.
     if isinstance(all_rows, list) and len(all_rows) > 0:
         if not isinstance(all_rows[0], pd.DataFrame):
             combined = pd.DataFrame(all_rows)
@@ -734,20 +738,10 @@ def merge_data(all_rows):
             combined = pd.concat(all_rows, ignore_index=True)
     else:
         combined = all_rows
+    # -------------------------
 
-    # --- 2. BIZTONSÁGI ELLENŐRZÉS (KeyError ellen) ---
-    # Ez biztosítja, hogy Ildikó és Tamás adatai akkor se okozzanak hibát, 
-    # ha valamelyik mező üres maradt a PDF-ben.
-    for col in ['Cím', 'ID', 'Ügyintéző', 'Megjegyzés', 'temp_id']:
-        if col not in combined.columns:
-            combined[col] = "" # Ha nincs ilyen oszlop, létrehozzuk üresen
-
-    # --- 3. CSOPORTOSÍTÁS ÉS MERGE INDÍTÁSA ---
     merged = []
-    # Most már biztosan nem lesz KeyError a temp_id-nél:
     unique_ids = combined['temp_id'].unique()
-    
-    # ... innen jön a többi részed a for ciklussal ...
     
     for tid in unique_ids:
         subset = combined[combined['temp_id'] == tid]
@@ -1339,39 +1333,46 @@ def main():
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
-        # --- BIZTONSÁGI JAVÍTÁS (A REGGELI NYOMTATÁSHOZ) ---
-# --- TŰZBIZTOS JAVÍTÁS A REGGELI INDÍTÁSHOZ ---
         df_to_edit = st.session_state.mdf.copy()
         
-        # BIZTONSÁGI ÖV: Ha nincs 'Sorrend' oszlop, létrehozzuk, hogy ne legyen KeyError
+        # --- BIZTONSÁGI JAVÍTÁS: Ellenőrizzük, létezik-e az oszlop ---
         if 'Sorrend' not in df_to_edit.columns:
-            # Sima sorszámokat adunk neki: 1, 2, 3...
+            # Ha nincs, létrehozzuk 1, 2, 3... sorszámokkal
             df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
         
-        # Típus kényszerítése (hogy a rendezés és a tizedesek működjenek)
+        # KRITIKUS: Kényszerítjük a 'float' típust, hogy a 88.5 is működjön
         df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999).astype(float)
-
-        # Minden más oszlopot kényszerítünk szöveggé, hogy a táblázat ne akadjon ki
-        for col in df_to_edit.columns:
-            if col != 'Sorrend':
-                df_to_edit[col] = df_to_edit[col].astype(str).replace('nan', '')
-
-        # Most már biztosan lefut a rendezés, mert fent ellenőriztük az oszlopot
-        df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
         
+        # Rendezés a táblázat megjelenítése előtt
+        df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
+    
         st.subheader("Szállítási lista")
         
-        # MEGJELENÍTÉS
+        # Oszloprend beállítása
+        all_cols = df_to_edit.columns.tolist()
+        if 'Sorrend' in all_cols:
+            all_cols.remove('Sorrend')
+            new_column_order = ['Sorrend'] + all_cols
+        else:
+            new_column_order = all_cols
+        
         edited_df = st.data_editor(
             df_to_edit,
+            column_order=new_column_order,
+            column_config={
+                "Sorrend": st.column_config.NumberColumn(
+                    "Sorrend",
+                    help="Írj be tizedest (pl. 88.5), majd nyomj a lenti gombra!",
+                    format="%.1f", # Ez mutatja a tizedest a táblázatban!
+                    step=0.1,
+                ),
+                "Pénz": st.column_config.TextColumn("Pénz", disabled=False),
+            },
             num_rows="dynamic",
             key=st.session_state.editor_key,
-            use_container_width=True,
-            column_config={
-                "Sorrend": st.column_config.NumberColumn("Sor", format="%.1f")
-            }
+            use_container_width=True
         )
-        
+    
         # MENTÉS ÉS ÚJRARANKEZÉS GOMB
         if st.button("💾 SORREND VÉGLEGESÍTÉSE (Újraszámozás)"):
             # Itt már az edited_df-et használjuk, mert a fenti editor már létrehozta

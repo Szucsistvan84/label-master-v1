@@ -506,47 +506,22 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     if 'phone_val' in locals() and phone_val:
                         clean_context = clean_context.replace(phone_val, "")
 
-                    # --- 6. LÉPÉS: NÉV ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (Ildikó-fix) ---
-                    # A clean_context most már tartalmazza az összes sorunkat a 'Porszívóból'
-                    context_lines = [l.strip() for l in clean_context.split('\n') if l.strip()]
-                    
-                    megj_resz_1 = ""
-                    
-                    if context_lines:
-                        # Az első sorban van az ID és a Név (vagy cégnév)
-                        first_line = context_lines[0]
-                        
-                        # Tisztítjuk: levágjuk az ID-t a sor elejéről
-                        clean_name_line = first_line.replace(full_id, "").strip()
-                        
-                        # Ha van benne perjel (pl. Pharmaflight / Ildikó), a perjel előtti a cégnév/megjegyzés
-                        if "/" in clean_name_line:
-                            parts_name = clean_name_line.split("/", 1)
-                            megj_resz_1 = parts_name[0].strip()
-                        else:
-                            # Ha nincs perjel, megnézzük, hogy a név különbözik-e az admin_name-től
-                            # Ha igen, akkor a maradék szöveg a megjegyzés
-                            t_megj = clean_name_line
-                            if admin_name:
-                                for w in admin_name.split():
-                                    if len(w) > 2:
-                                        t_megj = re.sub(rf'\b{re.escape(w)}\b', '', t_megj, flags=re.IGNORECASE).strip()
-                            megj_resz_1 = t_megj
-
-                        # --- EZ AZ ILDIKÓ MENTŐÖV ---
-                        # Ha a context_lines több sorból áll (mert a Porszívó többet szívott be),
-                        # akkor a 2. sortól kezdve mindent hozzáadunk a megjegyzéshez.
-                        if len(context_lines) > 1:
-                            extra_stuff = " ".join(context_lines[1:])
-                            # Kiszűrjük belőle a címet, ha véletlenül belekerült volna
-                            if zip_match := re.search(r'\b\d{4}\b', extra_stuff):
-                                extra_stuff = extra_stuff[:zip_match.start()].strip()
-                            
-                            if extra_stuff:
-                                if megj_resz_1:
-                                    megj_resz_1 += " | " + extra_stuff
-                                else:
-                                    megj_resz_1 = extra_stuff
+                    # --- 6. LÉPÉS: MEGJEGYZÉS 1. FELE (ID ÉS ZIP KÖZÖTT) ---
+                    # Ez kezeli a nevet/részleget az irányítószám előtt
+                    zip_match = re.search(r'\b\d{4}\b', clean_context)
+                    if zip_match:
+                        # Az ID utáni, de a ZIP előtti rész kinyerése
+                        pre_zip = clean_context[:zip_match.start()].replace(full_id, "").strip()
+                        if pre_zip:
+                            if "/" in pre_zip:
+                                megj_resz_1 = pre_zip.split("/")[0].strip()
+                            else:
+                                t_megj = pre_zip
+                                if admin_name:
+                                    for w in admin_name.split():
+                                        if len(w) > 2:
+                                            t_megj = re.sub(rf'\b{re.escape(w)}\b', '', t_megj, flags=re.IGNORECASE)
+                                megj_resz_1 = t_megj.strip()
 
                     # --- 7. LÉPÉS: MEGJEGYZÉS 2. FELE (CÍM UTÁNI RÉSZ) ---
                     # Ez találja meg a "Sörfőzde", "Porta" stb. infókat a cím után
@@ -767,7 +742,9 @@ def merge_data(all_rows):
     if not all_rows: 
         return pd.DataFrame()
     
-    # --- 1. ADATOK ÖSSZEFÉSÜLÉSE TÁBLÁZATTÁ ---
+    # --- HIBA JAVÍTÁSA ITT ---
+    # Ha az all_rows nem DataFrame-ek listája, hanem soroké, 
+    # akkor előbb csinálunk belőle egy nagy táblázatot.
     if isinstance(all_rows, list) and len(all_rows) > 0:
         if not isinstance(all_rows[0], pd.DataFrame):
             combined = pd.DataFrame(all_rows)
@@ -775,20 +752,10 @@ def merge_data(all_rows):
             combined = pd.concat(all_rows, ignore_index=True)
     else:
         combined = all_rows
+    # -------------------------
 
-    # --- 2. BIZTONSÁGI ELLENŐRZÉS (KeyError ellen) ---
-    # Ez biztosítja, hogy Ildikó és Tamás adatai akkor se okozzanak hibát, 
-    # ha valamelyik mező üres maradt a PDF-ben.
-    for col in ['Cím', 'ID', 'Ügyintéző', 'Megjegyzés', 'temp_id']:
-        if col not in combined.columns:
-            combined[col] = "" # Ha nincs ilyen oszlop, létrehozzuk üresen
-
-    # --- 3. CSOPORTOSÍTÁS ÉS MERGE INDÍTÁSA ---
     merged = []
-    # Most már biztosan nem lesz KeyError a temp_id-nél:
     unique_ids = combined['temp_id'].unique()
-    
-    # ... innen jön a többi részed a for ciklussal ...
     
     for tid in unique_ids:
         subset = combined[combined['temp_id'] == tid]
@@ -1278,12 +1245,6 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
-            # --- EZ A RÉSZ OLDJA MEG A HIBÁT ---
-            column_order=[
-                "Sorrend", "ID", "Ügyintéző", "Cím", 
-                "Telefon", "Pénz", "Rendelés", "Megjegyzés", "Összesen"
-            ],
-            # ----------------------------------
             column_config={
                 "Csoport": st.column_config.TextColumn(
                     "Csoport",
@@ -1292,11 +1253,9 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
                 ),
                 "Sorrend": st.column_config.NumberColumn("Sor", format="%.1f", width="small"),
                 "Ügyintéző": "Név",
-                "Cím": st.column_config.TextColumn("Cím", width="medium"),
                 "Telefon": "Tel",
                 "Pénz": "Összeg",
-                "Megjegyzés": "Infó",
-                "Összesen": st.column_config.NumberColumn("Db", width="small")
+                "Megjegyzés": "Infó"
             }
         )
 

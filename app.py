@@ -878,7 +878,7 @@ def create_label_pdf(df, fn, ft, meta):
                 p.drawString(x + inner_m, y_eff + 5.5 * mm, f"Fizet: {str(r.get('Pénz', ''))}")
             
             p.setFont(f_bold, 8)
-            p.drawRightString(x + lw - inner_m, y_eff + 5.5 * mm, f"{int(r.get('Összesen', 0))} db")
+            p.drawRightString(x + lw - inner_m, y_eff + 5.5 * mm, f"Össz: {int(r.get('Összesen', 0))} db")
 
             # 5. Elválasztó vonal és Futár
             p.setDash(1, 0) 

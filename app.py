@@ -918,6 +918,27 @@ class Checkbox(Flowable):
         self.canv.setStrokeColor(colors.black)
         self.canv.rect(0, 0, self.width, self.height, stroke=1, fill=0)
 
+class NumberingCanvas(canvas.Canvas):
+    def __init__(self, *args, **kwargs):
+        canvas.Canvas.__init__(self, *args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        num_pages = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self.draw_page_number(num_pages)
+            canvas.Canvas.showPage(self)
+        canvas.Canvas.save(self)
+
+    def draw_page_number(self, page_count):
+        # Ez a rész üres marad, mert a footer függvény fog rajzolni
+        pass
+
 def create_manifest_pdf(df, c_n, meta):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=5*mm, leftMargin=5*mm, topMargin=8*mm, bottomMargin=12*mm)
@@ -1021,13 +1042,44 @@ def create_manifest_pdf(df, c_n, meta):
     t.setStyle(TableStyle(table_styles))
     elements.append(t)
     
-    def footer(canvas, doc):
-        canvas.saveState()
-        canvas.setFont(f_reg, 7)
-        canvas.drawCentredString(A4[0]/2, 5*mm, f"{canvas.getPageNumber()}. oldal")
-        canvas.restoreState()
+    # --- SPECIÁLIS CANVAS AZ OLDALSZÁMOZÁSHOZ ÉS LÁBLÉCHEZ ---
+    class FinalCanvas(canvas.Canvas):
+        def __init__(self, *args, **kwargs):
+            canvas.Canvas.__init__(self, *args, **kwargs)
+            self.pages = []
 
-    doc.build(elements, onFirstPage=footer, onLaterPages=footer)
+        def showPage(self):
+            # Elmentjük az oldal állapotát a későbbi számozáshoz
+            self.pages.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            page_count = len(self.pages)
+            for state in self.pages:
+                self.__dict__.update(state)
+                self.draw_footer(page_count)
+                canvas.Canvas.showPage(self)
+            canvas.Canvas.save(self)
+
+        def draw_footer(self, page_count):
+            self.saveState()
+            self.setFont(f_reg, 7)
+            
+            # 1. BAL OLDAL: Járat menetterve + Meta adatok
+            j_str = ", ".join(meta.get('jaratok', []))
+            footer_left = f"{j_str}. járat menetterve | {meta.get('ev', '')}. év, {meta.get('het', '')}. hét | {meta.get('nap', '')}"
+            self.drawString(15*mm, 10*mm, footer_left)
+            
+            # 2. JOBB OLDAL: X / Y oldal formátum
+            footer_right = f"{self._pageNumber} / {page_count} oldal"
+            self.drawRightString(A4[0] - 15*mm, 10*mm, footer_right)
+            
+            self.restoreState()
+
+    # --- PDF ÉPÍTÉSE ---
+    # Ez az egy sor váltja ki a korábbi doc.build-et és a footer hívásokat
+    doc.build(elements, canvasmaker=FinalCanvas)
+    
     buffer.seek(0)
     return buffer
     

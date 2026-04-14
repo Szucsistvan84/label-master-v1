@@ -1071,7 +1071,7 @@ def create_manifest_pdf(df, c_n, meta):
             self.drawString(15*mm, 10*mm, footer_left)
             
             # 2. JOBB OLDAL: X / Y oldal formátum
-            footer_right = f"{self._pageNumber} / {page_count} oldal"
+            footer_right = f"{self._pageNumber} / {page_count}. oldal"
             self.drawRightString(A4[0] - 15*mm, 10*mm, footer_right)
             
             self.restoreState()

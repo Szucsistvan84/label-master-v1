@@ -994,7 +994,7 @@ def create_manifest_pdf(df, c_n, meta):
     for i, row in df.iterrows():
         r_full = str(row.get('Rendelés_Full', ''))
         
-        # --- ÚJ: Dinamikus szürkítés és félkövérítés logikája ---
+        # --- Dinamikus szürkítés és félkövérítés logikája ---
         kulonleges = False
         formazott_rendeles = r_full
         
@@ -1003,13 +1003,23 @@ def create_manifest_pdf(df, c_n, meta):
             if n_tag in r_full:
                 if n != bazis_nap_rovid:
                     kulonleges = True
-                    # Félkövérré tesszük a nem bázis napot (pl. <b>Pé:</b> 1-A)
+                    # Félkövérré tesszük a nem bázis napot
                     formazott_rendeles = formazott_rendeles.replace(n_tag, f"<b>{n_tag}</b>")
 
-        # Név háttérszínének beállítása (ha különleges nap van a sorban)
-        name_bg = colors.Color(0.88, 0.88, 0.88) if kulonleges else None
-        if name_bg:
-            table_styles.append(('BACKGROUND', (1, i+1), (1, i+1), name_bg))
+        # Az adatokba már a formázott rendelést tesszük vissza (ez valószínűleg már megvan a kódodban)
+        # ...
+
+        # --- AZ ÚJ FORMÁZÁSI LOGIKA ---
+        if kulonleges:
+            # 1. HÁTTÉRSZÍN: Most a (2, i+1) cellára tesszük, ami a RENDELÉS oszlop (0-tól számolva a 3. oszlop)
+            # Megjegyzés: A menettervben az oszlopok: 0:#, 1:NÉV, 2:RENDELÉS...
+            special_bg = colors.Color(0.85, 0.85, 0.85) # Kicsit sötétebb szürke
+            table_styles.append(('BACKGROUND', (2, i+1), (2, i+1), special_bg))
+            
+            # 2. KERET: Vastag, szaggatott vonal a rendelés cella köré
+            # 'ROUNDED' sarkokat a ReportLab nem tud cellánként, de a szaggatott vonalat igen:
+            # (típus, honnan, meddig, vastagság, szín, szaggatás_hossza, szóköz_hossza)
+            table_styles.append(('BOX', (2, i+1), (2, i+1), 1.5, colors.black, None, (2, 2)))
 
         prefix = "↑ " if (row.get('Csoport', 0) > 0 and i > 0 and df.iloc[i-1].get('Csoport') == row.get('Csoport')) else ""
         u_name = str(row.get('Ügyintéző', ''))[:45]

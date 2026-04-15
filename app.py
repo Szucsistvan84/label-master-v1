@@ -180,40 +180,62 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 raw_text = full_row_box.extract_text() or ""
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
 
-                # --- 2. AZONOSÍTÁS (Név és ID fixálása a szűrés előtt) ---
-                current_id = anchor['text'] # Pl. P-44567
+                # --- 2. AZONOSÍTÁS (Finomított névkeresés) ---
+                current_id = anchor['text'] # Pl. S-44567
                 local_customer_name = ""
+                name_line_index = -1
                 
-                # Megkeressük melyik sorban van az ID, abból kinyerjük a nevet
-                for l in lines:
+                # Megkeressük melyik sorban van az ID
+                for idx, l in enumerate(lines):
                     if current_id in l:
-                        # Levágjuk az ID-t, a maradék a név (pl. "Murza Ildikó")
-                        local_customer_name = l.replace(current_id, "").strip()
+                        # Kinyerjük az ID melletti részt
+                        potential_name_part = l.replace(current_id, "").strip()
+                        # TRÜKK: Ha a sor végén van valami, ami nem a név része (pl. a megjegyzés vége),
+                        # azt később a szűrésnél kezeljük, de itt elmentjük a sort
+                        local_customer_name = potential_name_part
+                        name_line_index = idx
                         break
 
-                # --- 3. SZÉTVÁLOGATÁS (Ildikó-biztos logika) ---
+                # --- 3. SZÉTVÁLOGATÁS (Dr. Vincze Ildikó biztos logika) ---
                 reszleg_ceg_lista = []  # Megjegyzés part 1
                 hosszu_megj_lista = []  # Megjegyzés part 2
 
-                for l_strip in lines:
+                for idx, l_strip in enumerate(lines):
                     # Technikai szűrések (nevek, fejléc, város)
                     if any(x in l_strip for x in ["Debrecen", "Ebes", "Hajdú", "Sor", "Ügyfél", "Össz.", "Nyomtatva:"]): 
                         continue
                     
-                    # Ha ez a sor tartalmazza a telefon számot vagy a pénzt, azt máshol kezeljük
+                    # Ha ez a sor tartalmazza a telefon számot vagy a pénzt
                     if re.search(PHONE_PAT, l_strip) or re.search(MONEY_PAT, l_strip):
                         continue
 
-                    # Ha ebben a sorban van az ID (ez a név sora)
-                    if current_id in l_strip:
-                        # Ami a név mellett maradt, az megy a Part 1-be (Cégnév/Részleg)
-                        temp = l_strip.replace(current_id, "").replace(local_customer_name, "").strip()
-                        if len(temp) > 1:
-                            reszleg_ceg_lista.append(temp)
+                    # Ha ebben a sorban van az ID (ez a név fő sora)
+                    if idx == name_line_index:
+                        # Megnézzük, maradt-e ott valami extra a néven kívül
+                        # A neveket általában nagybetűvel kezdjük, a "belülre kérem..." pedig kisbetűs vagy instrukció
+                        # De a legbiztosabb, ha megnézzük, hogy a local_customer_name-ben nincs-e benne 
+                        # egy olyan rész, ami más sorokban is szerepel megjegyzésként
+                        temp = l_strip.replace(current_id, "").strip()
+                        
+                        # Ha a sorban van a megjegyzésből is valami (pl. a sor végén)
+                        # akkor itt csak a nevet próbáljuk megtartani. 
+                        # Egyelőre hagyjuk így, de a hosszu_megj_lista-ba is bekerülhet, ha gyanús.
+                        continue 
                     else:
-                        # Ha nincs benne ID és nem szűrtük ki fent, akkor ez tiszta instrukció!
-                        # Ide kerül: "kcs: 4, ne csengess!..."
+                        # Ha nem a név sora, és nem szűrtük ki, akkor megjegyzés
                         hosszu_megj_lista.append(l_strip)
+
+                # --- EXTRA JAVÍTÁS: Név tisztítása a beleragadt megjegyzéstől ---
+                # Ha a név végén ott maradt pl. az "akasztani!", akkor azt levágjuk
+                # Megnézzük, hogy a hosszu_megj_lista utolsó elemei nem vágtak-e bele a névbe
+                if local_customer_name and hosszu_megj_lista:
+                    # Ha a név végén lévő szó megegyezik a megjegyzésekben lévő valamelyik szóval
+                    last_word_of_name = local_customer_name.split()[-1]
+                    if any(last_word_of_name in m for m in hosszu_megj_lista):
+                        local_customer_name = local_customer_name.replace(last_word_of_name, "").strip()
+                        # És visszatesszük a megjegyzésbe, ha ott nem lenne meg teljes egészében
+                        if not any(last_word_of_name in m for m in hosszu_megj_lista):
+                             hosszu_megj_lista.append(last_word_of_name)
 
                 # --- 4. MENTÉS A VÁLTOZÓKBA ---
                 megj_resz_1 = " | ".join(reszleg_ceg_lista)

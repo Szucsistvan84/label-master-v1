@@ -180,48 +180,52 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 raw_text = full_row_box.extract_text() or ""
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
 
-                # --- 2. AZONOSÍTÁS (Szigorúbb névkeresés) ---
+                # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE (Szigorú kontrollal) ---
                 current_id = anchor['text']
                 local_customer_name = ""
                 name_line_index = -1
                 
                 for idx, l in enumerate(lines):
                     if current_id in l:
-                        # Kinyerjük az ID melletti szöveget
-                        raw_name_part = l.replace(current_id, "").strip()
+                        # Kivágjuk az ID-t: "Dr. Vincze Ildikó belülre kérem" (vagy "Kovács Bt. / Kovács János")
+                        raw_line = l.replace(current_id, "").strip()
                         
-                        # Csak azokat a szavakat hagyjuk meg a névben, amik nagybetűvel kezdődnek
-                        # (Így a "belülre kérem akasztani" azonnal kiesik a névből)
-                        name_words = []
-                        for word in raw_name_part.split():
-                            # Ha nagybetűs VAGY Dr. VAGY ifj. VAGY özv. stb.
+                        # Csak addig gyűjtjük a szavakat, amíg NEVET látunk (Nagybetű/Dr/stb)
+                        name_parts = []
+                        for word in raw_line.split():
                             if word[0].isupper() or word.startswith("Dr.") or word.lower() in ["id.", "ifj.", "özv."]:
-                                name_words.append(word)
+                                name_parts.append(word)
                             else:
-                                # Amint találunk egy kisbetűs szót, megállunk, a maradék megjegyzés
                                 break
-                        
-                        local_customer_name = " ".join(name_words)
+                        local_customer_name = " ".join(name_parts)
                         name_line_index = idx
                         break
 
-                # --- 3. SZÉTVÁLOGATÁS ---
+                # --- 3. SZÉTVÁLOGATÁS (Részleg + Megjegyzés megtartásával) ---
                 reszleg_ceg_lista = []
                 hosszu_megj_lista = []
 
                 for idx, l_strip in enumerate(lines):
+                    # Alap szűrések
                     if any(x in l_strip for x in ["Debrecen", "Ebes", "Hajdú", "Sor", "Ügyfél", "Össz.", "Nyomtatva:"]): 
                         continue
                     if re.search(PHONE_PAT, l_strip) or re.search(MONEY_PAT, l_strip):
                         continue
 
                     if idx == name_line_index:
-                        # Ami a név sorában volt, de nem a név (pl. a sor végi "akasztani!")
-                        # azt áttesszük a megjegyzésbe
-                        potential_extra = l_strip.replace(current_id, "").replace(local_customer_name, "").strip()
-                        if len(potential_extra) > 2:
-                            hosszu_megj_lista.append(potential_extra)
+                        # Ez a név sora. Ami itt maradt az ID és a Név levágása után, az a Részleg!
+                        # Pl: "S-123 ID. Kovács János Részleg" -> "Részleg" marad meg.
+                        maradek = l_strip.replace(current_id, "").replace(local_customer_name, "").strip()
+                        
+                        if len(maradek) > 1:
+                            # Ha a maradék kisbetűvel kezdődik (mint a "belülre kérem"), 
+                            # akkor az inkább a hosszú megjegyzéshez tartozik, nem cég/részleg név.
+                            if maradek[0].islower():
+                                hosszu_megj_lista.append(maradek)
+                            else:
+                                reszleg_ceg_lista.append(maradek)
                     else:
+                        # Minden más sor (ami nem a név sora) a hosszú megjegyzésbe megy
                         hosszu_megj_lista.append(l_strip)
 
                 # --- 4. MENTÉS A VÁLTOZÓKBA ---

@@ -270,15 +270,28 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         top_text = " ".join([w['text'] for w in sorted(top_row, key=lambda w: w['x0'])])
                         bottom_text = " ".join([w['text'] for w in sorted(bottom_row, key=lambda w: w['x0'])])
                         
-                        phone_match = re.search(r'(\d{1,2}/\d+)', top_text + " " + bottom_text)
+                        full_text_area = top_text + " " + bottom_text
+                        
+                        # Telefon felismerése
+                        phone_match = re.search(r'(\d{1,2}/\d+)', full_text_area)
                         phone_val = phone_match.group(1).replace(" ", "") if phone_match else ""
                         
-                        money_match = re.search(r'(-?\d[\d\s]*)\s*Ft', bottom_text if bottom_text else top_text)
+                        # --- JAVÍTOTT PÉNZ FELISMERÉS ---
+                        # Engedélyezzük a szóközt a mínusz jel után: (-?\s*\d[\d\s]*)\s*Ft
+                        # Használjuk a teljes területet, mert a pénz néha elcsúszhat
+                        money_match = re.search(r'(-?\s*\d[\d\s]*)\s*Ft', bottom_text if bottom_text else top_text)
+                        
                         if money_match:
-                            money_val = money_match.group(0).replace(" ", "")
+                            # Kinyerjük a találatot, és töröljük a felesleges szóközöket, DE a mínuszt megtartjuk
+                            raw_money = money_match.group(1).replace(" ", "")
+                            money_val = f"{raw_money}Ft"
                         else:
-                            last_num = re.search(r'(\d+)$', bottom_text.strip() if bottom_text else top_text.strip())
-                            money_val = f"{last_num.group(1)}Ft" if last_num else "0Ft"
+                            # Tartalék megoldás: ha nincs Ft, de van szám a végén
+                            last_num = re.search(r'(-?\s*\d+)$', (bottom_text.strip() if bottom_text else top_text.strip()))
+                            if last_num:
+                                money_val = f"{last_num.group(1).replace(' ', '')}Ft"
+                            else:
+                                money_val = "0Ft"
 
                     # --- ÜGYINTÉZŐ KERESÉSE (V15 - A Szanyi-specialista) ---
                     x_start_admin = (38 / 88) * W

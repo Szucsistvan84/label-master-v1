@@ -6,6 +6,7 @@ import math
 import requests
 import PIL.ImageDraw
 import openpyxl
+import os
 from io import BytesIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -126,6 +127,61 @@ def get_etlap_dict(ev, het):
     except Exception as e:
         st.error(f"Hiba az étlap letöltésekor ({ev}/{het}): {e}")
         return {}
+
+# --- 1. AZ OKOS NÉV-MEMÓRIA BETÖLTÉSE ---
+@st.cache_data
+def load_all_names():
+    all_names = set()
+    titulusok = {"Dr.", "id.", "ifj.", "özv.", "dr.", "vitéz"}
+    all_names.update(titulusok)
+    
+    # A 3 fájl, amit te most tettél rendbe
+    files = ["ferfi_nevek.txt", "noi_nevek.txt", "csaladnevek.txt"]
+    for fname in files:
+        if os.path.exists(fname):
+            with open(fname, "r", encoding="utf-8") as f:
+                for line in f:
+                    name = line.strip()
+                    if name:
+                        all_names.add(name)
+                        # Női neveknél a -né-t is kezeljük
+                        if fname == "noi_nevek.txt":
+                            all_names.add(name + "né")
+    return all_names
+
+NAME_DB = load_all_names()
+
+# --- 2. NÉV ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA ---
+def split_name_logic(raw_text):
+    words = raw_text.split()
+    name_parts = []
+    comment_parts = []
+    is_name_part = True
+    
+    for word in words:
+        clean = word.strip(",./-")
+        # Ha benne van a listáidban VAGY nagybetűs, akkor név marad
+        if is_name_part and (clean in NAME_DB or word[0].isupper()):
+            name_parts.append(word)
+        else:
+            is_name_part = False
+            comment_parts.append(word)
+            
+    return " ".join(name_parts), " ".join(comment_parts)
+
+# --- 3. MASTER DATA (HOSSZÚ TÁVÚ MEMÓRIA) ---
+def load_master_data():
+    if os.path.exists("master_data.csv"):
+        return pd.read_csv("master_data.csv", dtype={'Ügyfélkód': str})
+    return pd.DataFrame(columns=['Ügyfélkód', 'Ügyintéző', 'Cím', 'Telefonszám', 'Megjegyzés'])
+
+def save_to_master(current_df):
+    """Ezt hívjuk meg a Mentés gombnál!"""
+    master_df = load_master_data()
+    # Összefűzzük a mait a régivel, az új adatok felülírják a régit az ID alapján
+    updated_master = pd.concat([master_df, current_df[['Ügyfélkód', 'Ügyintéző', 'Cím', 'Telefonszám', 'Megjegyzés']]])
+    updated_master = updated_master.drop_duplicates(subset=['Ügyfélkód'], keep='last')
+    updated_master.to_csv("master_data.csv", index=False)
     
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(pdf_file, napi_etlap_kodok):

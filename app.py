@@ -236,24 +236,30 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 raw_text = full_row_box.extract_text() or ""
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
 
-                # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE (Szigorú kontrollal) ---
+                # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE (Okos felismeréssel és memóriával) ---
                 current_id = anchor['text']
                 local_customer_name = ""
                 name_line_index = -1
                 
                 for idx, l in enumerate(lines):
                     if current_id in l:
-                        # Kivágjuk az ID-t: "Dr. Vincze Ildikó belülre kérem" (vagy "Kovács Bt. / Kovács János")
+                        # Kivágjuk az ID-t a sorból
                         raw_line = l.replace(current_id, "").strip()
                         
-                        # Csak addig gyűjtjük a szavakat, amíg NEVET látunk (Nagybetű/Dr/stb)
-                        name_parts = []
-                        for word in raw_line.split():
-                            if word[0].isupper() or word.startswith("Dr.") or word.lower() in ["id.", "ifj.", "özv."]:
-                                name_parts.append(word)
-                            else:
-                                break
-                        local_customer_name = " ".join(name_parts)
+                        # 1. MEGNÉZZÜK A MEMÓRIÁBAN (Ismerjük már?)
+                        master_df = load_master_data()
+                        # Megkeressük az ID alapján (pl. S-12345)
+                        match = master_df[master_df['Ügyfélkód'] == current_id]
+                        
+                        if not match.empty:
+                            # Ha már egyszer elmentetted, akkor azt a nevet használjuk, amit te adtál meg
+                            local_customer_name = str(match.iloc[0]['Ügyintéző'])
+                        else:
+                            # 2. HA ÚJ ÜGYFÉL: Bevetjük a névlistás szűrőt
+                            # A split_name_logic a feltöltött txt fájljaidat használja
+                            tiszta_nev, extra_megj = split_name_logic(raw_line)
+                            local_customer_name = tiszta_nev
+                        
                         name_line_index = idx
                         break
 

@@ -1490,10 +1490,17 @@ def main():
             use_container_width=True
         )
     
-        # MENTÉS ÉS ÚJRARANKEZÉS GOMB
+        # 3. MENTÉS ÉS ÚJRARANKEZÉS GOMB
         if st.button("💾 SORREND VÉGLEGESÍTÉSE (Újraszámozás)"):
             # Itt már az edited_df-et használjuk, mert a fenti editor már létrehozta
             temp_df = edited_df.copy()
+            
+            # --- EZ AZ ÚJ RÉSZ ---
+            # Frissítjük a hosszú távú memóriát (Master Data) a szerkesztett adatokkal
+            save_to_master(temp_df)
+            # ---------------------
+        
+            # ... a kódod többi része (sorrendezés, mentés stb.)
             
             # 1. Számmá alakítás (hogy a tizedesek alapján rendezni tudjunk)
             temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999)

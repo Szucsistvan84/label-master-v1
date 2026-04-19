@@ -259,16 +259,11 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 
                 for idx, l in enumerate(lines):
                     if current_id in l:
-                        # 1. ALAPÉRTÉKEK - Mindent leürítünk
-                        local_customer_name = ""
-                        address_val = ""
-                        main_order = ""
-                        phone_val = ""
+                        # 1. ALAPÉRTÉKEK
+                        local_customer_name, address_val, main_order, phone_val = "", "", "", ""
                         match = pd.DataFrame()
                         
-                        raw_line = l.replace(current_id, "").strip()
-                        
-                        # 2. MEGNÉZZÜK A GOOGLE SHEETS-BEN
+                        # 2. SHEETS ELLENŐRZÉS
                         master_df = load_master_data()
                         if not master_df.empty and 'Ügyfélkód' in master_df.columns:
                             clean_id = current_id.split('-')[1] if '-' in current_id else current_id
@@ -280,27 +275,30 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                             main_order = str(match.iloc[0].get('Rendelés', ""))
                             phone_val = str(match.iloc[0].get('Telefon', ""))
                         else:
-                            # 3. HA ÚJ / ÜRES A SHEETS: A PDF KÖRNYEZETÉBŐL DOLGOZUNK
-                            # Név kinyerése a split_name_logic-al
-                            tiszta_nev, extra_megj = split_name_logic(raw_line)
-                            local_customer_name = tiszta_nev
+                            # 3. MANUÁLIS SZÉTVÁGÁS (Mivel a Sheets üres)
+                            # Kicseréljük az ID-t szóközre, hogy ne zavarjon
+                            raw_line = l.replace(current_id, " ").strip()
                             
-                            # CÍM ÉS RENDELÉS KERESÉSE A SZOMSZÉDOS SOROKBAN
-                            # Megnézzük a következő 2 sort, hátha ott a cím
-                            search_area = " ".join(lines[idx:idx+3])
-                            
-                            # Cím: Irányítószám (4 számjegy) alapján keressük
-                            zip_match = re.search(r'(\d{4}\s+[A-Z][^,]+[^.]+)', search_area)
-                            if zip_match:
-                                address_val = zip_match.group(1).strip()
-                            
-                            # Telefon: A meglévő mintáddal
-                            phone_match = re.search(PHONE_PAT, search_area)
-                            if phone_match:
-                                phone_val = phone_match.group(1)
-                            
-                            # Rendelés: Minden, ami nem ID, nem Név és nem Telefon
-                            main_order = raw_line.replace(tiszta_nev, "").strip()
+                            # Telefonszám kimentése (ez a legbiztosabb pont)
+                            p_match = re.search(PHONE_PAT, raw_line)
+                            if p_match:
+                                phone_val = p_match.group(1)
+                                # Ami a telefon ELŐTT van, abban van a név és a cím
+                                head = raw_line.split(phone_val)[0].strip()
+                                # Ami a telefon UTÁN van, az a rendelés
+                                main_order = raw_line.split(phone_val)[1].strip()
+                                
+                                # A név és cím szétválasztása (Irányítószám alapján)
+                                zip_match = re.search(r'(\d{4})', head)
+                                if zip_match:
+                                    local_customer_name = head[:zip_match.start()].strip()
+                                    address_val = head[zip_match.start():].strip()
+                                else:
+                                    local_customer_name = head
+                            else:
+                                # Ha nincs telefon, próbáljuk sima név/rendelés alapon
+                                local_customer_name, _ = split_name_logic(raw_line)
+                                main_order = raw_line.replace(local_customer_name, "").strip()
 
                         name_line_index = idx
                         break

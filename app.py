@@ -262,21 +262,23 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 
                 for idx, l in enumerate(lines):
                     if current_id in l:
-                        # Kivágjuk az ID-t a sorból
+                        # 1. NYERS SOR KINYERÉSE (pl. "Dr. Vincze Anett 2. emelet")
                         raw_line = l.replace(current_id, "").strip()
                         
-                        # 1. MEGNÉZZÜK A MEMÓRIÁBAN (Ismerjük már?)
+                        # 2. TISZTÍTÁS A LISTÁK ALAPJÁN (Ez mostantól MINDIG lefut)
+                        # Így ha a Vincze név benne van a csaladnevek.txt-ben, 
+                        # a tiszta_nev csak "Dr. Vincze Anett" lesz.
+                        tiszta_nev, extra_megj = split_name_logic(raw_line)
+                        
+                        # 3. ELLENŐRZÉS A MEMÓRIÁBAN (CSV-ben)
                         master_df = load_master_data()
-                        # Megkeressük az ID alapján (pl. S-12345)
                         match = master_df[master_df['ID'] == current_id]
                         
                         if not match.empty:
-                            # Ha már egyszer elmentetted, akkor azt a nevet használjuk, amit te adtál meg
+                            # Ha a memóriában már van egy egyedi, általad javított név, az az erősebb
                             local_customer_name = str(match.iloc[0]['Ügyintéző'])
                         else:
-                            # 2. HA ÚJ ÜGYFÉL: Bevetjük a névlistás szűrőt
-                            # A split_name_logic a feltöltött txt fájljaidat használja
-                            tiszta_nev, extra_megj = split_name_logic(raw_line)
+                            # Ha új vagy nincs mentett javítás, az automata szűrő eredményét használjuk
                             local_customer_name = tiszta_nev
                         
                         name_line_index = idx

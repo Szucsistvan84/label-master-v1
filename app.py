@@ -259,7 +259,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 
                 for idx, l in enumerate(lines):
                     if current_id in l:
-                        # --- 0. ALAPHELYZETBE ÁLLÍTÁS (Hogy ne legyen hiba) ---
+                        # 1. ALAPÉRTÉKEK - Mindent leürítünk, hogy ne legyen UnboundLocalError
                         local_customer_name = ""
                         address_val = ""
                         main_order = ""
@@ -268,12 +268,12 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         
                         raw_line = l.replace(current_id, "").strip()
                         
-                        # 1. MEGNÉZZÜK A MEMÓRIÁBAN (Google Sheets)
+                        # 2. MEGNÉZZÜK A GOOGLE SHEETS-BEN
                         master_df = load_master_data()
-                        
-                        # Csak akkor keresünk, ha a táblázat nem üres és van Ügyfélkód oszlop
                         if not master_df.empty and 'Ügyfélkód' in master_df.columns:
-                            match = master_df[master_df['Ügyfélkód'] == current_id]
+                            # Megkeressük az ID alapján (tisztított ID-val)
+                            clean_id = current_id.split('-')[1] if '-' in current_id else current_id
+                            match = master_df[master_df['Ügyfélkód'].astype(str) == clean_id]
                         
                         if not match.empty:
                             # Ha van adat a Sheets-ben, azt használjuk
@@ -282,25 +282,26 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                             main_order = str(match.iloc[0].get('Rendelés', ""))
                             phone_val = str(match.iloc[0].get('Telefon', ""))
                         else:
-                            # 2. HA ÜRES A SHEETS (vagy új ügyfél): PDF-ből szedjük ki
-                            
-                            # Név kinyerése
+                            # 3. HA ÜRES A SHEETS (ELSŐ FELTÖLTÉS): PDF-BŐL SZEDJÜK KI
                             tiszta_nev, extra_megj = split_name_logic(raw_line)
                             local_customer_name = tiszta_nev
                             
-                            # Cím és Rendelés kinyerése az oszlopokból (v_lines)
-                            # Csak akkor fut le, ha a v_lines létezik és vannak oszlopok
+                            # Itt a trükk: Csak akkor nyúlunk a v_lines-hoz, ha az OLDAL szinten létezik
+                            # Ha nem létezik, a fenti "" alapérték megvédi a kódot
                             if 'v_lines' in locals() and len(v_lines) >= 6:
-                                address_val = get_col_text(v_lines[2], v_lines[3]).strip()
-                                order_and_phone = get_col_text(v_lines[4], v_lines[5]).strip()
-                                
-                                # Telefonszám leválasztása a rendelésről
-                                phone_match = re.search(PHONE_PAT, order_and_phone)
-                                if phone_match:
-                                    phone_val = phone_match.group(1)
-                                    main_order = order_and_phone.replace(phone_val, "").strip()
-                                else:
-                                    main_order = order_and_phone
+                                try:
+                                    address_val = get_col_text(v_lines[2], v_lines[3]).strip()
+                                    order_and_phone = get_col_text(v_lines[4], v_lines[5]).strip()
+                                    
+                                    phone_match = re.search(PHONE_PAT, order_and_phone)
+                                    if phone_match:
+                                        phone_val = phone_match.group(1)
+                                        main_order = order_and_phone.replace(phone_val, "").strip()
+                                    else:
+                                        main_order = order_and_phone
+                                except:
+                                    # Ha bármi gond van a vágással, maradjon üres, de ne álljon le
+                                    address_val = ""
                         
                         name_line_index = idx
                         break

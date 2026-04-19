@@ -825,11 +825,18 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
 
                     rows.append({
-                        "ID": full_id, "Ügyintéző": admin_name, "Cím": address, "Telefon": phone_val,
-                        "Pénz": money_val, "Rendelés": rendeles_str, "Megjegyzés": full_note,
-                        "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
-                        "Rendelés_Full": full_rendeles_text, "temp_id": full_id.split('-')[-1],
-                        "Prefix": prefix, "Csoport": current_group_id if 'current_group_id' in locals() else 0
+                        "ID": current_id, 
+                        "Ügyintéző": local_customer_name,  # A Sheets-ből jövő tiszta név
+                        "Cím": customer_address, 
+                        "Telefon": customer_phone,
+                        "Pénz": customer_money, 
+                        "Rendelés": customer_order, 
+                        "Megjegyzés": customer_note,
+                        "Összesen": total_items,
+                        "Rendelés_Full": full_rendeles_text, 
+                        "temp_id": current_id.split('-')[-1],
+                        "Prefix": prefix, 
+                        "Csoport": saved_group  # A Sheets-ből jövő mentett csoport!
                     })
     
     if not rows: return [], metadata

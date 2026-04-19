@@ -544,7 +544,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     parts = []  # <--- IDE KERÜLJÖN
 
                     # --- 2. LÉPÉS: SORSZÁM LEVÁGÁSA (AZ ID-IG) ---
-                    id_pattern = r'[HKSCPZ]-\d{6}'
+                    id_pattern = r'[HKSCPZ\u0397]-\d{6}'
                     id_match = re.search(id_pattern, raw_line)
                     working_line = raw_line
                     if id_match:

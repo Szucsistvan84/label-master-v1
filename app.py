@@ -170,38 +170,61 @@ def split_name_logic(raw_text):
             
     return " ".join(name_parts), " ".join(comment_parts)
 
-# --- 3. MASTER DATA (HOSSZÚ TÁVÚ MEMÓRIA) ---
+# --- 3. MASTER DATA (GOOGLE SHEETS MEMÓRIA) ---
+# Azonosító: 1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o
+# Fontos: A táblázat URL-je pontos legyen!
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o/edit#gid=0"
+
+def get_gsheets_conn():
+    # Létrehozzuk a kapcsolatot a st.connection segítségével
+    return st.connection("gsheets", type=GSheetsConnection)
+
 def load_master_data():
-    if os.path.exists("master_data.csv"):
-        try:
-            return pd.read_csv("master_data.csv")
-        except:
-            pass
-    # Itt is ID legyen az Ügyfélkód helyett!
-    return pd.DataFrame(columns=['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés'])
+    """Adatok betöltése a Google Sheets-ből"""
+    conn = get_gsheets_conn()
+    try:
+        # Beolvassuk a táblázatot. A ttl="0" biztosítja, hogy ne cache-elt (régi) adatot lássunk.
+        df = conn.read(spreadsheet=SPREADSHEET_URL, ttl="0")
+        # Tisztítás: csak azokat a sorokat tartjuk meg, ahol van ID
+        if not df.empty:
+            df = df.dropna(subset=['ID'])
+        return df
+    except Exception as e:
+        # Ha a táblázat még üres vagy hiba van, visszaadjuk az alap struktúrát
+        return pd.DataFrame(columns=['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés', 'CsoportID', 'FixSorrend'])
 
 def save_to_master(current_df):
-    """Ezt hívjuk meg a Mentés gombnál!"""
+    """Ezt hívjuk meg a 'Sorrend véglegesítése' gombnál!"""
+    conn = get_gsheets_conn()
+    
+    # 1. Betöltjük a jelenlegi Sheets tartalmat
     master_df = load_master_data()
     
-    # Itt kijavítottuk az oszlopneveket, hogy egyezzenek a rows.append részben lévőkkel
-    target_cols = ['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés']
+    # 2. Előkészítjük a mostani táblázatunkat mentésre
+    # Fontos: A 'Csoport' oszlopot 'CsoportID'-ként mentjük a Sheets-be
+    to_save = current_df.copy()
+    if 'Csoport' in to_save.columns:
+        to_save['CsoportID'] = to_save['Csoport']
     
-    # Megnézzük, mi érhető el
-    available_cols = [col for col in target_cols if col in current_df.columns]
-    
-    if 'ID' not in available_cols:
-        st.error("Hiba: Az 'ID' oszlop nem található!")
-        return
+    # Csak azokat az oszlopokat tartjuk meg, amik kellenek a Sheets-be
+    cols_for_sheets = ['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés', 'CsoportID']
+    available_cols = [c for c in cols_for_sheets if c in to_save.columns]
+    subset_to_save = to_save[available_cols].copy()
 
-    subset_df = current_df[available_cols].copy()
-    
-    # Itt is ID-t használunk az összefűzésnél és szűrésnél
-    updated_master = pd.concat([master_df, subset_df])
-    updated_master = updated_master.drop_duplicates(subset=['ID'], keep='last')
-    
-    updated_master.to_csv("master_data.csv", index=False)
-    st.success(f"Sikeres mentés! ({len(subset_df)} ügyfél adatai rögzítve)")
+    # 3. Összefésülés (Merge): Frissítjük a régit az újjal
+    if master_df.empty:
+        final_master = subset_to_save
+    else:
+        # Összefűzzük és az ID alapján az utolsót (legfrissebbet) tartjuk meg
+        final_master = pd.concat([master_df, subset_to_save], ignore_index=True)
+        final_master = final_master.drop_duplicates(subset=['ID'], keep='last')
+
+    # 4. Visszaírás a Google Sheets-be
+    try:
+        conn.update(spreadsheet=SPREADSHEET_URL, data=final_master)
+        st.success(f"✅ Adatok szinkronizálva a Google Sheets-el! ({len(subset_to_save)} ügyfél)")
+    except Exception as e:
+        st.error(f"❌ Hiba a Google Sheets mentésnél: {e}")
     
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
@@ -271,16 +294,23 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         # a tiszta_nev csak "Dr. Vincze Anett" lesz.
                         tiszta_nev, extra_megj = split_name_logic(raw_line)
                         
-                        # 3. ELLENŐRZÉS A MEMÓRIÁBAN (CSV-ben)
+                        # --- 3. ELLENŐRZÉS A GOOGLE SHEETS-BEN ---
                         master_df = load_master_data()
                         match = master_df[master_df['ID'] == current_id]
                         
                         if not match.empty:
-                            # Ha a memóriában már van egy egyedi, általad javított név, az az erősebb
+                            # Ha a táblázatban már megvan az ügyfél, az ottani adatok az erősebbek
                             local_customer_name = str(match.iloc[0]['Ügyintéző'])
+                            
+                            # Kinyerjük a mentett csoportot is (ha nincs kitöltve, 0 lesz)
+                            try:
+                                saved_group = int(match.iloc[0].get('CsoportID', 0))
+                            except:
+                                saved_group = 0
                         else:
-                            # Ha új vagy nincs mentett javítás, az automata szűrő eredményét használjuk
+                            # Ha teljesen új ügyfél, az automata szűrő nevét használjuk
                             local_customer_name = tiszta_nev
+                            saved_group = 0 # Az új ügyfél alapból nem tartozik csoportba
                         
                         name_line_index = idx
                         break

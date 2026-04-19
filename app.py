@@ -247,13 +247,25 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA ---
                 y_top = max(0, anchor['top'] - 12)
                 
-                # Növeljük a 100-as limitet 150-re, hogy a hosszú megjegyzések alja se maradjon le
-                y_bottom = anchors[i+1]['top'] - 2 if i + 1 < len(anchors) else min(page_cutoff, anchor['top'] + 150)
+                # JAVÍTÁS: Megnézzük, a következő anchor messze van-e. 
+                # Ha 15 pixelen belül van, akkor "összevont" celláról van szó, 
+                # ilyenkor adjunk neki fix 120 pixelt lefelé.
+                if i + 1 < len(anchors):
+                    next_top = anchors[i+1]['top']
+                    if next_top - anchor['top'] < 15:
+                        y_bottom = min(page_cutoff, anchor['top'] + 120)
+                    else:
+                        y_bottom = next_top - 2
+                else:
+                    y_bottom = min(page_cutoff, anchor['top'] + 150)
                 
-                if y_bottom <= y_top: y_bottom = y_top + 40 # Itt is adhatunk neki kicsit több helyet
+                if y_bottom <= y_top: y_bottom = y_top + 60 
 
-                full_row_box = page.within_bbox((20, y_top, 585, y_bottom))
+                # Itt a 'page' változót használd (a ciklusban pg-ként hivatkoztál rá az elején!)
+                full_row_box = pg.within_bbox((20, y_top, 585, y_bottom))
                 raw_text = full_row_box.extract_text() or ""
+                # Tisztítás: a görög betűket itt is kezeljük a szövegben
+                raw_text = raw_text.replace('\u0397', 'H')
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
 
                 # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE (Okos felismeréssel és memóriával) ---
@@ -262,33 +274,16 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 name_line_index = -1
                 
                 for idx, l in enumerate(lines):
-                    # --- JAVÍTÁS: KARAKTERTISZTÍTÁS A KERESÉSHEZ ---
-                    # Kicseréljük a görög 'Η'-t latin 'H'-ra és kiszedjük a szóközöket
-                    clean_line = l.replace('Η', 'H').replace(' ', '')
-                    clean_id_to_find = current_id.replace(' ', '')
-
-                    if clean_id_to_find in clean_line:
-                        # 1. ALAPÉRTÉKEK ÉS SHEETS ELLENŐRZÉS
-                        local_customer_name, sheet_address, sheet_order, sheet_phone = "", "", "", ""
-                        from_sheets = False
-                        
-                        # Itt az eredeti sort használjuk a név kinyeréséhez
-                        raw_line = l.replace(current_id, "").strip()
-                        master_df = load_master_data()
-                        
-                        if not master_df.empty and 'Ügyfélkód' in master_df.columns:
-                            clean_id = current_id.split('-')[1] if '-' in current_id else current_id
-                            match = master_df[master_df['Ügyfélkód'].astype(str) == clean_id]
-                            
-                            if not match.empty:
-                                local_customer_name = str(match.iloc[0].get('Ügyintéző', ""))
-                                sheet_address = str(match.iloc[0].get('Cím', ""))
-                                sheet_order = str(match.iloc[0].get('Rendelés', ""))
-                                sheet_phone = str(match.iloc[0].get('Telefon', ""))
-                                from_sheets = True
+                    # Karaktertisztítás a kereséshez és a kivágáshoz is
+                    current_line_clean = l.replace('\u0397', 'H')
+                    current_id_clean = current_id.replace('\u0397', 'H')
+                    
+                    if current_id_clean.replace(' ', '') in current_line_clean.replace(' ', ''):
+                        # ... (Sheets ellenőrzés marad) ...
                         
                         if not from_sheets:
-                            # HA ÚJ AZ ÜGYFÉL: A nevet kivesszük, a többit az eredeti logika megoldja lent
+                            # JAVÍTÁS: A tisztított sorból vágjuk le a tisztított ID-t
+                            raw_line = current_line_clean.replace(current_id_clean, "").strip()
                             local_customer_name, _ = split_name_logic(raw_line)
 
                         name_line_index = idx

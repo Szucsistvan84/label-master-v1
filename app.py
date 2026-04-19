@@ -347,27 +347,28 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 
                 y_bottom = min(next_anchor_top, page_cutoff)
                 
-                line_words = [w for w in words if y_top
+                line_words = [w for w in words if y_top <= w['top'] < y_bottom]
                 
                 def get_col_text(x_min, x_max):
                     sel = [w for w in line_words if x_min <= (w['x0'] + w['x1'])/2 < x_max]
                     sel.sort(key=lambda x: (x['top'], x['x0']))
                     return " ".join([w['text'] for w in sel])
 
-                # Adatgyűjtés a sávokból
+                # Adatgyűjtés a sávokból (Szóköz-toleráns kereséssel!)
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
-                id_match = re.search(r'([HKSCPZ]-\d{5,7})', full_id_area)
+                id_match = re.search(r'([HKSCPZ]\s*-\s*\d{5,7})', full_id_area)
                 
                 # --- 0. FEJLÉC ÉS LÁBLÉC TELJES KIZÁRÁSA ---
                 line_text_full = " ".join([w['text'] for w in line_words])
                 tiltott_szavak = ["járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", "Összesítés:", "Csilagozott", "Összesen:"]
                 
                 if any(stop in line_text_full for stop in tiltott_szavak):
-                    if not re.search(r'[HKSCPZ]-\d{5,7}', line_text_full):
+                    if not re.search(r'[HKSCPZ]\s*-\s*\d{5,7}', line_text_full):
                         continue
 
                 if id_match:
-                    full_id = id_match.group(1)
+                    # Kiszűrjük a szóközöket, hogy a prefix és az ID tiszta maradjon a táblázatban
+                    full_id = id_match.group(1).replace(" ", "")
                     prefix = full_id.split('-')[0]
                     
                     # --- 1. KOORDINÁTÁK ÉS ALAP-SOR MEGHATÁROZÁSA ---

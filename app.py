@@ -279,11 +279,9 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 current_id_clean = current_id.replace('\u0397', 'H').replace(' ', '')
 
                 for idx, l in enumerate(lines):
-                    # Karaktertisztítás a kereséshez
                     current_line_clean = l.replace('\u0397', 'H')
                     
                     if current_id_clean in current_line_clean.replace(' ', ''):
-                        # Megpróbáljuk betölteni a Google Sheets-ből
                         master_df = load_master_data()
                         if not master_df.empty and 'Ügyfélkód' in master_df.columns:
                             clean_id_num = current_id_clean.split('-')[1] if '-' in current_id_clean else current_id_clean
@@ -296,25 +294,23 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                 sheet_phone = str(match.iloc[0].get('Telefon', ""))
                                 from_sheets = True
                         
-                        # Ha nincs a Sheets-ben, vágjuk le a nevet a PDF sorából
                         if not from_sheets:
                             raw_line = current_line_clean.replace(current_id.replace('\u0397', 'H'), "").strip()
                             local_customer_name, _ = split_name_logic(raw_line)
 
                         name_line_index = idx
-                        break  # Kilépünk a sorok kereséséből, mert megvan az ID
-        
-                    # --- 3. SZÉTVÁLOGATÁS ---
-                    # Itt NE legyen 'if not from_sheets:', csak kezdd el a listákat:
-                    reszleg_ceg_lista = []
-                    hosszu_megj_lista = []
+                        break  # <--- Itt kilépünk a sor-kereső ciklusból...
+
+                # --- 3. SZÉTVÁLOGATÁS (FONTOS: Ez már a fenti ciklus után, de az anchor-on BELÜL van!) ---
+                # Ezeket a sorokat pontosan az anchor (for i, anchor...) alá húzd be!
+                reszleg_ceg_lista = []
+                hosszu_megj_lista = []
     
                 for idx, l_strip in enumerate(lines):
                     # Alap szűrések
                     if any(x in l_strip for x in ["Debrecen", "Ebes", "Hajdú", "Sor", "Ügyfél", "Össz.", "Nyomtatva:"]): 
                         continue
                     
-                    # Ha az ügyfélkódot tartalmazó sorban vagyunk, azt is ugorjuk át a listázásnál
                     if current_id_clean in l_strip.replace('\u0397', 'H').replace(' ', ''):
                         continue
     
@@ -322,19 +318,13 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         continue
 
                     if idx == name_line_index:
-                        # Ez a név sora. Ami itt maradt az ID és a Név levágása után, az a Részleg!
-                        # Pl: "S-123 ID. Kovács János Részleg" -> "Részleg" marad meg.
                         maradek = l_strip.replace(current_id, "").replace(local_customer_name, "").strip()
-                        
                         if len(maradek) > 1:
-                            # Ha a maradék kisbetűvel kezdődik (mint a "belülre kérem"), 
-                            # akkor az inkább a hosszú megjegyzéshez tartozik, nem cég/részleg név.
                             if maradek[0].islower():
                                 hosszu_megj_lista.append(maradek)
                             else:
                                 reszleg_ceg_lista.append(maradek)
                     else:
-                        # Minden más sor (ami nem a név sora) a hosszú megjegyzésbe megy
                         hosszu_megj_lista.append(l_strip)
 
                 # --- 4. MENTÉS A VÁLTOZÓKBA ---

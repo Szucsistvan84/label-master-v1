@@ -241,15 +241,21 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
             # \u0397 a görög nagy Éta (Η) kódja
             anchors = [w for w in words if re.search(r'[HKSCPZ\u0397]-\d{6}', w['text'])]
             
-            for i, anchor in enumerate(anchors):
+for i, anchor in enumerate(anchors):
                 if anchor['top'] >= page_cutoff: continue
+
+                # --- 0. ALAPÉRTÉKEK (Ez javítja a NameError-t) ---
+                local_customer_name = ""
+                sheet_address = ""
+                sheet_order = ""
+                sheet_phone = ""
+                from_sheets = False  # Alapból False, így a 'if not from_sheets' nem dob hibát
+                name_line_index = -1
 
                 # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA ---
                 y_top = max(0, anchor['top'] - 12)
                 
-                # JAVÍTÁS: Megnézzük, a következő anchor messze van-e. 
-                # Ha 15 pixelen belül van, akkor "összevont" celláról van szó, 
-                # ilyenkor adjunk neki fix 120 pixelt lefelé.
+                # Dinamikus alsó határ: ha a következő ügyfél túl közel van, fix keretet adunk
                 if i + 1 < len(anchors):
                     next_top = anchors[i+1]['top']
                     if next_top - anchor['top'] < 15:
@@ -261,42 +267,61 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 
                 if y_bottom <= y_top: y_bottom = y_top + 60 
 
-                # Itt a 'page' változót használd (a ciklusban pg-ként hivatkoztál rá az elején!)
+                # Használjuk a pg változót (ahogy a ciklusod elején nevezted)
                 full_row_box = pg.within_bbox((20, y_top, 585, y_bottom))
                 raw_text = full_row_box.extract_text() or ""
-                # Tisztítás: a görög betűket itt is kezeljük a szövegben
+                # Görög H szűrése a nyers szövegből is
                 raw_text = raw_text.replace('\u0397', 'H')
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
 
-                # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE (Okos felismeréssel és memóriával) ---
+                # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE ---
                 current_id = anchor['text']
-                local_customer_name = ""
-                name_line_index = -1
-                
+                current_id_clean = current_id.replace('\u0397', 'H').replace(' ', '')
+
                 for idx, l in enumerate(lines):
-                    # Karaktertisztítás a kereséshez és a kivágáshoz is
+                    # Karaktertisztítás a kereséshez
                     current_line_clean = l.replace('\u0397', 'H')
-                    current_id_clean = current_id.replace('\u0397', 'H')
                     
-                    if current_id_clean.replace(' ', '') in current_line_clean.replace(' ', ''):
-                        # ... (Sheets ellenőrzés marad) ...
+                    if current_id_clean in current_line_clean.replace(' ', ''):
+                        # Megpróbáljuk betölteni a Google Sheets-ből
+                        master_df = load_master_data()
+                        if not master_df.empty and 'Ügyfélkód' in master_df.columns:
+                            clean_id_num = current_id_clean.split('-')[1] if '-' in current_id_clean else current_id_clean
+                            match = master_df[master_df['Ügyfélkód'].astype(str) == clean_id_num]
+                            
+                            if not match.empty:
+                                local_customer_name = str(match.iloc[0].get('Ügyintéző', ""))
+                                sheet_address = str(match.iloc[0].get('Cím', ""))
+                                sheet_order = str(match.iloc[0].get('Rendelés', ""))
+                                sheet_phone = str(match.iloc[0].get('Telefon', ""))
+                                from_sheets = True
                         
+                        # Ha nincs a Sheets-ben, vágjuk le a nevet a PDF sorából
                         if not from_sheets:
-                            # JAVÍTÁS: A tisztított sorból vágjuk le a tisztított ID-t
-                            raw_line = current_line_clean.replace(current_id_clean, "").strip()
+                            raw_line = current_line_clean.replace(current_id.replace('\u0397', 'H'), "").strip()
                             local_customer_name, _ = split_name_logic(raw_line)
 
                         name_line_index = idx
                         break
 
+                # Most már nem lesz NameError, mert a from_sheets mindig létezik (True vagy False)
+                if not from_sheets:
+                    # Itt mehet tovább a cím/telefon/pénz keresése a 'lines' többi részében...
+
                 # --- 3. SZÉTVÁLOGATÁS (Részleg + Megjegyzés megtartásával) ---
+                # Ide már nem kell külön 'if not from_sheets', mert a listákat mindenképp le kell gyártani
                 reszleg_ceg_lista = []
                 hosszu_megj_lista = []
-
+    
                 for idx, l_strip in enumerate(lines):
                     # Alap szűrések
                     if any(x in l_strip for x in ["Debrecen", "Ebes", "Hajdú", "Sor", "Ügyfél", "Össz.", "Nyomtatva:"]): 
                         continue
+                    
+                    # Ha az ügyfélkódot tartalmazó sorban vagyunk, azt is ugorjuk át a listázásnál
+                    if current_id_clean in l_strip.replace('\u0397', 'H').replace(' ', ''):
+                        continue
+    
                     if re.search(PHONE_PAT, l_strip) or re.search(MONEY_PAT, l_strip):
                         continue
 

@@ -839,17 +839,17 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     rows.append({
                         "Sorrend": len(rows) + 1,
                         "ID": full_id,
-                        "Ügyintéző": admin_name,  # <--- Itt 'final_name' helyett 'admin_name'-et használunk!
-                        "Cím": address_val,
-                        "Telefon": phone_val,
-                        "Pénz": money_val,
-                        "Rendelés": main_order,
-                        "Megjegyzés": full_note,
-                        "Összesen": total_qty,
-                        "Rendelés_Full": full_order_text,
+                        "Ügyintéző": admin_name if 'admin_name' in locals() else "", 
+                        "Cím": address_val if 'address_val' in locals() else "",
+                        "Telefon": phone_val if 'phone_val' in locals() else "",
+                        "Pénz": money_val if 'money_val' in locals() else "",
+                        "Rendelés": main_order if 'main_order' in locals() else "",
+                        "Megjegyzés": full_note if 'full_note' in locals() else "",
+                        "Összesen": total_qty if 'total_qty' in locals() else 0,
+                        "Rendelés_Full": full_order_text if 'full_order_text' in locals() else "",
                         "temp_id": re.sub(r'^[HKSCPZ]-', '', full_id),
                         "Prefix": prefix,
-                        "Csoport": saved_group # Ezt a GSheets ellenőrzésnél kaptuk meg fentebb
+                        "Csoport": saved_group if 'saved_group' in locals() else "0"
                     })
     
     if not rows: return [], metadata

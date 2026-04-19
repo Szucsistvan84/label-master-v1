@@ -223,6 +223,9 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
         for pg in pdf.pages:
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
+            for w in words:
+                # Minden görög Étát (U+0397) cserélünk latin H-ra
+                w['text'] = w['text'].replace('\u0397', 'H')
             
             # --- FÜGGŐLEGES SOROMPÓ (Cutoff) BEÁLLÍTÁSA ---
             # Megkeressük a lap alját jelző szavak legmagasabb pontját

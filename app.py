@@ -358,25 +358,27 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
                 id_match = re.search(r'([HKSCPZ]\s*-\s*\d{5,7})', full_id_area)
                 
-                # --- JAVÍTOTT SZŰRÉS (401. sor környéke) ---
+                # --- JAVÍTOTT, GOLYÓÁLLÓ SZŰRÉS ÉS AZONOSÍTÁS ---
                 line_text_full = " ".join([w['text'] for w in line_words])
                 
-                # 1. HA VAN ID, AKKOR EZ EGY ÉRVÉNYES ÜGYFÉL - feldolgozzuk
+                # 1. Itt keressük meg az ID-t a teljes sorszövegben
+                id_match = re.search(r'([HKSCPZ]\s*-\s*\d{5,7})', line_text_full)
+                
                 if id_match:
+                    # Ha megvan az ID, megtisztítjuk és kimentjük a prefixet
                     full_id = id_match.group(1).replace(" ", "")
                     prefix = full_id.split('-')[0]
-                
-                # 2. HA NINCS ID, CSAK AKKOR NÉZZÜK A TILTÁST
                 else:
+                    # HA NINCS ID -> Ellenőrizzük, hogy ez csak egy fejléc/lábléc-e
                     tiltott_szavak = ["járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", "Összesítés:", "Csilagozott", "Összesen:"]
                     if any(stop in line_text_full for stop in tiltott_szavak):
                         continue
                     
-                    # Ha teljesen üres a szöveg, azt is átugorjuk
-                    if not line_text_full.strip():
-                        continue
-                
-                # Innen megy tovább a kód (if id_match utáni rész)...
+                    # Ha nem tiltott, de nincs benne ID, akkor ez egy hasznavehetetlen töredék sor
+                    continue
+
+                # --- INNEN FOLYTATÓDIK A FELDOLGOZÁS ---
+                # (Rendelés, Pénz, Telefon kinyerése...)
                     
                     # --- 1. KOORDINÁTÁK ÉS ALAP-SOR MEGHATÁROZÁSA ---
                     W = page.width

@@ -372,10 +372,8 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     tiltott_szavak = ["járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", "Összesítés:", "Csilagozott", "Összesen:"]
                     if any(stop in line_text_full for stop in tiltott_szavak) or not line_text_full.strip():
                         continue
-                    else:
-                        # Ha nincs benne ID és nem is tiltott szó, de pl. csak egy névtöredék, 
-                        # akkor is ugorjunk, mert nekünk az ID a horgonyunk.
-                        continue
+                else:
+                    continue # <--- EZ A SOR OKOZZA A BAJT, rossz a behúzása!
 
                 # --- INNEN MEGY TOVÁBB A KÓD (Rendelés, Pénz, stb.) ---
                 # Fontos: Innentől minden sor legyen EGY SZINTTEL BELJEBB (behúzva), 

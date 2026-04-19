@@ -264,17 +264,23 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         
                         # 1. MEGNÉZZÜK A MEMÓRIÁBAN (Ismerjük már?)
                         master_df = load_master_data()
-                        # Megkeressük az ID alapján (pl. S-12345)
-                        match = master_df[master_df['Ügyfélkód'] == current_id]
+                        
+                        # --- INNEN JÖN A JAVÍTÁS ---
+                        local_customer_name = ""
+                        match = pd.DataFrame()
+
+                        # Csak akkor próbálunk keresni, ha a táblázat nem üres és van benne Ügyfélkód oszlop
+                        if not master_df.empty and 'Ügyfélkód' in master_df.columns:
+                            match = master_df[master_df['Ügyfélkód'] == current_id]
                         
                         if not match.empty:
-                            # Ha már egyszer elmentetted, akkor azt a nevet használjuk, amit te adtál meg
-                            local_customer_name = str(match.iloc[0]['Ügyintéző'])
+                            # Ha már egyszer elmentetted, akkor azt a nevet használjuk
+                            local_customer_name = str(match.iloc[0].get('Ügyintéző', ""))
                         else:
-                            # 2. HA ÚJ ÜGYFÉL: Bevetjük a névlistás szűrőt
-                            # A split_name_logic a feltöltött txt fájljaidat használja
+                            # 2. HA ÚJ ÜGYFÉL (vagy üres a Sheets): Bevetjük a névlistás szűrőt
                             tiszta_nev, extra_megj = split_name_logic(raw_line)
                             local_customer_name = tiszta_nev
+                        # --- JAVÍTÁS VÉGE ---
                         
                         name_line_index = idx
                         break
@@ -788,12 +794,22 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
                     full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
 
+                    # --- 825. sor: ADATOK HOZZÁADÁSA ---
+                    # A .get() és a 'locals()' biztosítja, hogy ne omoljon össze üres Sheets esetén sem
                     rows.append({
-                        "ID": full_id, "Ügyintéző": admin_name, "Cím": address, "Telefon": phone_val,
-                        "Pénz": money_val, "Rendelés": rendeles_str, "Megjegyzés": full_note,
-                        "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
-                        "Rendelés_Full": full_rendeles_text, "temp_id": full_id.split('-')[-1],
-                        "Prefix": prefix, "Csoport": current_group_id if 'current_group_id' in locals() else 0
+                        "Sorrend": len(rows) + 1,
+                        "ID": full_id,
+                        "Ügyintéző": admin_name if 'admin_name' in locals() else "",
+                        "Cím": address_val if 'address_val' in locals() else "",
+                        "Telefon": phone_val if 'phone_val' in locals() else "",
+                        "Pénz": money_val if 'money_val' in locals() else "0 Ft",
+                        "Rendelés": main_order if 'main_order' in locals() else "",
+                        "Megjegyzés": full_note if 'full_note' in locals() else "",
+                        "Összesen": total_qty if 'total_qty' in locals() else 0,
+                        "Rendelés_Full": full_order_text if 'full_order_text' in locals() else "",
+                        "temp_id": re.sub(r'^[HKSCPZ]-', '', full_id),
+                        "Prefix": prefix,
+                        "Csoport": saved_group if 'saved_group' in locals() else "0"
                     })
     
     if not rows: return [], metadata

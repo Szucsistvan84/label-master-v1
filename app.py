@@ -822,20 +822,21 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
                     full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
 
-                    rows.append({
-                        "ID": current_id, 
-                        "Ügyintéző": local_customer_name,  # Ezt mi hoztuk létre feljebb
-                        "Cím": address,                   # Az eredeti kódodban 'address' volt
-                        "Telefon": phone_val,             # Az eredeti kódodban 'phone_val' volt
-                        "Pénz": money_val,                # Az eredeti kódodban 'money_val' volt
-                        "Rendelés": rendeles_str,          # Az eredeti kódodban 'rendeles_str' volt
-                        "Megjegyzés": full_note,           # Az eredeti kódodban 'full_note' volt
-                        "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
-                        "Rendelés_Full": full_rendeles_text, 
-                        "temp_id": current_id.split('-')[-1],
-                        "Prefix": prefix, 
-                        "Csoport": saved_group            # Ezt is mi hoztuk létre feljebb
-                    })
+                    # --- 2. AZ EGYETLEN ÉS VÉGLEGES HOZZÁADÁS ---
+                        rows.append({
+                            "ID": current_id, 
+                            "Ügyintéző": final_name,  # <--- Itt használjuk a kinyert nevet!
+                            "Cím": address, 
+                            "Telefon": phone_val,
+                            "Pénz": money_val, 
+                            "Rendelés": rendeles_str, 
+                            "Megjegyzés": full_note,
+                            "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
+                            "Rendelés_Full": full_rendeles_text, 
+                            "temp_id": current_id.split('-')[-1],
+                            "Prefix": prefix, 
+                            "Csoport": saved_group
+                        })
     
     if not rows: return [], metadata
     df = pd.DataFrame(rows)

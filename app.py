@@ -826,17 +826,17 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                     rows.append({
                         "ID": current_id, 
-                        "Ügyintéző": local_customer_name,  # A Sheets-ből jövő tiszta név
-                        "Cím": customer_address, 
-                        "Telefon": customer_phone,
-                        "Pénz": customer_money, 
-                        "Rendelés": customer_order, 
-                        "Megjegyzés": customer_note,
-                        "Összesen": total_items,
+                        "Ügyintéző": local_customer_name,  # Ezt mi hoztuk létre feljebb
+                        "Cím": address,                   # Az eredeti kódodban 'address' volt
+                        "Telefon": phone_val,             # Az eredeti kódodban 'phone_val' volt
+                        "Pénz": money_val,                # Az eredeti kódodban 'money_val' volt
+                        "Rendelés": rendeles_str,          # Az eredeti kódodban 'rendeles_str' volt
+                        "Megjegyzés": full_note,           # Az eredeti kódodban 'full_note' volt
+                        "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
                         "Rendelés_Full": full_rendeles_text, 
                         "temp_id": current_id.split('-')[-1],
                         "Prefix": prefix, 
-                        "Csoport": saved_group  # A Sheets-ből jövő mentett csoport!
+                        "Csoport": saved_group            # Ezt is mi hoztuk létre feljebb
                     })
     
     if not rows: return [], metadata

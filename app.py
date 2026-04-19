@@ -258,11 +258,17 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 name_line_index = -1
                 
                 for idx, l in enumerate(lines):
-                    if current_id in l:
+                    # --- JAVÍTÁS: KARAKTERTISZTÍTÁS A KERESÉSHEZ ---
+                    # Kicseréljük a görög 'Η'-t latin 'H'-ra és kiszedjük a szóközöket
+                    clean_line = l.replace('Η', 'H').replace(' ', '')
+                    clean_id_to_find = current_id.replace(' ', '')
+
+                    if clean_id_to_find in clean_line:
                         # 1. ALAPÉRTÉKEK ÉS SHEETS ELLENŐRZÉS
                         local_customer_name, sheet_address, sheet_order, sheet_phone = "", "", "", ""
                         from_sheets = False
                         
+                        # Itt az eredeti sort használjuk a név kinyeréséhez
                         raw_line = l.replace(current_id, "").strip()
                         master_df = load_master_data()
                         
@@ -271,7 +277,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                             match = master_df[master_df['Ügyfélkód'].astype(str) == clean_id]
                             
                             if not match.empty:
-                                # Ha megvan a táblázatban, ezeket fogjuk használni
                                 local_customer_name = str(match.iloc[0].get('Ügyintéző', ""))
                                 sheet_address = str(match.iloc[0].get('Cím', ""))
                                 sheet_order = str(match.iloc[0].get('Rendelés', ""))
@@ -279,8 +284,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                 from_sheets = True
                         
                         if not from_sheets:
-                            # HA ÜRES A SHEETS: Csak a nevet vesszük ki, a Címet és Rendelést 
-                            # a kód lenti, EREDETI (jól működő) része fogja kiszámolni!
+                            # HA ÚJ AZ ÜGYFÉL: A nevet kivesszük, a többit az eredeti logika megoldja lent
                             local_customer_name, _ = split_name_logic(raw_line)
 
                         name_line_index = idx

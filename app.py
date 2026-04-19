@@ -241,7 +241,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
             # \u0397 a görög nagy Éta (Η) kódja
             anchors = [w for w in words if re.search(r'[HKSCPZ\u0397]-\d{6}', w['text'])]
             
-for i, anchor in enumerate(anchors):
+            for i, anchor in enumerate(anchors):
                 if anchor['top'] >= page_cutoff: continue
 
                 # --- 0. ALAPÉRTÉKEK (Ez javítja a NameError-t) ---

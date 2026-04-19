@@ -172,16 +172,32 @@ def split_name_logic(raw_text):
 # --- 3. MASTER DATA (HOSSZÚ TÁVÚ MEMÓRIA) ---
 def load_master_data():
     if os.path.exists("master_data.csv"):
-        return pd.read_csv("master_data.csv", dtype={'Ügyfélkód': str})
-    return pd.DataFrame(columns=['Ügyfélkód', 'Ügyintéző', 'Cím', 'Telefonszám', 'Megjegyzés'])
+        return pd.read_csv("master_data.csv")
+    # Ha még nincs fájl, ID legyen a neve, ne Ügyfélkód
+    return pd.DataFrame(columns=['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés'])
 
 def save_to_master(current_df):
     """Ezt hívjuk meg a Mentés gombnál!"""
     master_df = load_master_data()
-    # Összefűzzük a mait a régivel, az új adatok felülírják a régit az ID alapján
-    updated_master = pd.concat([master_df, current_df[['Ügyfélkód', 'Ügyintéző', 'Cím', 'Telefonszám', 'Megjegyzés']]])
-    updated_master = updated_master.drop_duplicates(subset=['Ügyfélkód'], keep='last')
+    
+    # Itt kijavítottuk az oszlopneveket, hogy egyezzenek a rows.append részben lévőkkel
+    target_cols = ['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés']
+    
+    # Megnézzük, mi érhető el
+    available_cols = [col for col in target_cols if col in current_df.columns]
+    
+    if 'ID' not in available_cols:
+        st.error("Hiba: Az 'ID' oszlop nem található!")
+        return
+
+    subset_df = current_df[available_cols].copy()
+    
+    # Itt is ID-t használunk az összefűzésnél és szűrésnél
+    updated_master = pd.concat([master_df, subset_df])
+    updated_master = updated_master.drop_duplicates(subset=['ID'], keep='last')
+    
     updated_master.to_csv("master_data.csv", index=False)
+    st.success(f"Sikeres mentés! ({len(subset_df)} ügyfél adatai rögzítve)")
     
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(pdf_file, napi_etlap_kodok):

@@ -259,46 +259,29 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 
                 for idx, l in enumerate(lines):
                     if current_id in l:
-                        # 1. ALAPÉRTÉKEK
-                        local_customer_name, address_val, main_order, phone_val = "", "", "", ""
-                        match = pd.DataFrame()
+                        # 1. ALAPÉRTÉKEK ÉS SHEETS ELLENŐRZÉS
+                        local_customer_name, sheet_address, sheet_order, sheet_phone = "", "", "", ""
+                        from_sheets = False
                         
-                        # 2. SHEETS ELLENŐRZÉS
+                        raw_line = l.replace(current_id, "").strip()
                         master_df = load_master_data()
+                        
                         if not master_df.empty and 'Ügyfélkód' in master_df.columns:
                             clean_id = current_id.split('-')[1] if '-' in current_id else current_id
                             match = master_df[master_df['Ügyfélkód'].astype(str) == clean_id]
-                        
-                        if not match.empty:
-                            local_customer_name = str(match.iloc[0].get('Ügyintéző', ""))
-                            address_val = str(match.iloc[0].get('Cím', ""))
-                            main_order = str(match.iloc[0].get('Rendelés', ""))
-                            phone_val = str(match.iloc[0].get('Telefon', ""))
-                        else:
-                            # 3. MANUÁLIS SZÉTVÁGÁS (Mivel a Sheets üres)
-                            # Kicseréljük az ID-t szóközre, hogy ne zavarjon
-                            raw_line = l.replace(current_id, " ").strip()
                             
-                            # Telefonszám kimentése (ez a legbiztosabb pont)
-                            p_match = re.search(PHONE_PAT, raw_line)
-                            if p_match:
-                                phone_val = p_match.group(1)
-                                # Ami a telefon ELŐTT van, abban van a név és a cím
-                                head = raw_line.split(phone_val)[0].strip()
-                                # Ami a telefon UTÁN van, az a rendelés
-                                main_order = raw_line.split(phone_val)[1].strip()
-                                
-                                # A név és cím szétválasztása (Irányítószám alapján)
-                                zip_match = re.search(r'(\d{4})', head)
-                                if zip_match:
-                                    local_customer_name = head[:zip_match.start()].strip()
-                                    address_val = head[zip_match.start():].strip()
-                                else:
-                                    local_customer_name = head
-                            else:
-                                # Ha nincs telefon, próbáljuk sima név/rendelés alapon
-                                local_customer_name, _ = split_name_logic(raw_line)
-                                main_order = raw_line.replace(local_customer_name, "").strip()
+                            if not match.empty:
+                                # Ha megvan a táblázatban, ezeket fogjuk használni
+                                local_customer_name = str(match.iloc[0].get('Ügyintéző', ""))
+                                sheet_address = str(match.iloc[0].get('Cím', ""))
+                                sheet_order = str(match.iloc[0].get('Rendelés', ""))
+                                sheet_phone = str(match.iloc[0].get('Telefon', ""))
+                                from_sheets = True
+                        
+                        if not from_sheets:
+                            # HA ÜRES A SHEETS: Csak a nevet vesszük ki, a Címet és Rendelést 
+                            # a kód lenti, EREDETI (jól működő) része fogja kiszámolni!
+                            local_customer_name, _ = split_name_logic(raw_line)
 
                         name_line_index = idx
                         break
@@ -812,19 +795,33 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
                     full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
 
-                    # --- 825. sor: ADATOK HOZZÁADÁSA ---
-                    # A .get() és a 'locals()' biztosítja, hogy ne omoljon össze üres Sheets esetén sem
+                    # --- VÉGSŐ ADATOK KIVÁLASZTÁSA ---
+                    if from_sheets:
+                        # Ha volt adat a GSheets-ben, azt írjuk be
+                        out_admin = local_customer_name
+                        out_address = sheet_address
+                        out_order = sheet_order
+                        out_phone = sheet_phone
+                    else:
+                        # HA NEM VOLT (Első mentés): A te eredeti, jó változóidat használjuk!
+                        out_admin = admin_name if admin_name else local_customer_name
+                        out_address = address          # <-- ITT A LÉNYEG: A régi jó címed!
+                        out_order = rendeles_str       # <-- A régi jó rendelésed!
+                        out_phone = phone_val          # <-- A régi jó telefonod!
+
+                    # --- ADATOK HOZZÁADÁSA ---
                     rows.append({
                         "Sorrend": len(rows) + 1,
                         "ID": full_id,
-                        "Ügyintéző": admin_name if 'admin_name' in locals() else "",
-                        "Cím": address_val if 'address_val' in locals() else "",
-                        "Telefon": phone_val if 'phone_val' in locals() else "",
+                        "Ügyintéző": out_admin,
+                        "Cím": out_address,
+                        "Telefon": out_phone,
                         "Pénz": money_val if 'money_val' in locals() else "0 Ft",
-                        "Rendelés": main_order if 'main_order' in locals() else "",
+                        "Rendelés": out_order,
                         "Megjegyzés": full_note if 'full_note' in locals() else "",
-                        "Összesen": total_qty if 'total_qty' in locals() else 0,
-                        "Rendelés_Full": full_order_text if 'full_order_text' in locals() else "",
+                        # A DB számítás visszakötése az eredeti logikádhoz
+                        "Összesen": sum(int(q) for q, _ in raw_orders) if 'raw_orders' in locals() else 0,
+                        "Rendelés_Full": full_rendeles_text if 'full_rendeles_text' in locals() else "",
                         "temp_id": re.sub(r'^[HKSCPZ]-', '', full_id),
                         "Prefix": prefix,
                         "Csoport": saved_group if 'saved_group' in locals() else "0"

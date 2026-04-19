@@ -358,27 +358,28 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
                 id_match = re.search(r'([HKSCPZ]\s*-\s*\d{5,7})', full_id_area)
                 
-                # --- JAVÍTOTT, GOLYÓÁLLÓ SZŰRÉS ÉS AZONOSÍTÁS ---
+                # --- 100% BIZTONSÁGI JAVÍTÁS ---
                 line_text_full = " ".join([w['text'] for w in line_words])
                 
-                # 1. Itt keressük meg az ID-t a teljes sorszövegben
+                # Keressük az ID-t
                 id_match = re.search(r'([HKSCPZ]\s*-\s*\d{5,7})', line_text_full)
                 
                 if id_match:
-                    # Ha megvan az ID, megtisztítjuk és kimentjük a prefixet
                     full_id = id_match.group(1).replace(" ", "")
                     prefix = full_id.split('-')[0]
                 else:
-                    # HA NINCS ID -> Ellenőrizzük, hogy ez csak egy fejléc/lábléc-e
+                    # Ha nincs ID, nézzük meg, hogy kuka-e a sor
                     tiltott_szavak = ["járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", "Összesítés:", "Csilagozott", "Összesen:"]
-                    if any(stop in line_text_full for stop in tiltott_szavak):
+                    if any(stop in line_text_full for stop in tiltott_szavak) or not line_text_full.strip():
                         continue
-                    
-                    # Ha nem tiltott, de nincs benne ID, akkor ez egy hasznavehetetlen töredék sor
-                    continue
+                    else:
+                        # Ha nincs benne ID és nem is tiltott szó, de pl. csak egy névtöredék, 
+                        # akkor is ugorjunk, mert nekünk az ID a horgonyunk.
+                        continue
 
-                # --- INNEN FOLYTATÓDIK A FELDOLGOZÁS ---
-                # (Rendelés, Pénz, Telefon kinyerése...)
+                # --- INNEN MEGY TOVÁBB A KÓD (Rendelés, Pénz, stb.) ---
+                # Fontos: Innentől minden sor legyen EGY SZINTTEL BELJEBB (behúzva), 
+                # mint az 'if id_match:' sor, hogy csak akkor fusson le, ha van ID!
                     
                     # --- 1. KOORDINÁTÁK ÉS ALAP-SOR MEGHATÁROZÁSA ---
                     W = page.width

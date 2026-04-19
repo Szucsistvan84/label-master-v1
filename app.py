@@ -236,30 +236,24 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 raw_text = full_row_box.extract_text() or ""
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
 
-                # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE (Okos felismeréssel és memóriával) ---
+                # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE (Szigorú kontrollal) ---
                 current_id = anchor['text']
                 local_customer_name = ""
                 name_line_index = -1
                 
                 for idx, l in enumerate(lines):
                     if current_id in l:
-                        # Kivágjuk az ID-t a sorból
+                        # Kivágjuk az ID-t: "Dr. Vincze Ildikó belülre kérem" (vagy "Kovács Bt. / Kovács János")
                         raw_line = l.replace(current_id, "").strip()
                         
-                        # 1. MEGNÉZZÜK A MEMÓRIÁBAN (Ismerjük már?)
-                        master_df = load_master_data()
-                        # Megkeressük az ID alapján (pl. S-12345)
-                        match = master_df[master_df['Ügyfélkód'] == current_id]
-                        
-                        if not match.empty:
-                            # Ha már egyszer elmentetted, akkor azt a nevet használjuk, amit te adtál meg
-                            local_customer_name = str(match.iloc[0]['Ügyintéző'])
-                        else:
-                            # 2. HA ÚJ ÜGYFÉL: Bevetjük a névlistás szűrőt
-                            # A split_name_logic a feltöltött txt fájljaidat használja
-                            tiszta_nev, extra_megj = split_name_logic(raw_line)
-                            local_customer_name = tiszta_nev
-                        
+                        # Csak addig gyűjtjük a szavakat, amíg NEVET látunk (Nagybetű/Dr/stb)
+                        name_parts = []
+                        for word in raw_line.split():
+                            if word[0].isupper() or word.startswith("Dr.") or word.lower() in ["id.", "ifj.", "özv."]:
+                                name_parts.append(word)
+                            else:
+                                break
+                        local_customer_name = " ".join(name_parts)
                         name_line_index = idx
                         break
 
@@ -1496,17 +1490,10 @@ def main():
             use_container_width=True
         )
     
-        # 3. MENTÉS ÉS ÚJRARANKEZÉS GOMB
+        # MENTÉS ÉS ÚJRARANKEZÉS GOMB
         if st.button("💾 SORREND VÉGLEGESÍTÉSE (Újraszámozás)"):
             # Itt már az edited_df-et használjuk, mert a fenti editor már létrehozta
             temp_df = edited_df.copy()
-            
-            # --- EZ AZ ÚJ RÉSZ ---
-            # Frissítjük a hosszú távú memóriát (Master Data) a szerkesztett adatokkal
-            save_to_master(temp_df)
-            # ---------------------
-        
-            # ... a kódod többi része (sorrendezés, mentés stb.)
             
             # 1. Számmá alakítás (hogy a tizedesek alapján rendezni tudjunk)
             temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999)

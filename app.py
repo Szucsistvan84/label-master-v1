@@ -172,8 +172,11 @@ def split_name_logic(raw_text):
 # --- 3. MASTER DATA (HOSSZÚ TÁVÚ MEMÓRIA) ---
 def load_master_data():
     if os.path.exists("master_data.csv"):
-        return pd.read_csv("master_data.csv")
-    # Ha még nincs fájl, ID legyen a neve, ne Ügyfélkód
+        try:
+            return pd.read_csv("master_data.csv")
+        except:
+            pass
+    # Itt is ID legyen az Ügyfélkód helyett!
     return pd.DataFrame(columns=['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés'])
 
 def save_to_master(current_df):
@@ -265,7 +268,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         # 1. MEGNÉZZÜK A MEMÓRIÁBAN (Ismerjük már?)
                         master_df = load_master_data()
                         # Megkeressük az ID alapján (pl. S-12345)
-                        match = master_df[master_df['Ügyfélkód'] == current_id]
+                        match = master_df[master_df['ID'] == current_id]
                         
                         if not match.empty:
                             # Ha már egyszer elmentetted, akkor azt a nevet használjuk, amit te adtál meg

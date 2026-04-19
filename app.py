@@ -235,7 +235,8 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
             # Ha nincs ilyen szó, a lap alja a határ, ha van, akkor a szó teteje
             page_cutoff = min([w['top'] for w in footer_elements]) - 2 if footer_elements else pg.height
 
-            anchors = [w for w in words if re.search(r'[HKSCPZ]-\d{5,7}', w['text'])]
+            # \u0397 a görög nagy Éta (Η) kódja
+            anchors = [w for w in words if re.search(r'[HKSCPZ\u0397]-\d{6}', w['text'])]
             
             for i, anchor in enumerate(anchors):
                 if anchor['top'] >= page_cutoff: continue

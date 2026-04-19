@@ -299,18 +299,16 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         match = master_df[master_df['ID'] == current_id]
                         
                         if not match.empty:
-                            # Ha a táblázatban már megvan az ügyfél, az ottani adatok az erősebbek
-                            local_customer_name = str(match.iloc[0]['Ügyintéző'])
-                            
-                            # Kinyerjük a mentett csoportot is (ha nincs kitöltve, 0 lesz)
+                            # Ha már ismerjük, a mentett név az erősebb
+                            admin_name = str(match.iloc[0]['Ügyintéző'])
                             try:
                                 saved_group = int(match.iloc[0].get('CsoportID', 0))
                             except:
                                 saved_group = 0
                         else:
-                            # Ha teljesen új ügyfél, az automata szűrő nevét használjuk
-                            local_customer_name = tiszta_nev
-                            saved_group = 0 # Az új ügyfél alapból nem tartozik csoportba
+                            # HA ÚJ AZ ÜGYFÉL (ez hiányzott!), akkor az automata szűrő nevét használjuk
+                            admin_name = tiszta_nev
+                            saved_group = 0
                         
                         name_line_index = idx
                         break

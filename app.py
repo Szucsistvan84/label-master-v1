@@ -16,7 +16,6 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame, Flowable
-from streamlit_gsheets import GSheetsConnection
 
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'
@@ -170,61 +169,35 @@ def split_name_logic(raw_text):
             
     return " ".join(name_parts), " ".join(comment_parts)
 
-# --- 3. MASTER DATA (GOOGLE SHEETS MEMÓRIA) ---
-# Azonosító: 1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o
-# Fontos: A táblázat URL-je pontos legyen!
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o/edit#gid=0"
-
-def get_gsheets_conn():
-    # Létrehozzuk a kapcsolatot a st.connection segítségével
-    return st.connection("gsheets", type=GSheetsConnection)
-
+# --- 3. MASTER DATA (HOSSZÚ TÁVÚ MEMÓRIA) ---
 def load_master_data():
-    """Adatok betöltése a Google Sheets-ből"""
-    conn = get_gsheets_conn()
-    try:
-        # Beolvassuk a táblázatot. A ttl="0" biztosítja, hogy ne cache-elt (régi) adatot lássunk.
-        df = conn.read(spreadsheet=SPREADSHEET_URL, ttl="0")
-        # Tisztítás: csak azokat a sorokat tartjuk meg, ahol van ID
-        if not df.empty:
-            df = df.dropna(subset=['ID'])
-        return df
-    except Exception as e:
-        # Ha a táblázat még üres vagy hiba van, visszaadjuk az alap struktúrát
-        return pd.DataFrame(columns=['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés', 'CsoportID', 'FixSorrend'])
+    if os.path.exists("master_data.csv"):
+        return pd.read_csv("master_data.csv")
+    # Ha még nincs fájl, ID legyen a neve, ne Ügyfélkód
+    return pd.DataFrame(columns=['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés'])
 
 def save_to_master(current_df):
-    """Ezt hívjuk meg a 'Sorrend véglegesítése' gombnál!"""
-    conn = get_gsheets_conn()
-    
-    # 1. Betöltjük a jelenlegi Sheets tartalmat
+    """Ezt hívjuk meg a Mentés gombnál!"""
     master_df = load_master_data()
     
-    # 2. Előkészítjük a mostani táblázatunkat mentésre
-    # Fontos: A 'Csoport' oszlopot 'CsoportID'-ként mentjük a Sheets-be
-    to_save = current_df.copy()
-    if 'Csoport' in to_save.columns:
-        to_save['CsoportID'] = to_save['Csoport']
+    # Itt kijavítottuk az oszlopneveket, hogy egyezzenek a rows.append részben lévőkkel
+    target_cols = ['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés']
     
-    # Csak azokat az oszlopokat tartjuk meg, amik kellenek a Sheets-be
-    cols_for_sheets = ['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés', 'CsoportID']
-    available_cols = [c for c in cols_for_sheets if c in to_save.columns]
-    subset_to_save = to_save[available_cols].copy()
+    # Megnézzük, mi érhető el
+    available_cols = [col for col in target_cols if col in current_df.columns]
+    
+    if 'ID' not in available_cols:
+        st.error("Hiba: Az 'ID' oszlop nem található!")
+        return
 
-    # 3. Összefésülés (Merge): Frissítjük a régit az újjal
-    if master_df.empty:
-        final_master = subset_to_save
-    else:
-        # Összefűzzük és az ID alapján az utolsót (legfrissebbet) tartjuk meg
-        final_master = pd.concat([master_df, subset_to_save], ignore_index=True)
-        final_master = final_master.drop_duplicates(subset=['ID'], keep='last')
-
-    # 4. Visszaírás a Google Sheets-be
-    try:
-        conn.update(spreadsheet=SPREADSHEET_URL, data=final_master)
-        st.success(f"✅ Adatok szinkronizálva a Google Sheets-el! ({len(subset_to_save)} ügyfél)")
-    except Exception as e:
-        st.error(f"❌ Hiba a Google Sheets mentésnél: {e}")
+    subset_df = current_df[available_cols].copy()
+    
+    # Itt is ID-t használunk az összefűzésnél és szűrésnél
+    updated_master = pd.concat([master_df, subset_df])
+    updated_master = updated_master.drop_duplicates(subset=['ID'], keep='last')
+    
+    updated_master.to_csv("master_data.csv", index=False)
+    st.success(f"Sikeres mentés! ({len(subset_df)} ügyfél adatai rögzítve)")
     
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
@@ -286,29 +259,22 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 
                 for idx, l in enumerate(lines):
                     if current_id in l:
-                        # 1. NYERS SOR KINYERÉSE (pl. "Dr. Vincze Anett 2. emelet")
+                        # Kivágjuk az ID-t a sorból
                         raw_line = l.replace(current_id, "").strip()
                         
-                        # 2. TISZTÍTÁS A LISTÁK ALAPJÁN (Ez mostantól MINDIG lefut)
-                        # Így ha a Vincze név benne van a csaladnevek.txt-ben, 
-                        # a tiszta_nev csak "Dr. Vincze Anett" lesz.
-                        tiszta_nev, extra_megj = split_name_logic(raw_line)
-                        
-                        # --- 3. ELLENŐRZÉS A GOOGLE SHEETS-BEN ---
+                        # 1. MEGNÉZZÜK A MEMÓRIÁBAN (Ismerjük már?)
                         master_df = load_master_data()
-                        match = master_df[master_df['ID'] == current_id]
+                        # Megkeressük az ID alapján (pl. S-12345)
+                        match = master_df[master_df['Ügyfélkód'] == current_id]
                         
                         if not match.empty:
-                            # Ha már ismerjük, a mentett név az erősebb
-                            admin_name = str(match.iloc[0]['Ügyintéző'])
-                            try:
-                                saved_group = int(match.iloc[0].get('CsoportID', 0))
-                            except:
-                                saved_group = 0
+                            # Ha már egyszer elmentetted, akkor azt a nevet használjuk, amit te adtál meg
+                            local_customer_name = str(match.iloc[0]['Ügyintéző'])
                         else:
-                            # HA ÚJ AZ ÜGYFÉL (ez hiányzott!), akkor az automata szűrő nevét használjuk
-                            admin_name = tiszta_nev
-                            saved_group = 0
+                            # 2. HA ÚJ ÜGYFÉL: Bevetjük a névlistás szűrőt
+                            # A split_name_logic a feltöltött txt fájljaidat használja
+                            tiszta_nev, extra_megj = split_name_logic(raw_line)
+                            local_customer_name = tiszta_nev
                         
                         name_line_index = idx
                         break
@@ -373,19 +339,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 if id_match:
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
-
-                    # --- EZT SZÚRD BE IDE KÖZVETLENÜL A PREFIX ALÁ ---
-                    # Alaphelyzetbe állítjuk a változókat az ÚJ ÜGYFÉLHEZ
-                    admin_name = ""
-                    address_val = ""
-                    phone_val = ""
-                    money_val = ""
-                    main_order = ""
-                    full_note = ""
-                    total_qty = 0
-                    full_order_text = ""
-                    saved_group = "0"
-                    # ------------------------------------------------
                     
                     # --- 1. KOORDINÁTÁK ÉS ALAP-SOR MEGHATÁROZÁSA ---
                     W = page.width
@@ -835,21 +788,12 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
                     full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
 
-                    # --- 2. AZ EGYETLEN ÉS VÉGLEGES HOZZÁADÁS ---
                     rows.append({
-                        "Sorrend": len(rows) + 1,
-                        "ID": full_id,
-                        "Ügyintéző": admin_name if 'admin_name' in locals() else "", 
-                        "Cím": address_val if 'address_val' in locals() else "",
-                        "Telefon": phone_val if 'phone_val' in locals() else "",
-                        "Pénz": money_val if 'money_val' in locals() else "",
-                        "Rendelés": main_order if 'main_order' in locals() else "",
-                        "Megjegyzés": full_note if 'full_note' in locals() else "",
-                        "Összesen": total_qty if 'total_qty' in locals() else 0,
-                        "Rendelés_Full": full_order_text if 'full_order_text' in locals() else "",
-                        "temp_id": re.sub(r'^[HKSCPZ]-', '', full_id),
-                        "Prefix": prefix,
-                        "Csoport": saved_group if 'saved_group' in locals() else "0"
+                        "ID": full_id, "Ügyintéző": admin_name, "Cím": address, "Telefon": phone_val,
+                        "Pénz": money_val, "Rendelés": rendeles_str, "Megjegyzés": full_note,
+                        "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
+                        "Rendelés_Full": full_rendeles_text, "temp_id": full_id.split('-')[-1],
+                        "Prefix": prefix, "Csoport": current_group_id if 'current_group_id' in locals() else 0
                     })
     
     if not rows: return [], metadata

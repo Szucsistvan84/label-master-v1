@@ -824,18 +824,19 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                     # --- 2. AZ EGYETLEN ÉS VÉGLEGES HOZZÁADÁS ---
                     rows.append({
-                        "ID": current_id, 
-                        "Ügyintéző": final_name,  # <--- Itt használjuk a kinyert nevet!
-                        "Cím": address, 
+                        "Sorrend": len(rows) + 1,
+                        "ID": full_id,
+                        "Ügyintéző": admin_name,  # <--- Itt 'final_name' helyett 'admin_name'-et használunk!
+                        "Cím": address_val,
                         "Telefon": phone_val,
-                        "Pénz": money_val, 
-                        "Rendelés": rendeles_str, 
+                        "Pénz": money_val,
+                        "Rendelés": main_order,
                         "Megjegyzés": full_note,
-                        "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
-                        "Rendelés_Full": full_rendeles_text, 
-                        "temp_id": current_id.split('-')[-1],
-                        "Prefix": prefix, 
-                        "Csoport": saved_group
+                        "Összesen": total_qty,
+                        "Rendelés_Full": full_order_text,
+                        "temp_id": re.sub(r'^[HKSCPZ]-', '', full_id),
+                        "Prefix": prefix,
+                        "Csoport": saved_group # Ezt a GSheets ellenőrzésnél kaptuk meg fentebb
                     })
     
     if not rows: return [], metadata

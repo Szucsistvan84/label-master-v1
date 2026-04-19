@@ -259,45 +259,48 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 
                 for idx, l in enumerate(lines):
                     if current_id in l:
-                        # Kivágjuk az ID-t a sorból
+                        # --- 0. ALAPHELYZETBE ÁLLÍTÁS (Hogy ne legyen hiba) ---
+                        local_customer_name = ""
+                        address_val = ""
+                        main_order = ""
+                        phone_val = ""
+                        match = pd.DataFrame()
+                        
                         raw_line = l.replace(current_id, "").strip()
                         
-                        # 1. MEGNÉZZÜK A MEMÓRIÁBAN (Ismerjük már?)
+                        # 1. MEGNÉZZÜK A MEMÓRIÁBAN (Google Sheets)
                         master_df = load_master_data()
                         
-                        # --- INNEN JÖN A JAVÍTÁS ---
-                        local_customer_name = ""
-                        match = pd.DataFrame()
-
-                        # Csak akkor próbálunk keresni, ha a táblázat nem üres és van benne Ügyfélkód oszlop
+                        # Csak akkor keresünk, ha a táblázat nem üres és van Ügyfélkód oszlop
                         if not master_df.empty and 'Ügyfélkód' in master_df.columns:
                             match = master_df[master_df['Ügyfélkód'] == current_id]
                         
-                        # ... (az előző javításod eleje) ...
                         if not match.empty:
                             # Ha van adat a Sheets-ben, azt használjuk
                             local_customer_name = str(match.iloc[0].get('Ügyintéző', ""))
                             address_val = str(match.iloc[0].get('Cím', ""))
                             main_order = str(match.iloc[0].get('Rendelés', ""))
+                            phone_val = str(match.iloc[0].get('Telefon', ""))
                         else:
-                            # HA ÜRES A SHEETS (Első feltöltés): 
-                            # A PDF-ből nyerjük ki az adatokat a meglévő függvényeiddel
+                            # 2. HA ÜRES A SHEETS (vagy új ügyfél): PDF-ből szedjük ki
                             
-                            # 1. Név kinyerése
+                            # Név kinyerése
                             tiszta_nev, extra_megj = split_name_logic(raw_line)
                             local_customer_name = tiszta_nev
                             
-                            # 2. Cím kinyerése (Ez hozza vissza a hiányzó címeket!)
-                            # A kódodban a v_lines[2] és [3] között van a cím a menettervben
-                            address_val = get_col_text(v_lines[2], v_lines[3]).strip()
-                            
-                            # 3. Rendelés kinyerése (v_lines[4] és [5] között)
-                            order_and_phone = get_col_text(v_lines[4], v_lines[5]).strip()
-                            # Itt csak lecsípjük a telefont a végéről, ha benne van
-                            phone_match = re.search(PHONE_PAT, order_and_phone)
-                            p_val = phone_match.group(1) if phone_match else ""
-                            main_order = order_and_phone.replace(p_val, "").strip()
-                            phone_val = p_val # Ezt is mentsük el
+                            # Cím és Rendelés kinyerése az oszlopokból (v_lines)
+                            # Csak akkor fut le, ha a v_lines létezik és vannak oszlopok
+                            if 'v_lines' in locals() and len(v_lines) >= 6:
+                                address_val = get_col_text(v_lines[2], v_lines[3]).strip()
+                                order_and_phone = get_col_text(v_lines[4], v_lines[5]).strip()
+                                
+                                # Telefonszám leválasztása a rendelésről
+                                phone_match = re.search(PHONE_PAT, order_and_phone)
+                                if phone_match:
+                                    phone_val = phone_match.group(1)
+                                    main_order = order_and_phone.replace(phone_val, "").strip()
+                                else:
+                                    main_order = order_and_phone
                         
                         name_line_index = idx
                         break

@@ -358,18 +358,25 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
                 id_match = re.search(r'([HKSCPZ]\s*-\s*\d{5,7})', full_id_area)
                 
-                # --- 0. FEJLÉC ÉS LÁBLÉC TELJES KIZÁRÁSA ---
+                # --- JAVÍTOTT SZŰRÉS (401. sor környéke) ---
                 line_text_full = " ".join([w['text'] for w in line_words])
-                tiltott_szavak = ["járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", "Összesítés:", "Csilagozott", "Összesen:"]
                 
-                if any(stop in line_text_full for stop in tiltott_szavak):
-                    if not re.search(r'[HKSCPZ]\s*-\s*\d{5,7}', line_text_full):
-                        continue
-
+                # 1. HA VAN ID, AKKOR EZ EGY ÉRVÉNYES ÜGYFÉL - feldolgozzuk
                 if id_match:
-                    # Kiszűrjük a szóközöket, hogy a prefix és az ID tiszta maradjon a táblázatban
                     full_id = id_match.group(1).replace(" ", "")
                     prefix = full_id.split('-')[0]
+                
+                # 2. HA NINCS ID, CSAK AKKOR NÉZZÜK A TILTÁST
+                else:
+                    tiltott_szavak = ["járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", "Összesítés:", "Csilagozott", "Összesen:"]
+                    if any(stop in line_text_full for stop in tiltott_szavak):
+                        continue
+                    
+                    # Ha teljesen üres a szöveg, azt is átugorjuk
+                    if not line_text_full.strip():
+                        continue
+                
+                # Innen megy tovább a kód (if id_match utáni rész)...
                     
                     # --- 1. KOORDINÁTÁK ÉS ALAP-SOR MEGHATÁROZÁSA ---
                     W = page.width

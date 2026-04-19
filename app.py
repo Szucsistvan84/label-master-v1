@@ -327,20 +327,18 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     else:
                         hosszu_megj_lista.append(l_strip)
 
-                # --- 4. MENTÉS A VÁLTOZÓKBA (363. sor környéke) ---
+                # --- 4. MENTÉS A VÁLTOZÓKBA ---
                 megj_resz_1 = " | ".join(reszleg_ceg_lista)
                 megj_resz_2 = " | ".join(hosszu_megj_lista)
                 customer_name = local_customer_name
 
-                # --- JAVÍTOTT KOORDINÁTA SZÁMÍTÁS (A fehér képernyő és SyntaxError ellen) ---
+                # --- JAVÍTOTT KOORDINÁTA SZÁMÍTÁS ---
                 if i + 1 < len(anchors):
-                    # Ha van következő horgony
                     if anchors[i+1]['top'] - anchor['top'] < 12:
                         next_anchor_top = max(anchors[i+1]['top'], anchor['bottom'] + 1)
                     else:
                         next_anchor_top = anchors[i+1]['top'] - 1
                 else:
-                    # Ha ez az utolsó horgony az oldalon
                     next_anchor_top = page_cutoff
 
                 y_bottom = min(next_anchor_top, page_cutoff)

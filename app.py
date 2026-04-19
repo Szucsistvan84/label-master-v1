@@ -330,21 +330,18 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 # --- 4. MENTÉS A VÁLTOZÓKBA ---
                 megj_resz_1 = " | ".join(reszleg_ceg_lista)
                 megj_resz_2 = " | ".join(hosszu_megj_lista)
-                
-                # Fontos: frissítsük a globális nevet is, ha a későbbi pontoknak kell
                 customer_name = local_customer_name
-            
+
                 # --- JAVÍTÁS: A blokk vége (Szöveg kettévágásának megakadályozása) ---
                 if i + 1 < len(anchors):
-                    # Ha a következő ID túl közel van, NE vonjunk ki belőle 5 pixelt, 
-                    # mert akkor vízszintesen elvágjuk a szavakat, és vak lesz a program!
+                    # Ha a következő ID túl közel van
                     if anchors[i+1]['top'] - anchor['top'] < 12:
                         next_anchor_top = max(anchors[i+1]['top'], anchor['bottom'] + 1)
                     else:
                         next_anchor_top = anchors[i+1]['top'] - 1
                 else:
                     next_anchor_top = page_cutoff
-                
+
                 y_bottom = min(next_anchor_top, page_cutoff)
                 
                 line_words = [w for w in words if y_top <= w['top'] < y_bottom]

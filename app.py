@@ -373,6 +373,19 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 if id_match:
                     full_id = id_match.group(1)
                     prefix = full_id.split('-')[0]
+
+                    # --- EZT SZÚRD BE IDE KÖZVETLENÜL A PREFIX ALÁ ---
+                    # Alaphelyzetbe állítjuk a változókat az ÚJ ÜGYFÉLHEZ
+                    admin_name = ""
+                    address_val = ""
+                    phone_val = ""
+                    money_val = ""
+                    main_order = ""
+                    full_note = ""
+                    total_qty = 0
+                    full_order_text = ""
+                    saved_group = "0"
+                    # ------------------------------------------------
                     
                     # --- 1. KOORDINÁTÁK ÉS ALAP-SOR MEGHATÁROZÁSA ---
                     W = page.width

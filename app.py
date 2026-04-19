@@ -259,7 +259,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 
                 for idx, l in enumerate(lines):
                     if current_id in l:
-                        # 1. ALAPÉRTÉKEK - Mindent leürítünk, hogy ne legyen UnboundLocalError
+                        # 1. ALAPÉRTÉKEK - Mindent leürítünk
                         local_customer_name = ""
                         address_val = ""
                         main_order = ""
@@ -271,38 +271,37 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         # 2. MEGNÉZZÜK A GOOGLE SHEETS-BEN
                         master_df = load_master_data()
                         if not master_df.empty and 'Ügyfélkód' in master_df.columns:
-                            # Megkeressük az ID alapján (tisztított ID-val)
                             clean_id = current_id.split('-')[1] if '-' in current_id else current_id
                             match = master_df[master_df['Ügyfélkód'].astype(str) == clean_id]
                         
                         if not match.empty:
-                            # Ha van adat a Sheets-ben, azt használjuk
                             local_customer_name = str(match.iloc[0].get('Ügyintéző', ""))
                             address_val = str(match.iloc[0].get('Cím', ""))
                             main_order = str(match.iloc[0].get('Rendelés', ""))
                             phone_val = str(match.iloc[0].get('Telefon', ""))
                         else:
-                            # 3. HA ÜRES A SHEETS (ELSŐ FELTÖLTÉS): PDF-BŐL SZEDJÜK KI
+                            # 3. HA ÚJ / ÜRES A SHEETS: A PDF KÖRNYEZETÉBŐL DOLGOZUNK
+                            # Név kinyerése a split_name_logic-al
                             tiszta_nev, extra_megj = split_name_logic(raw_line)
                             local_customer_name = tiszta_nev
                             
-                            # Itt a trükk: Csak akkor nyúlunk a v_lines-hoz, ha az OLDAL szinten létezik
-                            # Ha nem létezik, a fenti "" alapérték megvédi a kódot
-                            if 'v_lines' in locals() and len(v_lines) >= 6:
-                                try:
-                                    address_val = get_col_text(v_lines[2], v_lines[3]).strip()
-                                    order_and_phone = get_col_text(v_lines[4], v_lines[5]).strip()
-                                    
-                                    phone_match = re.search(PHONE_PAT, order_and_phone)
-                                    if phone_match:
-                                        phone_val = phone_match.group(1)
-                                        main_order = order_and_phone.replace(phone_val, "").strip()
-                                    else:
-                                        main_order = order_and_phone
-                                except:
-                                    # Ha bármi gond van a vágással, maradjon üres, de ne álljon le
-                                    address_val = ""
-                        
+                            # CÍM ÉS RENDELÉS KERESÉSE A SZOMSZÉDOS SOROKBAN
+                            # Megnézzük a következő 2 sort, hátha ott a cím
+                            search_area = " ".join(lines[idx:idx+3])
+                            
+                            # Cím: Irányítószám (4 számjegy) alapján keressük
+                            zip_match = re.search(r'(\d{4}\s+[A-Z][^,]+[^.]+)', search_area)
+                            if zip_match:
+                                address_val = zip_match.group(1).strip()
+                            
+                            # Telefon: A meglévő mintáddal
+                            phone_match = re.search(PHONE_PAT, search_area)
+                            if phone_match:
+                                phone_val = phone_match.group(1)
+                            
+                            # Rendelés: Minden, ami nem ID, nem Név és nem Telefon
+                            main_order = raw_line.replace(tiszta_nev, "").strip()
+
                         name_line_index = idx
                         break
 

@@ -172,32 +172,16 @@ def split_name_logic(raw_text):
 # --- 3. MASTER DATA (HOSSZÚ TÁVÚ MEMÓRIA) ---
 def load_master_data():
     if os.path.exists("master_data.csv"):
-        return pd.read_csv("master_data.csv")
-    # Ha még nincs fájl, ID legyen a neve, ne Ügyfélkód
-    return pd.DataFrame(columns=['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés'])
+        return pd.read_csv("master_data.csv", dtype={'Ügyfélkód': str})
+    return pd.DataFrame(columns=['Ügyfélkód', 'Ügyintéző', 'Cím', 'Telefonszám', 'Megjegyzés'])
 
 def save_to_master(current_df):
     """Ezt hívjuk meg a Mentés gombnál!"""
     master_df = load_master_data()
-    
-    # Itt kijavítottuk az oszlopneveket, hogy egyezzenek a rows.append részben lévőkkel
-    target_cols = ['ID', 'Ügyintéző', 'Cím', 'Telefon', 'Megjegyzés']
-    
-    # Megnézzük, mi érhető el
-    available_cols = [col for col in target_cols if col in current_df.columns]
-    
-    if 'ID' not in available_cols:
-        st.error("Hiba: Az 'ID' oszlop nem található!")
-        return
-
-    subset_df = current_df[available_cols].copy()
-    
-    # Itt is ID-t használunk az összefűzésnél és szűrésnél
-    updated_master = pd.concat([master_df, subset_df])
-    updated_master = updated_master.drop_duplicates(subset=['ID'], keep='last')
-    
+    # Összefűzzük a mait a régivel, az új adatok felülírják a régit az ID alapján
+    updated_master = pd.concat([master_df, current_df[['Ügyfélkód', 'Ügyintéző', 'Cím', 'Telefonszám', 'Megjegyzés']]])
+    updated_master = updated_master.drop_duplicates(subset=['Ügyfélkód'], keep='last')
     updated_master.to_csv("master_data.csv", index=False)
-    st.success(f"Sikeres mentés! ({len(subset_df)} ügyfél adatai rögzítve)")
     
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
@@ -223,9 +207,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
         for pg in pdf.pages:
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
-            for w in words:
-                # Minden görög Étát (U+0397) cserélünk latin H-ra
-                w['text'] = w['text'].replace('\u0397', 'H')
             
             # --- FÜGGŐLEGES SOROMPÓ (Cutoff) BEÁLLÍTÁSA ---
             # Megkeressük a lap alját jelző szavak legmagasabb pontját
@@ -238,115 +219,87 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
             # Ha nincs ilyen szó, a lap alja a határ, ha van, akkor a szó teteje
             page_cutoff = min([w['top'] for w in footer_elements]) - 2 if footer_elements else pg.height
 
-            # \u0397 a görög nagy Éta (Η) kódja
-            anchors = [w for w in words if re.search(r'[HKSCPZ\u0397]-\d{6}', w['text'])]
+            anchors = [w for w in words if re.search(r'[HKSCPZ]-\d{5,7}', w['text'])]
             
             for i, anchor in enumerate(anchors):
                 if anchor['top'] >= page_cutoff: continue
 
-                # --- 0. ALAPÉRTÉKEK (Ez javítja a NameError-t) ---
-                local_customer_name = ""
-                sheet_address = ""
-                sheet_order = ""
-                sheet_phone = ""
-                from_sheets = False  # Alapból False, így a 'if not from_sheets' nem dob hibát
-                name_line_index = -1
-
                 # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA ---
                 y_top = max(0, anchor['top'] - 12)
                 
-                # Dinamikus alsó határ: ha a következő ügyfél túl közel van, fix keretet adunk
-                if i + 1 < len(anchors):
-                    next_top = anchors[i+1]['top']
-                    if next_top - anchor['top'] < 15:
-                        y_bottom = min(page_cutoff, anchor['top'] + 120)
-                    else:
-                        y_bottom = next_top - 2
-                else:
-                    y_bottom = min(page_cutoff, anchor['top'] + 150)
+                # Növeljük a 100-as limitet 150-re, hogy a hosszú megjegyzések alja se maradjon le
+                y_bottom = anchors[i+1]['top'] - 2 if i + 1 < len(anchors) else min(page_cutoff, anchor['top'] + 150)
                 
-                if y_bottom <= y_top: y_bottom = y_top + 60 
+                if y_bottom <= y_top: y_bottom = y_top + 40 # Itt is adhatunk neki kicsit több helyet
 
-                # Használjuk a pg változót (ahogy a ciklusod elején nevezted)
-                full_row_box = pg.within_bbox((20, y_top, 585, y_bottom))
+                full_row_box = page.within_bbox((20, y_top, 585, y_bottom))
                 raw_text = full_row_box.extract_text() or ""
-                # Görög H szűrése a nyers szövegből is
-                raw_text = raw_text.replace('\u0397', 'H')
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
 
-                # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE ---
+                # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE (Okos felismeréssel és memóriával) ---
                 current_id = anchor['text']
-                current_id_clean = current_id.replace('\u0397', 'H').replace(' ', '')
-
+                local_customer_name = ""
+                name_line_index = -1
+                
                 for idx, l in enumerate(lines):
-                    current_line_clean = l.replace('\u0397', 'H')
-                    
-                    if current_id_clean in current_line_clean.replace(' ', ''):
-                        master_df = load_master_data()
-                        if not master_df.empty and 'Ügyfélkód' in master_df.columns:
-                            clean_id_num = current_id_clean.split('-')[1] if '-' in current_id_clean else current_id_clean
-                            match = master_df[master_df['Ügyfélkód'].astype(str) == clean_id_num]
-                            
-                            if not match.empty:
-                                local_customer_name = str(match.iloc[0].get('Ügyintéző', ""))
-                                sheet_address = str(match.iloc[0].get('Cím', ""))
-                                sheet_order = str(match.iloc[0].get('Rendelés', ""))
-                                sheet_phone = str(match.iloc[0].get('Telefon', ""))
-                                from_sheets = True
+                    if current_id in l:
+                        # Kivágjuk az ID-t a sorból
+                        raw_line = l.replace(current_id, "").strip()
                         
-                        if not from_sheets:
-                            raw_line = current_line_clean.replace(current_id.replace('\u0397', 'H'), "").strip()
-                            local_customer_name, _ = split_name_logic(raw_line)
-
+                        # 1. MEGNÉZZÜK A MEMÓRIÁBAN (Ismerjük már?)
+                        master_df = load_master_data()
+                        # Megkeressük az ID alapján (pl. S-12345)
+                        match = master_df[master_df['Ügyfélkód'] == current_id]
+                        
+                        if not match.empty:
+                            # Ha már egyszer elmentetted, akkor azt a nevet használjuk, amit te adtál meg
+                            local_customer_name = str(match.iloc[0]['Ügyintéző'])
+                        else:
+                            # 2. HA ÚJ ÜGYFÉL: Bevetjük a névlistás szűrőt
+                            # A split_name_logic a feltöltött txt fájljaidat használja
+                            tiszta_nev, extra_megj = split_name_logic(raw_line)
+                            local_customer_name = tiszta_nev
+                        
                         name_line_index = idx
-                        break  # <--- Itt kilépünk a sor-kereső ciklusból...
+                        break
 
-                # --- 3. SZÉTVÁLOGATÁS (FONTOS: Ez már a fenti ciklus után, de az anchor-on BELÜL van!) ---
-                # Ezeket a sorokat pontosan az anchor (for i, anchor...) alá húzd be!
+                # --- 3. SZÉTVÁLOGATÁS (Részleg + Megjegyzés megtartásával) ---
                 reszleg_ceg_lista = []
                 hosszu_megj_lista = []
-    
+
                 for idx, l_strip in enumerate(lines):
                     # Alap szűrések
                     if any(x in l_strip for x in ["Debrecen", "Ebes", "Hajdú", "Sor", "Ügyfél", "Össz.", "Nyomtatva:"]): 
                         continue
-                    
-                    if current_id_clean in l_strip.replace('\u0397', 'H').replace(' ', ''):
-                        continue
-    
                     if re.search(PHONE_PAT, l_strip) or re.search(MONEY_PAT, l_strip):
                         continue
 
                     if idx == name_line_index:
+                        # Ez a név sora. Ami itt maradt az ID és a Név levágása után, az a Részleg!
+                        # Pl: "S-123 ID. Kovács János Részleg" -> "Részleg" marad meg.
                         maradek = l_strip.replace(current_id, "").replace(local_customer_name, "").strip()
+                        
                         if len(maradek) > 1:
+                            # Ha a maradék kisbetűvel kezdődik (mint a "belülre kérem"), 
+                            # akkor az inkább a hosszú megjegyzéshez tartozik, nem cég/részleg név.
                             if maradek[0].islower():
                                 hosszu_megj_lista.append(maradek)
                             else:
                                 reszleg_ceg_lista.append(maradek)
                     else:
+                        # Minden más sor (ami nem a név sora) a hosszú megjegyzésbe megy
                         hosszu_megj_lista.append(l_strip)
 
-# --- 4. MENTÉS A VÁLTOZÓKBA (ÚJ, STABIL VERZIÓ) ---
+                # --- 4. MENTÉS A VÁLTOZÓKBA ---
                 megj_resz_1 = " | ".join(reszleg_ceg_lista)
                 megj_resz_2 = " | ".join(hosszu_megj_lista)
-                customer_name = local_customer_name
-
-                # Kiszámoljuk a vágási magasságot alapértelmezéssel
-                next_anchor_top = page_cutoff 
                 
-                # Csak akkor módosítjuk, ha van következő horgony
-                if i + 1 < len(anchors):
-                    tavolsag = anchors[i+1]['top'] - anchor['top']
-                    if tavolsag < 12:
-                        next_anchor_top = max(anchors[i+1]['top'], anchor['bottom'] + 1)
-                    else:
-                        next_anchor_top = anchors[i+1]['top'] - 1
-
-                # Véglegesített koordináta
+                # Fontos: frissítsük a globális nevet is, ha a későbbi pontoknak kell
+                customer_name = local_customer_name
+            
+                # A blokk vége: vagy a következő ID, vagy a lap alja (sorompó)
+                next_anchor_top = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else page_cutoff
                 y_bottom = min(next_anchor_top, page_cutoff)
-
-                # --- 5. SZÖVEG KINYERÉSE ---
                 
                 line_words = [w for w in words if y_top <= w['top'] < y_bottom]
                 
@@ -355,30 +308,21 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     sel.sort(key=lambda x: (x['top'], x['x0']))
                     return " ".join([w['text'] for w in sel])
 
-                # Adatgyűjtés a sávokból (Szóköz-toleráns kereséssel!)
+                # Adatgyűjtés a sávokból
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
-                id_match = re.search(r'([HKSCPZ]\s*-\s*\d{5,7})', full_id_area)
+                id_match = re.search(r'([HKSCPZ]-\d{5,7})', full_id_area)
                 
-                # --- 100% BIZTONSÁGI JAVÍTÁS ---
+                # --- 0. FEJLÉC ÉS LÁBLÉC TELJES KIZÁRÁSA ---
                 line_text_full = " ".join([w['text'] for w in line_words])
+                tiltott_szavak = ["járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", "Összesítés:", "Csilagozott", "Összesen:"]
                 
-                # Keressük az ID-t
-                id_match = re.search(r'([HKSCPZ]\s*-\s*\d{5,7})', line_text_full)
-                
-                if id_match:
-                    full_id = id_match.group(1).replace(" ", "")
-                    prefix = full_id.split('-')[0]
-                else:
-                    # Ha nincs ID, nézzük meg, hogy kuka-e a sor
-                    tiltott_szavak = ["járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", "Összesítés:", "Csilagozott", "Összesen:"]
-                    if any(stop in line_text_full for stop in tiltott_szavak) or not line_text_full.strip():
+                if any(stop in line_text_full for stop in tiltott_szavak):
+                    if not re.search(r'[HKSCPZ]-\d{5,7}', line_text_full):
                         continue
-                else:
-                    continue # <--- EZ A SOR OKOZZA A BAJT, rossz a behúzása!
 
-                # --- INNEN MEGY TOVÁBB A KÓD (Rendelés, Pénz, stb.) ---
-                # Fontos: Innentől minden sor legyen EGY SZINTTEL BELJEBB (behúzva), 
-                # mint az 'if id_match:' sor, hogy csak akkor fusson le, ha van ID!
+                if id_match:
+                    full_id = id_match.group(1)
+                    prefix = full_id.split('-')[0]
                     
                     # --- 1. KOORDINÁTÁK ÉS ALAP-SOR MEGHATÁROZÁSA ---
                     W = page.width
@@ -572,7 +516,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     parts = []  # <--- IDE KERÜLJÖN
 
                     # --- 2. LÉPÉS: SORSZÁM LEVÁGÁSA (AZ ID-IG) ---
-                    id_pattern = r'[HKSCPZ\u0397]-\d{6}'
+                    id_pattern = r'[HKSCPZ]-\d{6}'
                     id_match = re.search(id_pattern, raw_line)
                     working_line = raw_line
                     if id_match:
@@ -828,36 +772,12 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
                     full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
 
-                    # --- VÉGSŐ ADATOK KIVÁLASZTÁSA ---
-                    if from_sheets:
-                        # Ha volt adat a GSheets-ben, azt írjuk be
-                        out_admin = local_customer_name
-                        out_address = sheet_address
-                        out_order = sheet_order
-                        out_phone = sheet_phone
-                    else:
-                        # HA NEM VOLT (Első mentés): A te eredeti, jó változóidat használjuk!
-                        out_admin = admin_name if admin_name else local_customer_name
-                        out_address = address          # <-- ITT A LÉNYEG: A régi jó címed!
-                        out_order = rendeles_str       # <-- A régi jó rendelésed!
-                        out_phone = phone_val          # <-- A régi jó telefonod!
-
-                    # --- ADATOK HOZZÁADÁSA ---
                     rows.append({
-                        "Sorrend": len(rows) + 1,
-                        "ID": full_id,
-                        "Ügyintéző": out_admin,
-                        "Cím": out_address,
-                        "Telefon": out_phone,
-                        "Pénz": money_val if 'money_val' in locals() else "0 Ft",
-                        "Rendelés": out_order,
-                        "Megjegyzés": full_note if 'full_note' in locals() else "",
-                        # A DB számítás visszakötése az eredeti logikádhoz
-                        "Összesen": sum(int(q) for q, _ in raw_orders) if 'raw_orders' in locals() else 0,
-                        "Rendelés_Full": full_rendeles_text if 'full_rendeles_text' in locals() else "",
-                        "temp_id": re.sub(r'^[HKSCPZ]-', '', full_id),
-                        "Prefix": prefix,
-                        "Csoport": saved_group if 'saved_group' in locals() else "0"
+                        "ID": full_id, "Ügyintéző": admin_name, "Cím": address, "Telefon": phone_val,
+                        "Pénz": money_val, "Rendelés": rendeles_str, "Megjegyzés": full_note,
+                        "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
+                        "Rendelés_Full": full_rendeles_text, "temp_id": full_id.split('-')[-1],
+                        "Prefix": prefix, "Csoport": current_group_id if 'current_group_id' in locals() else 0
                     })
     
     if not rows: return [], metadata

@@ -302,16 +302,12 @@ for i, anchor in enumerate(anchors):
                             local_customer_name, _ = split_name_logic(raw_line)
 
                         name_line_index = idx
-                        break
-
-                # Most már nem lesz NameError, mert a from_sheets mindig létezik (True vagy False)
-                if not from_sheets:
-                    # Itt mehet tovább a cím/telefon/pénz keresése a 'lines' többi részében...
-
-                # --- 3. SZÉTVÁLOGATÁS (Részleg + Megjegyzés megtartásával) ---
-                # Ide már nem kell külön 'if not from_sheets', mert a listákat mindenképp le kell gyártani
-                reszleg_ceg_lista = []
-                hosszu_megj_lista = []
+                        break  # Kilépünk a sorok kereséséből, mert megvan az ID
+        
+                    # --- 3. SZÉTVÁLOGATÁS ---
+                    # Itt NE legyen 'if not from_sheets:', csak kezdd el a listákat:
+                    reszleg_ceg_lista = []
+                    hosszu_megj_lista = []
     
                 for idx, l_strip in enumerate(lines):
                     # Alap szűrések

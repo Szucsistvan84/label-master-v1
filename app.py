@@ -244,9 +244,9 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
                 
                 # --- 2. HIBAKERESÉS: MINDEN ÁRON ---
-                # Erika ID-je: 404874. Ha ezt az ID-t látja a program, megállítjuk
-                if "404874" in str(anchor.get('text', '')):
-                    st.error(f"MEGVAN AZ ID: 404874")
+                # Erika ID-je: 425966. Ha ezt az ID-t látja a program, megállítjuk
+                if "425966" in str(anchor.get('text', '')):
+                    st.error(f"MEGVAN AZ ID: 425966")
                     st.info(f"Nyers szöveg a dobozban: '{raw_text}'")
                     st.write(f"Darabolt sorok: {lines}")
                     

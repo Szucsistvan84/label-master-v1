@@ -1227,7 +1227,7 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
             
             # Megkeressük a darabszámot és a kódot (8-A)
             # A regex mindenféle kötőjelet felismer
-            found = re.findall(r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z0-9*+]+)', part)
+            found = re.findall(ORDER_PAT, part)
             for qty, code in found:
                 # ITT A LÉNYEG: A kulcs "C_A" lesz, mert a prefixet a label_to_prefix-ből vettük!
                 full_key = f"{prefix}_{code.strip().upper()}"

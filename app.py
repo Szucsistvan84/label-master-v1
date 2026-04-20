@@ -209,16 +209,17 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
             
             # --- FÜGGŐLEGES SOROMPÓ (Cutoff) BEÁLLÍTÁSA ---
-            # Megkeressük a lap alját jelző szavak legmagasabb pontját
             footer_elements = [
                 w for w in words 
                 if any(tag in w['text'] for tag in ["Összesítés", "Csilagozott", "Összesen"])
-                and w['top'] > pg.height * 0.5 # Csak a lap alsó felében keressük
+                and w['top'] > pg.height * 0.5
             ]
             
-            # Ha nincs ilyen szó, a lap alja a határ, ha van, akkor a szó teteje
             page_cutoff = min([w['top'] for w in footer_elements]) - 2 if footer_elements else pg.height
 
+            # --- EZT A SORT FIGYELD: Csak az aktuális oldal (pg) szavai kerüljenek bele! ---
+            # Fontos, hogy itt ne anchors.append() legyen, hanem sima egyenlőségjel, 
+            # ami minden oldalnál "tiszta lappal" indít.
             anchors = [w for w in words if re.search(r'[HKSCPZ]-\d{5,7}', w['text'])]
             
             for i, anchor in enumerate(anchors):

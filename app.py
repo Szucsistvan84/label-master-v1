@@ -242,6 +242,12 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 full_row_box = page.within_bbox((20, y_top, 585, y_bottom))
                 raw_text = full_row_box.extract_text() or ""
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
+                
+                # --- IDEIGLENES DEBUG SZABADOS ERIKÁHOZ ---
+                if "Szabados" in raw_text:
+                    st.warning(f"DEBUG - Szabados Erika nyers szövege: {raw_text}")
+                    st.write(f"DEBUG - Sorokra bontva: {lines}")
+                # ------------------------------------------
 
                 # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE (Szigorú kontrollal) ---
                 current_id = anchor['text']

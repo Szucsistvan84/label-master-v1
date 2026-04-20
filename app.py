@@ -20,7 +20,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'
 # Frissített minta: felismeri a sima (-), az en-dash (–) és az em-dash (—) jeleket is
-ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z][A-Z0-9*+]*)'
+ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z0-9*+]+)'
 # Frissített, "szóköz-toleráns" regex
 MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
@@ -240,17 +240,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 raw_text = full_row_box.extract_text() or ""
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
                 
-                # --- 3. MEGÁLLÍTOTT HIBAKERESÉS ---
-                # Erika ID-je: 425966. Ha ezt látja a program, MEGÁLLUNK.
-                if "425966" in str(anchor.get('text', '')):
-                    st.error("!!! STOP - MEGVAN SZABADOS ERIKA !!!")
-                    st.info(f"Nyers szöveg a dobozban: '{raw_text}'")
-                    st.write("Sorokra bontva:", lines)
-                    st.write(f"Koordináták: y_top={y_top}, y_bottom={y_bottom}")
-                    
-                    # Megállítjuk a programot, hogy ne tűnjön el a felirat
-                    st.stop()
-
                 # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE (Szigorú kontrollal) ---
                 current_id = anchor['text']
                 local_customer_name = ""

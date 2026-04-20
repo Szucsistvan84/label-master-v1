@@ -243,11 +243,15 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 raw_text = full_row_box.extract_text() or ""
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
                 
-                # --- IDEIGLENES DEBUG SZABADOS ERIKÁHOZ ---
-                if "Szabados" in raw_text:
-                    st.warning(f"DEBUG - Szabados Erika nyers szövege: {raw_text}")
-                    st.write(f"DEBUG - Sorokra bontva: {lines}")
-                # ------------------------------------------
+                # --- 2. HIBAKERESÉS: MINDEN ÁRON ---
+                # Erika ID-je: 404874. Ha ezt az ID-t látja a program, megállítjuk
+                if "404874" in str(anchor.get('text', '')):
+                    st.error(f"MEGVAN AZ ID: 404874")
+                    st.info(f"Nyers szöveg a dobozban: '{raw_text}'")
+                    st.write(f"Darabolt sorok: {lines}")
+                    
+                    # Megnézzük a vágási koordinátákat is
+                    st.write(f"Koordináták: y_top={y_top}, y_bottom={y_bottom}")
 
                 # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE (Szigorú kontrollal) ---
                 current_id = anchor['text']

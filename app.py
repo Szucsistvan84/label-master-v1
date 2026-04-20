@@ -206,6 +206,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
         v_lines = [c(0), c(5.5), c(21.5), c(39.5), c(47), c(52), c(82.5), c(88)]
 
         for pg in pdf.pages:
+            # 1. Kinyerjük az aktuális oldal szavait
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
             
             # --- FÜGGŐLEGES SOROMPÓ (Cutoff) BEÁLLÍTÁSA ---
@@ -217,30 +218,25 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
             
             page_cutoff = min([w['top'] for w in footer_elements]) - 2 if footer_elements else pg.height
 
-            # --- EZT A SORT FIGYELD: Csak az aktuális oldal (pg) szavai kerüljenek bele! ---
-            # Fontos, hogy itt ne anchors.append() legyen, hanem sima egyenlőségjel, 
-            # ami minden oldalnál "tiszta lappal" indít.
+            # 2. Horgonyok gyűjtése csak az aktuális oldalról
             anchors = [w for w in words if re.search(r'[HKSCPZ]-\d{5,7}', w['text'])]
             
             for i, anchor in enumerate(anchors):
                 if anchor['top'] >= page_cutoff: continue
 
-                # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA (JAVÍTOTT) ---
+                # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA ---
                 y_top = max(0, anchor['top'] - 12)
                 
-                # Ha van következő horgony, engedjük le a vágást 5 pixellel az ID-je ALÁ (+ 5)
-                # Így biztosan nem vágjuk el az előző ügyfél alját.
                 if i + 1 < len(anchors):
                     y_bottom = anchors[i+1]['top'] + 5 
                 else:
-                    # Ha ez az utolsó az oldalon, akkor adjunk neki fix 180 pixelt (a 150 helyett)
                     y_bottom = min(page_cutoff, anchor['top'] + 180)
                 
-                # Biztonsági minimum magasság
                 if y_bottom <= y_top: 
                     y_bottom = y_top + 60 
 
-                full_row_box = page.within_bbox((20, y_top, 585, y_bottom))
+                # --- KRITIKUS JAVÍTÁS: page helyett pg-t használunk! ---
+                full_row_box = pg.within_bbox((20, y_top, 585, y_bottom))
                 raw_text = full_row_box.extract_text() or ""
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
                 

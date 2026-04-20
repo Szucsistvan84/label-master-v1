@@ -243,15 +243,19 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 raw_text = full_row_box.extract_text() or ""
                 lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
                 
-                # --- 2. HIBAKERESÉS: MINDEN ÁRON ---
-                # Erika ID-je: 425966. Ha ezt az ID-t látja a program, megállítjuk
-                if "425966" in str(anchor.get('text', '')):
-                    st.error(f"MEGVAN AZ ID: 425966")
-                    st.info(f"Nyers szöveg a dobozban: '{raw_text}'")
-                    st.write(f"Darabolt sorok: {lines}")
+                # --- HORGONY KERESÉS DEBUG ---
+                anchors = []
+                for word in page.extract_words():
+                    text = word['text'].strip()
+                    # Itt keressük az ID-kat (K-XXXXXX)
+                    if '425966' in text:
+                        st.error(f"MEGVAN AZ ID A PDF-BEN! Szöveg: '{text}'")
                     
-                    # Megnézzük a vágási koordinátákat is
-                    st.write(f"Koordináták: y_top={y_top}, y_bottom={y_bottom}")
+                    if 'K-' in text:
+                        anchors.append(word)
+        
+                if not any('425966' in a['text'] for a in anchors):
+                    st.warning("A program látja a PDF-ben a számot, de nem tette be a horgonyok közé!")
 
                 # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE (Szigorú kontrollal) ---
                 current_id = anchor['text']

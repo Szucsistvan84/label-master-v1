@@ -224,13 +224,20 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
             for i, anchor in enumerate(anchors):
                 if anchor['top'] >= page_cutoff: continue
 
-                # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA ---
+                # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA (JAVÍTOTT) ---
                 y_top = max(0, anchor['top'] - 12)
                 
-                # Növeljük a 100-as limitet 150-re, hogy a hosszú megjegyzések alja se maradjon le
-                y_bottom = anchors[i+1]['top'] - 2 if i + 1 < len(anchors) else min(page_cutoff, anchor['top'] + 150)
+                # Ha van következő horgony, engedjük le a vágást 5 pixellel az ID-je ALÁ (+ 5)
+                # Így biztosan nem vágjuk el az előző ügyfél alját.
+                if i + 1 < len(anchors):
+                    y_bottom = anchors[i+1]['top'] + 5 
+                else:
+                    # Ha ez az utolsó az oldalon, akkor adjunk neki fix 180 pixelt (a 150 helyett)
+                    y_bottom = min(page_cutoff, anchor['top'] + 180)
                 
-                if y_bottom <= y_top: y_bottom = y_top + 40 # Itt is adhatunk neki kicsit több helyet
+                # Biztonsági minimum magasság
+                if y_bottom <= y_top: 
+                    y_bottom = y_top + 60 
 
                 full_row_box = page.within_bbox((20, y_top, 585, y_bottom))
                 raw_text = full_row_box.extract_text() or ""

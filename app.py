@@ -20,7 +20,11 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'
 # Frissített minta: felismeri a sima (-), az en-dash (–) és az em-dash (—) jeleket is
-ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z0-9*+]+)'
+# \d+         -> Darabszám (legalább egy számjegy)
+# \s*-\s* -> Kötőjel (szóközökkel vagy anélkül)
+# [A-Z]       -> A cikkszám ELSŐ karaktere KÖTELEZŐEN BETŰ
+# [A-Z0-9*+]* -> A többi karakter lehet betű, szám vagy speciális jel (*, +)
+ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z][A-Z0-9*+]*)'
 # Frissített, "szóköz-toleráns" regex
 MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
@@ -461,15 +465,16 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     # Itt tüntetjük el a szóközöket: "1 - D14" -> "1-D14"
                     fixed_text = re.sub(r'(\d+)\s*([-\u2013\u2014\u2212])\s*', r'\1\2', raw_folyoso_text)
 
-                    # 4. KERESÉS: Dupla ellenőrzés Szabados Erika és Szanyi Gabriella miatt
-                    # Először próbálkozunk a "Legóval" (összeragasztott szöveggel)
+                    # 4. KERESÉS: Szigorúbb, de Erika-barát verzió
+                    # 1. Próbálkozunk a Legóval (Szanyi Gabriella miatt)
                     raw_orders = re.findall(ORDER_PAT, fixed_text)
                     
-                    # HA A LEGÓ NEM TALÁLT SEMMIT (mint valószínűleg Erikánál), 
-                    # nézzük meg a nyers, vágott sor-szöveget is!
+                    # 2. HA A LEGÓ ÜRES (Erika esete), nézzük meg a nyers sort, 
+                    # de CSAK A VÉGÉT, hogy ne nyúljunk át más sorába!
                     if not raw_orders:
-                        # Itt a full_line_text-et használjuk, ami a teljes sor nyers szavai
-                        raw_orders = re.findall(ORDER_PAT, full_line_text)
+                        # Csak az utolsó 50 karaktert nézzük (itt lakik a rendelés és a pénz)
+                        search_area = full_line_text[-50:]
+                        raw_orders = re.findall(ORDER_PAT, search_area)
                     
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     

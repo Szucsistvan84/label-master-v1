@@ -465,18 +465,21 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     # Itt tüntetjük el a szóközöket: "1 - D14" -> "1-D14"
                     fixed_text = re.sub(r'(\d+)\s*([-\u2013\u2014\u2212])\s*', r'\1\2', raw_folyoso_text)
 
-                    # 4. KERESÉS: Sávszűrő a szomszédok ellen
-                    # Először próbálkozunk a Legóval
+                    # 4. KERESÉS: "Mindent látó" Erika-biztos gyűjtő
+                    # Először a biztonságos Legó-ragasztó
                     raw_orders = re.findall(ORDER_PAT, fixed_text)
                     
-                    # HA A LEGÓ ÜRES (mint Erikánál), akkor a nyers sor legvégén keresünk.
-                    # Az Erika-típusú elcsúszott rendelések mindig a sor utolsó 40-50 karakterében vannak.
+                    # Ha a Legó nem talált semmit, nézzük meg a dobozban lévő ÖSSZES szót
                     if not raw_orders:
-                        # Csak az utolsó 45 karaktert vizsgáljuk! 
-                        # Ebben benne van a rendelés (1-I) és a pénz (0 Ft), de a felette lévő sor már nincs.
-                        vege_szoveg = full_line_text[-45:]
-                        raw_orders = re.findall(ORDER_PAT, vege_szoveg)
-                    
+                        # Az összes szót összefűzzük egy hosszú lánccá
+                        box_content = " ".join([w['text'] for w in line_words])
+                        # Ebben keressük meg az összes érvényes rendelést
+                        potential_orders = re.findall(ORDER_PAT, box_content)
+                        
+                        # Szűrés: Csak azokat tartjuk meg, amik a sor végén (jobb oldalon) vannak
+                        # A házszámokat (13-15) az ORDER_PAT (betűvel kezdődő kód) már eleve kiszűri!
+                        raw_orders = potential_orders
+
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     
                     # 5. MEGJEGYZÉS: A teljes sorból kivonjuk a már megtalált rendeléseket

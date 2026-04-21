@@ -465,16 +465,17 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     # Itt tüntetjük el a szóközöket: "1 - D14" -> "1-D14"
                     fixed_text = re.sub(r'(\d+)\s*([-\u2013\u2014\u2212])\s*', r'\1\2', raw_folyoso_text)
 
-                    # 4. KERESÉS: Szigorúbb, de Erika-barát verzió
-                    # 1. Próbálkozunk a Legóval (Szanyi Gabriella miatt)
+                    # 4. KERESÉS: Sávszűrő a szomszédok ellen
+                    # Először próbálkozunk a Legóval
                     raw_orders = re.findall(ORDER_PAT, fixed_text)
                     
-                    # 2. HA A LEGÓ ÜRES (Erika esete), nézzük meg a nyers sort, 
-                    # de CSAK A VÉGÉT, hogy ne nyúljunk át más sorába!
+                    # HA A LEGÓ ÜRES (mint Erikánál), akkor a nyers sor legvégén keresünk.
+                    # Az Erika-típusú elcsúszott rendelések mindig a sor utolsó 40-50 karakterében vannak.
                     if not raw_orders:
-                        # Csak az utolsó 50 karaktert nézzük (itt lakik a rendelés és a pénz)
-                        search_area = full_line_text[-50:]
-                        raw_orders = re.findall(ORDER_PAT, search_area)
+                        # Csak az utolsó 45 karaktert vizsgáljuk! 
+                        # Ebben benne van a rendelés (1-I) és a pénz (0 Ft), de a felette lévő sor már nincs.
+                        vege_szoveg = full_line_text[-45:]
+                        raw_orders = re.findall(ORDER_PAT, vege_szoveg)
                     
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     

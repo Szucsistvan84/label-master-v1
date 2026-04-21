@@ -461,8 +461,16 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     # Itt tüntetjük el a szóközöket: "1 - D14" -> "1-D14"
                     fixed_text = re.sub(r'(\d+)\s*([-\u2013\u2014\u2212])\s*', r'\1\2', raw_folyoso_text)
 
-                    # 4. KERESÉS: Most már a teljes, 60%-tól induló tiszta szövegen fut a regex
+                    # 4. KERESÉS: Dupla ellenőrzés Szabados Erika és Szanyi Gabriella miatt
+                    # Először próbálkozunk a "Legóval" (összeragasztott szöveggel)
                     raw_orders = re.findall(ORDER_PAT, fixed_text)
+                    
+                    # HA A LEGÓ NEM TALÁLT SEMMIT (mint valószínűleg Erikánál), 
+                    # nézzük meg a nyers, vágott sor-szöveget is!
+                    if not raw_orders:
+                        # Itt a full_line_text-et használjuk, ami a teljes sor nyers szavai
+                        raw_orders = re.findall(ORDER_PAT, full_line_text)
+                    
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     
                     # 5. MEGJEGYZÉS: A teljes sorból kivonjuk a már megtalált rendeléseket

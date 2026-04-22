@@ -7,6 +7,8 @@ import requests
 import PIL.ImageDraw
 import openpyxl
 import os
+import gspread
+from google.oauth2.service_account import Credentials
 from io import BytesIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -16,6 +18,37 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame, Flowable
+
+# --- GOOGLE SHEETS KONFIGURÁCIÓ ---
+SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
+
+def load_names_from_sheets(sheet_id):
+    try:
+        # A scope-ok meghatározása
+        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        
+        # Itt fontos: a service_account.json fájlnak a kód mellett kell lennie!
+        creds = Credentials.from_service_account_file("service_account.json", scopes=scope)
+        client = gspread.authorize(creds)
+        
+        sheet = client.open_by_key(sheet_id)
+        
+        # Vezetéknevek (A oszlop, fejléc nélkül)
+        v_sheet = sheet.worksheet("Vezeteknevek")
+        v_list = set(v_sheet.col_values(1)[1:])
+        
+        # Keresztnevek (A: Keresztnév, B: Nem)
+        k_sheet = sheet.worksheet("Keresztnevek")
+        k_data = k_sheet.get_all_records()
+        k_dict = {str(row['Keresztnév']).strip(): str(row['Nem']).strip() for row in k_data}
+        
+        return v_list, k_dict
+    except Exception as e:
+        st.error(f"Hiba a Google Sheets betöltésekor: {e}")
+        return set(), {}
+
+# Itt hívjuk meg egyszer a program elején, hogy meglegyenek az adatok
+vezeteknevek, keresztnevek_neme = load_names_from_sheets(SHEET_ID)
 
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'

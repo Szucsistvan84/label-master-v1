@@ -27,28 +27,30 @@ def load_names_from_sheets(sheet_id):
         # A scope-ok meghatározása
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         
-        # Itt fontos: a service_account.json fájlnak a kód mellett kell lennie!
-        creds = Credentials.from_service_account_file("service_account.json", scopes=scope)
+        # Streamlit Secrets használata (nincs szükség service_account.json fájlra!)
+        creds_info = st.secrets["gcp_service_account"]
+        creds = Credentials.from_service_account_info(creds_info, scopes=scope)
         client = gspread.authorize(creds)
         
         sheet = client.open_by_key(sheet_id)
         
         # Vezetéknevek (A oszlop, fejléc nélkül)
         v_sheet = sheet.worksheet("Vezeteknevek")
-        v_list = set(v_sheet.col_values(1)[1:])
+        v_list = set(str(name).strip() for name in v_sheet.col_values(1)[1:] if name)
         
         # Keresztnevek (A: Keresztnév, B: Nem)
         k_sheet = sheet.worksheet("Keresztnevek")
         k_data = k_sheet.get_all_records()
-        k_dict = {str(row['Keresztnév']).strip(): str(row['Nem']).strip() for row in k_data}
+        k_dict = {str(row['Keresztnév']).strip(): str(row['Nem']).strip() for row in k_data if row.get('Keresztnév')}
         
-        return v_list, k_dict
+        return v_list, k_dict, n_dict
     except Exception as e:
+        # Csak fejlesztés alatt írjuk ki a konkrét hibát
         st.error(f"Hiba a Google Sheets betöltésekor: {e}")
         return set(), {}
 
-# Itt hívjuk meg egyszer a program elején, hogy meglegyenek az adatok
-vezeteknevek, keresztnevek_neme = load_names_from_sheets(SHEET_ID)
+# Itt hívjuk meg a program indulásakor
+vezeteknevek, keresztnevek_neme, napi_nevnapok = load_names_from_sheets(SHEET_ID)
 
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'

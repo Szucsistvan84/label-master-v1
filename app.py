@@ -8,6 +8,7 @@ import PIL.ImageDraw
 import openpyxl
 import os
 import gspread
+import base64
 from google.oauth2 import service_account
 from google.oauth2.service_account import Credentials
 from io import BytesIO
@@ -35,29 +36,27 @@ def get_google_sheets_creds():
 
 def load_names_from_sheets(sheet_id):
     try:
-        # Beolvassuk a secrets-t
+        # 1. Beolvassuk a Secrets-t
         creds_info = st.secrets["gcp_service_account"].to_dict()
         
-        # --- ATOMBIZTOS KULCS-TISZTÍTÁS ---
-        pk = creds_info["private_key"]
-        
-        # 1. Ha véletlenül idézőjelek maradtak a szélein, leszedjük
-        pk = pk.strip("'").strip('"')
-        
-        # 2. Kicseréljük a dupla perjeleket (ha a Streamlit elrontotta)
-        pk = pk.replace("\\n", "\n")
-        
-        # 3. Biztosítjuk, hogy a START/END sorok megvannak és jók
-        if "-----BEGIN PRIVATE KEY-----" not in pk:
-            pk = "-----BEGIN PRIVATE KEY-----\n" + pk
-        if "-----END PRIVATE KEY-----" not in pk:
-            pk = pk + "\n-----END PRIVATE KEY-----"
-            
-        creds_info["private_key"] = pk
-        # ----------------------------------
+        # 2. Visszaalakítjuk a kódolt kulcsot (ezért kell az import base64)
+        # Ha az egysoros/n-es verziót választottad végül, akkor a .replace("\\n", "\n") kell
+        # Ha a zagyva base64-et, akkor ez a sor:
+        decoded_key = base64.b64decode(creds_info["private_key"]).decode("utf-8")
+        creds_info["private_key"] = decoded_key
 
-        creds = service_account.Credentials.from_service_account_info(creds_info)
-        # ... folytatódik a gspread résszel ...
+        # 3. Definiáljuk a scope-okat (hogy ne dobjon invalid_scope hibát)
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+
+        # 4. Hitelesítés a javított scope-okkal
+        creds = service_account.Credentials.from_service_account_info(
+            creds_info, 
+            scopes=scopes
+        )
+        
         client = gspread.authorize(creds)
         
         sheet = client.open_by_key(sheet_id)

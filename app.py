@@ -36,30 +36,31 @@ def get_google_sheets_creds():
 
 def load_names_from_sheets(sheet_id):
     try:
-        # 1. Beolvassuk a Secrets-t (ez már a \n-es verzió)
+        # 1. Beolvassuk a secrets-t (azt, amit a kodolo.py-ból kaptál)
         creds_info = st.secrets["gcp_service_account"].to_dict()
         
-        # 2. CSAK a sortöréseket javítjuk, NINCS base64 dekódolás!
-        # Töröld ki az eredeti_kulcs = base64.b64decode... sorokat!
-        pk = creds_info["private_key"]
-        creds_info["private_key"] = pk.replace("\\n", "\n")
+        # 2. Helyretesszük a sortöréseket (ez az egyetlen feldolgozás, ami kell!)
+        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
 
-        # 3. Scope-ok beállítása (ez kell az előző hiba ellen)
+        # 3. Megadjuk a jogosultságokat
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
 
-        # 4. Hitelesítés
+        # 4. Létrehozzuk a hitelesítést
         creds = service_account.Credentials.from_service_account_info(
             creds_info, 
             scopes=scopes
         )
         
+        # 5. Kapcsolódunk
         client = gspread.authorize(creds)
-        # ... innentől mehet tovább ...
-        
         sheet = client.open_by_key(sheet_id)
+        
+        # Innen jön a te adatbeolvasó kódod...
+        # pl. worksheet = sheet.get_worksheet(0) stb.
+        # ...
         
         # Vezetéknevek (A oszlop, fejléc nélkül)
         v_sheet = sheet.worksheet("Vezeteknevek")

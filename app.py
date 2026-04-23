@@ -35,12 +35,19 @@ def get_google_sheets_creds():
 
 def load_names_from_sheets(sheet_id):
     try:
-        # A scope-ok meghatározása
-        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        
-        # Streamlit Secrets használata (nincs szükség service_account.json fájlra!)
+        # 1. Beolvassuk a szekciót
         creds_info = st.secrets["gcp_service_account"]
-        creds = Credentials.from_service_account_info(creds_info, scopes=scope)
+        
+        # 2. Átalakítjuk szótárrá (ha nem az lenne)
+        if hasattr(creds_info, "to_dict"):
+            creds_info = creds_info.to_dict()
+        
+        # 3. A BŰVÖS SOR: Kicseréljük a szöveges \n-eket valódi sortörésre
+        if "private_key" in creds_info:
+            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+            
+        # 4. Hitelesítés
+        creds = service_account.Credentials.from_service_account_info(creds_info)
         client = gspread.authorize(creds)
         
         sheet = client.open_by_key(sheet_id)

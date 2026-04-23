@@ -8,6 +8,7 @@ import PIL.ImageDraw
 import openpyxl
 import os
 import gspread
+from google.oauth2 import service_account
 from google.oauth2.service_account import Credentials
 from io import BytesIO
 from reportlab.pdfgen import canvas
@@ -21,6 +22,16 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 
 # --- GOOGLE SHEETS KONFIGURÁCIÓ ---
 SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
+
+def get_google_sheets_creds():
+    # Beolvassuk a teljes szekciót a secrets-ből
+    creds_info = st.secrets["gcp_service_account"].to_dict()
+    
+    # Kézzel "megjavítjuk" a kulcsot, ha a Streamlit elrontotta volna a sortöréseket
+    if "private_key" in creds_info:
+        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+    
+    return service_account.Credentials.from_service_account_info(creds_info)
 
 def load_names_from_sheets(sheet_id):
     try:

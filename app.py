@@ -35,19 +35,29 @@ def get_google_sheets_creds():
 
 def load_names_from_sheets(sheet_id):
     try:
-        # 1. Beolvassuk a szekciót
-        creds_info = st.secrets["gcp_service_account"]
+        # Beolvassuk a secrets-t
+        creds_info = st.secrets["gcp_service_account"].to_dict()
         
-        # 2. Átalakítjuk szótárrá (ha nem az lenne)
-        if hasattr(creds_info, "to_dict"):
-            creds_info = creds_info.to_dict()
+        # --- ATOMBIZTOS KULCS-TISZTÍTÁS ---
+        pk = creds_info["private_key"]
         
-        # 3. A BŰVÖS SOR: Kicseréljük a szöveges \n-eket valódi sortörésre
-        if "private_key" in creds_info:
-            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+        # 1. Ha véletlenül idézőjelek maradtak a szélein, leszedjük
+        pk = pk.strip("'").strip('"')
+        
+        # 2. Kicseréljük a dupla perjeleket (ha a Streamlit elrontotta)
+        pk = pk.replace("\\n", "\n")
+        
+        # 3. Biztosítjuk, hogy a START/END sorok megvannak és jók
+        if "-----BEGIN PRIVATE KEY-----" not in pk:
+            pk = "-----BEGIN PRIVATE KEY-----\n" + pk
+        if "-----END PRIVATE KEY-----" not in pk:
+            pk = pk + "\n-----END PRIVATE KEY-----"
             
-        # 4. Hitelesítés
+        creds_info["private_key"] = pk
+        # ----------------------------------
+
         creds = service_account.Credentials.from_service_account_info(creds_info)
+        # ... folytatódik a gspread résszel ...
         client = gspread.authorize(creds)
         
         sheet = client.open_by_key(sheet_id)

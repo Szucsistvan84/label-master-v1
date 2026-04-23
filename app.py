@@ -36,28 +36,28 @@ def get_google_sheets_creds():
 
 def load_names_from_sheets(sheet_id):
     try:
-        # 1. Beolvassuk a Secrets-t
+        # 1. Beolvassuk a Secrets-t (ez már a \n-es verzió)
         creds_info = st.secrets["gcp_service_account"].to_dict()
         
-        # 2. Visszaalakítjuk a kódolt kulcsot (ezért kell az import base64)
-        # Ha az egysoros/n-es verziót választottad végül, akkor a .replace("\\n", "\n") kell
-        # Ha a zagyva base64-et, akkor ez a sor:
-        decoded_key = base64.b64decode(creds_info["private_key"]).decode("utf-8")
-        creds_info["private_key"] = decoded_key
+        # 2. CSAK a sortöréseket javítjuk, NINCS base64 dekódolás!
+        # Töröld ki az eredeti_kulcs = base64.b64decode... sorokat!
+        pk = creds_info["private_key"]
+        creds_info["private_key"] = pk.replace("\\n", "\n")
 
-        # 3. Definiáljuk a scope-okat (hogy ne dobjon invalid_scope hibát)
+        # 3. Scope-ok beállítása (ez kell az előző hiba ellen)
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
 
-        # 4. Hitelesítés a javított scope-okkal
+        # 4. Hitelesítés
         creds = service_account.Credentials.from_service_account_info(
             creds_info, 
             scopes=scopes
         )
         
         client = gspread.authorize(creds)
+        # ... innentől mehet tovább ...
         
         sheet = client.open_by_key(sheet_id)
         

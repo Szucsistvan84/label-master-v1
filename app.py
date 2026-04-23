@@ -36,49 +36,48 @@ def get_google_sheets_creds():
 
 def load_names_from_sheets(sheet_id):
     try:
-        # 1. Beolvassuk a secrets-t (azt, amit a kodolo.py-ból kaptál)
         creds_info = st.secrets["gcp_service_account"].to_dict()
-        
-        # 2. Helyretesszük a sortöréseket (ez az egyetlen feldolgozás, ami kell!)
         creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
 
-        # 3. Megadjuk a jogosultságokat
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
 
-        # 4. Létrehozzuk a hitelesítést
         creds = service_account.Credentials.from_service_account_info(
             creds_info, 
             scopes=scopes
         )
         
-        # 5. Kapcsolódunk
         client = gspread.authorize(creds)
         sheet = client.open_by_key(sheet_id)
         
-        # Innen jön a te adatbeolvasó kódod...
-        # pl. worksheet = sheet.get_worksheet(0) stb.
-        # ...
-        
-        # Vezetéknevek (A oszlop, fejléc nélkül)
+        # --- 1. Vezetéknevek ---
         v_sheet = sheet.worksheet("Vezeteknevek")
         v_list = set(str(name).strip() for name in v_sheet.col_values(1)[1:] if name)
         
-        # Keresztnevek (A: Keresztnév, B: Nem)
+        # --- 2. Keresztnevek ---
         k_sheet = sheet.worksheet("Keresztnevek")
         k_data = k_sheet.get_all_records()
-        k_dict = {str(row['Keresztnév']).strip(): str(row['Nem']).strip() for row in k_data if row.get('Keresztnév')}
+        k_dict = {str(row.get('Keresztnév', '')).strip(): str(row.get('Nem', '')).strip() 
+                  for row in k_data if row.get('Keresztnév')}
+        
+        # --- 3. Névnapok (HIÁNYZÓ RÉSZ PÓTLÁSA) ---
+        # Ha van ilyen munkalapod, így töltsd be:
+        try:
+            n_sheet = sheet.worksheet("Nevnapok") # Írd át a pontos névre!
+            n_data = n_sheet.get_all_records()
+            # Itt feltételezem a táblázat szerkezetét:
+            n_dict = {str(row.get('Dátum', '')).strip(): str(row.get('Név', '')).strip() for row in n_data}
+        except:
+            n_dict = {} # Ha nincs ilyen sheet, üres marad
         
         return v_list, k_dict, n_dict
-    except Exception as e:
-        # Csak fejlesztés alatt írjuk ki a konkrét hibát
-        st.error(f"Hiba a Google Sheets betöltésekor: {e}")
-        return set(), {}
 
-# Itt hívjuk meg a program indulásakor
-vezeteknevek, keresztnevek_neme, napi_nevnapok = load_names_from_sheets(SHEET_ID)
+    except Exception as e:
+        st.error(f"Hiba a Google Sheets betöltésekor: {e}")
+        # Fontos: 3 értéket adjunk vissza hiba esetén is!
+        return set(), {}, {}
 
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'

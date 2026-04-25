@@ -1354,7 +1354,8 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 5 * mm, x + lw - inner_m, y_eff + 5 * mm)
             
-            nevnap_info = get_gender_and_nevnap(r.get('Ügyintéző', ''), nevnapok_df, keresztnevek_df)
+            # Itt adjuk át a dátumot is a függvénynek!
+            nevnap_info = get_gender_and_nevnap(r.get('Ügyintéző', ''), nevnapok_df, keresztnevek_df, pdf_datum)
             
             if nevnap_info:
                 # Ha van névnap, ez legyen a hangsúlyos középen

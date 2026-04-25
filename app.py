@@ -1799,10 +1799,10 @@ def main():
     if 'c_p' not in st.session_state:
         st.session_state.c_p = "+36 20 886 8971"
 
-    # --- ÚJ: TÁBLÁZATOK INICIALIZÁLÁSA ÉS BETÖLTÉSE (JAVÍTOTT) ---
+    # --- ÚJ: TÁBLÁZATOK INICIALIZÁLÁSA ÉS BETÖLTÉSE (TELJES VERZIÓ) ---
     if 'master_df' not in st.session_state:
         try:
-            # Itt csatlakozunk a Google Sheets-hez
+            # Csatlakozás a Google Sheets-hez
             client = gspread.authorize(get_google_sheets_creds())
             sheet = client.open_by_key(SHEET_ID)
             
@@ -1820,13 +1820,20 @@ def main():
             k_df = pd.DataFrame(sheet.worksheet("Keresztnevek").get_all_records())
             k_df.columns = [col.strip().replace('\ufeff', '') for col in k_df.columns]
             st.session_state.keresztnevek_df = k_df
+
+            # 4. Etlap_API beolvasása és tisztítása (Ez az összekötő kapocs a csillagokhoz!)
+            api_df = pd.DataFrame(sheet.worksheet("Etlap_API").get_all_records())
+            api_df.columns = [col.strip().replace('\ufeff', '') for col in api_df.columns]
+            st.session_state.etlap_api_df = api_df
             
-            st.success("✅ Adatbázisok (Kellékek, Névnapok) sikeresen betöltve!")
+            st.success("✅ Minden adatbázis (Master, Névnapok, API) sikeresen betöltve!")
         except Exception as e:
-            st.warning(f"⚠️ Nem sikerült minden táblát betölteni. Hiba: {e}")
+            st.warning(f"⚠️ Hiba a táblák betöltésekor: {e}")
+            # Biztonsági üres táblák inicializálása hiba esetén
             st.session_state.master_df = pd.DataFrame()
             st.session_state.nevnapok_df = pd.DataFrame()
             st.session_state.keresztnevek_df = pd.DataFrame()
+            st.session_state.etlap_api_df = pd.DataFrame()
 
 # 2. OLDALSÁV (SIDEBAR)
     with st.sidebar:

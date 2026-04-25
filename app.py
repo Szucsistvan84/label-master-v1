@@ -9,6 +9,7 @@ import openpyxl
 import os
 import gspread
 import base64
+from gspread_dataframe import set_with_dataframe
 from google.oauth2 import service_account
 from google.oauth2.service_account import Credentials
 from io import BytesIO
@@ -150,6 +151,54 @@ def register_fonts():
     except Exception as e:
         return 'Helvetica', 'Helvetica-Bold'
 
+def sync_interfood_etlap(year, week, sheet_id):
+    """
+    Letölti az adott évi és heti étlapot az Interfood API-ról, 
+    és feltölti a Google Sheets 'Etlap_API' munkalapjára.
+    """
+    api_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
+    
+    try:
+        # 1. Excel letöltése memóriába (hogy ne kelljen fájlokkal bajlódni)
+        response = requests.get(api_url)
+        response.raise_for_status() # Hiba esetén leáll
+        
+        # Pandas beolvassa az Excel tartalmát a letöltött bitekből
+        df = pd.read_excel(BytesIO(response.content))
+        
+        # 2. Google Sheets hitelesítés (a már jól bevált módon)
+        creds_info = st.secrets["gcp_service_account"].to_dict()
+        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        from google.oauth2 import service_account
+        import gspread
+        
+        creds = service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(sheet_id)
+        
+        # 3. Munkalap kezelése
+        try:
+            worksheet = sheet.worksheet("Etlap_API")
+        except gspread.exceptions.WorksheetNotFound:
+            worksheet = sheet.add_worksheet(title="Etlap_API", rows="1000", cols="20")
+            
+        # 4. Adatok "átöntése"
+        worksheet.clear()
+        set_with_dataframe(worksheet, df)
+        
+        st.sidebar.success(format(f"Étlap frissítve: {year}. év {week}. hét"))
+        return True
+        
+    except Exception as e:
+        st.error(f"Nem sikerült az étlapot letölteni ({year}/W{week}): {e}")
+        return False
+
+# --- PÉLDA A HASZNÁLATRA ---
+# Amikor a meta függvényed kiolvassa:
+# ev, het = get_meta_info(menetterv_file)
+# if ev and het:
+#     sync_interfood_etlap(ev, het, SHEET_ID)
 
 def get_etlap_dict(ev, het):
     # A pontos URL struktúra, amit küldtél
@@ -1497,16 +1546,28 @@ def main():
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
         
         if up_files:
-            # --- ELŐNÉZET TÖRLÉSE ---
-            # A debug_pdf_layout(up_files[0]) sort töröltük vagy kikommenteltük
-        
             if st.button("🚀 FELDOLGOZÁS"):
+                # 1. Metaadatok kinyerése
                 meta_auto = extract_all_meta(up_files)
                 st.session_state.meta_data = meta_auto
+                
+                ev = meta_auto.get('ev')
+                het = meta_auto.get('het')
 
-                # Étlap kódok letöltése
+                # --- ÚJ RÉSZ: Google Sheets szinkronizálás ---
+                if ev and het:
+                    session_key = f"sync_{ev}_{het}"
+                    if session_key not in st.session_state:
+                        with st.spinner(f"Étlap szinkronizálása a Google Sheets-be ({ev}/W{het})..."):
+                            # Itt hívjuk meg a korábban írt függvényt
+                            sync_interfood_etlap(ev, het, SHEET_ID)
+                            st.session_state[session_key] = True
+                # --- ÚJ RÉSZ VÉGE ---
+
+                # Étlap kódok letöltése (folytatódik a régi kódod)
                 napi_kodok = set()
                 with st.spinner("Étlap kódok letöltése..."):
+                    # ... innentől változatlan a kódod ...
                     etlap_dict = get_etlap_dict(meta_auto['ev'], meta_auto['het'])
                     for kulcs in etlap_dict.keys():
                         parts = kulcs.split("_")

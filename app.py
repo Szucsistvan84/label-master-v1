@@ -348,15 +348,14 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
                                 
                                 if tiszta_nev in master_dict:
                                     master_dict[tiszta_nev]['Gyakoriság'] += 1
-                                    master_dict[tiszta_nev]['Utolsó Ár'] = ar
-                                    # Kód hozzáadása a listához, ha még nincs benne (pl. D6 mellé a G)
-                                    if alap_kod not in master_dict[tiszta_nev]['Kodok_List']:
-                                        master_dict[tiszta_nev]['Kodok_List'].append(alap_kod)
+                                    # Létrehozzuk a Kód:Ár párt (pl. "BK:1245")
+                                    kod_ar_par = f"{alap_kod}:{ar}"
+                                    if kod_ar_par not in master_dict[tiszta_nev]['KodAr_List']:
+                                        master_dict[tiszta_nev]['KodAr_List'].append(kod_ar_par)
                                 else:
                                     master_dict[tiszta_nev] = {
                                         "Eredeti Név": eredeti_nev.replace('*', '').strip(),
-                                        "Kodok_List": [alap_kod],
-                                        "Utolsó Ár": ar,
+                                        "KodAr_List": [f"{alap_kod}:{ar}"],
                                         "Kellék": "",
                                         "Gyakoriság": 1
                                     }
@@ -364,13 +363,12 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
                 st.warning(f"Nem sikerült letölteni: {ev}/{het}")
 
         # Adatok előkészítése a kiíráshoz
-        output_rows = [["Tisztított Név", "Eredeti Név", "Kódok", "Utolsó Ár", "Kellék", "Gyakoriság"]]
+        output_rows = [["Tisztított Név", "Eredeti Név", "Kódok és Árak", "Kellék", "Gyakoriság"]]
         for tiszta, adat in master_dict.items():
             output_rows.append([
                 tiszta,
                 adat["Eredeti Név"],
-                ", ".join(adat["Kodok_List"]), # Kódok összefűzve vesszővel
-                adat["Utolsó Ár"],
+                ", ".join(adat["KodAr_List"]), # Itt lesz pl: "B:1760, BK:1245"
                 adat["Kellék"],
                 adat["Gyakoriság"]
             ])

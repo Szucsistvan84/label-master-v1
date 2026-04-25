@@ -1580,36 +1580,30 @@ def main():
     if 'c_p' not in st.session_state:
         st.session_state.c_p = "+36 20 886 8971"
 
-    # 2. OLDALSÁV (SIDEBAR)
+# 2. OLDALSÁV (SIDEBAR)
     with st.sidebar:
         st.header("⚙️ Kezelés")
         st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
         st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
-        st.divider()
         
-        # --- KORÁBBI MENTÉS BETÖLTÉSE ---
-        st.subheader("📂 Korábbi mentés")
-        import_file = st.file_uploader("Exportált CSV visszatöltése", type=['csv'])
-        
-        if import_file is not None:
-            if st.button("📥 CSV BETÖLTÉSE"):
-                # Nyers betöltés, nem futtatunk rajta tisztító algoritmust!
-                df_imported = pd.read_csv(import_file)
-                
-                # Biztosítjuk, hogy a Sorrend oszlop szám formátumú legyen
-                if 'Sorrend' in df_imported.columns:
-                    df_imported['Sorrend'] = pd.to_numeric(df_imported['Sorrend'], errors='coerce').fillna(999)
-                
-                st.session_state.mdf = df_imported
-                st.success("Mentés sikeresen visszatöltve!")
-                st.rerun()
-
         st.divider()
 
-        # 1. A függvény elején (vagy a main elején) adjunk neki egy alapértéket, 
-        # hogy ne legyen "Unbound" (ismeretlen)
+        # --- ADMIN FUNKCIÓK (Master Adatbázis Építése) ---
+        with st.expander("🛠 Adminisztráció"):
+            st.write("Master Adatbázis Karbantartás")
+            target_year = st.number_input("Év", min_value=2024, max_value=2030, value=2026)
+            start_w = st.number_input("Kezdő hét", min_value=1, max_value=52, value=1)
+            end_w = st.number_input("Záró hét", min_value=1, max_value=52, value=17)
+
+            if st.button("🚀 Master Adatbázis Építése"):
+                with st.spinner("Adatok gyűjtése az API-ról és rendszerezés..."):
+                    # Ez a függvény fogja feltölteni a Master_Adatbazis lapot
+                    sync_master_database(SHEET_ID, target_year, start_w, end_w)
+
+        st.divider()
+        
+        # --- ÚJ PDF-EK FELDOLGOZÁSA ---
         meta_auto = {} 
-        
         st.subheader("📄 Új PDF-ek")
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
         
@@ -1622,47 +1616,38 @@ def main():
                 ev = meta_auto.get('ev')
                 het = meta_auto.get('het')
 
-                # --- ÚJ RÉSZ: Google Sheets szinkronizálás ---
+                # --- Google Sheets szinkronizálás (Heti étlap) ---
                 if ev and het:
                     session_key = f"sync_{ev}_{het}"
                     if session_key not in st.session_state:
-                        with st.spinner(f"Étlap szinkronizálása a Google Sheets-be ({ev}/W{het})..."):
-                            # Itt hívjuk meg a korábban írt függvényt
+                        with st.spinner(f"Étlap szinkronizálása ({ev}/W{het})..."):
                             sync_interfood_etlap(ev, het, SHEET_ID)
                             st.session_state[session_key] = True
-                # --- ÚJ RÉSZ VÉGE ---
 
-                # --- Étlap adatok betöltése a Google Sheets-ből ---
-                with st.spinner("Étlap adatok beolvasása a táblázatból..."):
-                    # Meghívjuk az új függvényt, ami a már felszinkronizált Sheets-ből olvas
+                # --- Étlap adatok betöltése ---
+                with st.spinner("Étlap adatok beolvasása..."):
                     etlap_adatok = load_etlap_from_sheets(SHEET_ID)
-                    
-                    # Elmentjük a teljes szótárat (nevekkel és árakkal) a session_state-be
                     st.session_state.etlap_adatok = etlap_adatok
 
-                    # Kigyűjtjük a kódokat (L1, SP1, stb.) a PDF feldolgozó (parse_interfood_pdf) számára
-                    # Az etlap_adatok kulcsai "napindex_KÓD" formátumban vannak (pl. "1_L1")
                     napi_kodok = set()
                     for kulcs in etlap_adatok.keys():
                         parts = kulcs.split("_")
                         if len(parts) > 1:
                             napi_kodok.add(parts[1].strip().upper())
                     
-                    # Elmentjük a kódokat is
                     st.session_state.napi_etlap_kodok = napi_kodok
 
                 # PDF feldolgozás
                 all_rows = []
                 for f in up_files:
                     f.seek(0)
-                    # Itt adjuk át a friss kódokat!
                     rows, _ = parse_interfood_pdf(f, napi_kodok)
                     if rows:
                         all_rows.extend(rows)
 
                 if all_rows:
-                    # Táblázat generálása (a meglévő merge_data kódod)
                     df_temp = merge_data(all_rows)
+                    # Itt jön majd be később az ügyfelek sorrendjének betöltése a Sheets-ből!
                     st.session_state.mdf = df_temp
                     st.rerun()
 
@@ -1775,40 +1760,6 @@ def main():
             create_raklista_pdf(edited_df, aktualis_jaratok, meta), 
             "raklista.pdf", use_container_width=True
         )
-
-        st.divider()
-        st.write("### 💾 Táblázat mentése és exportálása")
-        
-        # Új sor a mentési gomboknak
-        save_col1, save_col2 = st.columns(2)
-
-        with save_col1:
-            # Fájlnév összeállítása a meta adatokból
-            # Pl.: 4002_4003_jarat_2026_03_31.csv
-            
-            # Járatszámok összefűzése (ha több van, alulvonással)
-            jarat_str = "_".join(meta.get('jaratok', ['Ismeretlen']))
-            
-            # Aktuális dátum formázása
-            import datetime
-            d_str = datetime.datetime.now().strftime("%Y-%m-%d")
-            
-            # Az általad kért szintaktika: Sorrendezés mentés-járatszám-év-hó-nap
-            beszedes_filenev = f"Sorrendezes_mentes-{jarat_str}-{d_str}.csv"
-            
-            csv_data = edited_df.to_csv(index=False, encoding='utf-8-sig')
-            
-            st.download_button(
-                label="📥 KÉSZ TÁBLÁZAT MENTÉSE (CSV)",
-                data=csv_data,
-                file_name=beszedes_filenev,
-                mime='text/csv',
-                use_container_width=True
-            )
-
-        with save_col2:
-            # Itt egy kis emlékeztető vagy állapotjelző
-            st.info("A CSV mentése után ezt a fájlt használd a holnapi visszatöltéshez.")
 
 if __name__ == "__main__":
     main()

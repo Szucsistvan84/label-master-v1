@@ -1355,7 +1355,8 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=7 * mm, bottomMargin=12 * mm, leftMargin=8 * mm, rightMargin=8 * mm)
-    etlap = st.session_state.get('etlap', {})
+    # --- ÚJ: Az étlapot a Sheets-ből betöltött adatokból vesszük ---
+    etlap = st.session_state.get('etlap_adatok', {})
 
     ev = meta_dict.get('ev', '')
     het = meta_dict.get('het', '')
@@ -1378,6 +1379,11 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     prefix_to_nev = {
         "H": "Hétfő", "K": "Kedd", "S": "Szerda", 
         "C": "Csütörtök", "P": "Péntek", "Z": "Szombat"
+    }
+
+    # Ez köti össze a PDF napjait a Google Sheets oszlop-indexeivel (1-6)
+    prefix_to_num = {
+        "H": "1", "K": "2", "S": "3", "C": "4", "P": "5", "Z": "6"
     }
 
     counts = {}
@@ -1428,19 +1434,30 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     day_order = {"H":1, "K":2, "S":3, "C":4, "P":5, "Z":6}
     sorted_keys = sorted(counts.keys(), key=lambda x: (day_order.get(x.split('_')[0], 9), x.split('_')[1]))
 
+    # --- TÁBLÁZAT FELTÖLTÉSE ---
     for full_key in sorted_keys:
         db = counts[full_key]
-        prefix = full_key.split('_')[0]   # Pl. "C"
+        prefix = full_key.split('_')[0]    # Pl. "C"
         code_label = full_key.split('_')[1] # Pl. "A"
         
-        # Itt dől el a nap neve a PDF-ben! 
-        # A "C"-ből "Csütörtök" lesz, a "P"-ből "Péntek"
         day_long = prefix_to_nev.get(prefix, prefix)
         
-        # Étlap adatok lekérése a C_A, P_A stb. kulcs alapján
-        info = etlap.get(full_key, {})
-        ar = info.get('ar', 0)
+        # --- ÚJ KERESÉSI LOGIKA ---
+        # A full_key nálad pl. "C_L1", de a Sheets-ben "4_L1"
+        num_prefix = prefix_to_num.get(prefix, "1")
+        sheets_key = f"{num_prefix}_{code_label}"
+        
+        info = etlap.get(sheets_key, {})
+        
+        # Név kinyerése
         nev = info.get('nev', '---')
+        
+        # Ár kinyerése és tisztítása (számmá alakítás a számoláshoz)
+        nyers_ar = str(info.get('ar', '0')).replace('Ft', '').replace(' ', '').strip()
+        try:
+            ar = int(nyers_ar) if nyers_ar and nyers_ar.isdigit() else 0
+        except:
+            ar = 0
         
         subtotal = db * ar
         

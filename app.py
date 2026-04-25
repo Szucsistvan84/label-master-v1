@@ -326,15 +326,12 @@ def format_kellek_alert(pdf_kod, pdf_nev, master_df):
             return f"⚠ + {kellek.upper()}"
     return ""
 
-def get_gender_and_nevnap(full_name, nevnapok_df, keresztnevek_df):
-    """Meghatározza a névnapi üzenetet a nemeknek megfelelő ikonnal."""
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    
-    # 1. Mai névnapok listája
-    mai_sor = nevnapok_df[nevnapok_df['Datum'] == today_str]
+def get_gender_and_nevnap(full_name, nevnapok_df, keresztnevek_df, target_date):
+    # A target_date formátuma: "2026-04-24"
+    mai_sor = nevnapok_df[nevnapok_df['Datum'] == target_date]
     if mai_sor.empty: return None
     
-    mai_nevek = [n.strip().lower() for n in str(mai_sor.iloc[0]['Nevek']).split(',')]
+    mai_nevek = [n.strip() for n in str(mai_sor.iloc[0]['Nevek']).split(',')]
     
     # 2. Vevő nevének ellenőrzése
     name_parts = str(full_name).split(' ')
@@ -1308,11 +1305,35 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df):
             pw, ph = para.wrap(usable_w, 15 * mm)
             para.drawOn(p, x + inner_m, y_eff + inner_m + 6.8 * mm)
             
-            # --- KELLÉK RIASZTÁS (Közvetlenül a rendelés alatt) ---
-            kellek_info = format_kellek_alert(r.get('Kód', ''), r.get('Étel megnevezése', ''), master_df)
+            # --- ÚJ: KELLÉK KERESÉS (Dátum és Csillag alapú) ---
+            kellek_info = ""
+            # A PDF-ből kinyert dátum oszlopneve (pl: "2026.04.24. péntek")
+            pdf_nap_oszlop = meta.get('nap_teljes') 
+            
+            # Keressük a csillagos kódokat a rendelésben (pl: L2*, VG2K*)
+            csillagos_kodok = re.findall(r'(\w+\d*)\*', formazott_rendeles)
+            
+            if csillagos_kodok and pdf_nap_oszlop and not etlap_api_df.empty:
+                for kod in csillagos_kodok:
+                    # Megkeressük az étel nevét az API táblában a kód alapján
+                    # Az API táblában az első oszlop (Unnamed: 0) tartalmazza a kódokat
+                    etel_match = etlap_api_df[etlap_api_df.iloc[:, 0].str.contains(rf"^{kod}\s*-", na=False)]
+                    
+                    if not etel_match.empty and pdf_nap_oszlop in etlap_api_df.columns:
+                        teljes_etel_nev = str(etel_match.iloc[0][pdf_nap_oszlop])
+                        
+                        # Ha megvan a név, keressük a kelléket a Master adatbázisban
+                        tiszta_nev = clean_text(teljes_etel_nev)
+                        m_match = master_df[master_df['Tisztított Név'] == tiszta_nev]
+                        
+                        if not m_match.empty:
+                            kellek = str(m_match.iloc[0]['Kellék']).replace('*', '').strip().upper()
+                            if kellek and kellek != "NAN" and kellek != "":
+                                kellek_info = f"⚠ + {kellek}"
+                                break # Megtaláltuk az első érvényes kelléket, kiírhatjuk
+
             if kellek_info:
                 p.setFont(f_bold, 10)
-                # A Fizetendő rész fölé pozicionálva
                 p.drawString(x + inner_m, y_eff + 8.5 * mm, kellek_info)
 
             # 4. Fizetendő és Darab

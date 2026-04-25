@@ -1313,8 +1313,8 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             # A PDF-ből kinyert dátum oszlopneve (pl: "2026.04.24. péntek")
             pdf_nap_oszlop = meta.get('nap_teljes') 
             
-            # Keressük a csillagos kódokat a rendelésben (pl: L2*, VG2K*)
-            csillagos_kodok = re.findall(r'(\w+\d*)\*', formazott_rendeles)
+            # Keressük a csillagos kódokat a rendelésben (pl: L2*, VG2K*, vagy akár L2 *)
+            csillagos_kodok = re.findall(r'([A-Za-z0-9]+)\s*\*', formazott_rendeles)
             
             if csillagos_kodok and pdf_nap_oszlop and not etlap_api_df.empty:
                 for kod in csillagos_kodok:

@@ -348,14 +348,14 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
                                 
                                 if tiszta_nev in master_dict:
                                     master_dict[tiszta_nev]['Gyakoriság'] += 1
-                                    # Létrehozzuk a Kód:Ár párt (pl. "BK:1245")
-                                    kod_ar_par = f"{alap_kod}:{ar}"
+                                    # Új formátum: Kód:Ár (hét) -> pl. DL2:1450 (w17)
+                                    kod_ar_par = f"{alap_kod}:{ar} (w{het})"
                                     if kod_ar_par not in master_dict[tiszta_nev]['KodAr_List']:
                                         master_dict[tiszta_nev]['KodAr_List'].append(kod_ar_par)
                                 else:
                                     master_dict[tiszta_nev] = {
                                         "Eredeti Név": eredeti_nev.replace('*', '').strip(),
-                                        "KodAr_List": [f"{alap_kod}:{ar}"],
+                                        "KodAr_List": [f"{alap_kod}:{ar} (w{het})"],
                                         "Kellék": "",
                                         "Gyakoriság": 1
                                     }

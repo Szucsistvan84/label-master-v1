@@ -1778,22 +1778,31 @@ def main():
     if 'c_p' not in st.session_state:
         st.session_state.c_p = "+36 20 886 8971"
 
-    # --- ÚJ: TÁBLÁZATOK INICIALIZÁLÁSA ÉS BETÖLTÉSE ---
+    # --- ÚJ: TÁBLÁZATOK INICIALIZÁLÁSA ÉS BETÖLTÉSE (JAVÍTOTT) ---
     if 'master_df' not in st.session_state:
         try:
             # Itt csatlakozunk a Google Sheets-hez
             client = gspread.authorize(get_google_sheets_creds())
             sheet = client.open_by_key(SHEET_ID)
             
-            # Betöltjük a három fontos fület
-            st.session_state.master_df = pd.DataFrame(sheet.worksheet("Master_Adatbazis").get_all_records())
-            st.session_state.nevnapok_df = pd.DataFrame(sheet.worksheet("Nevnapok").get_all_records())
-            st.session_state.keresztnevek_df = pd.DataFrame(sheet.worksheet("Keresztnevek").get_all_records())
+            # 1. Master Adatbázis beolvasása és tisztítása
+            m_df = pd.DataFrame(sheet.worksheet("Master_Adatbazis").get_all_records())
+            m_df.columns = [col.strip().replace('\ufeff', '') for col in m_df.columns]
+            st.session_state.master_df = m_df
+            
+            # 2. Névnapok beolvasása és tisztítása
+            n_df = pd.DataFrame(sheet.worksheet("Nevnapok").get_all_records())
+            n_df.columns = [col.strip().replace('\ufeff', '') for col in n_df.columns]
+            st.session_state.nevnapok_df = n_df
+            
+            # 3. Keresztnevek beolvasása és tisztítása
+            k_df = pd.DataFrame(sheet.worksheet("Keresztnevek").get_all_records())
+            k_df.columns = [col.strip().replace('\ufeff', '') for col in k_df.columns]
+            st.session_state.keresztnevek_df = k_df
             
             st.success("✅ Adatbázisok (Kellékek, Névnapok) sikeresen betöltve!")
         except Exception as e:
-            st.warning(f"⚠️ Nem sikerült minden táblát betölteni, a kellékek/névnapok nem fognak megjelenni. Hiba: {e}")
-            # Üres táblákkal töltjük fel, hogy ne szálljon el a kód
+            st.warning(f"⚠️ Nem sikerült minden táblát betölteni. Hiba: {e}")
             st.session_state.master_df = pd.DataFrame()
             st.session_state.nevnapok_df = pd.DataFrame()
             st.session_state.keresztnevek_df = pd.DataFrame()

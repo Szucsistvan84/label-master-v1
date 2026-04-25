@@ -1205,7 +1205,7 @@ def merge_data(all_rows):
                 
     return res
 
-def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df):
+def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, etlap_api_df):
     if df is None or df.empty: return None
     if 'Sorrend' not in df.columns: df['Sorrend'] = range(1, len(df) + 1)
     df = df.sort_values('Sorrend')

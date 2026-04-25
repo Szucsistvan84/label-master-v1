@@ -1825,9 +1825,10 @@ def main():
             k_df.columns = [col.strip().replace('\ufeff', '') for col in k_df.columns]
             st.session_state.keresztnevek_df = k_df
 
-            # 4. Etlap_API beolvasása és tisztítása (Ez az összekötő kapocs a csillagokhoz!)
+            # 4. Etlap_API beolvasása és tisztítása
             api_df = pd.DataFrame(sheet.worksheet("Etlap_API").get_all_records())
-            api_df.columns = [col.strip().replace('\ufeff', '') for col in api_df.columns]
+            # JAVÍTOTT SOR: Lecseréljük a sortörést (\n) szóközre!
+            api_df.columns = [str(col).replace('\n', ' ').strip().replace('\ufeff', '') for col in api_df.columns]
             st.session_state.etlap_api_df = api_df
             
             st.success("✅ Minden adatbázis (Master, Névnapok, API) sikeresen betöltve!")

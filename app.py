@@ -10,6 +10,7 @@ import os
 import gspread
 import base64
 import unicodedata
+from datetime import datetime
 from gspread_dataframe import set_with_dataframe
 from google.oauth2 import service_account
 from google.oauth2.service_account import Credentials
@@ -296,6 +297,54 @@ def clean_text(text):
     # Csak betűk és számok megtartása, kisbetűssé alakítás, szóközök törlése
     text = re.sub(r'[^a-zA-Z0-9]', '', text).lower()
     return text
+
+def format_kellek_alert(pdf_kod, pdf_nev, master_df):
+    """Meghatározza a kellék riasztást a csillagos szabály szerint."""
+    if master_df is None or master_df.empty: return ""
+    
+    tiszta_nev = clean_text(pdf_nev)
+    match = master_df[master_df['Tisztított Név'] == tiszta_nev]
+    
+    if not match.empty:
+        kellek = str(match.iloc[0]['Kellék']).strip()
+        if not kellek or kellek.lower() == "nan" or kellek == "": return ""
+        
+        # Csillagos szabály: Ha a kellék * jellegű (pl. *Tzatziki)
+        if kellek.startswith('*'):
+            if '*' in str(pdf_kod): # Csak ha a PDF kódjában is van csillag
+                return f"⚠ + {kellek.replace('*', '').strip().upper()}"
+            return ""
+        else:
+            # Sima kellék (mindenki kapja)
+            return f"⚠ + {kellek.upper()}"
+    return ""
+
+def get_gender_and_nevnap(full_name, nevnapok_df, keresztnevek_df):
+    """Meghatározza a névnapi üzenetet a nemeknek megfelelő ikonnal."""
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    
+    # 1. Mai névnapok listája
+    mai_sor = nevnapok_df[nevnapok_df['Datum'] == today_str]
+    if mai_sor.empty: return None
+    
+    mai_nevek = [n.strip().lower() for n in str(mai_sor.iloc[0]['Nevek']).split(',')]
+    
+    # 2. Vevő nevének ellenőrzése
+    name_parts = str(full_name).split(' ')
+    for part in name_parts:
+        clean_part = part.strip().lower()
+        if clean_part in mai_nevek:
+            # Megvan a névnapos! Nem meghatározása
+            gender_match = keresztnevek_df[keresztnevek_df['Keresztnév'].str.lower() == clean_part]
+            
+            ikon = "✨" # Alapértelmezett (Férfi vagy ismeretlen)
+            if not gender_match.empty:
+                nem = str(gender_match.iloc[0]['Nem']).lower()
+                if 'nő' in nem:
+                    ikon = "✿"
+            
+            return f"{ikon} Boldog névnapot, {part}! {ikon}"
+    return None
 
 def sync_master_database(sheet_id, ev, start_het, end_het):
     """
@@ -1251,6 +1300,13 @@ def create_label_pdf(df, fn, ft, meta):
             para = Paragraph(formazott_rendeles, order_s)
             pw, ph = para.wrap(usable_w, 15 * mm)
             para.drawOn(p, x + inner_m, y_eff + inner_m + 6.8 * mm)
+            
+            # --- KELLÉK RIASZTÁS (Közvetlenül a rendelés alatt) ---
+            kellek_info = format_kellek_alert(r.get('Kód', ''), r.get('Étel megnevezése', ''), master_df)
+            if kellek_info:
+                p.setFont(f_bold, 10)
+                # A Fizetendő rész fölé pozicionálva
+                p.drawString(x + inner_m, y_eff + 8.5 * mm, kellek_info)
 
             # 4. Fizetendő és Darab
             penz = str(r.get('Pénz', '0 Ft')).replace(" ", "")
@@ -1261,14 +1317,26 @@ def create_label_pdf(df, fn, ft, meta):
             p.setFont(f_bold, 8)
             p.drawRightString(x + lw - inner_m, y_eff + 5.5 * mm, f"Össz: {int(r.get('Összesen', 0))} db")
 
-            # 5. Elválasztó vonal és Futár
+            # 5. Elválasztó vonal és Alsó sáv (Névnap + Futár)
             p.setDash(1, 0) 
             p.setStrokeColor(colors.black)
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 5 * mm, x + lw - inner_m, y_eff + 5 * mm)
             
-            p.setFont(f_reg, 6)
-            p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
+            nevnap_info = get_gender_and_nevnap(r.get('Ügyintéző', ''), nevnapok_df, keresztnevek_df)
+            
+            if nevnap_info:
+                # Ha van névnap, ez legyen a hangsúlyos középen
+                p.setFont("Helvetica-Oblique", 9)
+                p.drawCentredString(x + lw / 2, y_eff + 2.8 * mm, nevnap_info)
+                
+                # A futár infót ilyenkor kicsit félretoljuk vagy kisebbbetűvel a sarokba tesszük
+                p.setFont(f_reg, 5)
+                p.drawRightString(x + lw - inner_m, y_eff + 1 * mm, f"{fn} | {ft}")
+            else:
+                # Ha nincs névnap, marad a régi megszokott futár kiírás középen
+                p.setFont(f_reg, 6)
+                p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
 
         else:
             # --- MARKETING ETIKETT (Érintetlenül hagyva) ---

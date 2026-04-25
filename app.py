@@ -152,18 +152,18 @@ def register_fonts():
         return 'Helvetica', 'Helvetica-Bold'
 
 def sync_interfood_etlap(year, week, sheet_id):
-    """
-    Letölti az adott évi és heti étlapot az Interfood API-ról, 
-    és feltölti a Google Sheets 'Etlap_API' munkalapjára.
-    """
     api_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     
+    # Ezzel elhitetjük a szerverrel, hogy egy böngésző vagyunk
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
     try:
-        # 1. Excel letöltése memóriába (hogy ne kelljen fájlokkal bajlódni)
-        response = requests.get(api_url)
-        response.raise_for_status() # Hiba esetén leáll
+        # Most már küldjük az azonosítót is (headers=headers)
+        response = requests.get(api_url, headers=headers)
+        response.raise_for_status() 
         
-        # Pandas beolvassa az Excel tartalmát a letöltött bitekből
         df = pd.read_excel(BytesIO(response.content))
         
         # 2. Google Sheets hitelesítés (a már jól bevált módon)

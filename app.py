@@ -1304,6 +1304,9 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             para = Paragraph(formazott_rendeles, order_s)
             pw, ph = para.wrap(usable_w, 15 * mm)
             para.drawOn(p, x + inner_m, y_eff + inner_m + 6.8 * mm)
+
+            # --- ÚJ: Dátum meghatározása a névnaphoz ---
+            pdf_datum = meta.get('datum_iso', datetime.now().strftime("%Y-%m-%d"))
             
             # --- ÚJ: KELLÉK KERESÉS (Dátum és Csillag alapú) ---
             kellek_info = ""

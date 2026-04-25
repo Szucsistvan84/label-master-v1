@@ -1201,7 +1201,7 @@ def merge_data(all_rows):
                 
     return res
 
-def create_label_pdf(df, fn, ft, meta):
+def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df):
     if df is None or df.empty: return None
     if 'Sorrend' not in df.columns: df['Sorrend'] = range(1, len(df) + 1)
     df = df.sort_values('Sorrend')
@@ -1937,7 +1937,15 @@ def main():
         
         c1.download_button(
             "📄 ETIKETTEK", 
-            create_label_pdf(edited_df, st.session_state.c_n, st.session_state.c_p, meta), # <--- Itt a 'meta' a végén!
+            create_label_pdf(
+                edited_df, 
+                st.session_state.c_n, 
+                st.session_state.c_p, 
+                meta,
+                st.session_state.master_df,       # <--- ÚJ
+                st.session_state.nevnapok_df,     # <--- ÚJ
+                st.session_state.keresztnevek_df  # <--- ÚJ
+            ),
             "etikettek.pdf", 
             use_container_width=True
         )

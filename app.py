@@ -153,46 +153,76 @@ def register_fonts():
 
 def sync_interfood_etlap(year, week, sheet_id):
     api_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
-    
-    # Ezzel elhitetjük a szerverrel, hogy egy böngésző vagyunk
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
     try:
-        # Most már küldjük az azonosítót is (headers=headers)
-        response = requests.get(api_url, headers=headers)
-        response.raise_for_status() 
+        # 1. LÉPÉS: Letöltés megkísérlése
+        st.info(f"Kapcsolódás az API-hoz: {api_url}")
+        response = requests.get(api_url, headers=headers, timeout=15)
         
-        df = pd.read_excel(BytesIO(response.content))
-        
-        # 2. Google Sheets hitelesítés (a már jól bevált módon)
+        if response.status_code != 200:
+            st.error(f"Az API hiba kódot küldött: {response.status_code}")
+            st.stop()
+            return False
+
+        # 2. LÉPÉS: Tartalom ellenőrzése
+        content = response.content
+        if len(content) < 100:
+            st.error("Az API válasza túl rövid, valószínűleg nem egy Excel fájlt kaptunk.")
+            st.stop()
+            return False
+
+        # 3. LÉPÉS: Excel feldolgozás
+        try:
+            df = pd.read_excel(BytesIO(content))
+        except Exception as ex_err:
+            st.error(f"Excel beolvasási hiba: {ex_err}")
+            # Megnézzük a nyers válasz elejét, hátha hibaüzenet jött le fájl helyett
+            st.write("A kapott válasz eleje (nyers):", content[:100])
+            st.stop()
+            return False
+
+        # 4. LÉPÉS: Google Sheets feltöltés
+        # ... (itt jön a gspread rész, amit már megírtunk) ...
+        # (Beillesztem ide a biztonság kedvéért a végét is)
         creds_info = st.secrets["gcp_service_account"].to_dict()
         creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         from google.oauth2 import service_account
         import gspread
+        from gspread_dataframe import set_with_dataframe
         
         creds = service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
         client = gspread.authorize(creds)
         sheet = client.open_by_key(sheet_id)
         
-        # 3. Munkalap kezelése
         try:
             worksheet = sheet.worksheet("Etlap_API")
-        except gspread.exceptions.WorksheetNotFound:
+        except:
             worksheet = sheet.add_worksheet(title="Etlap_API", rows="1000", cols="20")
             
-        # 4. Adatok "átöntése"
         worksheet.clear()
         set_with_dataframe(worksheet, df)
         
-        st.sidebar.success(format(f"Étlap frissítve: {year}. év {week}. hét"))
+        st.toast(f"Sikeres szinkron: {year}/W{week}", icon="✅")
         return True
         
     except Exception as e:
-        st.error(f"Nem sikerült az étlapot letölteni ({year}/W{week}): {e}")
-        return False
+        # 1. Piros hibaüzenet kiírása
+        st.error(f"❌ KRITIKUS HIBA TÖRTÉNT!")
+        
+        # 2. Részletes technikai adatok megjelenítése
+        with st.expander("Kattints ide a részletes hibaadatokért"):
+            st.write(f"Hiba típusa: {type(e).__name__}")
+            st.write(f"Üzenet: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc()) # Ez kiírja a teljes hiba-útvonalat
+        
+        # 3. STOP - Itt megáll az élet, lesz időd másolni
+        st.warning("A program futása megállt a hiba miatt. Másold ki a fenti adatokat!")
+        st.stop()
 
 # --- PÉLDA A HASZNÁLATRA ---
 # Amikor a meta függvényed kiolvassa:

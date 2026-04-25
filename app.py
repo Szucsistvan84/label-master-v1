@@ -1367,28 +1367,59 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     if talalt_kellekek:
                         kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
-            # ==========================================
-            # 3. RAJZOLÁS AZ ETIKETTRE
+# ==========================================
+            # 1. ADATOK KISZÁMÍTÁSA (Nincs rajzolás!)
             # ==========================================
             
-            # Kellék kiírása a rendelés alá (6.5 mm magasságban)
-            if kellek_kiiras:
-                p.setFont(f_bold, 7)
-                p.drawCentredString(x + lw / 2, y_eff + 6.5 * mm, kellek_kiiras)
+            # --- NÉVNAP SZÁMÍTÁSA ---
+            ugyintezo_neve = str(r.get('Ügyintéző', '')).strip()
+            tisztitott_keresztnev = ugyintezo_neve
+            for titulus in ["Dr.", "dr.", "id.", "ifj.", "özv.", "Özv."]:
+                tisztitott_keresztnev = tisztitott_keresztnev.replace(titulus, "").strip()
+            
+            nev_reszek = tisztitott_keresztnev.split(' ')
+            keresztnev_csak = nev_reszek[1] if len(nev_reszek) > 1 else nev_reszek[0]
 
-            # Névnap vagy Futár kiírása a legalsó sávba
-            if nevnap_uzenet:
-                p.setFont("Helvetica-Oblique", 8)
-                p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, nevnap_uzenet)
-                # Futár infó ilyenkor piciben a sarokba
-                p.setFont(f_reg, 5)
-                p.drawRightString(x + lw - inner_m, y_eff + 0.8 * mm, f"{fn} | {ft}")
-            else:
-                # Alapesetben a futár megy középre
-                p.setFont(f_reg, 6)
-                p.drawCentredString(x + lw / 2, y_eff + 2.2 * mm, f"Futár: {fn} | {ft}")
+            nevnap_uzenet = ""
+            if nevnapok_df is not None and not nevnapok_df.empty:
+                # pdf_datum formátuma: 2026-04-24
+                mai_sor = nevnapok_df[nevnapok_df['Datum'] == pdf_datum]
+                if not mai_sor.empty:
+                    mai_nevek = str(mai_sor.iloc[0]['Nevek']).lower().replace(' ', '').split(',')
+                    if keresztnev_csak.lower() in mai_nevek:
+                        nevnap_uzenet = f"✨ Boldog Névnapot, {keresztnev_csak}! ✨"
 
-            # 4. Fizetendő és Darab
+            # --- KELLÉK SZÁMÍTÁSA ---
+            kellek_kiiras = ""
+            if etlap_api_df is not None and not etlap_api_df.empty:
+                napi_oszlop = ""
+                keresett_d = pdf_datum.replace('-', '.')
+                for col in etlap_api_df.columns:
+                    if keresett_d in col:
+                        napi_oszlop = col
+                        break
+                
+                if napi_oszlop:
+                    csillagos_kodok = re.findall(r'([A-Z0-9]+)\*', str(formazott_rendeles).upper())
+                    talalt_kellekek = []
+                    for kod in csillagos_kodok:
+                        etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].str.startswith(kod, na=False)]
+                        if not etel_sor.empty:
+                            etel_neve = str(etel_sor.iloc[0][napi_oszlop]).strip()
+                            if master_df is not None:
+                                m_sor = master_df[master_df['Eredeti Név'] == etel_neve]
+                                if not m_sor.empty:
+                                    kell = str(m_sor.iloc[0].get('Kellék', '')).strip()
+                                    if kell and kell.lower() != 'nan' and kell != "":
+                                        talalt_kellekek.append(f"{kod}: {kell}")
+                    if talalt_kellekek:
+                        kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
+
+            # ==========================================
+            # 2. RAJZOLÁS (Minden csak EGYSZER!)
+            # ==========================================
+            
+            # Pénz és Darabszám (középső sáv)
             penz = str(r.get('Pénz', '0 Ft')).replace(" ", "")
             if penz not in ["0Ft", "", "0"]:
                 p.setFont(f_bold, 9)
@@ -1397,47 +1428,28 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setFont(f_bold, 8)
             p.drawRightString(x + lw - inner_m, y_eff + 5.5 * mm, f"Össz: {int(r.get('Összesen', 0))} db")
 
-            # 5. Elválasztó vonal és Alsó sáv (Névnap + Futár)
+            # Elválasztó vonal
             p.setDash(1, 0) 
             p.setStrokeColor(colors.black)
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 5 * mm, x + lw - inner_m, y_eff + 5 * mm)
-            
-            # --- NÉVNAP KERESÉS JAVÍTÁSA ---
-            ugyintezo_neve = str(r.get('Ügyintéző', '')).strip()
-            tisztitott_keresztnev = ugyintezo_neve
-            
-            # 1. Levágjuk a titulust (Dr., dr., ifj. stb.)
-            for titulus in ["Dr.", "dr.", "id.", "ifj.", "özv.", "Özv."]:
-                tisztitott_keresztnev = tisztitott_keresztnev.replace(titulus, "").strip()
-            
-            # 2. Csak a keresztnevet hagyjuk meg (szóköz mentén darabolunk)
-            # Feltételezzük, hogy a formátum: Vezetéknév Keresztnév
-            nev_reszek = tisztitott_keresztnev.split(' ')
-            if len(nev_reszek) > 1:
-                keresztnev_csak = nev_reszek[1] # A második elem a keresztnév
-            else:
-                keresztnev_csak = nev_reszek[0]
 
-            # Most hívjuk meg a névnapkeresőt a tisztított keresztnévvel
-            nevnap_uzenet = ""
-            if nevnapok_df is not None and not nevnapok_df.empty:
-                # Megkeressük az adott napi névnapokat
-                mai_sor = nevnapok_df[nevnapok_df['Datum'] == pdf_datum]
-                if not mai_sor.empty:
-                    mai_nevek = str(mai_sor.iloc[0]['Nevek']).lower().replace(' ', '').split(',')
-                    if keresztnev_csak.lower() in mai_nevek:
-                        nevnap_uzenet = f"✨ Boldog Névnapot, {keresztnev_csak}! ✨"
+            # Kellék kiírása az elválasztó vonal FÖLÉ (vagy alá kicsivel)
+            if kellek_kiiras:
+                p.setFont(f_bold, 7)
+                p.drawCentredString(x + lw / 2, y_eff + 7.5 * mm, kellek_kiiras)
 
-            # --- MEGJELENÍTÉS A PDF-EN ---
+            # LEGALUL: Vagy Névnap, vagy Futár
             if nevnap_uzenet:
                 p.setFont("Helvetica-Oblique", 9)
-                p.drawCentredString(x + lw / 2, y_eff + 2.8 * mm, nevnap_uzenet)
+                p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, nevnap_uzenet)
+                # Futár ilyenkor csak piciben a jobb sarokba
                 p.setFont(f_reg, 5)
-                p.drawRightString(x + lw - inner_m, y_eff + 1 * mm, f"{fn} | {ft}")
+                p.drawRightString(x + lw - inner_m, y_eff + 0.8 * mm, f"{fn} | {ft}")
             else:
+                # Alapesetben a futár megy középre
                 p.setFont(f_reg, 6)
-                p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
+                p.drawCentredString(x + lw / 2, y_eff + 2.2 * mm, f"Futár: {fn} | {ft}")
 
         else:
             # --- MARKETING ETIKETT (Érintetlenül hagyva) ---

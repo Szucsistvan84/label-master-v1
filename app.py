@@ -1442,11 +1442,18 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
         
         day_long = prefix_to_nev.get(prefix, prefix)
         
-        # --- ÚJ KERESÉSI LOGIKA ---
-        # A full_key nálad pl. "C_L1", de a Sheets-ben "4_L1"
-        num_prefix = prefix_to_num.get(prefix, "1")
-        sheets_key = f"{num_prefix}_{code_label}"
+        # --- ÚJ KERESÉSI LOGIKA (Csillag-mentesítéssel) ---
+        # 1. Levágjuk a csillagot a kódról, ha van rajta (pl. E1K* -> E1K)
+        # Ez biztosítja, hogy megtaláljuk az árat és nevet a Sheets-ben
+        keresett_kod = code_label.replace('*', '').strip()
         
+        # 2. Átalakítjuk a nap betűjelét számmá (pl. C -> 4)
+        num_prefix = prefix_to_num.get(prefix, "1")
+        
+        # 3. Megalkotjuk a Sheets-ben használt kulcsot (pl. 4_E1K)
+        sheets_key = f"{num_prefix}_{keresett_kod}"
+        
+        # 4. Lekérjük az adatokat
         info = etlap.get(sheets_key, {})
         
         # Név kinyerése

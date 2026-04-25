@@ -6,3 +6,4 @@ beautifulsoup4
 reportlab
 openpyxl
 st-gsheets-connection
+gspread-dataframe

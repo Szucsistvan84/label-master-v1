@@ -1757,7 +1757,7 @@ def main():
     st.set_page_config(page_title="Interfood Label Master", layout="wide")
     register_fonts()
 
-    # 1. SESSION STATE INICIALIZÁLÁSA (Itt tároljuk a futár adatait is)
+    # --- SESSION STATE INICIALIZÁLÁSA ---
     if 'mdf' not in st.session_state:
         st.session_state.mdf = None
     if 'meta_data' not in st.session_state:
@@ -1770,6 +1770,26 @@ def main():
         st.session_state.c_n = "Szűcs István"
     if 'c_p' not in st.session_state:
         st.session_state.c_p = "+36 20 886 8971"
+
+    # --- ÚJ: TÁBLÁZATOK INICIALIZÁLÁSA ÉS BETÖLTÉSE ---
+    if 'master_df' not in st.session_state:
+        try:
+            # Itt csatlakozunk a Google Sheets-hez
+            client = gspread.authorize(get_google_sheets_creds())
+            sheet = client.open_by_key(SHEET_ID)
+            
+            # Betöltjük a három fontos fület
+            st.session_state.master_df = pd.DataFrame(sheet.worksheet("Master_Adatbazis").get_all_records())
+            st.session_state.nevnapok_df = pd.DataFrame(sheet.worksheet("Nevnapok").get_all_records())
+            st.session_state.keresztnevek_df = pd.DataFrame(sheet.worksheet("Keresztnevek").get_all_records())
+            
+            st.success("✅ Adatbázisok (Kellékek, Névnapok) sikeresen betöltve!")
+        except Exception as e:
+            st.warning(f"⚠️ Nem sikerült minden táblát betölteni, a kellékek/névnapok nem fognak megjelenni. Hiba: {e}")
+            # Üres táblákkal töltjük fel, hogy ne szálljon el a kód
+            st.session_state.master_df = pd.DataFrame()
+            st.session_state.nevnapok_df = pd.DataFrame()
+            st.session_state.keresztnevek_df = pd.DataFrame()
 
 # 2. OLDALSÁV (SIDEBAR)
     with st.sidebar:

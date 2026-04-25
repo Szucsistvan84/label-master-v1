@@ -2002,6 +2002,7 @@ def main():
                 st.session_state.master_df,       # <--- ÚJ
                 st.session_state.nevnapok_df,     # <--- ÚJ
                 st.session_state.keresztnevek_df  # <--- ÚJ
+                st.session_state.etlap_api_df  # <--- EZ HIÁNYZOTT!
             ),
             "etikettek.pdf", 
             use_container_width=True

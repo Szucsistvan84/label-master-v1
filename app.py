@@ -230,47 +230,61 @@ def sync_interfood_etlap(year, week, sheet_id):
 # if ev and het:
 #     sync_interfood_etlap(ev, het, SHEET_ID)
 
-def get_etlap_dict(ev, het):
-    # A pontos URL struktúra, amit küldtél
-    url = f"https://ia.interfood.hu/api/v3/excel-export?year={ev}&week={het}"
-    
+def load_etlap_from_sheets(sheet_id):
+    """
+    Beolvassa a Google Sheets 'Etlap_API' fülét és egy könnyen kereshető 
+    szótárat (indexet) készít belőle.
+    """
     try:
-        # User-Agent nélkül az API gyakran blokkolja a Python kéréseket
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
+        # 1. Kapcsolódás a Sheets-hez
+        creds_info = st.secrets["gcp_service_account"].to_dict()
+        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         
-        # Excel beolvasása memóriából
-        df = pd.read_excel(BytesIO(response.content), header=None, engine='openpyxl')
+        from google.oauth2 import service_account
+        import gspread
         
-        etlap = {}
-        # A közösen kidolgozott "i" (név) és "i+1" (ár) logika
+        creds = service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(sheet_id)
+        worksheet = sheet.worksheet("Etlap_API")
+        
+        # 2. Minden adat beolvasása egy DataFrame-be
+        data = worksheet.get_all_values()
+        df = pd.DataFrame(data)
+        
+        etlap_index = {}
+        
+        # 3. Végigmegyünk a sorokon (keressük a kódokat az A oszlopban)
         for i in range(len(df)):
             elso_cella = str(df.iloc[i, 0]).strip()
             
+            # Ha megtaláljuk a "KÓD - Kategória" formátumot
             if " - " in elso_cella:
-                parts = elso_cella.split(" - ", 1)
-                kod = parts[0].strip()
-                kategoria = parts[1].strip()
-                nevek = df.iloc[i].values
+                kod = elso_cella.split(" - ")[0].strip()
                 
-                if i + 1 < len(df):
-                    arak = df.iloc[i + 1].values
-                    for nap_idx in range(1, 6): # H-P
-                        nev = str(nevek[nap_idx]).strip() if pd.notna(nevek[nap_idx]) else ""
-                        ar = str(arak[nap_idx]).strip() if pd.notna(arak[nap_idx]) else ""
-                        
-                        if nev and ar and nev.lower() != "nan" and ar.lower() != "nan":
-                            if kod not in etlap:
-                                etlap[kod] = {}
-                            etlap[kod][nap_idx] = {
-                                "nev": nev, 
-                                "ar": ar, 
-                                "kategoria": kategoria
-                            }
-        return etlap
+                # Végigmegyünk a napokon (B-től G oszlopig, azaz 1-6 index)
+                for nap_idx in range(1, 7):
+                    nev = str(df.iloc[i, nap_idx]).strip()
+                    
+                    # Az ár a név alatti sorban van (i + 1)
+                    ar = ""
+                    if i + 1 < len(df):
+                        ar = str(df.iloc[i + 1, nap_idx]).strip()
+                    
+                    if nev and nev.lower() != "nan" and nev != "":
+                        # Egy egyedi kulcsot hozunk létre: nap_index + kód (pl: "1_L1")
+                        # 1: Hétfő, 2: Kedd...
+                        kulcs = f"{nap_idx}_{kod}"
+                        etlap_index[kulcs] = {
+                            "nev": nev,
+                            "ar": ar
+                        }
+        
+        return etlap_index
+        
     except Exception as e:
-        st.error(f"Hiba az étlap letöltésekor ({ev}/{het}): {e}")
+        st.error(f"Hiba az étlap beolvasásakor a Sheets-ből: {e}")
         return {}
 
 # --- 1. AZ OKOS NÉV-MEMÓRIA BETÖLTÉSE ---
@@ -1594,18 +1608,24 @@ def main():
                             st.session_state[session_key] = True
                 # --- ÚJ RÉSZ VÉGE ---
 
-                # Étlap kódok letöltése (folytatódik a régi kódod)
-                napi_kodok = set()
-                with st.spinner("Étlap kódok letöltése..."):
-                    # ... innentől változatlan a kódod ...
-                    etlap_dict = get_etlap_dict(meta_auto['ev'], meta_auto['het'])
-                    for kulcs in etlap_dict.keys():
+                # --- Étlap adatok betöltése a Google Sheets-ből ---
+                with st.spinner("Étlap adatok beolvasása a táblázatból..."):
+                    # Meghívjuk az új függvényt, ami a már felszinkronizált Sheets-ből olvas
+                    etlap_adatok = load_etlap_from_sheets(SHEET_ID)
+                    
+                    # Elmentjük a teljes szótárat (nevekkel és árakkal) a session_state-be
+                    st.session_state.etlap_adatok = etlap_adatok
+
+                    # Kigyűjtjük a kódokat (L1, SP1, stb.) a PDF feldolgozó (parse_interfood_pdf) számára
+                    # Az etlap_adatok kulcsai "napindex_KÓD" formátumban vannak (pl. "1_L1")
+                    napi_kodok = set()
+                    for kulcs in etlap_adatok.keys():
                         parts = kulcs.split("_")
                         if len(parts) > 1:
                             napi_kodok.add(parts[1].strip().upper())
-                
-                # ELMENTJÜK
-                st.session_state.napi_etlap_kodok = napi_kodok
+                    
+                    # Elmentjük a kódokat is
+                    st.session_state.napi_etlap_kodok = napi_kodok
 
                 # PDF feldolgozás
                 all_rows = []

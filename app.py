@@ -1344,30 +1344,29 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
 
             # --- ALSÓ INFORMÁCIÓK (Kellék, Névnap, Futár) ---
             
-            # 1. Kellék: Feljebb tolva és ikonnal ellátva
+            # 1. Kellék: Biztonságos magasságban (9.8 mm), hogy ne érjen a vonalhoz
             if kellek_kiiras:
                 p.saveState()
                 p.setFont(f_bold, 7.5)
-                # Kicsit több helyet hagyunk alatta: 9.5 mm-re emeltem (korábban 8.2 vagy 8.8 volt)
-                # A ⚠ ikon segít az elválasztásban
+                # A ⚠ ikon és a szöveg elkülönítése
                 tiszta_kellek = kellek_kiiras.replace("Kellék:", "").strip()
                 p.drawCentredString(x + lw / 2, y_eff + 9.8 * mm, f"⚠ KELLÉK: {tiszta_kellek} ⚠")
                 p.restoreState()
 
-            # 2. Névnap VAGY Futár (Vagy-Vagy kapcsolat a duplázódás ellen)
+            # 2. VAGY névnap, VAGY futár (Szigorú választás!)
             if nevnap_uzenet:
-                # Névnapos ügyfél: Köszöntés középen
+                # NÉVNAPOS ESET: Csak a köszöntés megy középre
                 p.setFont(f_reg, 8) 
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, nevnap_uzenet)
+                
+                # Opcionális: a futár adatai ilyenkor elkerülnek a sarokba, 
+                # hogy ne takarják a névnapot, de azért ott legyenek kicsiben
+                p.setFont(f_reg, 5)
+                p.drawRightString(x + lw - inner_m, y_eff + 0.8 * mm, f"{fn} | {ft}")
             else:
-                # Normál ügyfél: Futár adatok középen
+                # NORMÁL ESET: Csak a futár adatai középen, ahogy eddig
                 p.setFont(f_reg, 6.5)
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
-
-            # Futár adatok kicsiben a sarokba, ha névnap van (opcionális, ha mégis látni akarod)
-            if nevnap_uzenet:
-                p.setFont(f_reg, 5.2)
-                p.drawRightString(x + lw - inner_m, y_eff + 0.8 * mm, f"{fn} | {ft}")
 
         else:
             # MARKETING ETIKETT

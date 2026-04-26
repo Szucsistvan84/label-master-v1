@@ -2058,6 +2058,8 @@ def main():
         
         # Biztosítjuk, hogy a meta egy szótár legyen
         meta = st.session_state.meta_data if isinstance(st.session_state.meta_data, dict) else {}
+        # --- ÚJ SOR: BELETESSZÜK A KIVÁLASZTOTT DÁTUMOT A METÁBA ---
+        meta['datum_iso'] = str(kivalasztott_datum)
         
         # Kiszámoljuk a járatszámokat az új struktúrából
         jaratok_listaja = meta.get('jaratok', [])

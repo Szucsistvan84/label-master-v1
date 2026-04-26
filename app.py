@@ -1286,40 +1286,48 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     if k_nev_kisbetus in napi_nevek_lista:
                         nevnap_uzenet = f"★ Boldog Névnapot, {keresztnev}! ★"
 
-            # --- 4. KELLÉK KERESÉS (Szalmás Béláné és L2K* fix) ---
+            # --- 4. KELLÉK KERESÉS + DEBUGGER ---
             kellek_kiiras = ""
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None:
                 napi_oszlop = next((col for col in etlap_api_df.columns if kulcs_api_datum in str(col)), None)
                 
                 if napi_oszlop:
-                    # A regex most már rugalmasabb
+                    # Kikeressük a csillagos kódokat (pl. L2K, E1K)
                     csillagosok = re.findall(r'([A-Z0-9\-]+)\*', formazott_rendeles.upper())
                     talalt_kellekek = []
                     
                     for nyers_kod in csillagosok:
-                        # FIX 1: Ha "1-L2K" a kód, vágjuk le a darabszámot, hogy csak az "L2K" maradjon
-                        tiszta_kod = nyers_kod.split('-')[-1].strip() if '-' in nyers_kod else nyers_kod.strip()
+                        # 1. Tisztítás: "1-L2K" -> "L2K"
+                        tiszta_kod = nyers_kod.split('-')[-1].strip()
                         
-                        # FIX 2: Ne pontos egyezést keressünk (==), hanem nézzük meg, 
-                        # hogy az API tábla kód oszlopában BENNE VAN-E a kódunk
-                        # (Így nem zavarja meg a szóköz vagy ha több kód van egy cellában)
-                        etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(tiszta_kod, na=False)]
+                        # --- DEBUG PANEL INDÍTÁSA ---
+                        with st.sidebar:
+                            st.write(f"🔍 **Kellék ellenőrzés:** `{tiszta_kod}`")
+                        
+                        # 2. KERESÉS AZ API TÁBLÁBAN: 
+                        # Itt volt a hiba! contains-t használunk, hogy az "L2K - Kis Leves"-t is megtalálja
+                        etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(rf"\b{tiszta_kod}\b", na=False)]
                         
                         if not etel_sor.empty:
-                            # Megvan az étel neve az adott napon
                             etel_neve = str(etel_sor.iloc[0][napi_oszlop]).strip()
+                            st.sidebar.write(f"✅ Étel megvan: *{etel_neve}*")
                             
                             if master_df is not None:
-                                # Keressük a kelléket a Master táblában
+                                # 3. KERESÉS A MASTER DATA-BAN
                                 m_sor = master_df[master_df['Eredeti Név'] == etel_neve]
                                 if not m_sor.empty:
                                     kell = str(m_sor.iloc[0].get('Kellék', '')).strip()
-                                    # Csak akkor adjuk hozzá, ha nem üres és nem 'nan'
-                                    if kell and kell.lower() != 'nan':
+                                    if kell and kell.lower() != 'nan' and kell != "":
                                         talalt_kellekek.append(f"{tiszta_kod}: {kell}")
-                    
+                                        st.sidebar.success(f"🎁 Kellék megvan: {kell}")
+                                    else:
+                                        st.sidebar.warning(f"⚠️ Nincs kellék a Masterben ehhez: {etel_neve}")
+                                else:
+                                    st.sidebar.error(f"❌ '{etel_neve}' nem szerepel a Master Data 'Eredeti Név' oszlopában!")
+                        else:
+                            st.sidebar.error(f"❌ A kód `{tiszta_kod}` nincs az API tábla első oszlopában!")
+
                     if talalt_kellekek:
-                        # Itt fűzzük össze: "L2K: Tzatziki, TAV: Tejföl"
                         kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
             # --- RAJZOLÁS ---

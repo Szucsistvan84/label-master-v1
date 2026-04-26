@@ -1345,14 +1345,25 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 p.rect(x + 0.5*mm, top_y - 9.5*mm, lw - 1*mm, 5*mm, fill=1, stroke=0)
                 p.restoreState()
 
-            p.setFont(f_bold, 7)
+            # --- FEJLÉC MÓDOSÍTÁSA (Kisebb méretek, több hely) ---
+            
+            # Sorszám (#): 8-as méret
+            p.setFont(f_bold, 8)
             p.drawString(x + inner_m, top_y - 3 * mm, f"#{int(r['Sorrend'])}")
+            
+            # ID: 7-es méret (kisebb, hogy ne legyen hangsúlyos)
             p.setFont(f_reg, 7)
             p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {str(r.get('temp_id', 'N/A'))}")
-            p.setFont(f_bold, 8)
-            p.drawString(x + inner_m, top_y - 8.5 * mm, str(r.get('Ügyintéző', ''))[:25])
-            p.setFont(f_reg, 7)
-            p.drawRightString(x + lw - inner_m, top_y - 8.5 * mm, str(r.get('Telefon', '')))
+            
+            # NÉV (Ügyintéző): 10-es méret (11-ről vagy 12-ről lejjebb véve)
+            # 1 mm-rel lejjebb toljuk (8.5 helyett 9.5), hogy ne érjen a sorszámhoz
+            p.setFont(f_bold, 10)
+            p.drawString(x + inner_m, top_y - 9.5 * mm, str(r.get('Ügyintéző', ''))[:25])
+            
+            # TELEFON: 8-as méret (hogy jobban elkülönüljön a névtől)
+            # Ezt is lejjebb toljuk 1 mm-rel (8.5 helyett 13.5-re, így szellősebb)
+            p.setFont(f_reg, 8)
+            p.drawRightString(x + lw - inner_m, top_y - 13.5 * mm, str(r.get('Telefon', '')))
             p.setFont(f_reg, 7)
             p.drawString(x + inner_m, top_y - 12.5 * mm, str(r.get('Cím', ''))[:45])
 
@@ -1376,11 +1387,11 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
 
             # --- ALSÓ INFORMÁCIÓK (Kellék, Névnap, Futár) ---
             
-            # 1. Kellék: Magasabbra tolva (9.8 mm), hogy ne ütközzön semmivel
+            # --- KELLÉK SZEKCIÓ ---
             if kellek_kiiras:
                 p.saveState()
-                p.setFont(f_bold, 6.5)
-                # Kitisztítjuk a feliratot és hozzáadjuk a felkiáltójeleket
+                p.setFont(f_bold, 6.5) # Egyel kisebb (7.5-ről 6.5-re)
+                # Csak az eleje nagybetűs: "⚠ Kellék:"
                 t_kellek = kellek_kiiras.replace("Kellék:", "").strip()
                 p.drawCentredString(x + lw / 2, y_eff + 9.8 * mm, f"⚠ Kellék: {t_kellek} ⚠")
                 p.restoreState()

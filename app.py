@@ -1330,7 +1330,8 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 p.setFillColor(colors.lightgrey, alpha=0.3)
                 # A téglalapot a név és az ID sávja mögé pozicionáljuk
                 # x + inner_m-től indul, és kb. a név/telefon magasságát fedi le
-                p.rect(x + 0.5*mm, top_y - 10*mm, lw - 1*mm, 8*mm, fill=1, stroke=0)
+                # 8*mm helyett legyen 5*mm, és a top_y-tól való távolságot is finomítjuk
+                p.rect(x + 0.5*mm, top_y - 9.5*mm, lw - 1*mm, 5*mm, fill=1, stroke=0)
                 p.restoreState()
 
             # --- FEJLÉC ÉS ADATOK (Eredeti kódod) ---

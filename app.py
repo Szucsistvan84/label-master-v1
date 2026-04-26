@@ -1300,50 +1300,40 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
 
             kellek_kiiras = ""
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None:
-                with st.expander(f"🐞 DEBUG: {kulcs_api_datum} keresése"):
-                    # TISZTÍTOTT DÁTUM KERESÉS (pontok és kötőjelek nélkül)
-                    keresett_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
+                # Dátum keresése (tisztított formátummal)
+                keresett_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
+                napi_oszlop = None
+                
+                for col in etlap_api_df.columns:
+                    if keresett_nap_szamokkal in "".join(filter(str.isdigit, str(col))):
+                        napi_oszlop = col
+                        break
+                
+                if napi_oszlop:
+                    # Kódok keresése a rendelésben
+                    tiszta_szoveg_kereseshez = re.sub(r'<[^>]*>', '', formazott_rendeles)
+                    csillagosok = re.findall(r'([A-Z0-9\-]+)\*', tiszta_szoveg_kereseshez.upper())
                     
-                    napi_oszlop = None
-                    for col in etlap_api_df.columns:
-                        col_str = str(col)
-                        col_tisztitott = "".join(filter(str.isdigit, col_str))
+                    talalt_kellekek = []
+                    for nyers_kod in csillagosok:
+                        tiszta_kod = nyers_kod.split('-')[-1].strip()
+                        etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(rf"\b{tiszta_kod}\b", na=False)]
                         
-                        # Ha a számok egyeznek (pl. 20260427), akkor megvan az oszlopunk
-                        if keresett_nap_szamokkal in col_tisztitott:
-                            napi_oszlop = col
-                            break
-                    
-                    if not napi_oszlop:
-                        st.error(f"❌ Nem található oszlop a(z) {kulcs_api_datum} dátumhoz!")
-                        st.write("Elérhető oszlopok:", list(etlap_api_df.columns))
-                    else:
-                        st.success(f"✅ Megtalált oszlop: `{napi_oszlop}`")
-                        
-                        # Innentől a kód többi része változatlan...
-                        tiszta_szoveg_kereseshez = re.sub(r'<[^>]*>', '', formazott_rendeles)
-                        csillagosok = re.findall(r'([A-Z0-9\-]+)\*', tiszta_szoveg_kereseshez.upper())
-                        
-                        talalt_kellekek = []
-                        for nyers_kod in csillagosok:
-                            tiszta_kod = nyers_kod.split('-')[-1].strip()
-                            etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(rf"\b{tiszta_kod}\b", na=False)]
+                        if not etel_sor.empty:
+                            nyers_etel_neve = str(etel_sor.iloc[0][napi_oszlop]).strip()
+                            keresett_nev_tiszta = re.sub(r'[^a-z0-9]', '', nyers_etel_neve.lower())
                             
-                            if not etel_sor.empty:
-                                nyers_etel_neve = str(etel_sor.iloc[0][napi_oszlop]).strip()
-                                keresett_nev_tiszta = re.sub(r'[^a-z0-9]', '', nyers_etel_neve.lower())
-                                
-                                if master_df is not None:
-                                    for m_idx, m_row in master_df.iterrows():
-                                        master_nev_tiszta = re.sub(r'[^a-z0-9]', '', str(m_row.get('Eredeti Név', '')).lower())
-                                        if master_nev_tiszta == keresett_nev_tiszta:
-                                            kell = str(m_row.get('Kellék', '')).strip()
-                                            if kell and kell.lower() != 'nan' and kell != "":
-                                                talalt_kellekek.append(f"{tiszta_kod}: {kell}")
-                                            break
-                        
-                        if talalt_kellekek:
-                            kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
+                            if master_df is not None:
+                                for m_idx, m_row in master_df.iterrows():
+                                    master_nev_tiszta = re.sub(r'[^a-z0-9]', '', str(m_row.get('Eredeti Név', '')).lower())
+                                    if master_nev_tiszta == keresett_nev_tiszta:
+                                        kell = str(m_row.get('Kellék', '')).strip()
+                                        if kell and kell.lower() != 'nan' and kell != "":
+                                            talalt_kellekek.append(f"{tiszta_kod}: {kell}")
+                                        break
+                    
+                    if talalt_kellekek:
+                        kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
             # --- DINAMIKUS ELTOLÁS SZÁMÍTÁSA (JAVÍTOTT) ---
             try:

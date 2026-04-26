@@ -1276,27 +1276,48 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             
             formazott_rendeles = "".join(formazott_reszek)
 
-            # --- NÉVNAP KERESÉS (Stabilizált verzió) ---
+            # --- NÉVNAP LOGIKA (Sziklaszilárd verzió) ---
             nevnap_uzenet = ""
             if kulcs_nevnap != "NINCS" and nevnapok_df is not None:
                 mai_sor = nevnapok_df[nevnapok_df['Datum'].astype(str).str.contains(kulcs_nevnap)]
                 
                 if not mai_sor.empty:
-                    # Ügyintéző tisztítása
-                    ugyintezo = str(r.get('Ügyintéző', '')).strip()
+                    # 1. Név kinyerése: Dr. és felesleges szóközök nélkül
+                    teljes_nev = str(r.get('Ügyintéző', '')).strip()
                     for t in ["Dr.", "dr.", "id.", "ifj.", "özv.", "Özv."]:
-                        ugyintezo = didnt_work = ugyintezo.replace(t, "").strip()
+                        teljes_nev = teljes_nev.replace(t, "")
                     
-                    nevek = ugyintezo.split()
-                    keresztnev = nevek[1] if len(nevek) > 1 else nevek[0]
-                    keresztnev_tisztitott = keresztnev.lower().strip() # Kisbetű + szóközmentes
+                    # A split() paraméter nélkül minden szóköz-félét (dupla szóközt is) kitakarít
+                    # A [n for n in ... if n] pedig az üres elemeket dobja ki
+                    tisztitott_szavak = [n.strip() for n in teljes_nev.split() if n.strip()]
+                    
+                    # DEBUG: Ha Dr. Tóth Petra volt -> ['Tóth', 'Petra']
+                    # Így a [1] index BIZTOSAN 'Petra' lesz
+                    if len(tisztitott_szavak) > 1:
+                        keresztnev = tisztitott_szavak[1]
+                    elif len(tisztitott_szavak) == 1:
+                        keresztnev = tisztitott_szavak[0]
+                    else:
+                        keresztnev = ""
 
-                    # A táblázat neveinek feldolgozása: split után minden elemet strip-elünk!
-                    napi_nevek_nyers = str(mai_sor.iloc[0]['Nevek']).split(',')
-                    napi_nevek = [n.strip().lower() for n in napi_nevek_nyers] # Ez kiszedi a szóközöket!
+                    # 2. Összehasonlítás a táblázattal
+                    if keresztnev:
+                        # Minden nevet a táblázatban kisbetűssé és szóközmentessé teszünk
+                        napi_nevek_nyers = str(mai_sor.iloc[0]['Nevek']).split(',')
+                        napi_nevek = [n.strip().lower() for n in napi_nevek_nyers]
+                        
+                        if keresztnev.lower() in napi_nevek:
+                            nevnap_uzenet = f"✨ Boldog Névnapot, {keresztnev}! ✨"
 
-                    if keresztnev_tisztitott in napi_nevek:
-                        nevnap_uzenet = f"✨ Boldog Névnapot, {keresztnev}! ✨"
+            # --- RAJZOLÁS (A legfontosabb!) ---
+            if nevnap_uzenet:
+                p.saveState()
+                p.setFont(f_bold, 8.5)
+                p.setFillColor(colors.black)
+                # Ha az y + 5*mm nem látszik, tegyük fixen a cím alá:
+                # top_y - 35*mm kb. az etikett alja felett van
+                p.drawCentredString(x + lw/2, y + 7*mm, nevnap_uzenet)
+                p.restoreState()
 
             # --- 4. KELLÉK KERESÉS (ÚJ, STABIL LOGIKA) ---
             kellek_kiiras = ""

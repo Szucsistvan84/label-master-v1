@@ -1292,21 +1292,34 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None:
                 napi_oszlop = next((col for col in etlap_api_df.columns if kulcs_api_datum in str(col)), None)
                 if napi_oszlop:
-                    csillagosok = re.findall(r'([A-Z0-9\-]+)\*', formazott_rendeles.upper())
+                    # Fontos: A formazott_rendeles-ből (ami HTML lehet) szedjük ki a kódokat
+                    tiszta_szoveg_kereseshez = re.sub(r'<[^>]*>', '', formazott_rendeles)
+                    csillagosok = re.findall(r'([A-Z0-9\-]+)\*', tiszta_szoveg_kereseshez.upper())
+                    
                     talalt_kellekek = []
                     for nyers_kod in csillagosok:
                         tiszta_kod = nyers_kod.split('-')[-1].strip()
-                        with st.sidebar: st.write(f"🔍 **Kellék ellenőrzés:** `{tiszta_kod}`")
+                        
                         etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(rf"\b{tiszta_kod}\b", na=False)]
                         if not etel_sor.empty:
                             nyers_etel_neve = str(etel_sor.iloc[0][napi_oszlop]).strip()
-                            tiszta_etel_neve = nyers_etel_neve.replace('*', '').strip()
+                            # Itt a titok: meg kell tisztítani az étel nevét az összehasonlításhoz
+                            # Kisbetű + minden írásjel és szóköz eltávolítása
+                            keresett_nev_tiszta = re.sub(r'[^a-z0-9]', '', nyers_etel_neve.lower())
+                            
                             if master_df is not None:
-                                m_sor = master_df[master_df['Eredeti Név'].str.strip() == tiszta_etel_neve]
-                                if not m_sor.empty:
-                                    kell = str(m_sor.iloc[0].get('Kellék', '')).strip()
-                                    if kell and kell.lower() != 'nan' and kell != "":
-                                        talalt_kellekek.append(f"{tiszta_kod}: {kell}")
+                                # A master_df-ben is ugyanígy tisztítjuk az 'Eredeti Név' oszlopot
+                                # Vagy ha ott már eleve tisztán van, akkor csak a keresett_nev_tiszta-t hasonlítjuk
+                                # Biztonsági játék: mindkét oldalt tisztítjuk az összehasonlításkor
+                                for m_idx, m_row in master_df.iterrows():
+                                    master_nev_tiszta = re.sub(r'[^a-z0-9]', '', str(m_row.get('Eredeti Név', '')).lower())
+                                    
+                                    if master_nev_tiszta == keresett_nev_tiszta:
+                                        kell = str(m_row.get('Kellék', '')).strip()
+                                        if kell and kell.lower() != 'nan' and kell != "":
+                                            talalt_kellekek.append(f"{tiszta_kod}: {kell}")
+                                        break # Ha megvan, nem keressük tovább ebben a sorban
+
                     if talalt_kellekek:
                         kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 

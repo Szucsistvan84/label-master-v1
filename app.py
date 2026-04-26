@@ -1310,71 +1310,58 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     if talalt_kellekek:
                         kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
-            # --- FEJLÉC (Név, ID, Telefon, Sorszám) ---
-            
-            # Sorszám (#): 8-as méret
+            # --- FEJLÉC (Sorszám és ID marad a tetején: -3mm) ---
             p.setFont(f_bold, 8)
             p.drawString(x + inner_m, top_y - 3 * mm, f"#{int(r['Sorrend'])}")
             
-            # ID: 7-es méret
             p.setFont(f_reg, 7)
             p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {str(r.get('temp_id', 'N/A'))}")
 
-            # --- SZÜRKE TÉGLALAP (Csak ha van szombati/különleges tétel) ---
+            # --- NÉV / TEL / CÍM - Jelentősen feljebb tolva a lyuk megszüntetéséhez ---
+            # Eddig -9.5 mm volt, most felvisszük -6.5 mm-re (közvetlenül a sorszám alá)
+            nev_y_pozicio = top_y - 6.5 * mm
+            
+            # SZÜRKE TÉGLALAP (A név/tel új helyéhez igazítva)
             if kulonleges:
                 p.saveState()
                 p.setFillColor(colors.lightgrey, alpha=0.3)
-                # A név és telefon sora mögé tesszük (kb. 9.5mm-nél van a név)
-                p.rect(x + 0.5*mm, top_y - 11 * mm, lw - 1*mm, 5.5 * mm, fill=1, stroke=0)
+                p.rect(x + 0.5*mm, nev_y_pozicio - 1.5*mm, lw - 1*mm, 5 * mm, fill=1, stroke=0)
                 p.restoreState()
             
-            # NÉV (Ügyintéző): 9-es méret (kérésre csökkentve)
             p.setFont(f_bold, 9)
-            p.drawString(x + inner_m, top_y - 9.5 * mm, str(r.get('Ügyintéző', ''))[:25])
+            p.drawString(x + inner_m, nev_y_pozicio, str(r.get('Ügyintéző', ''))[:25])
             
-            # TELEFON: Visszakerült a NÉV mellé (azonos magasság: 9.5 mm)
             p.setFont(f_reg, 8)
-            p.drawRightString(x + lw - inner_m, top_y - 9.5 * mm, str(r.get('Telefon', '')))
+            p.drawRightString(x + lw - inner_m, nev_y_pozicio, str(r.get('Telefon', '')))
             
-            # CÍM: Külön sorban maradt alatta
+            # CÍM - Ez is jön feljebb (eddig -13.5 volt, most -9.5 mm)
             p.setFont(f_reg, 7)
-            p.drawString(x + inner_m, top_y - 13.5 * mm, str(r.get('Cím', ''))[:45])
+            p.drawString(x + inner_m, top_y - 9.5 * mm, str(r.get('Cím', ''))[:45])
 
-            # RENDELÉS - Még 1 mm-rel feljebb tolva (15 -> 16 mm)
+            # RENDELÉS BLOKK - Jön feljebb, hogy kövesse a fejlécet
+            # Eddig y_eff + 16 mm volt, most y_eff + 19 mm-re emeljük
             para = Paragraph(formazott_rendeles, order_s)
             pw, ph = para.wrap(usable_w, 18 * mm)
-            para.drawOn(p, x + inner_m, y_eff + 16 * mm) 
+            para.drawOn(p, x + inner_m, y_eff + 19 * mm) 
 
-            # --- ALSÓ SÁV (Vonal, Összesítő és Fizetendő) ---
+            # --- ALSÓ RÉSZ (Összesítő és Kellék emelése) ---
+            # Vonal marad 6mm-en
             p.setLineWidth(0.1)
-            # A vonal marad a helyén (6 mm)
             p.line(x + inner_m, y_eff + 6 * mm, x + lw - inner_m, y_eff + 6 * mm)
 
-            # ÖSSZESÍTŐ (db) - Közvetlenül a vonal fölé, balra
+            # Összesítés (vonal felett)
             p.setFont(f_bold, 7.5)
-            osszes_db = r.get('Össz_db', '0')
-            p.drawString(x + inner_m, y_eff + 7 * mm, f"Össz: {osszes_db} db")
+            p.drawString(x + inner_m, y_eff + 7 * mm, f"Össz: {r.get('Össz_db', '0')} db")
+            p.drawRightString(x + lw - inner_m, y_eff + 7 * mm, f"Fizet: {r.get('Fizetendő', '0')} Ft")
 
-            # FIZETENDŐ ÖSSZEG - Közvetlenül a vonal fölé, jobbra
-            fizetendo = r.get('Fizetendő', '0')
-            p.drawRightString(x + lw - inner_m, y_eff + 7 * mm, f"Fizet: {fizetendo} Ft")
-
-            # --- KELLÉK SZEKCIÓ (Az emelt pozícióban: 9.5 mm) ---
+            # KELLÉK SOR - Annyival megy fentebb, amennyivel a név ment (kb. +3mm)
+            # Eddig 9.5 mm volt, most y_eff + 12.5 mm-re kerül
             if kellek_kiiras:
                 p.saveState()
-                p.setFont(f_bold, 6.5)
+                p.setFont(f_bold, 6)
                 t_kellek = kellek_kiiras.replace("Kellék:", "").strip()
-                # 9.5 mm-en van, így 2.5 mm hely marad az összegzés és a kellék között
-                p.drawCentredString(x + lw / 2, y_eff + 9.5 * mm, f"⚠ Kellék: {t_kellek} ⚠")
+                p.drawCentredString(x + lw / 2, y_eff + 12.5 * mm, f"⚠ Kellék: {t_kellek} ⚠")
                 p.restoreState()
-
-            # --- LEGALJA (Névnap vagy Futár) ---
-            if nevnap_uzenet:
-                p.setFont(f_reg, 8) 
-                p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, nevnap_uzenet)
-            else:
-                p.setFont(f_reg, 6.5)
-                p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
 
         else:
             # MARKETING ETIKETT (Változatlan)

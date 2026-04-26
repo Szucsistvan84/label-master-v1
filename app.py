@@ -1324,14 +1324,25 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                         kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
             # --- 3. RAJZOLÁS ---
-            # Fejléc
+            # --- SZÜRKE HÁTTÉR RAJZOLÁSA (Csak ha van másnapi rendelés is) ---
+            if kulonleges:
+                p.saveState()
+                p.setFillColor(colors.lightgrey, alpha=0.3)
+                # A téglalapot a név és az ID sávja mögé pozicionáljuk
+                # x + inner_m-től indul, és kb. a név/telefon magasságát fedi le
+                p.rect(x + 0.5*mm, top_y - 10*mm, lw - 1*mm, 8*mm, fill=1, stroke=0)
+                p.restoreState()
+
+            # --- FEJLÉC ÉS ADATOK (Eredeti kódod) ---
             p.setFont(f_bold, 10)
             p.drawString(x + inner_m, top_y - 3 * mm, f"#{int(r['Sorrend'])}")
+            
             p.setFont(f_reg, 8)
             p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {str(r.get('temp_id', 'N/A'))}")
 
             p.setFont(f_bold, 9)
             p.drawString(x + inner_m, top_y - 8.5 * mm, str(r.get('Ügyintéző', ''))[:25])
+            
             p.setFont(f_reg, 8)
             p.drawRightString(x + lw - inner_m, top_y - 8.5 * mm, str(r.get('Telefon', '')))
 

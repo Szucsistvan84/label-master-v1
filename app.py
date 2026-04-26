@@ -1220,8 +1220,8 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
     inner_m = 5.5 * mm 
     usable_w = lw - (2 * inner_m)
 
-    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7.5, leading=8.0)
-    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1)
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7, leading=8.0)
+    promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=7.5, leading=10, alignment=1)
 
     total_slots = math.ceil(len(df) / 21) * 21
     pdf_datum = meta.get('datum_iso', '')
@@ -1345,13 +1345,13 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 p.rect(x + 0.5*mm, top_y - 9.5*mm, lw - 1*mm, 5*mm, fill=1, stroke=0)
                 p.restoreState()
 
-            p.setFont(f_bold, 10)
+            p.setFont(f_bold, 7)
             p.drawString(x + inner_m, top_y - 3 * mm, f"#{int(r['Sorrend'])}")
-            p.setFont(f_reg, 8)
+            p.setFont(f_reg, 7)
             p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {str(r.get('temp_id', 'N/A'))}")
-            p.setFont(f_bold, 9)
+            p.setFont(f_bold, 8)
             p.drawString(x + inner_m, top_y - 8.5 * mm, str(r.get('Ügyintéző', ''))[:25])
-            p.setFont(f_reg, 8)
+            p.setFont(f_reg, 7)
             p.drawRightString(x + lw - inner_m, top_y - 8.5 * mm, str(r.get('Telefon', '')))
             p.setFont(f_reg, 7)
             p.drawString(x + inner_m, top_y - 12.5 * mm, str(r.get('Cím', ''))[:45])
@@ -1364,10 +1364,10 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             # --- ALSÓ SÁV (Pénz és vonal) ---
             penz = str(r.get('Pénz', '0 Ft')).replace(" ", "")
             if penz not in ["0Ft", "", "0"]:
-                p.setFont(f_bold, 9)
+                p.setFont(f_bold, 7)
                 p.drawString(x + inner_m, y_eff + 6.5 * mm, f"Fizet: {str(r.get('Pénz', ''))}")
             
-            p.setFont(f_bold, 8)
+            p.setFont(f_bold, 7)
             p.drawRightString(x + lw - inner_m, y_eff + 6.5 * mm, f"Össz: {int(r.get('Összesen', 0))} db")
 
             p.setStrokeColor(colors.black)
@@ -1379,10 +1379,10 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             # 1. Kellék: Magasabbra tolva (9.8 mm), hogy ne ütközzön semmivel
             if kellek_kiiras:
                 p.saveState()
-                p.setFont(f_bold, 7.5)
+                p.setFont(f_bold, 6.5)
                 # Kitisztítjuk a feliratot és hozzáadjuk a felkiáltójeleket
                 t_kellek = kellek_kiiras.replace("Kellék:", "").strip()
-                p.drawCentredString(x + lw / 2, y_eff + 9.8 * mm, f"⚠ KELLÉK: {t_kellek} ⚠")
+                p.drawCentredString(x + lw / 2, y_eff + 9.8 * mm, f"⚠ Kellék: {t_kellek} ⚠")
                 p.restoreState()
 
             # 2. SZIGORÚ VAGY/VAGY LOGIKA (A vonal alatti 2.5 mm-es sáv)

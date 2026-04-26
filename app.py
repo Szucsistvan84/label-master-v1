@@ -1251,7 +1251,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             r = df.iloc[i]
             top_y = y + lh - inner_m
             
-            # --- RENDELÉS FORMÁZÁSA (A te eredeti kódod) ---
+            # --- RENDELÉS FORMÁZÁSA (Javított verzió) ---
             r_full = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
             kulonleges = False
             napi_blokkok = re.split(r'(\s*\|\s*|(?=Hé:|Ke:|Sze:|Csü:|Pé:|Szo:))', r_full)
@@ -1261,13 +1261,16 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 if not blokk or not blokk.strip(): 
                     if blokk: formazott_reszek.append(blokk)
                     continue
+                
                 szin_blokk = blokk
                 for n in nap_list:
                     n_tag = f"{n}:"
                     if n_tag in blokk:
+                        # Ha a blokk egy MÁSIK naphoz tartozik (pl. Szombat a Pénteki PDF-ben)
                         if n != bazis_nap_rovid:
-                            kulonleges = True
-                            szin_blokk = f'<font color="#888888">{blokk}</font>' # Szürkítés a többi napnak
+                            kulonleges = True # Ez aktiválja a szürke hátteret az etiketten
+                            # Itt nem elszürkítünk, hanem kiemeljük, ahogy eredetileg szeretted volna:
+                            szin_blokk = f'<font name="{f_bold}" size="8.2">{blokk}</font>'
                         break
                 formazott_reszek.append(szin_blokk)
             

@@ -1276,23 +1276,26 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             
             formazott_rendeles = "".join(formazott_reszek)
 
-            # --- 3. NÉVNAP KERESÉS (ÚJ, STABIL LOGIKA) ---
+            # --- NÉVNAP KERESÉS (Stabilizált verzió) ---
             nevnap_uzenet = ""
-            if kulcs_nevnap != "NINCS" and 'nevnapok_df' in locals() and nevnapok_df is not None:
-                # Keresés a 04-24 töredékre
-                mai_nevnap_sor = nevnapok_df[nevnapok_df['Datum'].astype(str).str.contains(kulcs_nevnap)]
+            if kulcs_nevnap != "NINCS" and nevnapok_df is not None:
+                mai_sor = nevnapok_df[nevnapok_df['Datum'].astype(str).str.contains(kulcs_nevnap)]
                 
-                if not mai_nevnap_sor.empty:
+                if not mai_sor.empty:
+                    # Ügyintéző tisztítása
                     ugyintezo = str(r.get('Ügyintéző', '')).strip()
-                    # Tisztítás
                     for t in ["Dr.", "dr.", "id.", "ifj.", "özv.", "Özv."]:
-                        ugyintezo = ugyintezo.replace(t, "").strip()
+                        ugyintezo = didnt_work = ugyintezo.replace(t, "").strip()
                     
                     nevek = ugyintezo.split()
                     keresztnev = nevek[1] if len(nevek) > 1 else nevek[0]
-                    
-                    napi_nevek = str(mai_nevnap_sor.iloc[0]['Nevek']).lower().replace(' ', '').split(',')
-                    if keresztnev.lower() in napi_nevek:
+                    keresztnev_tisztitott = keresztnev.lower().strip() # Kisbetű + szóközmentes
+
+                    # A táblázat neveinek feldolgozása: split után minden elemet strip-elünk!
+                    napi_nevek_nyers = str(mai_sor.iloc[0]['Nevek']).split(',')
+                    napi_nevek = [n.strip().lower() for n in napi_nevek_nyers] # Ez kiszedi a szóközöket!
+
+                    if keresztnev_tisztitott in napi_nevek:
                         nevnap_uzenet = f"✨ Boldog Névnapot, {keresztnev}! ✨"
 
             # --- 4. KELLÉK KERESÉS (ÚJ, STABIL LOGIKA) ---

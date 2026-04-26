@@ -1348,35 +1348,28 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 6 * mm, x + lw - inner_m, y_eff + 6 * mm)
 
-            # FIZETENDŐ - Bal oldalon (Csak ha nem 0 Ft)
-            fizetendo_nyers = r.get('Fizetendő', 0)
+            # FIZETENDŐ - VISSZAÁLLÍTVA A 'Pénz' VÁLTOZÓRA ÉS AZ EREDETI LOGIKÁRA
+            penz_nyers = str(r.get('Pénz', '0 Ft'))
+            penz_tisztitott = penz_nyers.replace(" ", "")
             
-            # Kiszűrjük, hogy ténylegesen van-e fizetendő összeg
-            try:
-                # Kiszedünk minden karaktert, ami nem szám (pl. szóköz, Ft, pont)
-                tisztitott_fiz = str(fizetendo_nyers).replace(' ', '').replace('Ft', '').replace('.', '').strip()
-                fiz_ertek = int(tisztitott_fiz) if tisztitott_fiz.isdigit() else 0
-            except:
-                fiz_ertek = 0
-
-            # Megjelenítés: Ha nagyobb mint 0, akkor kiírjuk
-            if fiz_ertek > 0:
-                p.setFont(f_bold, 7.5)
-                # Az eredeti formátumot írjuk ki (pl. "1 250 Ft")
-                p.drawString(x + inner_m, y_eff + 7 * mm, f"Fizetendő: {fizetendo_nyers} Ft")
+            # Csak akkor írjuk ki, ha nem 0 és nem üres
+            if penz_tisztitott not in ["0Ft", "", "0", "0ft"]:
+                p.setFont(f_bold, 9) # Marad a kért 9-es méret
+                p.drawString(x + inner_m, y_eff + 7 * mm, f"Fizet: {penz_nyers}")
 
             # ÖSSZESÍTŐ - Jobb oldalon (A biztosan működő 'Összesen' kulccsal)
             p.setFont(f_bold, 7.5)
             p.drawRightString(x + lw - inner_m, y_eff + 7 * mm, f"Össz: {int(r.get('Összesen', 0))} db")
 
-            # --- KELLÉK ÉS LÁBLÉC (Visszakerült minden) ---
+            # --- KELLÉK SOR (Fentebb tolva: 12.5 mm) ---
             if kellek_kiiras:
                 p.saveState()
                 p.setFont(f_bold, 6.5)
                 t_kellek = kellek_kiiras.replace("Kellék:", "").strip()
-                p.drawCentredString(x + lw / 2, y_eff + 12.5 * mm, f"⚠+ {t_kellek} +⚠")
+                p.drawCentredString(x + lw / 2, y_eff + 12.5 * mm, f"⚠ + {t_kellek} + ⚠")
                 p.restoreState()
 
+            # --- LEGALJA (Névnap vagy Futár) ---
             if nevnap_uzenet:
                 p.setFont(f_reg, 8) 
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, nevnap_uzenet)

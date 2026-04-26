@@ -1345,16 +1345,23 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                         if talalt_kellekek:
                             kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
-            # --- FEJLÉC (Sorszám és ID marad a tetején: -3mm) ---
+            # --- DINAMIKUS ELTOLÁS SZÁMÍTÁSA ---
+            # Ha az etikett a lap alján van (7, 14, 21...), akkor feljebb toljuk a fejlécet,
+            # hogy ne lógjon rá a rendelésekre a "biztonsági emelés" miatt.
+            biztonsagi_emeles = 0
+            if int(r.get('Sorrend', 0)) % 7 == 0:
+                biztonsagi_emeles = 3.5 * mm 
+
+            # --- FEJLÉC (Sorszám és ID) ---
             p.setFont(f_bold, 8)
-            p.drawString(x + inner_m, top_y - 3 * mm, f"#{int(r['Sorrend'])}")
+            p.drawString(x + inner_m, top_y - (3 * mm) + biztonsagi_emeles, f"#{int(r['Sorrend'])}")
             
             p.setFont(f_reg, 7)
-            p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {str(r.get('temp_id', 'N/A'))}")
+            p.drawRightString(x + lw - inner_m, top_y - (3 * mm) + biztonsagi_emeles, f"ID: {str(r.get('temp_id', 'N/A'))}")
 
-            # --- NÉV / TEL / CÍM - Távolságok növelése ---
-            # 6.5 mm helyett 7.0 mm (0.5 mm extra hely a sorszám alatt)
-            nev_y_pozicio = top_y - 7.0 * mm
+            # --- NÉV / TEL ---
+            # Alapesetben top_y - 7.0 mm, de lap alján feljebb kerül
+            nev_y_pozicio = top_y - 7.0 * mm + biztonsagi_emeles
             
             # SZÜRKE TÉGLALAP (Követi az új név pozíciót)
             if kulonleges:
@@ -1369,10 +1376,10 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setFont(f_reg, 8)
             p.drawRightString(x + lw - inner_m, nev_y_pozicio, str(r.get('Telefon', '')))
             
-            # CÍM - 9.5 mm helyett 10.5 mm (Még 0.5 mm extra hely a név alatt)
-            # (Azért 10.5, mert a név is lejjebb ment 0.5-öt, és mi is adunk hozzá 0.5-öt)
+            # --- CÍM ---
+            # Alapesetben top_y - 10.5 mm, de lap alján feljebb kerül
             p.setFont(f_reg, 7)
-            p.drawString(x + inner_m, top_y - 10.5 * mm, str(r.get('Cím', ''))[:45])
+            p.drawString(x + inner_m, top_y - 10.5 * mm + biztonsagi_emeles, str(r.get('Cím', ''))[:45])
 
             # RENDELÉS BLOKK - Jön feljebb, hogy kövesse a fejlécet
             # Eddig y_eff + 16 mm volt, most y_eff + 19 mm-re emeljük

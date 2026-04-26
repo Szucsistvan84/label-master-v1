@@ -1294,42 +1294,27 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             
             formazott_rendeles = "".join(formazott_reszek)
 
-            # --- 2. NÉVNAP KERESÉSE (Javított, hiba mentes verzió) ---
+            # --- 2. NÉVNAP KERESÉSE (Javított, ikon-biztos verzió) ---
             nevnap_uzenet = ""
             if nevnapok_df is not None and kulcs_nevnap != "NINCS":
-                # Keresés a dátum alapján
                 mai_sor = nevnapok_df[nevnapok_df['Datum'].astype(str).str.contains(kulcs_nevnap)]
                 
                 if not mai_sor.empty:
-                    # Név tisztítása (Dr. stb.)
                     t_nev = str(r.get('Ügyintéző', '')).strip()
                     for t in ["Dr.", "dr.", "id.", "ifj.", "özv.", "Özv."]:
                         t_nev = t_nev.replace(t, "")
                     
                     szavak = [s.strip() for s in t_nev.split() if s.strip()]
                     keresztnev = szavak[1] if len(szavak) > 1 else (szavak[0] if szavak else "")
-                    
-                    # Változók egységesítése a kereséshez és debughoz
                     k_nev_kisbetus = keresztnev.lower().strip()
                     napi_nevek_lista = [n.strip().lower() for n in str(mai_sor.iloc[0]['Nevek']).split(',')]
-                    
-                    # DEBUG PANEL - CSAK A 28. ÉS 33. SORRA
-                    if i+1 in [28, 33]:
-                        with st.sidebar:
-                            st.info(f"Ellenőrzés: #{i+1} pozíció ({r.get('Ügyintéző')})")
-                            st.write(f"Kinyert keresztnév: '{k_nev_kisbetus}'")
-                            st.write(f"Névnapi lista (04-24): {napi_nevek_lista}")
 
-                    # Összehasonlítás
                     if k_nev_kisbetus in napi_nevek_lista:
-                        nevnap_uzenet = f"✨ Boldog Névnapot, {keresztnev}! ✨"
+                        # ✨ helyett ★-ot használunk, amit a DejaVu ismer
+                        nevnap_uzenet = f"★ Boldog Névnapot, {keresztnev}! ★"
+                        
                         if i+1 in [28, 33]: 
-                            st.sidebar.success("MEGVAN A TALÁLAT!")
-                    
-                    # Biztonsági debug: Ha tudjuk, hogy ott kellene lennie, de mégsem találja
-                    elif "petra" in k_nev_kisbetus or "balázs" in k_nev_kisbetus:
-                        if i+1 in [28, 33]:
-                            st.sidebar.error(f"⚠️ Majdnem találat! '{k_nev_kisbetus}' nincs a listában.")
+                            st.sidebar.success(f"MEGVAN A TALÁLAT: {keresztnev}")
 
             # --- 2. RAJZOLÁS (Csak egy helyen, fix pozícióban!) ---
             # Töröld ki a korábbi "if nevnap_uzenet" blokkokat, és ezt tedd a legaljára, 
@@ -1427,24 +1412,24 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
 
             # --- ALSÓ INFORMÁCIÓK (Kellék, Névnap, Futár) ---
             
-            # 1. Kellék (ha van, a vonal fölé picit)
+            # 1. Kellék (ha van)
             if kellek_kiiras:
-                p.setFont(f_bold, 7)
-                p.drawCentredString(x + lw / 2, y_eff + 8.2 * mm, kellek_kiiras)
+                p.setFont(f_bold, 7.5)
+                p.drawCentredString(x + lw / 2, y_eff + 8.8 * mm, kellek_kiiras)
 
-            # 2. Névnap és Futár (A vonal alatti rész)
+            # 2. Névnap ÉS Futár (Kizárólagos választás a duplázódás ellen)
             if nevnap_uzenet:
-                # Névnap középre, dőlt betűvel
-                p.setFont("Helvetica-Oblique", 8.5)
-                p.drawCentredString(x + lw / 2, y_eff + 6.5 * mm, nevnap_uzenet)
+                # Névnap középre (saját fontoddal az ékezetek miatt)
+                p.setFont(f_reg, 8) 
+                p.drawCentredString(x + lw / 2, y_eff + 5.5 * mm, nevnap_uzenet)
                 
-                # Futár adatok kicsiben a legaljára
-                p.setFont(f_reg, 5)
-                p.drawRightString(x + lw - inner_m, y_eff + 0.8 * mm, f"{fn} | {ft}")
+                # Futár: HA VAN NÉVNAP, csak kicsiben a jobb alsó sarokba
+                p.setFont(f_reg, 5.5)
+                p.drawRightString(x + lw - inner_m, y_eff + 1.2 * mm, f"{fn} | {ft}")
             else:
-                # Ha nincs névnap, a Futár nagyobb és középen van
-                p.setFont(f_reg, 6)
-                p.drawCentredString(x + lw / 2, y_eff + 2.2 * mm, f"Futár: {fn} | {ft}")
+                # HA NINCS NÉVNAP, a futár marad középen, ahogy eredetileg volt
+                p.setFont(f_reg, 6.5)
+                p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
         else:
             # --- MARKETING ETIKETT ---
             m_text = (

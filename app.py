@@ -1342,29 +1342,29 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 6 * mm, x + lw - inner_m, y_eff + 6 * mm)
 
-            # --- ALSÓ INFORMÁCIÓK (Kellék, Névnap, Futár) ---
+# --- ALSÓ INFORMÁCIÓK (Kellék, Névnap, Futár) ---
             
-            # 1. Kellék: Biztonságos magasságban (9.8 mm), hogy ne érjen a vonalhoz
+            # 1. Kellék: Magasabbra tolva (9.8 mm), hogy ne ütközzön semmivel
             if kellek_kiiras:
                 p.saveState()
                 p.setFont(f_bold, 7.5)
-                # A ⚠ ikon és a szöveg elkülönítése
-                tiszta_kellek = kellek_kiiras.replace("Kellék:", "").strip()
-                p.drawCentredString(x + lw / 2, y_eff + 9.8 * mm, f"⚠ KELLÉK: {tiszta_kellek} ⚠")
+                # Kitisztítjuk a feliratot és hozzáadjuk a felkiáltójeleket
+                t_kellek = kellek_kiiras.replace("Kellék:", "").strip()
+                p.drawCentredString(x + lw / 2, y_eff + 9.8 * mm, f"⚠ KELLÉK: {t_kellek} ⚠")
                 p.restoreState()
 
-            # 2. VAGY névnap, VAGY futár (Szigorú választás!)
+            # 2. SZIGORÚ VAGY/VAGY LOGIKA (A vonal alatti 2.5 mm-es sáv)
             if nevnap_uzenet:
-                # NÉVNAPOS ESET: Csak a köszöntés megy középre
+                # HA VAN NÉVNAP: Csak a köszöntés kerül középre, nagyban
                 p.setFont(f_reg, 8) 
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, nevnap_uzenet)
                 
-                # Opcionális: a futár adatai ilyenkor elkerülnek a sarokba, 
-                # hogy ne takarják a névnapot, de azért ott legyenek kicsiben
-                p.setFont(f_reg, 5)
-                p.drawRightString(x + lw - inner_m, y_eff + 0.8 * mm, f"{fn} | {ft}")
+                # A futár adatot ilyenkor KICSIBEN és CSAK a sarokba tesszük, 
+                # hogy ne zavarja a névnapi képet, de a papíron maradjon
+                # p.setFont(f_reg, 5)
+                # p.drawRightString(x + lw - inner_m, y_eff + 0.8 * mm, f"{fn} | {ft}")
             else:
-                # NORMÁL ESET: Csak a futár adatai középen, ahogy eddig
+                # HA NINCS NÉVNAP: A futár adatai kerülnek középre, normál méretben
                 p.setFont(f_reg, 6.5)
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
 

@@ -1253,12 +1253,15 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
         
         col, row_i = idx % 3, 6 - (idx // 3)
         x, y = col * lw, row_i * lh
+        
+        # Ez emeli fel az egész etikettet a lap alján, hogy ne lógjon le
         lift = 4.5 * mm if row_i == 0 else 0
         y_eff = y + lift 
 
         if i < len(df):
             r = df.iloc[i]
-            top_y = y + lh - inner_m
+            # Az alappozícióhoz hozzáadjuk a lift-et, hogy minden feljebb csússzon a lap alján
+            top_y = y + lh - inner_m + lift
             
             # --- RENDELÉS FORMÁZÁSA ---
             r_full = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
@@ -1276,14 +1279,13 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     if n_tag in blokk:
                         if n != bazis_nap_rovid:
                             kulonleges = True
-                            # Betűméret 8.2-ről vagy 8-ról fix 8-ra (vagy akár 7.8-ra a helyszűke miatt)
                             szin_blokk = f'<font name="{f_bold}" size="8">{blokk}</font>'
                         break
                 formazott_reszek.append(szin_blokk)
             
             formazott_rendeles = "".join(formazott_reszek)
 
-            # --- NÉVNAP ÉS KELLÉK KERESÉS (Változatlan logika) ---
+            # --- NÉVNAP ÉS KELLÉK KERESÉS ---
             nevnap_uzenet = ""
             if nevnapok_df is not None and kulcs_nevnap != "NINCS":
                 mai_sor = nevnapok_df[nevnapok_df['Datum'].astype(str).str.contains(kulcs_nevnap)]
@@ -1293,77 +1295,44 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                         t_nev = t_nev.replace(t, "")
                     szavak = [s.strip() for s in t_nev.split() if s.strip()]
                     keresztnev = szavak[1] if len(szavak) > 1 else (szavak[0] if szavak else "")
-                    k_nev_kisbetus = keresztnev.lower().strip()
-                    napi_nevek_lista = [n.strip().lower() for n in str(mai_sor.iloc[0]['Nevek']).split(',')]
-                    if k_nev_kisbetus in napi_nevek_lista:
+                    if keresztnev.lower().strip() in [n.strip().lower() for n in str(mai_sor.iloc[0]['Nevek']).split(',')]:
                         nevnap_uzenet = f"★ Boldog Névnapot, {keresztnev}! ★"
 
             kellek_kiiras = ""
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None:
-                # Dátum keresése (tisztított formátummal)
                 keresett_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
-                napi_oszlop = None
-                
-                for col in etlap_api_df.columns:
-                    if keresett_nap_szamokkal in "".join(filter(str.isdigit, str(col))):
-                        napi_oszlop = col
-                        break
+                napi_oszlop = next((col for col in etlap_api_df.columns if keresett_nap_szamokkal in "".join(filter(str.isdigit, str(col)))), None)
                 
                 if napi_oszlop:
-                    # Kódok keresése a rendelésben
-                    tiszta_szoveg_kereseshez = re.sub(r'<[^>]*>', '', formazott_rendeles)
-                    csillagosok = re.findall(r'([A-Z0-9\-]+)\*', tiszta_szoveg_kereseshez.upper())
-                    
+                    tiszta_szoveg = re.sub(r'<[^>]*>', '', formazott_rendeles)
+                    csillagosok = re.findall(r'([A-Z0-9\-]+)\*', tiszta_szoveg.upper())
                     talalt_kellekek = []
                     for nyers_kod in csillagosok:
                         tiszta_kod = nyers_kod.split('-')[-1].strip()
                         etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(rf"\b{tiszta_kod}\b", na=False)]
-                        
                         if not etel_sor.empty:
-                            nyers_etel_neve = str(etel_sor.iloc[0][napi_oszlop]).strip()
-                            keresett_nev_tiszta = re.sub(r'[^a-z0-9]', '', nyers_etel_neve.lower())
-                            
+                            keresett_nev_tiszta = re.sub(r'[^a-z0-9]', '', str(etel_sor.iloc[0][napi_oszlop]).lower())
                             if master_df is not None:
-                                for m_idx, m_row in master_df.iterrows():
-                                    master_nev_tiszta = re.sub(r'[^a-z0-9]', '', str(m_row.get('Eredeti Név', '')).lower())
-                                    if master_nev_tiszta == keresett_nev_tiszta:
+                                for _, m_row in master_df.iterrows():
+                                    if re.sub(r'[^a-z0-9]', '', str(m_row.get('Eredeti Név', '')).lower()) == keresett_nev_tiszta:
                                         kell = str(m_row.get('Kellék', '')).strip()
-                                        if kell and kell.lower() != 'nan' and kell != "":
+                                        if kell and kell.lower() != 'nan':
                                             talalt_kellekek.append(f"{tiszta_kod}: {kell}")
                                         break
-                    
                     if talalt_kellekek:
                         kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
-            # --- DINAMIKUS ELTOLÁS SZÁMÍTÁSA (JAVÍTOTT) ---
-            try:
-                # Kényszerítjük, hogy tiszta egész szám legyen, bármi is jön be
-                aktualis_sorszam = int(float(str(r.get('Sorrend', 0)).replace(',', '.')))
-                
-                # Ellenőrizzük, hogy a lap alján vagyunk-e (7, 14, 21, 28... stb)
-                is_bottom_row = (aktualis_sorszam % 7 == 0)
-            except:
-                is_bottom_row = False
-                aktualis_sorszam = 0
+            # --- DINAMIKUS ELTOLÁS A LAP ALJÁN ---
+            # Most már nem a sorszámot nézzük, hanem a sor indexét (row_i == 0)
+            biztonsagi_emeles = 3.5 * mm if row_i == 0 else 0
 
-            biztonsagi_emeles = 0
-            if is_bottom_row and aktualis_sorszam > 0:
-                biztonsagi_emeles = 3.5 * mm 
-                # Opcionális: kiírhatod a sidebarra teszteléshez:
-                # st.sidebar.write(f"🚀 Emelés alkalmazva: #{aktualis_sorszam}")
-
-            # --- FEJLÉC (Sorszám és ID) ---
+            # --- FEJLÉC KIÍRÁSA ---
             p.setFont(f_bold, 8)
             p.drawString(x + inner_m, top_y - (3 * mm) + biztonsagi_emeles, f"#{int(r['Sorrend'])}")
-            
             p.setFont(f_reg, 7)
             p.drawRightString(x + lw - inner_m, top_y - (3 * mm) + biztonsagi_emeles, f"ID: {str(r.get('temp_id', 'N/A'))}")
 
-            # --- NÉV / TEL ---
-            # Alapesetben top_y - 7.0 mm, de lap alján feljebb kerül
             nev_y_pozicio = top_y - 7.0 * mm + biztonsagi_emeles
-            
-            # SZÜRKE TÉGLALAP (Követi az új név pozíciót)
             if kulonleges:
                 p.saveState()
                 p.setFillColor(colors.lightgrey, alpha=0.3)
@@ -1372,12 +1341,9 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             
             p.setFont(f_bold, 8.5)
             p.drawString(x + inner_m, nev_y_pozicio, str(r.get('Ügyintéző', ''))[:25])
-            
             p.setFont(f_reg, 8)
             p.drawRightString(x + lw - inner_m, nev_y_pozicio, str(r.get('Telefon', '')))
             
-            # --- CÍM ---
-            # Alapesetben top_y - 10.5 mm, de lap alján feljebb kerül
             p.setFont(f_reg, 7)
             p.drawString(x + inner_m, top_y - 10.5 * mm + biztonsagi_emeles, str(r.get('Cím', ''))[:45])
 

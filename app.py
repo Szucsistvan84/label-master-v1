@@ -433,28 +433,38 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
     except Exception as e:
         st.error(f"Hiba a Master szinkron során: {e}")
 
-# --- 1. AZ OKOS NÉV-MEMÓRIA BETÖLTÉSE ---
-@st.cache_data
-def load_all_names():
+# --- 1. AZ OKOS NÉV-MEMÓRIA BETÖLTÉSE (FRISSÍTVE: SHEET-ALAPÚ ÉS CACHE-MENTES) ---
+
+def load_all_names(sheet_df):
+    """
+    A Google Sheet-ből betöltött nevekből (Családnév, Keresztnév oszlopok) 
+    felépíti a felismeréshez szükséges adatbázist.
+    """
     all_names = set()
     titulusok = {"Dr.", "id.", "ifj.", "özv.", "dr.", "vitéz"}
     all_names.update(titulusok)
     
-    # A 3 fájl, amit te most tettél rendbe
-    files = ["ferfi_nevek.txt", "noi_nevek.txt", "csaladnevek.txt"]
-    for fname in files:
-        if os.path.exists(fname):
-            with open(fname, "r", encoding="utf-8") as f:
-                for line in f:
-                    name = line.strip()
-                    if name:
-                        all_names.add(name)
-                        # Női neveknél a -né-t is kezeljük
-                        if fname == "noi_nevek.txt":
-                            all_names.add(name + "né")
+    if sheet_df is not None:
+        # Családnevek begyűjtése
+        if 'Családnév' in sheet_df.columns:
+            csalad_nevek = sheet_df['Családnév'].dropna().unique()
+            all_names.update([str(n).strip() for n in csalad_nevek if str(n).strip()])
+            
+        # Keresztnevek begyűjtése (férfi és női vegyesen)
+        if 'Keresztnév' in sheet_df.columns:
+            kereszt_nevek = sheet_df['Keresztnév'].dropna().unique()
+            for n in kereszt_nevek:
+                nev = str(n).strip()
+                if nev:
+                    all_names.add(nev)
+                    # Automatikus -né képzés minden keresztnévre (biztonsági játék)
+                    all_names.add(nev + "né")
+    
     return all_names
 
-NAME_DB = load_all_names()
+# Használat a fő logikában:
+# Amikor beolvasod a neveket tartalmazó Google Sheet-et (legyen a neve pl. names_df):
+# NAME_DB = load_all_names(names_df)
 
 # --- 2. NÉV ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA ---
 def split_name_logic(raw_text):

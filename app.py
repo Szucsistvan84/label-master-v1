@@ -1309,21 +1309,29 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                         etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(rf"\b{tiszta_kod}\b", na=False)]
                         
                         if not etel_sor.empty:
-                            etel_neve = str(etel_sor.iloc[0][napi_oszlop]).strip()
-                            st.sidebar.write(f"✅ Étel megvan: *{etel_neve}*")
+                            # 1. Kinyerjük a nyers nevet az API-ból
+                            nyers_etel_neve = str(etel_sor.iloc[0][napi_oszlop]).strip()
+                            
+                            # 2. TISZTÍTÁS: Levegyük a csillagot a név végéről, ha ott van
+                            # Így a 'Rántott karfiol*' ból 'Rántott karfiol' lesz
+                            tiszta_etel_neve = nyers_etel_neve.replace('*', '').strip()
+                            
+                            st.sidebar.write(f"✅ Étel megvan: *{nyers_etel_neve}*")
                             
                             if master_df is not None:
-                                # 3. KERESÉS A MASTER DATA-BAN
-                                m_sor = master_df[master_df['Eredeti Név'] == etel_neve]
+                                # 3. A TISZTÍTOTT névvel keresünk a Master Data-ban
+                                m_sor = master_df[master_df['Eredeti Név'].str.strip() == tiszta_etel_neve]
+                                
                                 if not m_sor.empty:
                                     kell = str(m_sor.iloc[0].get('Kellék', '')).strip()
                                     if kell and kell.lower() != 'nan' and kell != "":
                                         talalt_kellekek.append(f"{tiszta_kod}: {kell}")
                                         st.sidebar.success(f"🎁 Kellék megvan: {kell}")
                                     else:
-                                        st.sidebar.warning(f"⚠️ Nincs kellék a Masterben ehhez: {etel_neve}")
+                                        st.sidebar.warning(f"⚠️ Nincs kellék megadva ehhez: {tiszta_etel_neve}")
                                 else:
-                                    st.sidebar.error(f"❌ '{etel_neve}' nem szerepel a Master Data 'Eredeti Név' oszlopában!")
+                                    # Ha még mindig nem találja, kiírjuk a tisztított nevet is a debuggerbe
+                                    st.sidebar.error(f"❌ '{tiszta_etel_neve}' (tisztított) nincs a Master Data-ban!")
                         else:
                             st.sidebar.error(f"❌ A kód `{tiszta_kod}` nincs az API tábla első oszlopában!")
 

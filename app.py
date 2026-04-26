@@ -1286,24 +1286,40 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     if k_nev_kisbetus in napi_nevek_lista:
                         nevnap_uzenet = f"★ Boldog Névnapot, {keresztnev}! ★"
 
-            # --- KELLÉK KERESÉS ---
+            # --- 4. KELLÉK KERESÉS (Szalmás Béláné és L2K* fix) ---
             kellek_kiiras = ""
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None:
                 napi_oszlop = next((col for col in etlap_api_df.columns if kulcs_api_datum in str(col)), None)
+                
                 if napi_oszlop:
-                    csillagosok = re.findall(r'([A-Z0-9]+)\*', formazott_rendeles.upper())
+                    # A regex most már rugalmasabb
+                    csillagosok = re.findall(r'([A-Z0-9\-]+)\*', formazott_rendeles.upper())
                     talalt_kellekek = []
-                    for kod in csillagosok:
-                        etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.startswith(kod)]
+                    
+                    for nyers_kod in csillagosok:
+                        # FIX 1: Ha "1-L2K" a kód, vágjuk le a darabszámot, hogy csak az "L2K" maradjon
+                        tiszta_kod = nyers_kod.split('-')[-1].strip() if '-' in nyers_kod else nyers_kod.strip()
+                        
+                        # FIX 2: Ne pontos egyezést keressünk (==), hanem nézzük meg, 
+                        # hogy az API tábla kód oszlopában BENNE VAN-E a kódunk
+                        # (Így nem zavarja meg a szóköz vagy ha több kód van egy cellában)
+                        etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(tiszta_kod, na=False)]
+                        
                         if not etel_sor.empty:
+                            # Megvan az étel neve az adott napon
                             etel_neve = str(etel_sor.iloc[0][napi_oszlop]).strip()
+                            
                             if master_df is not None:
+                                # Keressük a kelléket a Master táblában
                                 m_sor = master_df[master_df['Eredeti Név'] == etel_neve]
                                 if not m_sor.empty:
                                     kell = str(m_sor.iloc[0].get('Kellék', '')).strip()
+                                    # Csak akkor adjuk hozzá, ha nem üres és nem 'nan'
                                     if kell and kell.lower() != 'nan':
-                                        talalt_kellekek.append(f"{kod}: {kell}")
+                                        talalt_kellekek.append(f"{tiszta_kod}: {kell}")
+                    
                     if talalt_kellekek:
+                        # Itt fűzzük össze: "L2K: Tzatziki, TAV: Tejföl"
                         kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
             # --- RAJZOLÁS ---
@@ -1342,7 +1358,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 6 * mm, x + lw - inner_m, y_eff + 6 * mm)
 
-# --- ALSÓ INFORMÁCIÓK (Kellék, Névnap, Futár) ---
+            # --- ALSÓ INFORMÁCIÓK (Kellék, Névnap, Futár) ---
             
             # 1. Kellék: Magasabbra tolva (9.8 mm), hogy ne ütközzön semmivel
             if kellek_kiiras:

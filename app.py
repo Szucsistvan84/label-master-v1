@@ -1276,35 +1276,53 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             
             formazott_rendeles = "".join(formazott_reszek)
 
-            # --- 1. NÉVNAP LOGIKA (Javított keresés és tisztítás) ---
+# --- CÉLZOTT NÉVNAP DEBUG ---
             nevnap_uzenet = ""
             if kulcs_nevnap != "NINCS" and nevnapok_df is not None:
-                # Biztosítsuk, hogy a Datum oszlop szöveg legyen a kereséshez
+                # 1. Megkeressük a mai napot a táblázatban
                 mai_sor = nevnapok_df[nevnapok_df['Datum'].astype(str).str.contains(kulcs_nevnap)]
                 
                 if not mai_sor.empty:
-                    teljes_nev = str(r.get('Ügyintéző', '')).strip()
-                    # Cseréljük le a titulusokat, ügyelve a szóközökre
+                    # 2. Ügyintéző tisztítása
+                    nyers_nev = str(r.get('Ügyintéző', '')).strip()
                     for t in ["Dr.", "dr.", "id.", "ifj.", "özv.", "Özv."]:
-                        teljes_nev = teljes_nev.replace(t, "")
+                        nyers_nev = nyers_nev.replace(t, "")
                     
-                    # Split paraméter nélkül: minden felesleges szóközt (duplát is) eltüntet
-                    nev_reszek = [n.strip() for n in teljes_nev.split() if n.strip()]
+                    # Szétbontjuk szavakra, és kiszűrjük az üres részeket
+                    nev_reszek = [n.strip() for n in nyers_nev.split() if n.strip()]
                     
-                    # Keresztnév: ha van vezetéknév, a második szó, egyébként az első
+                    # Keresztnév meghatározása
+                    keresztnev = ""
                     if len(nev_reszek) > 1:
-                        keresztnev = nev_reszek[1]
+                        keresztnev = nev_reszek[1] # Pl. Tóth Petra -> Petra
                     elif len(nev_reszek) == 1:
-                        keresztnev = nev_reszek[0]
-                    else:
-                        keresztnev = ""
+                        keresztnev = nev_reszek[0] # Pl. Petra -> Petra
 
+                    # 3. Táblázat neveinek listája
+                    napi_nevek_szoveg = str(mai_sor.iloc[0]['Nevek']).lower()
+                    napi_nevek_lista = [n.strip() for n in napi_nevek_szoveg.split(',')]
+
+                    # --- EZ A RÉSZ CSAK AKKOR ÍR KI, HA DOLGA VAN ---
                     if keresztnev:
-                        # A táblázat neveit is tisztítjuk a vesszők mentén
-                        napi_nevek = [n.strip().lower() for n in str(mai_sor.iloc[0]['Nevek']).split(',')]
+                        k_nev_tisztitott = keresztnev.lower().strip()
                         
-                        if keresztnev.lower() in napi_nevek:
+                        # Ha a keresett név (pl. Petra) benne van a napi listában
+                        if k_nev_tisztitott in napi_nevek_lista:
                             nevnap_uzenet = f"✨ Boldog Névnapot, {keresztnev}! ✨"
+                            
+                            # KIEGÉSZÍTŐ DEBUG AZ OLDALSÁVBA
+                            with st.sidebar:
+                                st.success(f"TALÁLAT a #{i+1} pozíción!")
+                                st.write(f"Név az exportból: {r.get('Ügyintéző')}")
+                                st.write(f"Kinyert keresztnév: '{keresztnev}'")
+                                st.write(f"Napi lista: {napi_nevek_lista}")
+                        
+                        # Speciális segítség: Ha tudjuk, hogy ott van a listában, de nem találja
+                        elif "petra" in k_nev_tisztitott or "balázs" in k_nev_tisztitott:
+                            with st.sidebar:
+                                st.error(f"MAJDNEM TALÁLAT a #{i+1} pozíción!")
+                                st.write(f"Keresett: '{k_nev_tisztitott}'")
+                                st.write(f"Amik közt kerestem: {napi_nevek_lista}")
 
             # --- 2. RAJZOLÁS (Csak egy helyen, fix pozícióban!) ---
             # Töröld ki a korábbi "if nevnap_uzenet" blokkokat, és ezt tedd a legaljára, 

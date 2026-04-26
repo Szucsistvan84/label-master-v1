@@ -1345,12 +1345,22 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                         if talalt_kellekek:
                             kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
-            # --- DINAMIKUS ELTOLÁS SZÁMÍTÁSA ---
-            # Ha az etikett a lap alján van (7, 14, 21...), akkor feljebb toljuk a fejlécet,
-            # hogy ne lógjon rá a rendelésekre a "biztonsági emelés" miatt.
+            # --- DINAMIKUS ELTOLÁS SZÁMÍTÁSA (JAVÍTOTT) ---
+            try:
+                # Kényszerítjük, hogy tiszta egész szám legyen, bármi is jön be
+                aktualis_sorszam = int(float(str(r.get('Sorrend', 0)).replace(',', '.')))
+                
+                # Ellenőrizzük, hogy a lap alján vagyunk-e (7, 14, 21, 28... stb)
+                is_bottom_row = (aktualis_sorszam % 7 == 0)
+            except:
+                is_bottom_row = False
+                aktualis_sorszam = 0
+
             biztonsagi_emeles = 0
-            if int(r.get('Sorrend', 0)) % 7 == 0:
+            if is_bottom_row and aktualis_sorszam > 0:
                 biztonsagi_emeles = 3.5 * mm 
+                # Opcionális: kiírhatod a sidebarra teszteléshez:
+                # st.sidebar.write(f"🚀 Emelés alkalmazva: #{aktualis_sorszam}")
 
             # --- FEJLÉC (Sorszám és ID) ---
             p.setFont(f_bold, 8)

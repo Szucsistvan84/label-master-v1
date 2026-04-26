@@ -1352,11 +1352,11 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setFont(f_reg, 7)
             p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {str(r.get('temp_id', 'N/A'))}")
 
-            # --- NÉV / TEL / CÍM - Jelentősen feljebb tolva a lyuk megszüntetéséhez ---
-            # Eddig -9.5 mm volt, most felvisszük -6.5 mm-re (közvetlenül a sorszám alá)
-            nev_y_pozicio = top_y - 6.5 * mm
+            # --- NÉV / TEL / CÍM - Távolságok növelése ---
+            # 6.5 mm helyett 7.0 mm (0.5 mm extra hely a sorszám alatt)
+            nev_y_pozicio = top_y - 7.0 * mm
             
-            # SZÜRKE TÉGLALAP (A név/tel új helyéhez igazítva)
+            # SZÜRKE TÉGLALAP (Követi az új név pozíciót)
             if kulonleges:
                 p.saveState()
                 p.setFillColor(colors.lightgrey, alpha=0.3)
@@ -1369,9 +1369,10 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setFont(f_reg, 8)
             p.drawRightString(x + lw - inner_m, nev_y_pozicio, str(r.get('Telefon', '')))
             
-            # CÍM - Ez is jön feljebb (eddig -13.5 volt, most -9.5 mm)
+            # CÍM - 9.5 mm helyett 10.5 mm (Még 0.5 mm extra hely a név alatt)
+            # (Azért 10.5, mert a név is lejjebb ment 0.5-öt, és mi is adunk hozzá 0.5-öt)
             p.setFont(f_reg, 7)
-            p.drawString(x + inner_m, top_y - 9.5 * mm, str(r.get('Cím', ''))[:45])
+            p.drawString(x + inner_m, top_y - 10.5 * mm, str(r.get('Cím', ''))[:45])
 
             # RENDELÉS BLOKK - Jön feljebb, hogy kövesse a fejlécet
             # Eddig y_eff + 16 mm volt, most y_eff + 19 mm-re emeljük

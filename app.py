@@ -1348,10 +1348,11 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 6 * mm, x + lw - inner_m, y_eff + 6 * mm)
 
-            # FIZETENDŐ - Bal oldalon, csak ha > 0 Ft
-            fizetendo_nyers = r.get('Fizetendő', '0')
+            # FIZETENDŐ - Bal oldalon (Csak ha nem 0)
+            # Itt is az eredeti 'Fizetendő' kulcsot használjuk
+            fizetendo_nyers = r.get('Fizetendő', 0)
             try:
-                # Kiszedjük a számot, hogy ellenőrizzük, 0-e
+                # Ellenőrizzük, hogy valódi összeg-e
                 fiz_ertek = int(''.join(filter(str.isdigit, str(fizetendo_nyers))))
             except:
                 fiz_ertek = 0
@@ -1360,12 +1361,12 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 p.setFont(f_bold, 7.5)
                 p.drawString(x + inner_m, y_eff + 7 * mm, f"Fizetendő: {fizetendo_nyers} Ft")
 
-            # ÖSSZESÍTŐ (db) - Jobb oldalon ugyanabban a sorban
+            # ÖSSZESÍTŐ - Jobb oldalon (VISSZAÁLLÍTVA AZ EREDETI 'Összesen' KULCSRA)
             p.setFont(f_bold, 7.5)
-            osszes_db = r.get('Össz_db', '0')
-            p.drawRightString(x + lw - inner_m, y_eff + 7 * mm, f"Össz: {osszes_db} db")
+            # Pontosan az a sor, ami régen működött:
+            p.drawRightString(x + lw - inner_m, y_eff + 7 * mm, f"Össz: {int(r.get('Összesen', 0))} db")
 
-            # --- KELLÉK SOR (Emelt pozícióban) ---
+            # --- KELLÉK SOR (Marad az emelt helyén) ---
             if kellek_kiiras:
                 p.saveState()
                 p.setFont(f_bold, 6.5)
@@ -1373,8 +1374,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 p.drawCentredString(x + lw / 2, y_eff + 12.5 * mm, f"⚠ Kellék: {t_kellek} ⚠")
                 p.restoreState()
 
-            # --- LEGALJA (Visszakerült: Névnap vagy Futár) ---
-            # Itt dől el, mi jelenjen meg a legalján
+            # --- LEGALJA (Futár vagy Névnap) ---
             if nevnap_uzenet:
                 p.setFont(f_reg, 8) 
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, nevnap_uzenet)

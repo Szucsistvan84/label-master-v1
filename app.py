@@ -1328,7 +1328,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 p.rect(x + 0.5*mm, nev_y_pozicio - 1.5*mm, lw - 1*mm, 5 * mm, fill=1, stroke=0)
                 p.restoreState()
             
-            p.setFont(f_bold, 9)
+            p.setFont(f_bold, 8.5)
             p.drawString(x + inner_m, nev_y_pozicio, str(r.get('Ügyintéző', ''))[:25])
             
             p.setFont(f_reg, 8)
@@ -1344,24 +1344,43 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             pw, ph = para.wrap(usable_w, 18 * mm)
             para.drawOn(p, x + inner_m, y_eff + 19 * mm) 
 
-            # --- ALSÓ RÉSZ (Összesítő és Kellék emelése) ---
-            # Vonal marad 6mm-en
+            # --- ALSÓ SÁV (Vonal, Fizetendő és Összesítő) ---
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 6 * mm, x + lw - inner_m, y_eff + 6 * mm)
 
-            # Összesítés (vonal felett)
-            p.setFont(f_bold, 7.5)
-            p.drawString(x + inner_m, y_eff + 7 * mm, f"Össz: {r.get('Össz_db', '0')} db")
-            p.drawRightString(x + lw - inner_m, y_eff + 7 * mm, f"Fizet: {r.get('Fizetendő', '0')} Ft")
+            # FIZETENDŐ - Bal oldalon, csak ha > 0 Ft
+            fizetendo_nyers = r.get('Fizetendő', '0')
+            try:
+                # Kiszedjük a számot, hogy ellenőrizzük, 0-e
+                fiz_ertek = int(''.join(filter(str.isdigit, str(fizetendo_nyers))))
+            except:
+                fiz_ertek = 0
 
-            # KELLÉK SOR - Annyival megy fentebb, amennyivel a név ment (kb. +3mm)
-            # Eddig 9.5 mm volt, most y_eff + 12.5 mm-re kerül
+            if fiz_ertek > 0:
+                p.setFont(f_bold, 7.5)
+                p.drawString(x + inner_m, y_eff + 7 * mm, f"Fizetendő: {fizetendo_nyers} Ft")
+
+            # ÖSSZESÍTŐ (db) - Jobb oldalon ugyanabban a sorban
+            p.setFont(f_bold, 7.5)
+            osszes_db = r.get('Össz_db', '0')
+            p.drawRightString(x + lw - inner_m, y_eff + 7 * mm, f"Össz: {osszes_db} db")
+
+            # --- KELLÉK SOR (Emelt pozícióban) ---
             if kellek_kiiras:
                 p.saveState()
-                p.setFont(f_bold, 6)
+                p.setFont(f_bold, 6.5)
                 t_kellek = kellek_kiiras.replace("Kellék:", "").strip()
                 p.drawCentredString(x + lw / 2, y_eff + 12.5 * mm, f"⚠ Kellék: {t_kellek} ⚠")
                 p.restoreState()
+
+            # --- LEGALJA (Visszakerült: Névnap vagy Futár) ---
+            # Itt dől el, mi jelenjen meg a legalján
+            if nevnap_uzenet:
+                p.setFont(f_reg, 8) 
+                p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, nevnap_uzenet)
+            else:
+                p.setFont(f_reg, 6.5)
+                p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
 
         else:
             # MARKETING ETIKETT (Változatlan)

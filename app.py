@@ -1345,16 +1345,26 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             pw, ph = para.wrap(usable_w, 18 * mm)
             para.drawOn(p, x + inner_m, y_eff + 16 * mm) 
 
-            # --- ALSÓ SÁV (Vonal és adatok változatlanok) ---
+            # --- ALSÓ SÁV (Vonal, Összesítő és Fizetendő) ---
             p.setLineWidth(0.1)
+            # A vonal marad a helyén (6 mm)
             p.line(x + inner_m, y_eff + 6 * mm, x + lw - inner_m, y_eff + 6 * mm)
 
-            # --- KELLÉK SZEKCIÓ - Még 1 mm-rel feljebb (8.5 -> 9.5 mm) ---
+            # ÖSSZESÍTŐ (db) - Közvetlenül a vonal fölé, balra
+            p.setFont(f_bold, 7.5)
+            osszes_db = r.get('Össz_db', '0')
+            p.drawString(x + inner_m, y_eff + 7 * mm, f"Össz: {osszes_db} db")
+
+            # FIZETENDŐ ÖSSZEG - Közvetlenül a vonal fölé, jobbra
+            fizetendo = r.get('Fizetendő', '0')
+            p.drawRightString(x + lw - inner_m, y_eff + 7 * mm, f"Fizet: {fizetendo} Ft")
+
+            # --- KELLÉK SZEKCIÓ (Az emelt pozícióban: 9.5 mm) ---
             if kellek_kiiras:
                 p.saveState()
                 p.setFont(f_bold, 6.5)
                 t_kellek = kellek_kiiras.replace("Kellék:", "").strip()
-                # 9.5 mm-re emelve, hogy ne érjen a vonalhoz
+                # 9.5 mm-en van, így 2.5 mm hely marad az összegzés és a kellék között
                 p.drawCentredString(x + lw / 2, y_eff + 9.5 * mm, f"⚠ Kellék: {t_kellek} ⚠")
                 p.restoreState()
 

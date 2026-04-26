@@ -1220,7 +1220,9 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
     inner_m = 5.5 * mm 
     usable_w = lw - (2 * inner_m)
 
-    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7, leading=8.0)
+    # --- STÍLUSOK FINOMHANGOLÁSA ---
+    # Leading (sorköz) csökkentve 8.0-ról 7.5-re, fontSize marad 7-esen a tömörségért
+    order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7, leading=7.5)
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=7.5, leading=10, alignment=1)
 
     total_slots = math.ceil(len(df) / 21) * 21
@@ -1264,13 +1266,14 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     if n_tag in blokk:
                         if n != bazis_nap_rovid:
                             kulonleges = True
-                            szin_blokk = f'<font name="{f_bold}" size="8.2">{blokk}</font>'
+                            # Betűméret 8.2-ről vagy 8-ról fix 8-ra (vagy akár 7.8-ra a helyszűke miatt)
+                            szin_blokk = f'<font name="{f_bold}" size="8">{blokk}</font>'
                         break
                 formazott_reszek.append(szin_blokk)
             
             formazott_rendeles = "".join(formazott_reszek)
 
-            # --- NÉVNAP KERESÉSE ---
+            # --- NÉVNAP ÉS KELLÉK KERESÉS (Változatlan logika) ---
             nevnap_uzenet = ""
             if nevnapok_df is not None and kulcs_nevnap != "NINCS":
                 mai_sor = nevnapok_df[nevnapok_df['Datum'].astype(str).str.contains(kulcs_nevnap)]
@@ -1282,97 +1285,58 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     keresztnev = szavak[1] if len(szavak) > 1 else (szavak[0] if szavak else "")
                     k_nev_kisbetus = keresztnev.lower().strip()
                     napi_nevek_lista = [n.strip().lower() for n in str(mai_sor.iloc[0]['Nevek']).split(',')]
-
                     if k_nev_kisbetus in napi_nevek_lista:
                         nevnap_uzenet = f"★ Boldog Névnapot, {keresztnev}! ★"
 
-            # --- 4. KELLÉK KERESÉS + DEBUGGER ---
             kellek_kiiras = ""
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None:
                 napi_oszlop = next((col for col in etlap_api_df.columns if kulcs_api_datum in str(col)), None)
-                
                 if napi_oszlop:
-                    # Kikeressük a csillagos kódokat (pl. L2K, E1K)
                     csillagosok = re.findall(r'([A-Z0-9\-]+)\*', formazott_rendeles.upper())
                     talalt_kellekek = []
-                    
                     for nyers_kod in csillagosok:
-                        # 1. Tisztítás: "1-L2K" -> "L2K"
                         tiszta_kod = nyers_kod.split('-')[-1].strip()
-                        
-                        # --- DEBUG PANEL INDÍTÁSA ---
-                        with st.sidebar:
-                            st.write(f"🔍 **Kellék ellenőrzés:** `{tiszta_kod}`")
-                        
-                        # 2. KERESÉS AZ API TÁBLÁBAN: 
-                        # Itt volt a hiba! contains-t használunk, hogy az "L2K - Kis Leves"-t is megtalálja
+                        with st.sidebar: st.write(f"🔍 **Kellék ellenőrzés:** `{tiszta_kod}`")
                         etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(rf"\b{tiszta_kod}\b", na=False)]
-                        
                         if not etel_sor.empty:
-                            # 1. Kinyerjük a nyers nevet az API-ból
                             nyers_etel_neve = str(etel_sor.iloc[0][napi_oszlop]).strip()
-                            
-                            # 2. TISZTÍTÁS: Levegyük a csillagot a név végéről, ha ott van
-                            # Így a 'Rántott karfiol*' ból 'Rántott karfiol' lesz
                             tiszta_etel_neve = nyers_etel_neve.replace('*', '').strip()
-                            
-                            st.sidebar.write(f"✅ Étel megvan: *{nyers_etel_neve}*")
-                            
                             if master_df is not None:
-                                # 3. A TISZTÍTOTT névvel keresünk a Master Data-ban
                                 m_sor = master_df[master_df['Eredeti Név'].str.strip() == tiszta_etel_neve]
-                                
                                 if not m_sor.empty:
                                     kell = str(m_sor.iloc[0].get('Kellék', '')).strip()
                                     if kell and kell.lower() != 'nan' and kell != "":
                                         talalt_kellekek.append(f"{tiszta_kod}: {kell}")
-                                        st.sidebar.success(f"🎁 Kellék megvan: {kell}")
-                                    else:
-                                        st.sidebar.warning(f"⚠️ Nincs kellék megadva ehhez: {tiszta_etel_neve}")
-                                else:
-                                    # Ha még mindig nem találja, kiírjuk a tisztított nevet is a debuggerbe
-                                    st.sidebar.error(f"❌ '{tiszta_etel_neve}' (tisztított) nincs a Master Data-ban!")
-                        else:
-                            st.sidebar.error(f"❌ A kód `{tiszta_kod}` nincs az API tábla első oszlopában!")
-
                     if talalt_kellekek:
                         kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
-            # --- RAJZOLÁS ---
-            if kulonleges:
-                p.saveState()
-                p.setFillColor(colors.lightgrey, alpha=0.3)
-                p.rect(x + 0.5*mm, top_y - 9.5*mm, lw - 1*mm, 5*mm, fill=1, stroke=0)
-                p.restoreState()
-
-            # --- FEJLÉC MÓDOSÍTÁSA (Kisebb méretek, több hely) ---
-            
+            # --- FEJLÉC (Módosított méretek és pozíciók) ---
             # Sorszám (#): 8-as méret
             p.setFont(f_bold, 8)
             p.drawString(x + inner_m, top_y - 3 * mm, f"#{int(r['Sorrend'])}")
             
-            # ID: 7-es méret (kisebb, hogy ne legyen hangsúlyos)
+            # ID: 7-es méret
             p.setFont(f_reg, 7)
             p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {str(r.get('temp_id', 'N/A'))}")
             
-            # NÉV (Ügyintéző): 10-es méret (11-ről vagy 12-ről lejjebb véve)
-            # 1 mm-rel lejjebb toljuk (8.5 helyett 9.5), hogy ne érjen a sorszámhoz
+            # NÉV (Ügyintéző): 10-es méret
             p.setFont(f_bold, 10)
-            p.drawString(x + inner_m, top_y - 9.5 * mm, str(r.get('Ügyintéző', ''))[:25])
+            p.drawString(x + inner_m, top_y - 8.5 * mm, str(r.get('Ügyintéző', ''))[:25])
             
-            # TELEFON: 8-as méret (hogy jobban elkülönüljön a névtől)
-            # Ezt is lejjebb toljuk 1 mm-rel (8.5 helyett 13.5-re, így szellősebb)
+            # TELEFON: 8-as méret, lejjebb tolva, hogy ne folyjon össze
             p.setFont(f_reg, 8)
-            p.drawRightString(x + lw - inner_m, top_y - 13.5 * mm, str(r.get('Telefon', '')))
+            p.drawRightString(x + lw - inner_m, top_y - 12.5 * mm, str(r.get('Telefon', '')))
+            
+            # CÍM: 7-es méret (kicsit feljebb hozva a telefon mellé/alá)
             p.setFont(f_reg, 7)
             p.drawString(x + inner_m, top_y - 12.5 * mm, str(r.get('Cím', ''))[:45])
 
-            # RENDELÉS - Feljebb tolva (+1.5 mm-t emeltem az alapvonalán)
+            # RENDELÉS - Feljebb tolva (y_eff + 13 helyett +15), hogy több hely legyen
             para = Paragraph(formazott_rendeles, order_s)
-            pw, ph = para.wrap(usable_w, 15 * mm)
-            para.drawOn(p, x + inner_m, y_eff + 13 * mm)
+            pw, ph = para.wrap(usable_w, 18 * mm) # wrap magasságot megnöveltem
+            para.drawOn(p, x + inner_m, y_eff + 15 * mm) 
 
-            # --- ALSÓ SÁV (Pénz és vonal) ---
+            # --- ALSÓ SÁV (Fizetendő és vonal) ---
             penz = str(r.get('Pénz', '0 Ft')).replace(" ", "")
             if penz not in ["0Ft", "", "0"]:
                 p.setFont(f_bold, 7)
@@ -1381,38 +1345,28 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setFont(f_bold, 7)
             p.drawRightString(x + lw - inner_m, y_eff + 6.5 * mm, f"Össz: {int(r.get('Összesen', 0))} db")
 
-            p.setStrokeColor(colors.black)
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 6 * mm, x + lw - inner_m, y_eff + 6 * mm)
 
-            # --- ALSÓ INFORMÁCIÓK (Kellék, Névnap, Futár) ---
-            
-            # --- KELLÉK SZEKCIÓ ---
+            # --- KELLÉK SZEKCIÓ (Szépített kiírás) ---
             if kellek_kiiras:
                 p.saveState()
-                p.setFont(f_bold, 6.5) # Egyel kisebb (7.5-ről 6.5-re)
-                # Csak az eleje nagybetűs: "⚠ Kellék:"
+                p.setFont(f_bold, 6.5) # Kisebb betű
                 t_kellek = kellek_kiiras.replace("Kellék:", "").strip()
-                p.drawCentredString(x + lw / 2, y_eff + 9.8 * mm, f"⚠ Kellék: {t_kellek} ⚠")
+                # A Kellék szót kisbetűsen tartjuk, csak az eleje nagy
+                p.drawCentredString(x + lw / 2, y_eff + 8.5 * mm, f"⚠ Kellék: {t_kellek} ⚠")
                 p.restoreState()
 
-            # 2. SZIGORÚ VAGY/VAGY LOGIKA (A vonal alatti 2.5 mm-es sáv)
+            # --- LEGALJA (Névnap vagy Futár) ---
             if nevnap_uzenet:
-                # HA VAN NÉVNAP: Csak a köszöntés kerül középre, nagyban
                 p.setFont(f_reg, 8) 
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, nevnap_uzenet)
-                
-                # A futár adatot ilyenkor KICSIBEN és CSAK a sarokba tesszük, 
-                # hogy ne zavarja a névnapi képet, de a papíron maradjon
-                # p.setFont(f_reg, 5)
-                # p.drawRightString(x + lw - inner_m, y_eff + 0.8 * mm, f"{fn} | {ft}")
             else:
-                # HA NINCS NÉVNAP: A futár adatai kerülnek középre, normál méretben
                 p.setFont(f_reg, 6.5)
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
 
         else:
-            # MARKETING ETIKETT
+            # MARKETING ETIKETT (Változatlan)
             m_text = (
                 f"<font size='10' name='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
                 f"Új Ügyfeleink részére!<br/><br/>"

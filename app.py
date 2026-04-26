@@ -1224,18 +1224,26 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1)
 
     total_slots = math.ceil(len(df) / 21) * 21
-    # --- 1. DÁTUM KULCSOK GENERÁLÁSA (A ciklus előtt, egyszer!) ---
-    pdf_datum = meta.get('datum_iso')
+    # --- DÁTUM KULCSOK JAVÍTÁSA ---
+    pdf_datum = meta.get('datum_iso', '')
     
-    if not pdf_datum:
-        # Ha nincs dátum, biztonsági kulcsok (így nem omlik össze, de nem is talál hibásat)
-        kulcs_nevnap = "NINCS"
-        kulcs_api_datum = "NINCS"
-    else:
-        # Névnaphoz: "04-24"
-        kulcs_nevnap = pdf_datum[-5:] 
-        # API táblához: "2026.04.24."
-        kulcs_api_datum = pdf_datum.replace('-', '.') + "."
+    # DEBUG: Írjuk ki, mit kapunk a meta-ból
+    st.sidebar.write(f"Meta-ból jövő nyers dátum: '{pdf_datum}'")
+
+    if not pdf_datum or len(str(pdf_datum)) < 5:
+        # Ha a meta üres, próbáljuk meg kinyerni a mai napot vagy a fájlnévből
+        import datetime
+        pdf_datum = datetime.datetime.now().strftime("%Y-%m-%d")
+        st.sidebar.warning(f"⚠️ A meta-adatban nem volt dátum! Mai napot használom: {pdf_datum}")
+
+    # Névnaphoz: "04-24" (Hónap-Nap)
+    # Biztosítsuk a formátumot: ha 2026-04-24, akkor a vége kell
+    kulcs_nevnap = str(pdf_datum)[-5:].replace('.', '-') 
+    
+    # API táblához: "2026.04.24."
+    kulcs_api_datum = str(pdf_datum).replace('-', '.')
+    if not kulcs_api_datum.endswith('.'):
+        kulcs_api_datum += "."
 
     # --- 1. ELLENŐRZÉS A CIKLUS ELŐTT ---
     st.sidebar.header("📊 Rendszerellenőrzés")

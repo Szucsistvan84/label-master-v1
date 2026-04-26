@@ -1327,17 +1327,31 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             # így a fejlécnek már csak egy hangyányi extra kell.
             biztonsagi_emeles = 0.5 * mm if row_i == 0 else 0
 
-            # --- FEJLÉC KIÍRÁSA (Változatlan szerkezet, csak a fenti érték módosult) ---
+            # --- FEJLÉC KIÍRÁSA ---
             p.setFont(f_bold, 8)
             p.drawString(x + inner_m, top_y - (3 * mm) + biztonsagi_emeles, f"#{int(r['Sorrend'])}")
             
             p.setFont(f_reg, 7)
             p.drawRightString(x + lw - inner_m, top_y - (3 * mm) + biztonsagi_emeles, f"ID: {str(r.get('temp_id', 'N/A'))}")
 
+            # --- NÉV / TEL KIÍRÁSA (VISSZATÉVE) ---
             nev_y_pozicio = top_y - 7.0 * mm + biztonsagi_emeles
             
-            # ... (itt jön a szürke téglalap és a név/tel rész) ...
+            if kulonleges:
+                p.saveState()
+                p.setFillColor(colors.lightgrey, alpha=0.3)
+                p.rect(x + 0.5*mm, nev_y_pozicio - 1.5*mm, lw - 1*mm, 5 * mm, fill=1, stroke=0)
+                p.restoreState()
             
+            # Ügyintéző neve
+            p.setFont(f_bold, 8.5)
+            p.drawString(x + inner_m, nev_y_pozicio, str(r.get('Ügyintéző', ''))[:25])
+            
+            # Telefonszám
+            p.setFont(f_reg, 8)
+            p.drawRightString(x + lw - inner_m, nev_y_pozicio, str(r.get('Telefon', '')))
+            
+            # --- CÍM ---
             p.setFont(f_reg, 7)
             p.drawString(x + inner_m, top_y - 10.5 * mm + biztonsagi_emeles, str(r.get('Cím', ''))[:45])
 

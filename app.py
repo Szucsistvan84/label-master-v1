@@ -1294,44 +1294,42 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             
             formazott_rendeles = "".join(formazott_reszek)
 
-            # --- AGRESSZÍV DEBUG LOGIKA ---
+            # --- 2. NÉVNAP KERESÉSE (Javított, hiba mentes verzió) ---
             nevnap_uzenet = ""
             if nevnapok_df is not None and kulcs_nevnap != "NINCS":
-                # Keresés
+                # Keresés a dátum alapján
                 mai_sor = nevnapok_df[nevnapok_df['Datum'].astype(str).str.contains(kulcs_nevnap)]
                 
-                # Ha a 28. vagy 33. sornál járunk, mindenképp írjunk valamit
-                if i+1 in [28, 33]:
-                    with st.sidebar:
-                        st.info(f"Ellenőrzés: #{i+1} pozíció (Ügyintéző: {r.get('Ügyintéző')})")
-                        st.write(f"Dátum találat a táblázatban: {not mai_sor.empty}")
-
                 if not mai_sor.empty:
-                    # Név kinyerése
-                    teljes_nev = str(r.get('Ügyintéző', '')).strip()
+                    # Név tisztítása (Dr. stb.)
+                    t_nev = str(r.get('Ügyintéző', '')).strip()
                     for t in ["Dr.", "dr.", "id.", "ifj.", "özv.", "Özv."]:
-                        teljes_nev = teljes_nev.replace(t, "")
+                        t_nev = t_nev.replace(t, "")
                     
-                    szavak = [s.strip() for s in teljes_nev.split() if s.strip()]
+                    szavak = [s.strip() for s in t_nev.split() if s.strip()]
                     keresztnev = szavak[1] if len(szavak) > 1 else (szavak[0] if szavak else "")
                     
-                    # Táblázat nevei
-                    napi_nevek = [n.strip().lower() for n in str(mai_sor.iloc[0]['Nevek']).split(',')]
+                    # Változók egységesítése a kereséshez és debughoz
+                    k_nev_kisbetus = keresztnev.lower().strip()
+                    napi_nevek_lista = [n.strip().lower() for n in str(mai_sor.iloc[0]['Nevek']).split(',')]
                     
+                    # DEBUG PANEL - CSAK A 28. ÉS 33. SORRA
                     if i+1 in [28, 33]:
-                        st.sidebar.write(f"Keresztnevünk: '{keresztnev.lower()}'")
-                        st.sidebar.write(f"Névnapi lista: {napi_nevek}")
+                        with st.sidebar:
+                            st.info(f"Ellenőrzés: #{i+1} pozíció ({r.get('Ügyintéző')})")
+                            st.write(f"Kinyert keresztnév: '{k_nev_kisbetus}'")
+                            st.write(f"Névnapi lista (04-24): {napi_nevek_lista}")
 
-                    if keresztnev.lower() in napi_nevek:
+                    # Összehasonlítás
+                    if k_nev_kisbetus in napi_nevek_lista:
                         nevnap_uzenet = f"✨ Boldog Névnapot, {keresztnev}! ✨"
-                        if i+1 in [28, 33]: st.sidebar.success("MEGVAN!")
-                        
-                        # Speciális segítség: Ha tudjuk, hogy ott van a listában, de nem találja
-                        elif "petra" in k_nev_tisztitott or "balázs" in k_nev_tisztitott:
-                            with st.sidebar:
-                                st.error(f"MAJDNEM TALÁLAT a #{i+1} pozíción!")
-                                st.write(f"Keresett: '{k_nev_tisztitott}'")
-                                st.write(f"Amik közt kerestem: {napi_nevek_lista}")
+                        if i+1 in [28, 33]: 
+                            st.sidebar.success("MEGVAN A TALÁLAT!")
+                    
+                    # Biztonsági debug: Ha tudjuk, hogy ott kellene lennie, de mégsem találja
+                    elif "petra" in k_nev_kisbetus or "balázs" in k_nev_kisbetus:
+                        if i+1 in [28, 33]:
+                            st.sidebar.error(f"⚠️ Majdnem találat! '{k_nev_kisbetus}' nincs a listában.")
 
             # --- 2. RAJZOLÁS (Csak egy helyen, fix pozícióban!) ---
             # Töröld ki a korábbi "if nevnap_uzenet" blokkokat, és ezt tedd a legaljára, 

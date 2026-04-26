@@ -1310,7 +1310,8 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     if talalt_kellekek:
                         kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
-            # --- FEJLÉC (Módosított méretek és pozíciók) ---
+            # --- FEJLÉC (Név, ID, Telefon, Sorszám) ---
+            
             # Sorszám (#): 8-as méret
             p.setFont(f_bold, 8)
             p.drawString(x + inner_m, top_y - 3 * mm, f"#{int(r['Sorrend'])}")
@@ -1318,43 +1319,43 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             # ID: 7-es méret
             p.setFont(f_reg, 7)
             p.drawRightString(x + lw - inner_m, top_y - 3 * mm, f"ID: {str(r.get('temp_id', 'N/A'))}")
+
+            # --- SZÜRKE TÉGLALAP (Csak ha van szombati/különleges tétel) ---
+            if kulonleges:
+                p.saveState()
+                p.setFillColor(colors.lightgrey, alpha=0.3)
+                # A név és telefon sora mögé tesszük (kb. 9.5mm-nél van a név)
+                p.rect(x + 0.5*mm, top_y - 11 * mm, lw - 1*mm, 5.5 * mm, fill=1, stroke=0)
+                p.restoreState()
             
-            # NÉV (Ügyintéző): 10-es méret
-            p.setFont(f_bold, 10)
-            p.drawString(x + inner_m, top_y - 8.5 * mm, str(r.get('Ügyintéző', ''))[:25])
+            # NÉV (Ügyintéző): 9-es méret (kérésre csökkentve)
+            p.setFont(f_bold, 9)
+            p.drawString(x + inner_m, top_y - 9.5 * mm, str(r.get('Ügyintéző', ''))[:25])
             
-            # TELEFON: 8-as méret, lejjebb tolva, hogy ne folyjon össze
+            # TELEFON: Visszakerült a NÉV mellé (azonos magasság: 9.5 mm)
             p.setFont(f_reg, 8)
-            p.drawRightString(x + lw - inner_m, top_y - 12.5 * mm, str(r.get('Telefon', '')))
+            p.drawRightString(x + lw - inner_m, top_y - 9.5 * mm, str(r.get('Telefon', '')))
             
-            # CÍM: 7-es méret (kicsit feljebb hozva a telefon mellé/alá)
+            # CÍM: Külön sorban maradt alatta
             p.setFont(f_reg, 7)
-            p.drawString(x + inner_m, top_y - 12.5 * mm, str(r.get('Cím', ''))[:45])
+            p.drawString(x + inner_m, top_y - 13.5 * mm, str(r.get('Cím', ''))[:45])
 
-            # RENDELÉS - Feljebb tolva (y_eff + 13 helyett +15), hogy több hely legyen
+            # RENDELÉS - Még 1 mm-rel feljebb tolva (15 -> 16 mm)
             para = Paragraph(formazott_rendeles, order_s)
-            pw, ph = para.wrap(usable_w, 18 * mm) # wrap magasságot megnöveltem
-            para.drawOn(p, x + inner_m, y_eff + 15 * mm) 
+            pw, ph = para.wrap(usable_w, 18 * mm)
+            para.drawOn(p, x + inner_m, y_eff + 16 * mm) 
 
-            # --- ALSÓ SÁV (Fizetendő és vonal) ---
-            penz = str(r.get('Pénz', '0 Ft')).replace(" ", "")
-            if penz not in ["0Ft", "", "0"]:
-                p.setFont(f_bold, 7)
-                p.drawString(x + inner_m, y_eff + 6.5 * mm, f"Fizet: {str(r.get('Pénz', ''))}")
-            
-            p.setFont(f_bold, 7)
-            p.drawRightString(x + lw - inner_m, y_eff + 6.5 * mm, f"Össz: {int(r.get('Összesen', 0))} db")
-
+            # --- ALSÓ SÁV (Vonal és adatok változatlanok) ---
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 6 * mm, x + lw - inner_m, y_eff + 6 * mm)
 
-            # --- KELLÉK SZEKCIÓ (Szépített kiírás) ---
+            # --- KELLÉK SZEKCIÓ - Még 1 mm-rel feljebb (8.5 -> 9.5 mm) ---
             if kellek_kiiras:
                 p.saveState()
-                p.setFont(f_bold, 6.5) # Kisebb betű
+                p.setFont(f_bold, 6.5)
                 t_kellek = kellek_kiiras.replace("Kellék:", "").strip()
-                # A Kellék szót kisbetűsen tartjuk, csak az eleje nagy
-                p.drawCentredString(x + lw / 2, y_eff + 8.5 * mm, f"⚠ Kellék: {t_kellek} ⚠")
+                # 9.5 mm-re emelve, hogy ne érjen a vonalhoz
+                p.drawCentredString(x + lw / 2, y_eff + 9.5 * mm, f"⚠ Kellék: {t_kellek} ⚠")
                 p.restoreState()
 
             # --- LEGALJA (Névnap vagy Futár) ---

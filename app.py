@@ -1224,8 +1224,20 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=8, leading=10, alignment=1)
 
     total_slots = math.ceil(len(df) / 21) * 21
-    pdf_datum = meta.get('datum_iso', datetime.now().strftime("%Y-%m-%d"))
+    # --- 1. DÁTUM KULCSOK GENERÁLÁSA (A ciklus előtt, egyszer!) ---
+    pdf_datum = meta.get('datum_iso')
+    
+    if not pdf_datum:
+        # Ha nincs dátum, biztonsági kulcsok (így nem omlik össze, de nem is talál hibásat)
+        kulcs_nevnap = "NINCS"
+        kulcs_api_datum = "NINCS"
+    else:
+        # Névnaphoz: "04-24"
+        kulcs_nevnap = pdf_datum[-5:] 
+        # API táblához: "2026.04.24."
+        kulcs_api_datum = pdf_datum.replace('-', '.') + "."
 
+    # --- 2. INDUL A CIKLUS ---
     for i in range(total_slots):
         idx = i % 21
         if idx == 0 and i > 0: p.showPage()
@@ -1239,7 +1251,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             r = df.iloc[i]
             top_y = y + lh - inner_m
             
-            # --- 1. RENDELÉS FORMÁZÁSA ÉS SZÜRKÍTÉS ---
+            # --- RENDELÉS FORMÁZÁSA (A te eredeti kódod) ---
             r_full = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
             kulonleges = False
             napi_blokkok = re.split(r'(\s*\|\s*|(?=Hé:|Ke:|Sze:|Csü:|Pé:|Szo:))', r_full)
@@ -1255,58 +1267,56 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     if n_tag in blokk:
                         if n != bazis_nap_rovid:
                             kulonleges = True
-                            szin_blokk = f'<font name="{f_bold}" size="8.2">{blokk}</font>'
+                            szin_blokk = f'<font color="#888888">{blokk}</font>' # Szürkítés a többi napnak
                         break
                 formazott_reszek.append(szin_blokk)
             
             formazott_rendeles = "".join(formazott_reszek)
 
-            if kulonleges:
-                p.saveState()
-                p.setFillColor(colors.Color(0.88, 0.88, 0.88))
-                p.rect(x + inner_m - 1*mm, top_y - 9.5 * mm, usable_w + 2*mm, 5.5 * mm, fill=1, stroke=0)
-                p.restoreState()
-
-            # --- 2. ADATOK KISZÁMÍTÁSA (Névnap és Kellék) ---
-            
-            # Névnap
-            ugyintezo_neve = str(r.get('Ügyintéző', '')).strip()
-            t_nev = ugyintezo_neve
-            for t in ["Dr.", "dr.", "id.", "ifj.", "özv.", "Özv."]:
-                t_nev = t_nev.replace(t, "").strip()
-            n_reszek = t_nev.split()
-            keresztnev_csak = n_reszek[1] if len(n_reszek) > 1 else n_reszek[0]
-
+            # --- 3. NÉVNAP KERESÉS (ÚJ, STABIL LOGIKA) ---
             nevnap_uzenet = ""
-            if nevnapok_df is not None and not nevnapok_df.empty:
-                mai_sor = nevnapok_df[nevnapok_df['Datum'] == pdf_datum]
-                if not mai_sor.empty:
-                    napi_nevek = str(mai_sor.iloc[0]['Nevek']).lower().replace(' ', '').split(',')
-                    if keresztnev_csak.lower() in napi_nevek:
-                        nevnap_uzenet = f"✨ Boldog Névnapot, {keresztnev_csak}! ✨"
+            if kulcs_nevnap != "NINCS" and 'nevnapok_df' in locals() and nevnapok_df is not None:
+                # Keresés a 04-24 töredékre
+                mai_nevnap_sor = nevnapok_df[nevnapok_df['Datum'].astype(str).str.contains(kulcs_nevnap)]
+                
+                if not mai_nevnap_sor.empty:
+                    ugyintezo = str(r.get('Ügyintéző', '')).strip()
+                    # Tisztítás
+                    for t in ["Dr.", "dr.", "id.", "ifj.", "özv.", "Özv."]:
+                        ugyintezo = ugyintezo.replace(t, "").strip()
+                    
+                    nevek = ugyintezo.split()
+                    keresztnev = nevek[1] if len(nevek) > 1 else nevek[0]
+                    
+                    napi_nevek = str(mai_nevnap_sor.iloc[0]['Nevek']).lower().replace(' ', '').split(',')
+                    if keresztnev.lower() in napi_nevek:
+                        nevnap_uzenet = f"✨ Boldog Névnapot, {keresztnev}! ✨"
 
-            # Kellék
+            # --- 4. KELLÉK KERESÉS (ÚJ, STABIL LOGIKA) ---
             kellek_kiiras = ""
-            if etlap_api_df is not None and not etlap_api_df.empty:
-                napi_oszlop = ""
-                keresett_d = pdf_datum.replace('-', '.')
-                for c_name in etlap_api_df.columns:
-                    if keresett_d in c_name:
-                        napi_oszlop = c_name
-                        break
+            if kulcs_api_datum != "NINCS" and 'etlap_api_df' in locals() and etlap_api_df is not None:
+                # Megkeressük az oszlopot, amiben benne van a dátum (pl. 2026.04.24.)
+                napi_oszlop = next((col for col in etlap_api_df.columns if kulcs_api_datum in str(col)), None)
+                
                 if napi_oszlop:
                     csillagosok = re.findall(r'([A-Z0-9]+)\*', formazott_rendeles.upper())
                     talalt_kellekek = []
+                    
                     for kod in csillagosok:
-                        etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(kod, na=False)]
+                        # Az első oszlopban keressük a kódot (pl. TAV) a sor elején
+                        etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.startswith(kod)]
+                        
                         if not etel_sor.empty:
                             etel_neve = str(etel_sor.iloc[0][napi_oszlop]).strip()
-                            if master_df is not None:
+                            
+                            # Kellék kikeresése a Master táblából az étel neve alapján
+                            if 'master_df' in locals() and master_df is not None:
                                 m_sor = master_df[master_df['Eredeti Név'] == etel_neve]
                                 if not m_sor.empty:
                                     kell = str(m_sor.iloc[0].get('Kellék', '')).strip()
-                                    if kell and kell.lower() != 'nan' and kell != "":
+                                    if kell and kell.lower() != 'nan':
                                         talalt_kellekek.append(f"{kod}: {kell}")
+                    
                     if talalt_kellekek:
                         kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 

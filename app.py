@@ -1322,21 +1322,21 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     if talalt_kellekek:
                         kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
-            # --- DINAMIKUS ELTOLÁS A LAP ALJÁN (FINOMÍTVA) ---
-            # A lift (4.5mm) már eleve felemelte az etikettet, 
-            # így a fejlécnek már csak egy hangyányi extra kell.
-            biztonsagi_emeles = 0.5 * mm if row_i == 0 else 0
+            # --- DINAMIKUS ELTOLÁS A LAP ALJÁN (ISMÉTELT FINOMÍTÁS) ---
+            # row_i == 0 jelentése: a lap legalsó sora (7., 14., 21. etikett)
+            # -0.5 mm-re állítjuk, hogy az előzőhöz képest 1 mm-t süllyedjen
+            biztonsagi_emeles = -0.5 * mm if row_i == 0 else 0
 
-            # --- FEJLÉC KIÍRÁSA ---
+            # --- 1. FEJLÉC (Sorszám és ID) ---
             p.setFont(f_bold, 8)
             p.drawString(x + inner_m, top_y - (3 * mm) + biztonsagi_emeles, f"#{int(r['Sorrend'])}")
-            
             p.setFont(f_reg, 7)
             p.drawRightString(x + lw - inner_m, top_y - (3 * mm) + biztonsagi_emeles, f"ID: {str(r.get('temp_id', 'N/A'))}")
 
-            # --- NÉV / TEL KIÍRÁSA (VISSZATÉVE) ---
+            # --- 2. NÉV ÉS TELEFON POZÍCIÓ ---
             nev_y_pozicio = top_y - 7.0 * mm + biztonsagi_emeles
             
+            # SZÜRKE TÉGLALAP (Szombati/Különleges rendelés esetén)
             if kulonleges:
                 p.saveState()
                 p.setFillColor(colors.lightgrey, alpha=0.3)
@@ -1351,7 +1351,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setFont(f_reg, 8)
             p.drawRightString(x + lw - inner_m, nev_y_pozicio, str(r.get('Telefon', '')))
             
-            # --- CÍM ---
+            # --- 3. CÍM KIÍRÁSA ---
             p.setFont(f_reg, 7)
             p.drawString(x + inner_m, top_y - 10.5 * mm + biztonsagi_emeles, str(r.get('Cím', ''))[:45])
 

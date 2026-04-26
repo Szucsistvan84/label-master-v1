@@ -1922,6 +1922,8 @@ def main():
         st.header("⚙️ Kezelés")
         st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
         st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
+        # --- ÚJ DÁTUMVÁLASZTÓ ---
+        kivalasztott_datum = st.date_input("📅 Kiszállítás dátuma (Névnaphoz)")
         
         st.divider()
 

@@ -1290,38 +1290,60 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
 
             kellek_kiiras = ""
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None:
-                napi_oszlop = next((col for col in etlap_api_df.columns if kulcs_api_datum in str(col)), None)
-                if napi_oszlop:
-                    # Fontos: A formazott_rendeles-ből (ami HTML lehet) szedjük ki a kódokat
-                    tiszta_szoveg_kereseshez = re.sub(r'<[^>]*>', '', formazott_rendeles)
-                    csillagosok = re.findall(r'([A-Z0-9\-]+)\*', tiszta_szoveg_kereseshez.upper())
+                # DEBUG: Milyen oszlopokat látunk az API táblában?
+                with st.expander(f"🐞 DEBUG: {kulcs_api_datum} keresése"):
+                    st.write(f"Keresett dátum kulcs: `{kulcs_api_datum}`")
                     
-                    talalt_kellekek = []
-                    for nyers_kod in csillagosok:
-                        tiszta_kod = nyers_kod.split('-')[-1].strip()
+                    napi_oszlop = next((col for col in etlap_api_df.columns if kulcs_api_datum in str(col)), None)
+                    if not napi_oszlop:
+                        st.error("❌ Nem található az oszlop az Etlap_Api-ban!")
+                    else:
+                        st.success(f"✅ Megtalált oszlop: `{napi_oszlop}`")
                         
-                        etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(rf"\b{tiszta_kod}\b", na=False)]
-                        if not etel_sor.empty:
+                        tiszta_szoveg_kereseshez = re.sub(r'<[^>]*>', '', formazott_rendeles)
+                        csillagosok = re.findall(r'([A-Z0-9\-]+)\*', tiszta_szoveg_kereseshez.upper())
+                        st.write(f"Talált csillagos kódok a rendelésben: `{csillagosok}`")
+                        
+                        talalt_kellekek = []
+                        for nyers_kod in csillagosok:
+                            tiszta_kod = nyers_kod.split('-')[-1].strip()
+                            st.write(f"--- Ellenőrzés: `{tiszta_kod}` ---")
+                            
+                            # Étel kikeresése az étlapról
+                            etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(rf"\b{tiszta_kod}\b", na=False)]
+                            
+                            if etel_sor.empty:
+                                st.warning(f"⚠️ A `{tiszta_kod}` kód nincs benne az Etlap_Api első oszlopában!")
+                                continue
+                            
                             nyers_etel_neve = str(etel_sor.iloc[0][napi_oszlop]).strip()
-                            # Itt a titok: meg kell tisztítani az étel nevét az összehasonlításhoz
-                            # Kisbetű + minden írásjel és szóköz eltávolítása
+                            st.write(f"Étel neve az étlapon: `{nyers_etel_neve}`")
+                            
+                            if master_df is None:
+                                st.error("❌ Master_df nincs betöltve!")
+                                continue
+
+                            # Összehasonlítás tisztítása
                             keresett_nev_tiszta = re.sub(r'[^a-z0-9]', '', nyers_etel_neve.lower())
                             
-                            if master_df is not None:
-                                # A master_df-ben is ugyanígy tisztítjuk az 'Eredeti Név' oszlopot
-                                # Vagy ha ott már eleve tisztán van, akkor csak a keresett_nev_tiszta-t hasonlítjuk
-                                # Biztonsági játék: mindkét oldalt tisztítjuk az összehasonlításkor
-                                for m_idx, m_row in master_df.iterrows():
-                                    master_nev_tiszta = re.sub(r'[^a-z0-9]', '', str(m_row.get('Eredeti Név', '')).lower())
-                                    
-                                    if master_nev_tiszta == keresett_nev_tiszta:
-                                        kell = str(m_row.get('Kellék', '')).strip()
-                                        if kell and kell.lower() != 'nan' and kell != "":
-                                            talalt_kellekek.append(f"{tiszta_kod}: {kell}")
-                                        break # Ha megvan, nem keressük tovább ebben a sorban
+                            found_in_master = False
+                            for m_idx, m_row in master_df.iterrows():
+                                master_nev_eredeti = str(m_row.get('Eredeti Név', ''))
+                                master_nev_tiszta = re.sub(r'[^a-z0-9]', '', master_nev_eredeti.lower())
+                                
+                                if master_nev_tiszta == keresett_nev_tiszta:
+                                    kell = str(m_row.get('Kellék', '')).strip()
+                                    st.write(f"✅ MEGVAN a Masterben! Kellék: `{kell}`")
+                                    if kell and kell.lower() != 'nan' and kell != "":
+                                        talalt_kellekek.append(f"{tiszta_kod}: {kell}")
+                                    found_in_master = True
+                                    break
+                            
+                            if not found_in_master:
+                                st.info(f"ℹ️ `{nyers_etel_neve}` nem található a Master táblában (tisztított név: `{keresett_nev_tiszta}`).")
 
-                    if talalt_kellekek:
-                        kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
+                        if talalt_kellekek:
+                            kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
 
             # --- FEJLÉC (Sorszám és ID marad a tetején: -3mm) ---
             p.setFont(f_bold, 8)

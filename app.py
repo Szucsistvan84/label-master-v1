@@ -1342,21 +1342,32 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 6 * mm, x + lw - inner_m, y_eff + 6 * mm)
 
-            # --- ALSÓ INFORMÁCIÓK (Vagy/Vagy kapcsolat és Kellék) ---
+            # --- ALSÓ INFORMÁCIÓK (Kellék, Névnap, Futár) ---
             
-            # Kellék: Ha van, a vonal FÖLÉ kerül, hogy ne takarja a névnapot
+            # 1. Kellék: Feljebb tolva és ikonnal ellátva
             if kellek_kiiras:
-                p.setFont(f_bold, 7)
-                p.drawCentredString(x + lw / 2, y_eff + 8.2 * mm, kellek_kiiras)
+                p.saveState()
+                p.setFont(f_bold, 7.5)
+                # Kicsit több helyet hagyunk alatta: 9.5 mm-re emeltem (korábban 8.2 vagy 8.8 volt)
+                # A ⚠ ikon segít az elválasztásban
+                tiszta_kellek = kellek_kiiras.replace("Kellék:", "").strip()
+                p.drawCentredString(x + lw / 2, y_eff + 9.8 * mm, f"⚠ KELLÉK: {tiszta_kellek} ⚠")
+                p.restoreState()
 
+            # 2. Névnap VAGY Futár (Vagy-Vagy kapcsolat a duplázódás ellen)
             if nevnap_uzenet:
-                # NÉVNAPOS ÜGYFÉL: Csak a köszöntés jelenik meg középen
+                # Névnapos ügyfél: Köszöntés középen
                 p.setFont(f_reg, 8) 
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, nevnap_uzenet)
             else:
-                # NORMÁL ÜGYFÉL: Csak a futár adatai
+                # Normál ügyfél: Futár adatok középen
                 p.setFont(f_reg, 6.5)
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
+
+            # Futár adatok kicsiben a sarokba, ha névnap van (opcionális, ha mégis látni akarod)
+            if nevnap_uzenet:
+                p.setFont(f_reg, 5.2)
+                p.drawRightString(x + lw - inner_m, y_eff + 0.8 * mm, f"{fn} | {ft}")
 
         else:
             # MARKETING ETIKETT

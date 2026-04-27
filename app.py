@@ -532,7 +532,6 @@ def format_kellek_alert(pdf_kod, pdf_nev, master_df):
 # --- 1. FUNKCIÓ: ADATOK FELKÜLDÉSE (UPSERT) ---
 def sync_ugyfelkor_fel(df_napi, sheet_id, client):
     if client is None:
-        st.error("Nincs aktív Google Sheets kapcsolat (client is None)!")
         return 0
         
     sh = client.open_by_key(sheet_id)
@@ -542,18 +541,10 @@ def sync_ugyfelkor_fel(df_napi, sheet_id, client):
         ws = sh.add_worksheet(title="Adatok", rows="1000", cols="10")
         ws.append_row(["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"])
 
-    # Beolvasás
-    existing_data = ws.get_all_records()
-    db_df = pd.DataFrame(existing_data)
-    
-    if db_df.empty:
-        db_df = pd.DataFrame(columns=["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"])
-
+    db_df = pd.DataFrame(ws.get_all_records())
     ma = datetime.now().strftime("%Y-%m-%d")
-    valtozas_történt = 0
     
     for _, row in df_napi.iterrows():
-        # A CSV alapján 'temp_id' az oszlop neve
         u_id = str(row.get('temp_id', '')).strip()
         if not u_id or u_id == 'nan' or u_id == "": continue
 
@@ -561,32 +552,33 @@ def sync_ugyfelkor_fel(df_napi, sheet_id, client):
         u_cim = str(row.get('Cím', '')).strip()
         u_tel = str(row.get('Telefon', '')).strip()
         u_sorrend = str(row.get('Sorrend', '')).strip()
+        u_megj = str(row.get('Megjegyzés', '')).strip() # ÚJ: Megjegyzés beolvasása
 
-        # Meglévő keresése (ID alapján, szigorúan stringként)
         mask = db_df['ID'].astype(str) == u_id
         if not db_df.empty and mask.any():
             idx = db_df[mask].index[0]
-            # Csak ha a Sheet-en üres a név, akkor írjuk be a PDF-est
-            if not str(db_df.at[idx, 'Név']).strip():
-                db_df.at[idx, 'Név'] = u_nev
+            
+            # MÓDOSÍTÁS: Most már mindig felülírjuk a nevet és a megjegyzést is a Streamlitből
+            db_df.at[idx, 'Név'] = u_nev
+            db_df.at[idx, 'Megjegyzés'] = u_megj
+            
             db_df.at[idx, 'Cím'] = u_cim
             db_df.at[idx, 'Telefon'] = u_tel
+            db_df.at[idx, 'Preferált Sorrend'] = u_sorrend
             db_df.at[idx, 'Utolsó Rendelés'] = ma
         else:
             new_row = {
                 "ID": u_id, "Név": u_nev, "Cím": u_cim, "Telefon": u_tel,
                 "Csoport": "", "Preferált Sorrend": u_sorrend, 
-                "Megjegyzés": "", "Utolsó Rendelés": ma
+                "Megjegyzés": u_megj, "Utolsó Rendelés": ma
             }
             db_df = pd.concat([db_df, pd.DataFrame([new_row])], ignore_index=True)
-        valtozas_történt += 1
 
-    # NaN-ok takarítása és mentés
     db_df = db_df.fillna("")
     final_list = [db_df.columns.values.tolist()] + db_df.values.tolist()
     ws.clear()
     ws.update('A1', final_list)
-    return valtozas_történt
+    return len(df_napi)
 
 # --- 2. FUNKCIÓ: JAVÍTOTT ADATOK VISSZATÖLTÉSE ---
 def adatok_visszatoltese_sheetrol(df_napi, sheet_id, client):

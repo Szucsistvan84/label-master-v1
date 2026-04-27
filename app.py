@@ -2119,10 +2119,12 @@ def main():
 
         with col_sz2:
             if st.button("🔄 JAVÍTOTT ADATOK BETÖLTÉSE", use_container_width=True):
-                # A session_state.mdf-et frissítjük a Sheet-ről
+                # Lehúzzuk a friss adatokat a Sheet-ről
                 st.session_state.mdf = adatok_visszatoltese_sheetrol(st.session_state.mdf, UGYFELKOR_SHEET_ID, client)
+                
+                # Fontos: Frissítés után kényszerítjük a session_state mentését
                 st.session_state.editor_key += 1
-                st.success("Nevek és csoportok frissítve a Google Sheet-ből!")
+                st.success("Adatok (nevek, csoportok, sorrend) frissítve a Google Sheet-ből!")
                 st.rerun()
 
         st.divider()

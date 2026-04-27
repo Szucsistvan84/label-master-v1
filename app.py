@@ -597,22 +597,45 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id, client):
         sh = client.open_by_key(sheet_id)
         ws = sh.worksheet("Adatok")
         db_df = pd.DataFrame(ws.get_all_records())
-        if db_df.empty: return df_napi
+        
+        if db_df.empty: 
+            return df_napi
+            
+        # Minden ID-t és sorrendet szövegként kezelünk az összehasonlításhoz
+        db_df['ID'] = db_df['ID'].astype(str).str.strip()
         
         if 'Csoport' not in df_napi.columns: df_napi['Csoport'] = ""
 
         for i, row in df_napi.iterrows():
             u_id = str(row.get('temp_id', '')).strip()
-            match = db_df[db_df['ID'].astype(str) == u_id]
+            
+            # Keresés a Google Sheet adatai között
+            match = db_df[db_df['ID'] == u_id]
+            
             if not match.empty:
+                # Név frissítése
                 s_nev = str(match.iloc[0]['Név']).strip()
-                if s_nev: df_napi.at[i, 'Ügyintéző'] = s_nev
+                if s_nev and s_nev != 'nan':
+                    df_napi.at[i, 'Ügyintéző'] = s_nev
+                
+                # Sorrend frissítése - CSAK ha van a Sheet-en érvényes érték
                 s_sorrend = str(match.iloc[0]['Preferált Sorrend']).strip()
-                if s_sorrend: df_napi.at[i, 'Sorrend'] = s_sorrend
+                if s_sorrend and s_sorrend != 'nan' and s_sorrend != "":
+                    # Megpróbáljuk számmá alakítani, hogy a rendezés jó legyen
+                    try:
+                        df_napi.at[i, 'Sorrend'] = float(s_sorrend)
+                    except:
+                        df_napi.at[i, 'Sorrend'] = s_sorrend
+                
+                # Csoport frissítése
                 s_csoport = str(match.iloc[0].get('Csoport', '')).strip()
-                df_napi.at[i, 'Csoport'] = s_csoport
+                if s_csoport != 'nan':
+                    df_napi.at[i, 'Csoport'] = s_csoport
         
+        # Végső rendezés a betöltött adatok alapján
+        df_napi['Sorrend'] = pd.to_numeric(df_napi['Sorrend'], errors='coerce').fillna(999)
         df_napi = df_napi.sort_values(by=['Csoport', 'Sorrend'], ascending=[True, True])
+        
         return df_napi
     except Exception as e:
         st.error(f"Hiba a visszatöltésnél: {e}")

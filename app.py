@@ -44,6 +44,15 @@ def get_google_sheets_creds():
     # Itt adjuk át a scopes listát a Credentials-nek
     return service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
 
+# --- EZT ADD HOZZÁ KÖZVETLENÜL ALÁ ---
+# Ezzel hozzuk létre az aktív 'client' kapcsolatot, amit mindenki használni fog
+try:
+    creds = get_google_sheets_creds()
+    client = gspread.authorize(creds)
+except Exception as e:
+    st.error(f"Sikertelen Google Sheets kapcsolódás: {e}")
+    client = None
+
 def load_names_from_sheets(sheet_id):
     try:
         creds_info = st.secrets["gcp_service_account"].to_dict()
@@ -528,14 +537,13 @@ def format_kellek_alert(pdf_kod, pdf_nev, master_df):
             
     return ""
 
-# --- 1. FUNKCIÓ: ADATOK FELKÜLDÉSE (A PDF feldolgozás mellé mehet) ---
+# --- 1. FUNKCIÓ: ADATOK FELKÜLDÉSE (UPSERT) ---
 def sync_ugyfelkor_fel(df_napi, sheet_id, client):
-    sh = gc.open_by_key(sheet_id)
+    sh = client.open_by_key(sheet_id)
     try:
         ws = sh.worksheet("Adatok")
     except:
         ws = sh.add_worksheet(title="Adatok", rows="1000", cols="10")
-        # HOZZÁADVA: Csoport oszlop
         ws.append_row(["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"])
 
     db_df = pd.DataFrame(ws.get_all_records())
@@ -545,19 +553,24 @@ def sync_ugyfelkor_fel(df_napi, sheet_id, client):
         u_id = str(row.get('temp_id', ''))
         if not u_id or u_id == 'N/A': continue
 
+        u_nev = str(row.get('Ügyintéző', ''))
+        u_cim = str(row.get('Cím', ''))
+        u_tel = str(row.get('Telefon', ''))
+        u_sorrend = str(row.get('Sorrend', ''))
+
         if not db_df.empty and u_id in db_df['ID'].astype(str).values:
             idx = db_df[db_df['ID'].astype(str) == u_id].index[0]
+            # Csak akkor írjuk felül a nevet a Sheet-en, ha ott még üres
             if not str(db_df.at[idx, 'Név']).strip():
-                db_df.at[idx, 'Név'] = str(row.get('Ügyintéző', ''))
+                db_df.at[idx, 'Név'] = u_nev
             
-            db_df.at[idx, 'Cím'] = str(row.get('Cím', ''))
-            db_df.at[idx, 'Telefon'] = str(row.get('Telefon', ''))
+            db_df.at[idx, 'Cím'] = u_cim
+            db_df.at[idx, 'Telefon'] = u_tel
             db_df.at[idx, 'Utolsó Rendelés'] = ma
         else:
             new_row = {
-                "ID": u_id, "Név": str(row.get('Ügyintéző', '')), 
-                "Cím": str(row.get('Cím', '')), "Telefon": str(row.get('Telefon', '')),
-                "Csoport": "", "Preferált Sorrend": str(row.get('Sorrend', '')), 
+                "ID": u_id, "Név": u_nev, "Cím": u_cim, "Telefon": u_tel,
+                "Csoport": "", "Preferált Sorrend": u_sorrend, 
                 "Megjegyzés": "", "Utolsó Rendelés": ma
             }
             db_df = pd.concat([db_df, pd.DataFrame([new_row])], ignore_index=True)
@@ -570,10 +583,14 @@ def sync_ugyfelkor_fel(df_napi, sheet_id, client):
 # --- 2. FUNKCIÓ: JAVÍTOTT ADATOK VISSZATÖLTÉSE ---
 def adatok_visszatoltese_sheetrol(df_napi, sheet_id, client):
     try:
-        sh = gc.open_by_key(sheet_id)
+        sh = client.open_by_key(sheet_id)
         db_df = pd.DataFrame(sh.worksheet("Adatok").get_all_records())
         if db_df.empty: return df_napi
         
+        # Oszlop biztosítása a napi táblázatban
+        if 'Csoport' not in df_napi.columns:
+            df_napi['Csoport'] = ""
+
         for i, row in df_napi.iterrows():
             u_id = str(row.get('temp_id', ''))
             match = db_df[db_df['ID'].astype(str) == u_id]
@@ -584,18 +601,15 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id, client):
                 
                 s_sorrend = str(match.iloc[0]['Preferált Sorrend']).strip()
                 if s_sorrend: df_napi.at[i, 'Sorrend'] = s_sorrend
-                
-                # CSOPORT KEZELÉSE
+
                 s_csoport = str(match.iloc[0].get('Csoport', '')).strip()
                 df_napi.at[i, 'Csoport'] = s_csoport
         
-        # Rendezés: Csoport, aztán Sorrend
-        # A fillna("") azért kell, hogy ne haljon meg a rendezés ha üres a cella
+        # Rendezés Csoport és Sorrend szerint
         df_napi['Csoport'] = df_napi['Csoport'].fillna("")
         df_napi = df_napi.sort_values(by=['Csoport', 'Sorrend'], ascending=[True, True])
         return df_napi
-    except Exception as e:
-        print(f"Hiba: {e}")
+    except:
         return df_napi
 
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---

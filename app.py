@@ -25,8 +25,10 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame, Flowable
 
 # --- GOOGLE SHEETS KONFIGURÁCIÓ ---
-# Ezt hagyd meg az eredeti ID-val
-SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o" 
+SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
+
+# Itt hozzuk létre üresen, minden függvényen kívül
+client = None 
 
 def get_google_sheets_creds():
     creds_info = st.secrets["gcp_service_account"].to_dict()
@@ -35,12 +37,9 @@ def get_google_sheets_creds():
         creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
     return service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
 
-# --- GLOBÁLIS CLIENT LÉTREHOZÁSA ---
-client = None  # <--- EZT A SORT ADD HOZZÁ! Ez biztosítja, hogy a változó mindig létezzen.
-
+# Most próbáljuk meg feltölteni az igazi kapcsolattal
 try:
     creds = get_google_sheets_creds()
-    # Itt kap értéket a globális client
     client = gspread.authorize(creds)
 except Exception as e:
     st.error(f"Sikertelen Google Sheets kapcsolódás: {e}")
@@ -1921,6 +1920,7 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
         )
 
 def main():
+    global client  # <--- EZT A SORT ÍRD BE IDE!
     st.set_page_config(page_title="Interfood Label Master", layout="wide")
     register_fonts()
 

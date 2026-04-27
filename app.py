@@ -539,114 +539,89 @@ def format_kellek_alert(pdf_kod, pdf_nev, master_df):
 
 # --- 1. FUNKCIÓ: ADATOK FELKÜLDÉSE (UPSERT) ---
 def sync_ugyfelkor_fel(df_napi, sheet_id, client):
-    # 1. Kapcsolódás
+    if client is None:
+        st.error("Nincs aktív Google Sheets kapcsolat (client is None)!")
+        return 0
+        
     sh = client.open_by_key(sheet_id)
     try:
         ws = sh.worksheet("Adatok")
     except:
-        # Ha nincs "Adatok" fül, létrehozzuk a megfelelő fejléccel
         ws = sh.add_worksheet(title="Adatok", rows="1000", cols="10")
         ws.append_row(["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"])
-        st.info("Új 'Adatok' munkalap létrehozva a Google Sheet-en.")
 
-    # 2. Meglévő adatok beolvasása
+    # Beolvasás
     existing_data = ws.get_all_records()
     db_df = pd.DataFrame(existing_data)
     
-    # Biztosítjuk, hogy a db_df-ben megvannak a szükséges oszlopok, ha üres lenne a Sheet
-    expected_cols = ["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"]
     if db_df.empty:
-        db_df = pd.DataFrame(columns=expected_cols)
+        db_df = pd.DataFrame(columns=["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"])
 
     ma = datetime.now().strftime("%Y-%m-%d")
-    mentett_db = 0
+    valtozas_történt = 0
     
-    # 3. Végigmegyünk a napi adatokon
     for _, row in df_napi.iterrows():
-        # Nagyon fontos: mi van a temp_id-ben?
+        # A CSV alapján 'temp_id' az oszlop neve
         u_id = str(row.get('temp_id', '')).strip()
-        
-        # Ha nincs ID, nem tudjuk azonosítani, átugorjuk
-        if not u_id or u_id == 'N/A' or u_id == 'nan' or u_id == "":
-            continue
+        if not u_id or u_id == 'nan' or u_id == "": continue
 
         u_nev = str(row.get('Ügyintéző', '')).strip()
         u_cim = str(row.get('Cím', '')).strip()
         u_tel = str(row.get('Telefon', '')).strip()
         u_sorrend = str(row.get('Sorrend', '')).strip()
 
-        # Ellenőrizzük, benne van-e már (ID alapján)
-        is_existing = False
-        if not db_df.empty:
-            # Kényszerítjük az ID oszlopot string típusra az összehasonlításhoz
-            mask = db_df['ID'].astype(str) == u_id
-            if mask.any():
-                idx = db_df[mask].index[0]
-                
-                # Frissítés: Nevet csak akkor, ha a Sheet-en üres
-                current_sheet_name = str(db_df.at[idx, 'Név']).strip()
-                if not current_sheet_name or current_sheet_name == "nan":
-                    db_df.at[idx, 'Név'] = u_nev
-                
-                db_df.at[idx, 'Cím'] = u_cim
-                db_df.at[idx, 'Telefon'] = u_tel
-                db_df.at[idx, 'Utolsó Rendelés'] = ma
-                is_existing = True
-                mentett_db += 1
-
-        if not is_existing:
-            # Új sor hozzáadása
+        # Meglévő keresése (ID alapján, szigorúan stringként)
+        mask = db_df['ID'].astype(str) == u_id
+        if not db_df.empty and mask.any():
+            idx = db_df[mask].index[0]
+            # Csak ha a Sheet-en üres a név, akkor írjuk be a PDF-est
+            if not str(db_df.at[idx, 'Név']).strip():
+                db_df.at[idx, 'Név'] = u_nev
+            db_df.at[idx, 'Cím'] = u_cim
+            db_df.at[idx, 'Telefon'] = u_tel
+            db_df.at[idx, 'Utolsó Rendelés'] = ma
+        else:
             new_row = {
                 "ID": u_id, "Név": u_nev, "Cím": u_cim, "Telefon": u_tel,
                 "Csoport": "", "Preferált Sorrend": u_sorrend, 
                 "Megjegyzés": "", "Utolsó Rendelés": ma
             }
             db_df = pd.concat([db_df, pd.DataFrame([new_row])], ignore_index=True)
-            mentett_db += 1
+        valtozas_történt += 1
 
-    # 4. Visszaírás a Sheet-re
-    # Megtisztítjuk az adatokat a NaN értékektől (a Google Sheet nem szereti)
+    # NaN-ok takarítása és mentés
     db_df = db_df.fillna("")
-    
-    # Lista formátum előkészítése (fejléc + adatok)
     final_list = [db_df.columns.values.tolist()] + db_df.values.tolist()
-    
-    # Törlés és frissítés
     ws.clear()
     ws.update('A1', final_list)
-    
-    return mentett_db
+    return valtozas_történt
 
 # --- 2. FUNKCIÓ: JAVÍTOTT ADATOK VISSZATÖLTÉSE ---
 def adatok_visszatoltese_sheetrol(df_napi, sheet_id, client):
+    if client is None: return df_napi
     try:
         sh = client.open_by_key(sheet_id)
-        db_df = pd.DataFrame(sh.worksheet("Adatok").get_all_records())
+        ws = sh.worksheet("Adatok")
+        db_df = pd.DataFrame(ws.get_all_records())
         if db_df.empty: return df_napi
         
-        # Oszlop biztosítása a napi táblázatban
-        if 'Csoport' not in df_napi.columns:
-            df_napi['Csoport'] = ""
+        if 'Csoport' not in df_napi.columns: df_napi['Csoport'] = ""
 
         for i, row in df_napi.iterrows():
-            u_id = str(row.get('temp_id', ''))
+            u_id = str(row.get('temp_id', '')).strip()
             match = db_df[db_df['ID'].astype(str) == u_id]
-            
             if not match.empty:
                 s_nev = str(match.iloc[0]['Név']).strip()
                 if s_nev: df_napi.at[i, 'Ügyintéző'] = s_nev
-                
                 s_sorrend = str(match.iloc[0]['Preferált Sorrend']).strip()
                 if s_sorrend: df_napi.at[i, 'Sorrend'] = s_sorrend
-
                 s_csoport = str(match.iloc[0].get('Csoport', '')).strip()
                 df_napi.at[i, 'Csoport'] = s_csoport
         
-        # Rendezés Csoport és Sorrend szerint
-        df_napi['Csoport'] = df_napi['Csoport'].fillna("")
         df_napi = df_napi.sort_values(by=['Csoport', 'Sorrend'], ascending=[True, True])
         return df_napi
-    except:
+    except Exception as e:
+        st.error(f"Hiba a visszatöltésnél: {e}")
         return df_napi
 
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
@@ -2122,50 +2097,38 @@ def main():
             use_container_width=True
         )
     
-        # --- ÜGYFÉLKÖR ADATBÁZIS ID ---
+        # --- ÜGYFÉLKÖR SZINKRON SZEKCIÓ ---
         UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
-        col_szinkron1, col_szinkron2 = st.columns(2)
+        st.subheader("🗄️ Ügyfélkör kezelése")
+        col_sz1, col_sz2 = st.columns(2)
 
-        with col_szinkron1:
-            # A MÓDOSÍTOTT MENTÉS GOMB
-            if st.button("💾 SORREND VÉGLEGESÍTÉSE ÉS MENTÉS", use_container_width=True):
-                # Itt már az edited_df-et használjuk, mert a fenti editor már létrehozta
+        with col_sz1:
+            if st.button("💾 SORREND ÉS MENTÉS", use_container_width=True):
+                # Az edited_df-et mentjük, mert abban vannak a te módosításaid!
                 temp_df = edited_df.copy()
-                
-                # 1. Számmá alakítás és rendezés (az eredeti logikád)
                 temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999)
                 temp_df.sort_values('Sorrend', inplace=True)
-                
-                # 2. Újrasorszámozás
                 temp_df['Sorrend'] = range(1, len(temp_df) + 1)
                 
-                # 3. SZINKRON: Adatok felküldése a Google Sheet-re
-                try:
-                    with st.spinner("Mentés az adatbázisba..."):
-                        # A 'gc' a gspread kliensed neve legyen, ahogy korábban inicializáltad
-                        sync_ugyfelkor_fel(temp_df, UGYFELKOR_SHEET_ID, client)
-                    st.success("Sorrend véglegesítve és az Ügyfélkör mentve!")
-                except Exception as e:
-                    st.error(f"Sorszámozás kész, de a Google Sheet hiba: {e}")
-
-                # 4. Mentés a session-be és frissítés
-                st.session_state.mdf = temp_df
-                st.session_state.editor_key += 1 
-                st.rerun()
-
-        with col_szinkron2:
-            # AZ ÚJ BETÖLTÉS GOMB
-            if st.button("🔄 JAVÍTOTT NEVEK/CSOPORTOK BETÖLTÉSE", use_container_width=True):
-                with st.spinner("Összefésülés a Google Sheet-tel..."):
-                    # Visszatöltjük a javított adatokat (név, csoport, preferált sorrend)
-                    updated_df = adatok_visszatoltese_sheetrol(st.session_state.mdf, UGYFELKOR_SHEET_ID, client)
-                    
-                    # Frissítjük a session state-et az új adatokkal
-                    st.session_state.mdf = updated_df
+                # Mentés a Sheet-re
+                siker = sync_ugyfelkor_fel(temp_df, UGYFELKOR_SHEET_ID, client)
+                
+                if siker > 0:
+                    st.session_state.mdf = temp_df
                     st.session_state.editor_key += 1
-                    st.success("Google Sheet adatok (nevek, csoportok) betöltve!")
+                    st.success(f"Sikeres mentés! {siker} ügyfél szinkronizálva.")
                     st.rerun()
+                else:
+                    st.warning("Nem történt mentés. Ellenőrizd a temp_id oszlopot!")
+
+        with col_sz2:
+            if st.button("🔄 JAVÍTOTT ADATOK BETÖLTÉSE", use_container_width=True):
+                # A session_state.mdf-et frissítjük a Sheet-ről
+                st.session_state.mdf = adatok_visszatoltese_sheetrol(st.session_state.mdf, UGYFELKOR_SHEET_ID, client)
+                st.session_state.editor_key += 1
+                st.success("Nevek és csoportok frissítve a Google Sheet-ből!")
+                st.rerun()
 
         st.divider()
 

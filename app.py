@@ -601,42 +601,53 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id, client):
         if db_df.empty: 
             return df_napi
             
-        # Minden ID-t és sorrendet szövegként kezelünk az összehasonlításhoz
+        # ID-k tisztítása: minden legyen szöveg, szóközök nélkül
         db_df['ID'] = db_df['ID'].astype(str).str.strip()
         
-        if 'Csoport' not in df_napi.columns: df_napi['Csoport'] = ""
+        if 'Csoport' not in df_napi.columns: 
+            df_napi['Csoport'] = ""
 
         for i, row in df_napi.iterrows():
+            # A napi adatokból is tisztítjuk az ID-t
             u_id = str(row.get('temp_id', '')).strip()
             
-            # Keresés a Google Sheet adatai között
+            # Megkeressük az egyezést
             match = db_df[db_df['ID'] == u_id]
             
             if not match.empty:
                 # Név frissítése
                 s_nev = str(match.iloc[0]['Név']).strip()
-                if s_nev and s_nev != 'nan':
+                if s_nev and s_nev.lower() != 'nan':
                     df_napi.at[i, 'Ügyintéző'] = s_nev
                 
-                # Sorrend frissítése - CSAK ha van a Sheet-en érvényes érték
+                # Sorrend frissítése - Itt volt a hiba!
                 s_sorrend = str(match.iloc[0]['Preferált Sorrend']).strip()
-                if s_sorrend and s_sorrend != 'nan' and s_sorrend != "":
-                    # Megpróbáljuk számmá alakítani, hogy a rendezés jó legyen
+                if s_sorrend and s_sorrend.lower() != 'nan' and s_sorrend != "":
                     try:
+                        # Számmá alakítjuk a Sheet-ről jövő értéket
                         df_napi.at[i, 'Sorrend'] = float(s_sorrend)
                     except:
-                        df_napi.at[i, 'Sorrend'] = s_sorrend
+                        pass # Ha nem szám, hagyjuk az eredetit
                 
                 # Csoport frissítése
                 s_csoport = str(match.iloc[0].get('Csoport', '')).strip()
-                if s_csoport != 'nan':
+                if s_csoport and s_csoport.lower() != 'nan':
                     df_napi.at[i, 'Csoport'] = s_csoport
+                
+                # Megjegyzés frissítése
+                s_megj = str(match.iloc[0].get('Megjegyzés', '')).strip()
+                if s_megj and s_megj.lower() != 'nan':
+                    df_napi.at[i, 'Megjegyzés'] = s_megj
         
-        # Végső rendezés a betöltött adatok alapján
-        df_napi['Sorrend'] = pd.to_numeric(df_napi['Sorrend'], errors='coerce').fillna(999)
+        # A 999-es hiba elkerülése: csak ott töltsük fel, ahol tényleg üres
+        df_napi['Sorrend'] = pd.to_numeric(df_napi['Sorrend'], errors='coerce')
+        # Ha valamiért mégis üres maradna a sorrend, adjunk neki egy nagy számot a végére
+        df_napi['Sorrend'] = df_napi['Sorrend'].fillna(999)
+        
+        # Rendezés
         df_napi = df_napi.sort_values(by=['Csoport', 'Sorrend'], ascending=[True, True])
-        
         return df_napi
+        
     except Exception as e:
         st.error(f"Hiba a visszatöltésnél: {e}")
         return df_napi
@@ -2123,22 +2134,23 @@ def main():
 
         with col_sz1:
             if st.button("💾 SORREND ÉS MENTÉS", use_container_width=True):
-                # Az edited_df-et mentjük, mert abban vannak a te módosításaid!
+                # 1. Vegyük az aktuális (szerkesztett) adatokat
                 temp_df = edited_df.copy()
+                
+                # 2. Újrasorszámozás egész számokra a mentés előtt
                 temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999)
-                temp_df.sort_values('Sorrend', inplace=True)
+                temp_df = temp_df.sort_values(['Csoport', 'Sorrend'])
                 temp_df['Sorrend'] = range(1, len(temp_df) + 1)
                 
-                # Mentés a Sheet-re
+                # 3. Mentés a Google Sheet-re
                 siker = sync_ugyfelkor_fel(temp_df, UGYFELKOR_SHEET_ID, client)
                 
                 if siker > 0:
+                    # 4. Frissítjük a session state-et az új, tiszta sorrenddel
                     st.session_state.mdf = temp_df
                     st.session_state.editor_key += 1
                     st.success(f"Sikeres mentés! {siker} ügyfél szinkronizálva.")
                     st.rerun()
-                else:
-                    st.warning("Nem történt mentés. Ellenőrizd a temp_id oszlopot!")
 
         with col_sz2:
             if st.button("🔄 JAVÍTOTT ADATOK BETÖLTÉSE", use_container_width=True):

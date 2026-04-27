@@ -529,7 +529,7 @@ def format_kellek_alert(pdf_kod, pdf_nev, master_df):
     return ""
 
 # --- 1. FUNKCIÓ: ADATOK FELKÜLDÉSE (A PDF feldolgozás mellé mehet) ---
-def sync_ugyfelkor_fel(df_napi, sheet_id, gc):
+def sync_ugyfelkor_fel(df_napi, sheet_id, client):
     sh = gc.open_by_key(sheet_id)
     try:
         ws = sh.worksheet("Adatok")
@@ -568,7 +568,7 @@ def sync_ugyfelkor_fel(df_napi, sheet_id, gc):
     return len(db_df)
 
 # --- 2. FUNKCIÓ: JAVÍTOTT ADATOK VISSZATÖLTÉSE ---
-def adatok_visszatoltese_sheetrol(df_napi, sheet_id, gc):
+def adatok_visszatoltese_sheetrol(df_napi, sheet_id, client):
     try:
         sh = gc.open_by_key(sheet_id)
         db_df = pd.DataFrame(sh.worksheet("Adatok").get_all_records())
@@ -2093,7 +2093,7 @@ def main():
                 try:
                     with st.spinner("Mentés az adatbázisba..."):
                         # A 'gc' a gspread kliensed neve legyen, ahogy korábban inicializáltad
-                        sync_ugyfelkor_fel(temp_df, UGYFELKOR_SHEET_ID, gc)
+                        sync_ugyfelkor_fel(temp_df, UGYFELKOR_SHEET_ID, client)
                     st.success("Sorrend véglegesítve és az Ügyfélkör mentve!")
                 except Exception as e:
                     st.error(f"Sorszámozás kész, de a Google Sheet hiba: {e}")
@@ -2108,7 +2108,7 @@ def main():
             if st.button("🔄 JAVÍTOTT NEVEK/CSOPORTOK BETÖLTÉSE", use_container_width=True):
                 with st.spinner("Összefésülés a Google Sheet-tel..."):
                     # Visszatöltjük a javított adatokat (név, csoport, preferált sorrend)
-                    updated_df = adatok_visszatoltese_sheetrol(st.session_state.mdf, UGYFELKOR_SHEET_ID, gc)
+                    updated_df = adatok_visszatoltese_sheetrol(st.session_state.mdf, UGYFELKOR_SHEET_ID, client)
                     
                     # Frissítjük a session state-et az új adatokkal
                     st.session_state.mdf = updated_df

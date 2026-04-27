@@ -36,9 +36,11 @@ def get_google_sheets_creds():
     return service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
 
 # --- GLOBÁLIS CLIENT LÉTREHOZÁSA ---
-# Fontos: A függvényeken kívül hozzuk létre
+client = None  # <--- EZT A SORT ADD HOZZÁ! Ez biztosítja, hogy a változó mindig létezzen.
+
 try:
     creds = get_google_sheets_creds()
+    # Itt kap értéket a globális client
     client = gspread.authorize(creds)
 except Exception as e:
     st.error(f"Sikertelen Google Sheets kapcsolódás: {e}")

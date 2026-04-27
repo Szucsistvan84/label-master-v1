@@ -541,30 +541,38 @@ def sync_ugyfelkor_fel(df_napi, sheet_id, client):
         ws = sh.add_worksheet(title="Adatok", rows="1000", cols="10")
         ws.append_row(["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"])
 
-    db_df = pd.DataFrame(ws.get_all_records())
+    # Beolvasás után kényszerítjük, hogy minden szöveg legyen, így nem lesz típus hiba
+    data = ws.get_all_records()
+    db_df = pd.DataFrame(data)
+    
+    if db_df.empty:
+        db_df = pd.DataFrame(columns=["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"])
+    else:
+        # EZ A KRITIKUS RÉSZ: Minden oszlopot szöveggé alakítunk, hogy ne vesszen össze a típusokkal
+        db_df = db_df.astype(str)
+
     ma = datetime.now().strftime("%Y-%m-%d")
     
     for _, row in df_napi.iterrows():
         u_id = str(row.get('temp_id', '')).strip()
-        if not u_id or u_id == 'nan' or u_id == "": continue
+        if not u_id or u_id in ['nan', 'None', '']: continue
 
         u_nev = str(row.get('Ügyintéző', '')).strip()
         u_cim = str(row.get('Cím', '')).strip()
         u_tel = str(row.get('Telefon', '')).strip()
         u_sorrend = str(row.get('Sorrend', '')).strip()
-        u_megj = str(row.get('Megjegyzés', '')).strip() # ÚJ: Megjegyzés beolvasása
+        u_megj = str(row.get('Megjegyzés', '')).strip()
 
         mask = db_df['ID'].astype(str) == u_id
-        if not db_df.empty and mask.any():
+        if mask.any():
             idx = db_df[mask].index[0]
             
-            # MÓDOSÍTÁS: Most már mindig felülírjuk a nevet és a megjegyzést is a Streamlitből
+            # Frissítjük az adatokat (most már biztosan szövegként)
             db_df.at[idx, 'Név'] = u_nev
-            db_df.at[idx, 'Megjegyzés'] = u_megj
-            
             db_df.at[idx, 'Cím'] = u_cim
             db_df.at[idx, 'Telefon'] = u_tel
             db_df.at[idx, 'Preferált Sorrend'] = u_sorrend
+            db_df.at[idx, 'Megjegyzés'] = u_megj
             db_df.at[idx, 'Utolsó Rendelés'] = ma
         else:
             new_row = {
@@ -574,7 +582,9 @@ def sync_ugyfelkor_fel(df_napi, sheet_id, client):
             }
             db_df = pd.concat([db_df, pd.DataFrame([new_row])], ignore_index=True)
 
-    db_df = db_df.fillna("")
+    # NaN-ok és "nan" szövegek takarítása mentés előtt
+    db_df = db_df.replace('nan', '').fillna("")
+    
     final_list = [db_df.columns.values.tolist()] + db_df.values.tolist()
     ws.clear()
     ws.update('A1', final_list)

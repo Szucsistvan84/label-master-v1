@@ -1342,7 +1342,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                             osszevont_elemek.append(f"{kodok_szoveg}: {nev}")
                         
                         # 3. VÉGLEGES KIÍRÁS: Pontosvesszővel elválasztva a különböző kellékcsoportokat
-                        kellek_kiiras = "⚠ + " + "; ".join(osszevont_elemek)
+                        kellek_kiiras = "; ".join(osszevont_elemek)
 
             # --- DINAMIKUS ELTOLÁS A LAP ALJÁN (ISMÉTELT FINOMÍTÁS) ---
             # row_i == 0 jelentése: a lap legalsó sora (7., 14., 21. etikett)
@@ -1403,9 +1403,9 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             # --- KELLÉK SOR (Fentebb tolva: 12.5 mm) ---
             if kellek_kiiras:
                 p.saveState()
-                p.setFont(f_bold, 6.5)
+                p.setFont(f_bold, 6)
                 t_kellek = kellek_kiiras.replace("Kellék:", "").strip()
-                p.drawCentredString(x + lw / 2, y_eff + 12.5 * mm, f"⚠ + {t_kellek} + ⚠")
+                p.drawCentredString(x + lw / 2, y_eff + 12.5 * mm, f"⚠+ {t_kellek} +⚠")
                 p.restoreState()
 
             # --- LEGALJA (Névnap vagy Futár) ---

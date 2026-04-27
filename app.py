@@ -1320,7 +1320,29 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                                             talalt_kellekek.append(f"{tiszta_kod}: {kell}")
                                         break
                     if talalt_kellekek:
-                        kellek_kiiras = "Kellék: " + ", ".join(talalt_kellekek)
+                        # 1. CSOPORTOSÍTÁS: Össze gyűjtjük, melyik kellékhez melyik kódok tartoznak
+                        kellek_szotar = {}
+                        for item in talalt_kellekek:
+                            try:
+                                # Szétválasztjuk a kódot és a nevet (pl. "L2: Zsemlekockák")
+                                kod, nev = item.split(": ", 1)
+                                if nev not in kellek_szotar:
+                                    kellek_szotar[nev] = []
+                                # Csak akkor adjuk hozzá a kódot, ha még nincs benne (duplikáció szűrés)
+                                if kod not in kellek_szotar[nev]:
+                                    kellek_szotar[nev].append(kod)
+                            except:
+                                continue
+
+                        # 2. SZÖVEG ÖSSZEÁLLÍTÁSA: "Kód1, Kód2: Kelléknév" formátum
+                        osszevont_elemek = []
+                        for nev, kodok in kellek_szotar.items():
+                            # Sorrendbe rakjuk a kódokat (pl. KM, L2) és összefűzzük a névvel
+                            kodok_szoveg = ", ".join(sorted(kodok))
+                            osszevont_elemek.append(f"{kodok_szoveg}: {nev}")
+                        
+                        # 3. VÉGLEGES KIÍRÁS: Pontosvesszővel elválasztva a különböző kellékcsoportokat
+                        kellek_kiiras = "⚠ + " + "; ".join(osszevont_elemek)
 
             # --- DINAMIKUS ELTOLÁS A LAP ALJÁN (ISMÉTELT FINOMÍTÁS) ---
             # row_i == 0 jelentése: a lap legalsó sora (7., 14., 21. etikett)

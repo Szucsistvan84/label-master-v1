@@ -1692,7 +1692,15 @@ def create_manifest_pdf(df, c_n, meta):
             # (típus, honnan, meddig, vastagság, szín, szaggatás_hossza, szóköz_hossza)
             table_styles.append(('BOX', (2, i+1), (2, i+1), 1.5, colors.black, None, (2, 2)))
 
-        prefix = "↑ " if (row.get('Csoport', 0) > 0 and i > 0 and df.iloc[i-1].get('Csoport') == row.get('Csoport')) else ""
+        # --- CSOPORTJELZŐ HÁROMSZÖG ÉS HIBAJAVÍTÁS ---
+        curr_grp = str(row.get('Csoport', '')).strip().lower()
+        prev_grp = str(df.iloc[i-1].get('Csoport', '')).strip().lower() if i > 0 else ""
+
+        # Érvényes-e a csoport (nem üres és nem nulla)
+        is_valid = curr_grp and curr_grp not in ['0', '0.0', 'nan', 'none', '']
+
+        # Ha ugyanaz a csoport, mint az előzőnél, jöhet a háromszög
+        prefix = "▲ " if (is_valid and i > 0 and curr_grp == prev_grp) else ""
         u_name = str(row.get('Ügyintéző', ''))[:45]
         u_id = str(row.get('temp_id', ''))
         

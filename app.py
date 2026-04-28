@@ -616,17 +616,14 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id, client):
         if db_df.empty: 
             return df_napi
             
-        # ID-k tisztítása: minden legyen szöveg, szóközök nélkül
         db_df['ID'] = db_df['ID'].astype(str).str.strip()
         
-        if 'Csoport' not in df_napi.columns: 
-            df_napi['Csoport'] = ""
+        # Eredeti sorrend rögzítése, ha még nincs
+        if 'Original_Order' not in df_napi.columns:
+            df_napi['Original_Order'] = range(1, len(df_napi) + 1)
 
         for i, row in df_napi.iterrows():
-            # A napi adatokból is tisztítjuk az ID-t
             u_id = str(row.get('temp_id', '')).strip()
-            
-            # Megkeressük az egyezést
             match = db_df[db_df['ID'] == u_id]
             
             if not match.empty:
@@ -635,44 +632,28 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id, client):
                 if s_nev and s_nev.lower() != 'nan':
                     df_napi.at[i, 'Ügyintéző'] = s_nev
                 
-                # Sorrend frissítése - Itt volt a hiba!
+                # Sorrend frissítése a Sheet-ről
                 s_sorrend = str(match.iloc[0]['Preferált Sorrend']).strip()
                 if s_sorrend and s_sorrend.lower() != 'nan' and s_sorrend != "":
                     try:
-                        # Számmá alakítjuk a Sheet-ről jövő értéket
                         df_napi.at[i, 'Sorrend'] = float(s_sorrend)
                     except:
-                        pass # Ha nem szám, hagyjuk az eredetit
+                        pass
                 
-                # Csoport frissítése
-                s_csoport = str(match.iloc[0].get('Csoport', '')).strip()
-                if s_csoport and s_csoport.lower() != 'nan':
-                    df_napi.at[i, 'Csoport'] = s_csoport
-                
-                # Megjegyzés frissítése
-                s_megj = str(match.iloc[0].get('Megjegyzés', '')).strip()
-                if s_megj and s_megj.lower() != 'nan':
-                    df_napi.at[i, 'Megjegyzés'] = s_megj
+                # Csoport és Megjegyzés frissítése
+                for col in ['Csoport', 'Megjegyzés']:
+                    val = str(match.iloc[0].get(col, '')).strip()
+                    if val.lower() != 'nan':
+                        df_napi.at[i, col] = val
         
-        # 1. Először biztosítjuk, hogy a PDF sorrendje el legyen tárolva 
-        # (Ha a feldolgozás elején nem jött létre 'Original_Order' oszlop, most pótoljuk)
-        if 'Original_Order' not in df_napi.columns:
-            df_napi['Original_Order'] = range(1, len(df_napi) + 1)
-
-        # 2. Számmá alakítjuk a Sheet-ről jött sorrendet
+        # A 999-es hiba elkerülése: ha nincs a Sheet-en sorrend, maradjon az Original_Order
         df_napi['Sorrend'] = pd.to_numeric(df_napi['Sorrend'], errors='coerce')
-
-        # 3. KRITIKUS RÉSZ: Ahol nincs elmentett sorrend (NaN), ott az eredeti PDF sorrendet kapja meg
         df_napi['Sorrend'] = df_napi['Sorrend'].fillna(df_napi['Original_Order'])
-
-        # 4. Rendezés: CSAK a Sorrend számít, a Csoport már nem előzi meg!
+        
+        # RENDEZÉS: Csak a Sorrend számít!
         df_napi = df_napi.sort_values(by=['Sorrend'], ascending=[True])
         
-        # Rendezés
-        # Csak a Sorrend alapján rendezünk, a Csoport csak tájékoztató jellegű marad
-        df_napi = df_napi.sort_values(by=['Sorrend'], ascending=[True])
         return df_napi
-        
     except Exception as e:
         st.error(f"Hiba a visszatöltésnél: {e}")
         return df_napi
@@ -2141,10 +2122,16 @@ def main():
                 "Sorrend": st.column_config.NumberColumn(
                     "Sorrend",
                     help="Írj be tizedest (pl. 88.5), majd nyomj a lenti gombra!",
-                    format="%.1f", # Ez mutatja a tizedest a táblázatban!
+                    format="%.1f",
                     step=0.1,
                 ),
+                # EZT AZ ÚJ RÉSZT ADJUK HOZZÁ:
+                "Csoport": st.column_config.TextColumn(
+                    "Csoport", 
+                    help="Írhatsz számot vagy zónanevet is (pl. Halköz)"
+                ),
                 "Pénz": st.column_config.TextColumn("Pénz", disabled=False),
+                "temp_id": None, # Ezt elrejtjük, hogy ne zavarjon a felületen
             },
             num_rows="dynamic",
             key=st.session_state.editor_key,
@@ -2159,30 +2146,22 @@ def main():
 
         with col_sz1:
             if st.button("💾 SORREND ÉS MENTÉS", use_container_width=True):
-                # 1. Vegyük az aktuális (szerkesztett) adatokat
                 temp_df = edited_df.copy()
                 
-                # 2. Újrasorszámozás egész számokra a mentés előtt
-                # Számmá alakítjuk, ami nem szám, az NaN lesz
+                # Számmá alakítás és az üresek kitöltése a PDF sorrendjével
                 temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce')
-                
-                # HA nincs elmentett sorrend (NaN), akkor a PDF-ben elfoglalt eredeti helyére tesszük
                 if 'Original_Order' in temp_df.columns:
                     temp_df['Sorrend'] = temp_df['Sorrend'].fillna(temp_df['Original_Order'])
                 else:
                     temp_df['Sorrend'] = temp_df['Sorrend'].fillna(999)
                 
-                # Rendezés: Csak a sorrend számít
+                # Rendezés (csak sorrend) és újrasorszámozás egészekre
                 temp_df = temp_df.sort_values(['Sorrend'])
-                
-                # Újrasorszámozás 1, 2, 3... (ez "kivasalja" a tört számokat egésszé)
                 temp_df['Sorrend'] = range(1, len(temp_df) + 1)
                 
-                # 3. Mentés a Google Sheet-re
                 siker = sync_ugyfelkor_fel(temp_df, UGYFELKOR_SHEET_ID, client)
                 
                 if siker > 0:
-                    # 4. Frissítjük a session state-et az új, tiszta sorrenddel
                     st.session_state.mdf = temp_df
                     st.session_state.editor_key += 1
                     st.success(f"Sikeres mentés! {siker} ügyfél szinkronizálva.")

@@ -660,7 +660,8 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id, client):
         df_napi['Sorrend'] = df_napi['Sorrend'].fillna(999)
         
         # Rendezés
-        df_napi = df_napi.sort_values(by=['Csoport', 'Sorrend'], ascending=[True, True])
+        # Csak a Sorrend alapján rendezünk, a Csoport csak tájékoztató jellegű marad
+        df_napi = df_napi.sort_values(by=['Sorrend'], ascending=[True])
         return df_napi
         
     except Exception as e:

@@ -2155,8 +2155,8 @@ def main():
                 
                 # 2. Újrasorszámozás egész számokra a mentés előtt
                 temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999)
-                temp_df = temp_df.sort_values(['Csoport', 'Sorrend'])
-                temp_df['Sorrend'] = range(1, len(temp_df) + 1)
+                temp_df = temp_df.sort_values(['Sorrend']) # Csak a sorrend számít
+                temp_df['Sorrend'] = range(1, len(temp_df) + 1) # Újrasorszámozás 1, 2, 3...
                 
                 # 3. Mentés a Google Sheet-re
                 siker = sync_ugyfelkor_fel(temp_df, UGYFELKOR_SHEET_ID, client)

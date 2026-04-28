@@ -654,10 +654,19 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id, client):
                 if s_megj and s_megj.lower() != 'nan':
                     df_napi.at[i, 'Megjegyzés'] = s_megj
         
-        # A 999-es hiba elkerülése: csak ott töltsük fel, ahol tényleg üres
+        # 1. Először biztosítjuk, hogy a PDF sorrendje el legyen tárolva 
+        # (Ha a feldolgozás elején nem jött létre 'Original_Order' oszlop, most pótoljuk)
+        if 'Original_Order' not in df_napi.columns:
+            df_napi['Original_Order'] = range(1, len(df_napi) + 1)
+
+        # 2. Számmá alakítjuk a Sheet-ről jött sorrendet
         df_napi['Sorrend'] = pd.to_numeric(df_napi['Sorrend'], errors='coerce')
-        # Ha valamiért mégis üres maradna a sorrend, adjunk neki egy nagy számot a végére
-        df_napi['Sorrend'] = df_napi['Sorrend'].fillna(999)
+
+        # 3. KRITIKUS RÉSZ: Ahol nincs elmentett sorrend (NaN), ott az eredeti PDF sorrendet kapja meg
+        df_napi['Sorrend'] = df_napi['Sorrend'].fillna(df_napi['Original_Order'])
+
+        # 4. Rendezés: CSAK a Sorrend számít, a Csoport már nem előzi meg!
+        df_napi = df_napi.sort_values(by=['Sorrend'], ascending=[True])
         
         # Rendezés
         # Csak a Sorrend alapján rendezünk, a Csoport csak tájékoztató jellegű marad

@@ -2094,24 +2094,24 @@ def main():
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
         
         # --- 1. OSZLOPREND MEGHATÁROZÁSA ---
-        # Kényszerítjük, hogy a Sorrend legyen a legelső
+        # Kényszerítjük, hogy a Sorrend legyen a legelső oszlop
         preferred_order = ["Sorrend", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Csoport", "Megjegyzés", "temp_id"]
         actual_cols = st.session_state.mdf.columns.tolist()
         
-        # Összeállítjuk a sorrendet: ami benne van a listánkban, az jön előre, a többi a végére
+        # Csak azokat tesszük bele, amik léteznek, a Sorrendet az elejére kényszerítjük
         new_column_order = [c for c in preferred_order if c in actual_cols]
         new_column_order += [c for c in actual_cols if c not in new_column_order]
 
         # --- 2. ADATOK ELŐKÉSZÍTÉSE ---
         df_to_edit = st.session_state.mdf.copy()
 
-        # Biztosítjuk a Sorrend létezését és típusát a tizedesek miatt
+        # Biztosítjuk a Sorrend létezését és típusát
         if 'Sorrend' not in df_to_edit.columns:
             df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
         
         df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999).astype(float)
 
-        # Csoport oszlop szöveggé alakítása (hogy a "Halköz" ne dobjon hibát)
+        # Csoport oszlop szöveggé alakítása (Halköz miatt)
         if "Csoport" in df_to_edit.columns:
             df_to_edit["Csoport"] = df_to_edit["Csoport"].astype(str).replace(['nan', 'None', '0', '0.0'], '')
         
@@ -2121,9 +2121,10 @@ def main():
         st.subheader("Szállítási lista")
         
         # --- 3. MEGJELENÍTÉS ---
+        # ITT A LÉNYEG: a column_order paraméter kényszeríti a sorrendet a képernyőn
         edited_df = st.data_editor(
             df_to_edit,
-            column_order=new_column_order, # Itt kényszerítjük a fenti sorrendet
+            column_order=new_column_order, 
             column_config={
                 "Sorrend": st.column_config.NumberColumn(
                     "Sorrend",
@@ -2133,9 +2134,9 @@ def main():
                 ),
                 "Csoport": st.column_config.TextColumn(
                     "Csoport", 
-                    help="Írhatsz számot vagy zónanevet is (pl. Halköz)"
+                    help="Zónanév vagy szám"
                 ),
-                "Pénz": st.column_config.TextColumn("Pénz", disabled=False),
+                "Pénz": st.column_config.TextColumn("Pénz"),
                 "temp_id": None, 
             },
             num_rows="dynamic",

@@ -2163,9 +2163,20 @@ def main():
                 temp_df = edited_df.copy()
                 
                 # 2. Újrasorszámozás egész számokra a mentés előtt
-                temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce').fillna(999)
-                temp_df = temp_df.sort_values(['Sorrend']) # Csak a sorrend számít
-                temp_df['Sorrend'] = range(1, len(temp_df) + 1) # Újrasorszámozás 1, 2, 3...
+                # Számmá alakítjuk, ami nem szám, az NaN lesz
+                temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce')
+                
+                # HA nincs elmentett sorrend (NaN), akkor a PDF-ben elfoglalt eredeti helyére tesszük
+                if 'Original_Order' in temp_df.columns:
+                    temp_df['Sorrend'] = temp_df['Sorrend'].fillna(temp_df['Original_Order'])
+                else:
+                    temp_df['Sorrend'] = temp_df['Sorrend'].fillna(999)
+                
+                # Rendezés: Csak a sorrend számít
+                temp_df = temp_df.sort_values(['Sorrend'])
+                
+                # Újrasorszámozás 1, 2, 3... (ez "kivasalja" a tört számokat egésszé)
+                temp_df['Sorrend'] = range(1, len(temp_df) + 1)
                 
                 # 3. Mentés a Google Sheet-re
                 siker = sync_ugyfelkor_fel(temp_df, UGYFELKOR_SHEET_ID, client)

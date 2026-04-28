@@ -2093,19 +2093,10 @@ def main():
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
         
-        # --- 1. OSZLOPREND MEGHATÁROZÁSA ---
-        # Kényszerítjük, hogy a Sorrend legyen a legelső oszlop
-        preferred_order = ["Sorrend", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Csoport", "Megjegyzés", "temp_id"]
-        actual_cols = st.session_state.mdf.columns.tolist()
-        
-        # Csak azokat tesszük bele, amik léteznek, a Sorrendet az elejére kényszerítjük
-        new_column_order = [c for c in preferred_order if c in actual_cols]
-        new_column_order += [c for c in actual_cols if c not in new_column_order]
-
-        # --- 2. ADATOK ELŐKÉSZÍTÉSE ---
+        # Adatok előkészítése
         df_to_edit = st.session_state.mdf.copy()
 
-        # Biztosítjuk a Sorrend létezését és típusát
+        # Biztosítjuk a Sorrend létezését és típusát (tizedesek miatt float)
         if 'Sorrend' not in df_to_edit.columns:
             df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
         
@@ -2117,14 +2108,21 @@ def main():
         
         # Rendezés a megjelenítés előtt
         df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
+
+        # --- FIX OSZLOPREND MEGHATÁROZÁSA ---
+        # Ez garantálja, hogy a Sorrend lesz az ELSŐ
+        preferred_order = ["Sorrend", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Csoport", "Megjegyzés", "temp_id"]
+        actual_cols = df_to_edit.columns.tolist()
+        final_column_order = [c for c in preferred_order if c in actual_cols]
+        final_column_order += [c for c in actual_cols if c not in final_column_order]
     
         st.subheader("Szállítási lista")
         
-        # --- 3. MEGJELENÍTÉS ---
-        # ITT A LÉNYEG: a column_order paraméter kényszeríti a sorrendet a képernyőn
+        # --- MEGJELENÍTÉS ---
+        # Itt a final_column_order-t használjuk!
         edited_df = st.data_editor(
             df_to_edit,
-            column_order=new_column_order, 
+            column_order=final_column_order, 
             column_config={
                 "Sorrend": st.column_config.NumberColumn(
                     "Sorrend",

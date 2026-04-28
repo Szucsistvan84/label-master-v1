@@ -2092,7 +2092,13 @@ def main():
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
-        df_to_edit = st.session_state.mdf.copy()
+        # Kiválasztjuk a szerkesztendő oszlopokat
+        df_to_edit = st.session_state.mdf[new_column_order].copy()
+
+        # --- EZ A KRITIKUS JAVÍTÁS A TÍPUSHIBA ELLEN ---
+        if "Csoport" in df_to_edit.columns:
+            # Minden értéket szöveggé alakítunk, a "nan" és "0" értékeket pedig kitakarítjuk
+            df_to_edit["Csoport"] = df_to_edit["Csoport"].astype(str).replace(['nan', 'None', '0', '0.0'], '')
         
         # --- BIZTONSÁGI JAVÍTÁS: Ellenőrizzük, létezik-e az oszlop ---
         if 'Sorrend' not in df_to_edit.columns:

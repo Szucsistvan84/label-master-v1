@@ -1637,24 +1637,26 @@ def create_manifest_pdf(df, c_n, meta):
     ]
 
     if 'Csoport' in df.columns:
-        groups = df['Csoport'].astype(str).values  # Kényszerítjük a szöveges formátumot
+        # Minden értéket szöveggé alakítunk a biztonság kedvéért
+        groups = df['Csoport'].astype(str).values
         start_idx = None
         for i in range(len(groups)):
-            # Tisztítjuk az aktuális értéket
-            curr = groups[i].strip().lower()
-            # Csak akkor kezeljük csoportként, ha nem üres és nem nulla
-            is_valid_group = curr and curr not in ['0', '0.0', 'nan', 'none']
+            # Tisztítjuk az aktuális értéket az összehasonlításhoz
+            curr_val = str(groups[i]).strip().lower()
+            
+            # Érvényes csoport-e? (Nem üres, nem nulla, nem nan)
+            is_valid_group = curr_val and curr_val not in ['0', '0.0', 'nan', 'none', '']
             
             if is_valid_group:
                 if start_idx is None: start_idx = i
                 
-                # Megnézzük a következő elemet is a keretezéshez
+                # Megnézzük a következő elemet a keret lezárásához
                 next_val = ""
                 if i + 1 < len(groups):
                     next_val = str(groups[i+1]).strip().lower()
 
-                # Ha ez az utolsó sor, vagy a következő már más csoport
-                if i == len(groups) - 1 or next_val != curr:
+                # Keret lezárása: ha ez az utolsó sor, vagy a következő már más
+                if i == len(groups) - 1 or next_val != curr_val:
                     r_s, r_e = start_idx + 1, i + 1
                     table_styles.append(('BOX', (0, r_s), (-1, r_e), 1.3, colors.black))
                     table_styles.append(('BACKGROUND', (0, r_s), (-1, r_e), colors.Color(0.96, 0.96, 0.96)))

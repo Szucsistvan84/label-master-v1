@@ -2092,35 +2092,37 @@ def main():
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
-        # Kiválasztjuk a szerkesztendő oszlopokat
+        
+        # --- 1. OSZLOPREND MEGHATÁROZÁSA (Ezt hoztuk előre a hiba miatt) ---
+        all_cols = st.session_state.mdf.columns.tolist()
+        # Meghatározzuk a fix sorrendet, amit látni szeretnél
+        preferred_order = ["Sorrend", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Csoport", "Megjegyzés", "temp_id"]
+        # Csak azokat tartjuk meg, amik tényleg léteznek a táblázatban
+        new_column_order = [c for c in preferred_order if c in all_cols]
+        # Ami kimaradt a preferred_order-ből, azt a végére tesszük
+        remaining_cols = [c for c in all_cols if c not in new_column_order]
+        new_column_order = new_column_order + remaining_cols
+
+        # --- 2. ADATOK ELŐKÉSZÍTÉSE ---
         df_to_edit = st.session_state.mdf[new_column_order].copy()
 
-        # --- EZ A KRITIKUS JAVÍTÁS A TÍPUSHIBA ELLEN ---
+        # KRITIKUS JAVÍTÁS: Csoport oszlop szöveggé alakítása (hogy elfogadja: Halköz)
         if "Csoport" in df_to_edit.columns:
-            # Minden értéket szöveggé alakítunk, a "nan" és "0" értékeket pedig kitakarítjuk
             df_to_edit["Csoport"] = df_to_edit["Csoport"].astype(str).replace(['nan', 'None', '0', '0.0'], '')
         
-        # --- BIZTONSÁGI JAVÍTÁS: Ellenőrizzük, létezik-e az oszlop ---
+        # BIZTONSÁGI JAVÍTÁS: Sorrend ellenőrzése
         if 'Sorrend' not in df_to_edit.columns:
-            # Ha nincs, létrehozzuk 1, 2, 3... sorszámokkal
             df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
         
-        # KRITIKUS: Kényszerítjük a 'float' típust, hogy a 88.5 is működjön
+        # Kényszerítjük a 'float' típust a tizedesek (pl. 88.5) miatt
         df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999).astype(float)
         
-        # Rendezés a táblázat megjelenítése előtt
+        # Rendezés a táblázat megjelenítése előtt (Csak sorrend alapján!)
         df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
     
         st.subheader("Szállítási lista")
         
-        # Oszloprend beállítása
-        all_cols = df_to_edit.columns.tolist()
-        if 'Sorrend' in all_cols:
-            all_cols.remove('Sorrend')
-            new_column_order = ['Sorrend'] + all_cols
-        else:
-            new_column_order = all_cols
-        
+        # --- 3. MEGJELENÍTÉS A DATA_EDITOR-RAL ---
         edited_df = st.data_editor(
             df_to_edit,
             column_order=new_column_order,
@@ -2131,16 +2133,15 @@ def main():
                     format="%.1f",
                     step=0.1,
                 ),
-                # EZT AZ ÚJ RÉSZT ADJUK HOZZÁ:
                 "Csoport": st.column_config.TextColumn(
                     "Csoport", 
                     help="Írhatsz számot vagy zónanevet is (pl. Halköz)"
                 ),
                 "Pénz": st.column_config.TextColumn("Pénz", disabled=False),
-                "temp_id": None, # Ezt elrejtjük, hogy ne zavarjon a felületen
+                "temp_id": None, # Ezt elrejtjük
             },
             num_rows="dynamic",
-            key=st.session_state.editor_key,
+            key=f"editor_{st.session_state.editor_key}", # Dinamikus kulcs a frissüléshez
             use_container_width=True
         )
     

@@ -353,10 +353,11 @@ def get_gender_and_nevnap(full_name, nevnapok_df, keresztnevek_df, target_date):
 
 def sync_master_database(sheet_id, ev, start_het, end_het):
     """
-    Végigfut a heteken, és feltölti a Master_Adatbazis fület név-alapú összevonással.
+    Végigfut a heteken, beolvassa a meglévő Master adatokat, 
+    és csak az új ételeket fűzi hozzá, megőrizve a korábbi kellékeket.
     """
     try:
-        # Kapcsolódás a Sheets-hez (a meglévő hitelesítési logikád)
+        # Kapcsolódás (a meglévő logikád)
         creds_info = st.secrets["gcp_service_account"].to_dict()
         creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -369,13 +370,25 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
         
         try:
             worksheet = sheet.worksheet("Master_Adatbazis")
-        except:
-            worksheet = sheet.add_worksheet(title="Master_Adatbazis", rows="2000", cols="10")
-            worksheet.append_row(["Tisztított Név", "Eredeti Név", "Kódok", "Utolsó Ár", "Kellék", "Gyakoriság"])
+            # 1. LÉPÉS: Beolvassuk a MÁR MEGLÉVŐ adatokat a Sheet-ről
+            existing_data = worksheet.get_all_records()
+            # Szótárba rendezzük a meglévőket a 'Tisztított Név' alapján
+            master_dict = {
+                str(row['Tisztított Név']): {
+                    "Eredeti Név": row.get('Eredeti Név', ''),
+                    "KodAr_List": str(row.get('Kódok és Árak', '')).split(", ") if row.get('Kódok és Árak') else [],
+                    "Kellék": row.get('Kellék', ''),
+                    "Gyakoriság": int(row.get('Gyakoriság', 1))
+                } for row in existing_data if row.get('Tisztított Név')
+            }
+            st.info(f"ℹ️ Meglévő adatbázis betöltve: {len(master_dict)} étel.")
+        except Exception as e:
+            # Ha nincs még ilyen fül, létrehozzuk
+            worksheet = sheet.add_worksheet(title="Master_Adatbazis", rows="5000", cols="10")
+            master_dict = {}
+            st.info("ℹ️ Új Master_Adatbazis fül létrehozva.")
 
-        # Üres szótár az új adatoknak (kulcs: tisztított név)
-        master_dict = {}
-
+        # 2. LÉPÉS: Új adatok begyűjtése az API-ból
         for het in range(start_het, end_het + 1):
             st.write(f"🔄 {ev}/{het}. hét feldolgozása...")
             url = f"https://ia.interfood.hu/api/v3/excel-export?year={ev}&week={het}"
@@ -392,7 +405,6 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
                         
                         for nap_idx in range(1, 7):
                             eredeti_nev = str(df.iloc[i, nap_idx]).strip()
-                            # Tisztítjuk a nevet a vizsgálathoz
                             tiszta_nev = clean_text(eredeti_nev)
                             
                             if tiszta_nev and tiszta_nev != "":
@@ -400,36 +412,39 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
                                 if i + 1 < len(df):
                                     ar = str(df.iloc[i + 1, nap_idx]).strip().replace('Ft', '').replace(' ', '')
                                 
+                                kod_ar_par = f"{alap_kod}:{ar} (w{het})"
+                                
                                 if tiszta_nev in master_dict:
+                                    # HA MÁR MEG VAN: Csak a gyakoriságot és esetleg az új kódot adjuk hozzá
                                     master_dict[tiszta_nev]['Gyakoriság'] += 1
-                                    # Új formátum: Kód:Ár (hét) -> pl. DL2:1450 (w17)
-                                    kod_ar_par = f"{alap_kod}:{ar} (w{het})"
                                     if kod_ar_par not in master_dict[tiszta_nev]['KodAr_List']:
                                         master_dict[tiszta_nev]['KodAr_List'].append(kod_ar_par)
+                                    # A 'Kellék' oszlophoz NEM NYÚLUNK, megmarad ami benne volt!
                                 else:
+                                    # HA ÚJ: Létrehozzuk az új bejegyzést
                                     master_dict[tiszta_nev] = {
                                         "Eredeti Név": eredeti_nev.replace('*', '').strip(),
-                                        "KodAr_List": [f"{alap_kod}:{ar} (w{het})"],
+                                        "KodAr_List": [kod_ar_par],
                                         "Kellék": "",
                                         "Gyakoriság": 1
                                     }
             else:
                 st.warning(f"Nem sikerült letölteni: {ev}/{het}")
 
-        # Adatok előkészítése a kiíráshoz
+        # 3. LÉPÉS: Az összesített (régi + új) adatok visszaírása
         output_rows = [["Tisztított Név", "Eredeti Név", "Kódok és Árak", "Kellék", "Gyakoriság"]]
         for tiszta, adat in master_dict.items():
             output_rows.append([
                 tiszta,
                 adat["Eredeti Név"],
-                ", ".join(adat["KodAr_List"]), # Itt lesz pl: "B:1760, BK:1245"
+                ", ".join(adat["KodAr_List"]),
                 adat["Kellék"],
                 adat["Gyakoriság"]
             ])
             
         worksheet.clear()
         worksheet.update('A1', output_rows)
-        st.success(f"✅ Master Adatbázis újratöltve! Összesen {len(master_dict)} egyedi étel található.")
+        st.success(f"✅ Master Adatbázis frissítve! Összesen {len(master_dict)} egyedi étel található.")
         
     except Exception as e:
         st.error(f"Hiba a Master szinkron során: {e}")

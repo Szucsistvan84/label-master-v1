@@ -64,7 +64,7 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         u_id = str(row['ID']).strip()
         if master_df.empty or u_id not in master_df['ID'].astype(str).values:
             # Ha új, lekérjük a koordinátákat
-            st.info(f"Új ügyfél észlelve: {row['Nev']} - Koordináták lekérése...")
+            st.info(f"Új ügyfél észlelve: {row['Ügyintéző']} - Koordináták lekérése...")
             lat, lon = get_coordinates(row['Cim'])
             
             uj_adat = {

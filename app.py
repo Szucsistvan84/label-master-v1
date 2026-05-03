@@ -69,7 +69,7 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             
             uj_adat = {
                 'ID': u_id,
-                'Nev': row['Nev'],
+                'Nev': row['Ügyintéző'],
                 'Cim': row['Cim'],
                 'Lat': lat,
                 'Lon': lon,

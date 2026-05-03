@@ -2184,7 +2184,7 @@ def main():
                     with st.spinner("Ügyféladatok szinkronizálása és koordináták lekérése..."):
                         # Meghívjuk a master_lista_szinkron függvényt
                         # Ez adja vissza a rendezett napi listát és a frissített mesterlistát
-                        df_temp, m_df_friss = master_lista_szinkron(df_temp, client, SHEET_ID)
+                        df_temp, m_df_friss = master_lista_szinkron(df_temp, client, UGYFELKOR_SHEET_ID)
                         
                         # Frissítjük a session_state-ben a mesterlistát is az új adatokkal
                         st.session_state.master_df = m_df_friss

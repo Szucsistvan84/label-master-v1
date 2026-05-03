@@ -2244,6 +2244,10 @@ def main():
         # --- ÜGYFÉLKÖR SZINKRON SZEKCIÓ ---
         UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
+        # --- ÚJ: TÉRKÉP MEGJELENÍTÉSE ---
+        with st.expander("🗺️ Útvonal megtekintése a térképen", expanded=False):
+            utvonal_terkep(edited_df) # Az edited_df-et adjuk át, hogy a sorrendet kövesse!
+        
         st.subheader("🗄️ Ügyfélkör kezelése")
         col_sz1, col_sz2 = st.columns(2)
 

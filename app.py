@@ -51,6 +51,19 @@ def get_coordinates(address):
     except:
         return None, None
 
+def tisztitott_cim_lekerese(nyers_szoveg):
+    if not nyers_szoveg:
+        return ""
+    # Eltávolítjuk a dollárjeleket, amik megzavarják a keresőt
+    szoveg = nyers_szoveg.replace('$', '').strip()
+    # Megkeressük az irányítószámot és az utcát a házszámig (regex)
+    minta = r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-z-áéíóöőúüű]+\s*,\s*[^,.\d]+[\d/\-A-Z]*)'
+    match = re.search(minta, szoveg)
+    if match:
+        return match.group(1).strip()
+    # Ha a regex nem talál semmit, marad a te eredeti split-es logikád
+    return szoveg.split('. fsz')[0].split('. fszt')[0].split(', fsz')[0].split('/')[0].strip()
+
 def master_lista_szinkron(df_napi, client, sheet_id):
     sh = client.open_by_key(sheet_id)
     ws_ugyfel = sh.worksheet("Ugyfelkor")
@@ -69,19 +82,26 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             nev = row.get('Ügyintéző', row.get('Nev', 'Ismeretlen név'))
             eredeti_cim = str(row.get('Cim', row.get('Cím', '')))
             
-            # CÍM TISZTÍTÁSA: Csak az első pontig vagy vesszőig tartsuk meg a házszám után
-            # Példa: "Keresztesi u. 63. fsz 1" -> "Keresztesi u. 63"
-            tisztitott_cim = eredeti_cim.split('. fsz')[0].split('. fszt')[0].split(', fsz')[0].strip()
+            # ÚJ TISZTÍTÁSI LOGIKA HASZNÁLATA:
+            keresesi_cim = tisztitott_cim_lekerese(eredeti_cim)
+            teljes_lekerdezes = f"{keresesi_cim}, Hungary"
+            
+            # DEBUG KIÍRATÁS (Streamlit és Konzolt):
+            st.write(f"🔍 **Nominatim keresés:** `{teljes_lekerdezes}` (Ügyfél: {nev})")
+            print(f"DEBUG: Nominatim lekerdezes: {teljes_lekerdezes}")
             
             st.info(f"Új ügyfél: {nev} - Koordináták lekérése...")
-            # Tisztább cím a kereséshez
-            keresesi_cim = tisztitott_cim.split('/')[0].strip() # Ha van benne perjel (emelet/ajto), levágjuk
-            lat, lon = get_coordinates(f"{keresesi_cim}, Hungary")
+            
+            # Lekérés a tisztított címmel
+            lat, lon = get_coordinates(teljes_lekerdezes)
+            
+            if not lat:
+                st.warning(f"⚠️ Nem találtam koordinátát: {teljes_lekerdezes}")
             
             uj_adat = {
                 'ID': u_id,
                 'Nev': nev,
-                'Cim': eredeti_cim, # A táblázatba mehet az eredeti, részletes cím
+                'Cim': eredeti_cim, 
                 'Lat': lat if lat else "",
                 'Lon': lon if lon else "",
                 'Sorrend': (len(master_df) + len(uj_ugyfelek) + 1) * 10,

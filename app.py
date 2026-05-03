@@ -62,15 +62,19 @@ def master_lista_szinkron(df_napi, client, sheet_id):
     uj_ugyfelek = []
     for _, row in df_napi.iterrows():
         u_id = str(row['ID']).strip()
+        
+        # Ellenőrizzük, hogy az ID szerepel-e már (vagy üres-e a mesterlista)
         if master_df.empty or u_id not in master_df['ID'].astype(str).values:
-            # Ha új, lekérjük a koordinátákat
+            
+            # Rugalmas névkezelés: megnézzük mindkét kulcsot, amit a PDF adhat
             nev = row.get('Ügyintéző', row.get('Nev', 'Ismeretlen név'))
+            
             st.info(f"Új ügyfél észlelve: {nev} - Koordináták lekérése...")
             lat, lon = get_coordinates(row['Cim'])
             
             uj_adat = {
                 'ID': u_id,
-                'Nev': nev,  # <--- Fix kulcs helyett használd a változót!
+                'Nev': nev,  # <--- Most már egyezik a Sheet "Nev" oszlopával
                 'Cim': row['Cim'],
                 'Lat': lat,
                 'Lon': lon,
@@ -82,17 +86,15 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             uj_ugyfelek.append(uj_adat)
 
     if uj_ugyfelek:
-        # Új adatok összefűzése és feltöltése
         new_rows_df = pd.DataFrame(uj_ugyfelek)
-        # Itt fontos, hogy a Sheets oszlopsorrendjével egyezzen!
-        # (Feltételezzük, hogy a függvény a végére fűzi)
+        # Fontos: A DataFrame oszlopsorrendje egyezzen a Google Sheet oszlopsorrendjével!
         ws_ugyfel.append_rows(new_rows_df.values.tolist())
         st.success(f"{len(uj_ugyfelek)} új ügyfél hozzáadva a Mesterlistához!")
-        # Újratöltjük a master_df-et a friss adatokkal
+        # Újratöltjük a master_df-et, hogy a lenti merge-nél már benne legyenek az újak is
         master_df = pd.DataFrame(ws_ugyfel.get_all_records())
 
-    # 2. NAPI LISTA SORRENDEZÉSE A MESTERLISTA ALAPJÁN
-    # Összefésüljük a napi rendeléseket a mesterlista 'Sorrend' oszlopával
+    # 2. NAPI LISTA SORRENDEZÉSE
+    # Itt is fontos, hogy a master_df-ben a 'Nev' kulcs szerepeljen
     df_napi = df_napi.merge(master_df[['ID', 'Sorrend', 'Lat', 'Lon']], on='ID', how='left')
     df_napi = df_napi.sort_values(by='Sorrend').reset_index(drop=True)
     

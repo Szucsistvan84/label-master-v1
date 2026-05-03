@@ -108,33 +108,41 @@ def master_lista_szinkron(df_napi, client, sheet_id):
 def utvonal_terkep(df_napi):
     st.subheader("Napi Útvonal Tervezet")
     
-    # Kezdőpont (pl. az első ügyfél koordinátája)
-    if not df_napi['Lat'].dropna().empty:
-        start_lat = df_napi['Lat'].dropna().iloc[0]
-        start_lon = df_napi['Lon'].dropna().iloc[0]
+    # Csak azokat a sorokat nézzük, ahol van koordináta és az érvényes szám
+    valid_coords = df_napi[
+        pd.to_numeric(df_napi['Lat'], errors='coerce').notnull() & 
+        pd.to_numeric(df_napi['Lon'], errors='coerce').notnull()
+    ]
+    
+    if not valid_coords.empty:
+        # Az első érvényes koordinátát vesszük kezdőpontnak
+        start_lat = float(valid_coords['Lat'].iloc[0])
+        start_lon = float(valid_coords['Lon'].iloc[0])
         
         m = folium.Map(location=[start_lat, start_lon], zoom_start=12)
         
-        # Pontok felfűzése
         points = []
         for i, row in df_napi.iterrows():
-            if pd.notnull(row['Lat']):
-                loc = [row['Lat'], row['Lon']]
-                points.append(loc)
-                # Markerek sorszámmal
-                folium.Marker(
-                    location=loc,
-                    popup=f"{i+1}. {row['Nev']}",
-                    icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{i+1}</div>""")
-                ).add_to(m)
+            try:
+                lat = float(row['Lat'])
+                lon = float(row['Lon'])
+                if not (math.isnan(lat) or math.isnan(lon)):
+                    loc = [lat, lon]
+                    points.append(loc)
+                    folium.Marker(
+                        location=loc,
+                        popup=f"{i+1}. {row['Nev']}",
+                        icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{i+1}</div>""")
+                    ).add_to(m)
+            except (ValueError, TypeError):
+                continue # Ha nem szám, kihagyjuk a pontot
         
-        # Útvonal vonalazása
         if len(points) > 1:
             folium.PolyLine(points, color="red", weight=2.5, opacity=0.8).add_to(m)
             
         st_folium(m, width=700, height=500)
     else:
-        st.warning("Nincsenek koordináták a térkép megjelenítéséhez.")
+        st.warning("⚠️ Nincsenek érvényes koordináták (Lat/Lon) a térkép megjelenítéséhez. Kérlek ellenőrizd a Google Sheet 'Ugyfelkor' fülét!")
 
 def get_google_sheets_creds():
     creds_info = st.secrets["gcp_service_account"].to_dict()

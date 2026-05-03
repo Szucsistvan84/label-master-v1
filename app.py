@@ -79,7 +79,7 @@ def master_lista_szinkron(df_napi, client, sheet_id):
                 continue
                 
             st.info(f"Új ügyfél észlelve: {nev} - Koordináták lekérése...")
-            lat, lon = get_coordinates(cim) # Most már a biztonságos 'cim' változót használjuk
+            lat, lon = get_coordinates(f"Hungary, {cim}")
             
             uj_adat = {
                 'ID': u_id,

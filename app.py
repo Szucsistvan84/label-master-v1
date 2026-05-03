@@ -2175,7 +2175,17 @@ def main():
 
                 if all_rows:
                     df_temp = merge_data(all_rows)
-                    # Itt jön majd be később az ügyfelek sorrendjének betöltése a Sheets-ből!
+                    
+                    # --- EZT A RÉSZT ÍRD ÁT: ---
+                    with st.spinner("Ügyféladatok szinkronizálása és koordináták lekérése..."):
+                        # Meghívjuk a master_lista_szinkron függvényt
+                        # Ez adja vissza a rendezett napi listát és a frissített mesterlistát
+                        df_temp, m_df_friss = master_lista_szinkron(df_temp, client, SHEET_ID)
+                        
+                        # Frissítjük a session_state-ben a mesterlistát is az új adatokkal
+                        st.session_state.master_df = m_df_friss
+                    
+                    # Most már a rendezett, koordinátákkal ellátott df-et mentjük el
                     st.session_state.mdf = df_temp
                     st.rerun()
 

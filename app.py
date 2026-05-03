@@ -159,7 +159,8 @@ def master_lista_szinkron(df_napi, client, sheet_id):
                 'Cim': eredeti_cim,
                 'Lat': lat if lat else "",
                 'Lon': lon if lon else "",
-                'Sorrend': (len(master_df) + len(uj_ugyfelek) + 1) * 10,
+                # Itt a módosítás: nincs szorzó, de float típust használunk
+                'Sorrend': float(len(master_df) + len(uj_ugyfelek) + 1), 
                 'Utolso_Rendeles': pd.Timestamp.now().strftime('%Y.%m.%d'),
                 'Osszertek': row.get('Osszeg', 0),
                 'Rendeles_Szam': 1

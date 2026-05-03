@@ -54,39 +54,34 @@ def get_coordinates(address):
 def master_lista_szinkron(df_napi, client, sheet_id):
     sh = client.open_by_key(sheet_id)
     ws_ugyfel = sh.worksheet("Ugyfelkor")
-    
-    # Mesterlista betöltése
     master_df = pd.DataFrame(ws_ugyfel.get_all_records())
     
-    # 1. ÚJ ÜGYFELEK AZONOSÍTÁSA ÉS MENTÉSE
+    # KÉNYSZERÍTSÜK SZÖVEGGÉ AZ ID-T A MESTERLISTÁBAN
+    if not master_df.empty:
+        master_df['ID'] = master_df['ID'].astype(str).str.strip()
+
     uj_ugyfelek = []
     for _, row in df_napi.iterrows():
-        # --- EZ AZ ÚJ, TISZTÍTOTT RÉSZ ---
         raw_id = str(row['ID'])
         u_id = raw_id.split('-')[-1].strip() if '-' in raw_id else raw_id.strip()
-        # --------------------------------
         
-        if master_df.empty or u_id not in master_df['ID'].astype(str).values:
-            
-            # 1. Név lekérése
+        if master_df.empty or u_id not in master_df['ID'].values:
             nev = row.get('Ügyintéző', row.get('Nev', 'Ismeretlen név'))
+            eredeti_cim = str(row.get('Cim', row.get('Cím', '')))
             
-            # 2. Cím lekérése biztonságosan
-            cim = row.get('Cim', row.get('Cím'))
+            # CÍM TISZTÍTÁSA: Csak az első pontig vagy vesszőig tartsuk meg a házszám után
+            # Példa: "Keresztesi u. 63. fsz 1" -> "Keresztesi u. 63"
+            tisztitott_cim = eredeti_cim.split('. fsz')[0].split('. fszt')[0].split(', fsz')[0].strip()
             
-            if not cim:
-                st.warning(f"Nincs cím megadva azonosítóhoz: {u_id} ({nev})")
-                continue
-                
-            st.info(f"Új ügyfél észlelve: {nev} - Koordináták lekérése...")
-            lat, lon = get_coordinates(f"Hungary, {cim}")
+            st.info(f"Új ügyfél: {nev} - Koordináták lekérése...")
+            lat, lon = get_coordinates(f"Hungary, {tisztitott_cim}")
             
             uj_adat = {
                 'ID': u_id,
                 'Nev': nev,
-                'Cim': cim, # Itt is a változót használd
-                'Lat': lat,
-                'Lon': lon,
+                'Cim': eredeti_cim, # A táblázatba mehet az eredeti, részletes cím
+                'Lat': lat if lat else "",
+                'Lon': lon if lon else "",
                 'Sorrend': (len(master_df) + len(uj_ugyfelek) + 1) * 10,
                 'Utolso_Rendeles': pd.Timestamp.now().strftime('%Y.%m.%d'),
                 'Osszertek': row.get('Osszeg', 0),
@@ -95,32 +90,19 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             uj_ugyfelek.append(uj_adat)
 
     if uj_ugyfelek:
-        new_rows_df = pd.DataFrame(uj_ugyfelek)
-        
-        # --- EZ A JAVÍTÁS RÉSZE ---
-        # Minden NaN vagy NaT értéket üres sztringre vagy 0-ra cserélünk, 
-        # mert a JSON nem szereti a NaN-t
-        new_rows_df = new_rows_df.fillna("") 
-        # --------------------------
-
-        # Küldés a Sheets-nek
-        try:
-            ws_ugyfel.append_rows(new_rows_df.values.tolist())
-            st.success(f"{len(uj_ugyfelek)} új ügyfél hozzáadva a Mesterlistához!")
-        except Exception as e:
-            st.error(f"Hiba a mentés során: {e}")
-            # Ha mégis hiba van, írassuk ki az első sort, hogy lássuk mi a baj
-            st.write("Hibás adat példa:", uj_ugyfelek[0])
-
-        # Újratöltjük a master_df-et
+        new_rows_df = pd.DataFrame(uj_ugyfelek).fillna("")
+        ws_ugyfel.append_rows(new_rows_df.values.tolist())
         master_df = pd.DataFrame(ws_ugyfel.get_all_records())
+        # Újratöltés után ismét kényszerítsük szöveggé az ID-t
+        master_df['ID'] = master_df['ID'].astype(str).str.strip()
 
-    # 2. NAPI LISTA SORRENDEZÉSE
-    # Itt is fontos, hogy a master_df-ben a 'Nev' kulcs szerepeljen
-    df_napi = df_napi.merge(master_df[['ID', 'Sorrend', 'Lat', 'Lon']], on='ID', how='left')
-    df_napi = df_napi.sort_values(by='Sorrend').reset_index(drop=True)
+    # ÖSSZEFÉSÜLÉS ELŐTTI TÍPUSKIJAVÍTÁS (A ValueError ellen)
+    df_napi['ID'] = df_napi['ID'].apply(lambda x: str(x).split('-')[-1].strip() if '-' in str(x) else str(x).strip())
     
-    return df_napi, master_df
+    # Most már mindkét oldalon garantáltan STRING az ID
+    df_napi = df_napi.merge(master_df[['ID', 'Sorrend', 'Lat', 'Lon']], on='ID', how='left')
+    
+    return df_napi.sort_values(by='Sorrend').reset_index(drop=True), master_df
 
 # --- VIZUALIZÁCIÓ ---
 def utvonal_terkep(df_napi):

@@ -61,20 +61,22 @@ def master_lista_szinkron(df_napi, client, sheet_id):
     # 1. ÚJ ÜGYFELEK AZONOSÍTÁSA ÉS MENTÉSE
     uj_ugyfelek = []
     for _, row in df_napi.iterrows():
-        u_id = str(row['ID']).strip()
+        # --- EZ AZ ÚJ, TISZTÍTOTT RÉSZ ---
+        raw_id = str(row['ID'])
+        u_id = raw_id.split('-')[-1].strip() if '-' in raw_id else raw_id.strip()
+        # --------------------------------
         
         if master_df.empty or u_id not in master_df['ID'].astype(str).values:
             
-            # 1. Név lekérése (ezt már javítottuk)
+            # 1. Név lekérése
             nev = row.get('Ügyintéző', row.get('Nev', 'Ismeretlen név'))
             
-            # 2. CÍM LEKÉRÉSE BIZTONSÁGOSAN (ez a hiba forrása!)
-            # Megnézzük a 'Cim' és a 'Cím' kulcsot is
+            # 2. Cím lekérése biztonságosan
             cim = row.get('Cim', row.get('Cím'))
             
             if not cim:
-                st.error(f"Hiba: Nincs cím megadva {nev} ügyfélhez!")
-                continue # Ugorjuk át, ha nincs cím, különben a get_coordinates elszállna
+                st.warning(f"Nincs cím megadva azonosítóhoz: {u_id} ({nev})")
+                continue
                 
             st.info(f"Új ügyfél észlelve: {nev} - Koordináták lekérése...")
             lat, lon = get_coordinates(cim) # Most már a biztonságos 'cim' változót használjuk

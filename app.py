@@ -94,10 +94,23 @@ def master_lista_szinkron(df_napi, client, sheet_id):
 
     if uj_ugyfelek:
         new_rows_df = pd.DataFrame(uj_ugyfelek)
-        # Fontos: A DataFrame oszlopsorrendje egyezzen a Google Sheet oszlopsorrendjével!
-        ws_ugyfel.append_rows(new_rows_df.values.tolist())
-        st.success(f"{len(uj_ugyfelek)} új ügyfél hozzáadva a Mesterlistához!")
-        # Újratöltjük a master_df-et, hogy a lenti merge-nél már benne legyenek az újak is
+        
+        # --- EZ A JAVÍTÁS RÉSZE ---
+        # Minden NaN vagy NaT értéket üres sztringre vagy 0-ra cserélünk, 
+        # mert a JSON nem szereti a NaN-t
+        new_rows_df = new_rows_df.fillna("") 
+        # --------------------------
+
+        # Küldés a Sheets-nek
+        try:
+            ws_ugyfel.append_rows(new_rows_df.values.tolist())
+            st.success(f"{len(uj_ugyfelek)} új ügyfél hozzáadva a Mesterlistához!")
+        except Exception as e:
+            st.error(f"Hiba a mentés során: {e}")
+            # Ha mégis hiba van, írassuk ki az első sort, hogy lássuk mi a baj
+            st.write("Hibás adat példa:", uj_ugyfelek[0])
+
+        # Újratöltjük a master_df-et
         master_df = pd.DataFrame(ws_ugyfel.get_all_records())
 
     # 2. NAPI LISTA SORRENDEZÉSE

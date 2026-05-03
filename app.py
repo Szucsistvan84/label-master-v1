@@ -2055,7 +2055,14 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     
 # --- FŐ PROGRAMFUTÁS ---
 def main():
-    global client  # <--- EZT A SORT ÍRD BE IDE!
+    # 1. Globális elérés a gspread kliensnek
+    global client  
+
+    # 2. Az ID-k fix definiálása helyben
+    # Így a függvény minden sora látni fogja őket, és nem kell máshol átírni semmit
+    SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o" 
+    UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
+
     st.set_page_config(page_title="Interfood Label Master", layout="wide")
     register_fonts()
 

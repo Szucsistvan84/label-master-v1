@@ -37,7 +37,7 @@ UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
 # --- GEOCODING SETUP ---
 geolocator = Nominatim(user_agent="futarszoli_app")
-geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
+geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)
 
 # Itt hozzuk létre üresen, minden függvényen kívül
 client = None 
@@ -143,18 +143,28 @@ def master_lista_szinkron(df_napi, client, sheet_id):
 def utvonal_terkep(df_napi):
     st.subheader("Napi Útvonal Tervezet")
     
-    # Csak azokat a sorokat nézzük, ahol van koordináta és az érvényes szám
+    # 1. Érvényes koordináták szűrése
     valid_coords = df_napi[
         pd.to_numeric(df_napi['Lat'], errors='coerce').notnull() & 
         pd.to_numeric(df_napi['Lon'], errors='coerce').notnull()
     ]
     
+    # 2. Alapértelmezett középpont (pl. Debrecen)
+    center_lat, center_lon = 47.53, 21.62 
+    
     if not valid_coords.empty:
-        # Az első érvényes koordinátát vesszük kezdőpontnak
-        start_lat = float(valid_coords['Lat'].iloc[0])
-        start_lon = float(valid_coords['Lon'].iloc[0])
+        center_lat = float(valid_coords['Lat'].iloc[0])
+        center_lon = float(valid_coords['Lon'].iloc[0])
         
-        m = folium.Map(location=[start_lat, start_lon], zoom_start=12)
+    # --- EZT A KÉT SORT HOZD KI AZ 'IF' ALÓL (egy szinten legyen az 'if'-el) ---
+    
+    # 3. Térkép létrehozása (mindig lefut, a center_lat vagy Debrecen, vagy az első cím)
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
+
+    # 4. A póráz (szintén mindig lefut, véd a sarkvidék ellen)
+    m.fit_bounds([[45.7, 16.1], [48.6, 22.9]])
+    
+    # -----------------------------------------------------------------------
         
         points = []
         for i, row in df_napi.iterrows():

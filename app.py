@@ -2279,7 +2279,7 @@ def main():
                 ev = meta_auto.get('ev')
                 het = meta_auto.get('het')
 
-                # --- Google Sheets szinkronizálás (Heti étlap) ---
+                # --- Google Sheets szinkronizálás ---
                 if ev and het:
                     session_key = f"sync_{ev}_{het}"
                     if session_key not in st.session_state:
@@ -2310,38 +2310,30 @@ def main():
 
                 if all_rows:
                     df_temp = merge_data(all_rows)
-                    
-                    # --- EZT A RÉSZT ÍRD ÁT: ---
-                    with st.spinner("Ügyféladatok szinkronizálása és koordináták lekérése..."):
-                        # Meghívjuk a master_lista_szinkron függvényt
-                        # Ez adja vissza a rendezett napi listát és a frissített mesterlistát
+                    with st.spinner("Ügyféladatok szinkronizálása..."):
                         df_temp, m_df_friss = master_lista_szinkron(df_temp, client, UGYFELKOR_SHEET_ID)
-                        
-                        # Frissítjük a session_state-ben a mesterlistát is az új adatokkal
                         st.session_state.master_df = m_df_friss
                     
-                    # Most már a rendezett, koordinátákkal ellátott df-et mentjük el
                     st.session_state.mdf = df_temp
                     st.rerun()
 
         st.divider() 
-            with st.sidebar.expander("🛠️ Fejlesztői eszközök"):
-                if st.button("Log fájl mutatása", use_container_width=True):
-                    if os.path.exists(LOG_FILE):
-                        with open(LOG_FILE, "r", encoding="utf-8") as f:
-                            # Az utolsó 100 sort mutatjuk csak, hogy ne fagyassza le az oldalt
-                            log_content = f.readlines()
-                            last_logs = "".join(log_content[-100:]) 
-                            st.text_area("Legutóbbi naplóbejegyzések", last_logs, height=300)
-                    else:
-                        st.write("Még nincs log fájl.")
-                
-                if st.button("Log törlése", use_container_width=True):
-                    if os.path.exists(LOG_FILE):
-                        os.remove(LOG_FILE)
-                        st.success("Log fájl törölve.")
-                        logger.info("A felhasználó törölte a log fájlt. Új naplózás indul.")
-            # ==========================================
+        # JAVÍTÁS: Nincs extra behúzás, és mivel már st.sidebar-ban vagyunk, sima st.expander
+        with st.expander("🛠️ Fejlesztői eszközök"):
+            if st.button("Log fájl mutatása", use_container_width=True):
+                if os.path.exists(LOG_FILE):
+                    with open(LOG_FILE, "r", encoding="utf-8") as f:
+                        log_content = f.readlines()
+                        last_logs = "".join(log_content[-100:]) 
+                        st.text_area("Legutóbbi naplóbejegyzések", last_logs, height=300)
+                else:
+                    st.write("Még nincs log fájl.")
+            
+            if st.button("Log törlése", use_container_width=True):
+                if os.path.exists(LOG_FILE):
+                    os.remove(LOG_FILE)
+                    st.success("Log fájl törölve.")
+                    logger.info("A felhasználó törölte a log fájlt.")
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:

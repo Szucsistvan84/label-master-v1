@@ -64,12 +64,13 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         u_id = str(row['ID']).strip()
         if master_df.empty or u_id not in master_df['ID'].astype(str).values:
             # Ha új, lekérjük a koordinátákat
-            st.info(f"Új ügyfél észlelve: {row['Ügyintéző']} - Koordináták lekérése...")
+            nev = row.get('Ügyintéző', row.get('Nev', 'Ismeretlen név'))
+            st.info(f"Új ügyfél észlelve: {nev} - Koordináták lekérése...")
             lat, lon = get_coordinates(row['Cim'])
             
             uj_adat = {
                 'ID': u_id,
-                'Nev': row['Ügyintéző'],
+                'Nev': nev,  # <--- Fix kulcs helyett használd a változót!
                 'Cim': row['Cim'],
                 'Lat': lat,
                 'Lon': lon,

@@ -84,7 +84,7 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         raw_id = str(row['ID'])
         u_id = raw_id.split('-')[-1].strip() if '-' in raw_id else raw_id.strip()
         
-if master_df.empty or u_id not in master_df['ID'].values:
+        if master_df.empty or u_id not in master_df['ID'].values:
             nev = row.get('Ügyintéző', row.get('Nev', 'Ismeretlen név'))
             eredeti_cim = str(row.get('Cim', row.get('Cím', '')))
             

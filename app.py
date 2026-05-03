@@ -131,9 +131,12 @@ def utvonal_terkep(df_napi):
                 if not (math.isnan(lat) or math.isnan(lon)):
                     loc = [lat, lon]
                     points.append(loc)
+                    # Biztonságos megoldás: ha nincs 'Nev', akkor az 'Ügyintéző'-t használja
+                    nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
+                    
                     folium.Marker(
                         location=loc,
-                        popup=f"{i+1}. {row['Nev']}",
+                        popup=f"{i+1}. {nev}", 
                         icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{i+1}</div>""")
                     ).add_to(m)
             except (ValueError, TypeError):

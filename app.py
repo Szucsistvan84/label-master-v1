@@ -51,6 +51,7 @@ UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
 # --- GEOCODING SETUP ---
 geolocator = Nominatim(user_agent="futarszoli_app")
+logger.info("Geolocator inicializálva.")
 geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)
 
 # Itt hozzuk létre üresen, minden függvényen kívül

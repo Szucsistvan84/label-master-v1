@@ -58,12 +58,24 @@ geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)
 client = None 
 
 def get_coordinates(address):
+    """
+    Lekéri a megadott cím koordinátáit a Nominatim segítségével, 
+    hibakezeléssel és naplózással kiegészítve.
+    """
     try:
-        location = geolocator.geocode(address)
+        # Itt a 'geocode' objektumot használjuk, ami a RateLimiter-en keresztül fut
+        location = geocode(address) 
+        
         if location:
+            logger.info(f"Cím sikeresen feloldva: {address} -> {location.latitude}, {location.longitude}")
             return location.latitude, location.longitude
-        return None, None
-    except:
+        else:
+            logger.warning(f"Nem található koordináta a címhez: {address}")
+            return None, None
+            
+    except Exception as e:
+        # A korábbi üres 'except:' helyett most elkapjuk a hiba okát is
+        logger.error(f"Váratlan hiba a geocoding során ({address}): {e}")
         return None, None
 
 def tisztitott_cim_lekerese(nyers_szoveg):
@@ -86,10 +98,18 @@ def tisztitott_cim_lekerese(nyers_szoveg):
     return tisztitott.strip()
 
 def master_lista_szinkron(df_napi, client, sheet_id):
-    sh = client.open_by_key(sheet_id)
-    ws_ugyfel = sh.worksheet("Ugyfelkor")
-    master_df = pd.DataFrame(ws_ugyfel.get_all_records())
+    logger.info("Master lista szinkronizálása elindult...")
     
+    try:
+        sh = client.open_by_key(sheet_id)
+        ws_ugyfel = sh.worksheet("Ugyfelkor")
+        master_df = pd.DataFrame(ws_ugyfel.get_all_records())
+        logger.info(f"Mesterlista beolvasva, {len(master_df)} meglévő ügyfél található.")
+    except Exception as e:
+        logger.error(f"Hiba a Google Sheets megnyitásakor: {e}")
+        st.error("Nem sikerült elérni az 'Ugyfelkor' táblázatot!")
+        return df_napi, pd.DataFrame()
+
     # KÉNYSZERÍTSÜK SZÖVEGGÉ AZ ID-T A MESTERLISTÁBAN
     if not master_df.empty:
         master_df['ID'] = master_df['ID'].astype(str).str.strip()
@@ -103,24 +123,31 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             nev = row.get('Ügyintéző', row.get('Nev', 'Ismeretlen név'))
             eredeti_cim = str(row.get('Cim', row.get('Cím', '')))
             
-            # ÚJ TISZTÍTÁSI LOGIKA (a házszám-megtartó verzióval):
+            # ÚJ TISZTÍTÁSI LOGIKA
             keresesi_cim = tisztitott_cim_lekerese(eredeti_cim)
             
-            # LEKÉRDEZÉS - Most már "Hungary" nélkül, csak a tisztított címmel
+            logger.info(f"Új ügyfél észleléve: {nev} ({u_id}). Koordináták lekérése...")
             st.info(f"Új ügyfél: {nev} - Koordináták lekérése...")
-            lat, lon = get_coordinates(keresesi_cim)
             
-            # TARTÓS NAPLÓZÁS (Session State-be mentünk, hogy a végén is lásd)
+            try:
+                lat, lon = get_coordinates(keresesi_cim)
+            except Exception as e:
+                logger.error(f"Váratlan hiba a geocoding során ({nev}): {e}")
+                lat, lon = None, None
+            
+            # TARTÓS NAPLÓZÁS (Session State + Logger)
             if 'debug_log' not in st.session_state:
                 st.session_state.debug_log = []
             
+            statusz_emoji = "✅ Találat" if lat else "❌ Nincs találat"
+            logger.info(f"Geocoding eredménye ({nev}): {statusz_emoji}")
+
             st.session_state.debug_log.append({
                 "Ügyfél": nev,
                 "Küldve a Nominatimnek": keresesi_cim,
-                "Eredmény": "✅ Találat" if lat else "❌ Nincs találat"
+                "Eredmény": statusz_emoji
             })
             
-            # Azonnali vizuális visszajelzés
             if not lat:
                 st.warning(f"⚠️ Nem találtam koordinátát: {keresesi_cim}")
             else:
@@ -129,7 +156,7 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             uj_adat = {
                 'ID': u_id,
                 'Nev': nev,
-                'Cim': eredeti_cim, # A táblázatba az eredeti marad
+                'Cim': eredeti_cim,
                 'Lat': lat if lat else "",
                 'Lon': lon if lon else "",
                 'Sorrend': (len(master_df) + len(uj_ugyfelek) + 1) * 10,
@@ -139,30 +166,41 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             }
             uj_ugyfelek.append(uj_adat)
 
+    # Új ügyfelek mentése
     if uj_ugyfelek:
-        new_rows_df = pd.DataFrame(uj_ugyfelek).fillna("")
-        ws_ugyfel.append_rows(new_rows_df.values.tolist())
-        master_df = pd.DataFrame(ws_ugyfel.get_all_records())
-        # Újratöltés után ismét kényszerítsük szöveggé az ID-t
-        master_df['ID'] = master_df['ID'].astype(str).str.strip()
+        try:
+            logger.info(f"{len(uj_ugyfelek)} új ügyfél mentése a táblázatba...")
+            new_rows_df = pd.DataFrame(uj_ugyfelek).fillna("")
+            ws_ugyfel.append_rows(new_rows_df.values.tolist())
+            
+            # Újratöltés frissítés után
+            master_df = pd.DataFrame(ws_ugyfel.get_all_records())
+            master_df['ID'] = master_df['ID'].astype(str).str.strip()
+            logger.info("Mesterlista sikeresen frissítve az új ügyfelekkel.")
+        except Exception as e:
+            logger.error(f"Hiba az új ügyfelek mentésekor: {e}")
+            st.error("Az új ügyfeleket nem sikerült elmenteni a Google Sheets-be!")
 
-    # ÖSSZEFÉSÜLÉS ELŐTTI TÍPUSKIJAVÍTÁS (A ValueError ellen)
+    # ÖSSZEFÉSÜLÉS ELŐTTI TÍPUSKIJAVÍTÁS
     df_napi['ID'] = df_napi['ID'].apply(lambda x: str(x).split('-')[-1].strip() if '-' in str(x) else str(x).strip())
     
-    # Most már mindkét oldalon garantáltan STRING az ID
+    # Merge művelet loggolása
+    logger.info("Napi lista összefésülése a mesterlistával...")
     df_napi = df_napi.merge(master_df[['ID', 'Sorrend', 'Lat', 'Lon']], on='ID', how='left')
     
+    logger.info("Szinkronizáció kész.")
     return df_napi.sort_values(by='Sorrend').reset_index(drop=True), master_df
 
 # --- VIZUALIZÁCIÓ ---
 def utvonal_terkep(df_napi):
     st.subheader("Napi Útvonal Tervezet")
+    logger.info("Térkép generálása elindult...") # <--- Jelzés a logba
     
     # 1. Érvényes koordináták szűrése
     valid_coords = df_napi[
         pd.to_numeric(df_napi['Lat'], errors='coerce').notnull() & 
         pd.to_numeric(df_napi['Lon'], errors='coerce').notnull()
-    ].copy() # Copy-t használunk a biztonság kedvéért
+    ].copy()
     
     # 2. Alapértelmezett középpont (pl. Debrecen)
     center_lat, center_lon = 47.53, 21.62 
@@ -174,15 +212,16 @@ def utvonal_terkep(df_napi):
     # 3. Térkép létrehozása
     m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
 
-    # 4. Magyarország határaihoz igazítás (vagy a pontokhoz)
+    # 4. Magyarország határaihoz igazítás
     m.fit_bounds([[45.7, 16.1], [48.6, 22.9]])
     
     # 5. Pontok és vonal felrajzolása
     points = []
-    # Fontos: a teljes df_napi-n megyünk végig a sorrend miatt
     for i, row in df_napi.iterrows():
+        # Név meghatározása korán, hogy a logban is használni tudjuk
+        nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
+        
         try:
-            # Megpróbáljuk számmá alakítani a koordinátákat
             lat = float(row['Lat'])
             lon = float(row['Lon'])
             
@@ -190,26 +229,29 @@ def utvonal_terkep(df_napi):
                 loc = [lat, lon]
                 points.append(loc)
                 
-                # Név meghatározása (ha nincs Nev, akkor Ügyintéző)
-                nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
-                
                 folium.Marker(
                     location=loc,
                     popup=f"{i+1}. {nev}", 
                     icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{i+1}</div>""")
                 ).add_to(m)
+            else:
+                logger.warning(f"Kihagyott pont (NaN): {nev} (Sor: {i+1})")
+                
         except (ValueError, TypeError):
-            continue # Ha hibás a koordináta (pl. üres), egyszerűen kihagyjuk a pontot
+            logger.warning(f"Kihagyott pont (hibás formátum): {nev} (Sor: {i+1})")
+            continue 
 
-    # Ha van legalább két pontunk, összekötjük őket egy piros vonallal
+    # Ha van legalább két pontunk, összekötjük őket
     if len(points) > 1:
         folium.PolyLine(points, color="red", weight=2.5, opacity=0.8).add_to(m)
     
     # Térkép megjelenítése Streamlitben
     if not valid_coords.empty:
         st_folium(m, width=700, height=500)
+        logger.info(f"Térkép sikeresen megjelenítve {len(points)} ponttal.") # <--- Siker logolása
     else:
-        st.warning("⚠️ Nincsenek érvényes koordináták (Lat/Lon) a térkép megjelenítéséhez. Kérlek ellenőrizd a Google Sheet 'Ugyfelkor' fülét!")
+        st.warning("⚠️ Nincsenek érvényes koordináták a térkép megjelenítéséhez.")
+        logger.error("A térkép nem jeleníthető meg: nincsenek érvényes koordináták a napi listában.")
 
 def get_google_sheets_creds():
     creds_info = st.secrets["gcp_service_account"].to_dict()
@@ -2281,6 +2323,25 @@ def main():
                     # Most már a rendezett, koordinátákkal ellátott df-et mentjük el
                     st.session_state.mdf = df_temp
                     st.rerun()
+
+        st.divider() 
+            with st.sidebar.expander("🛠️ Fejlesztői eszközök"):
+                if st.button("Log fájl mutatása", use_container_width=True):
+                    if os.path.exists(LOG_FILE):
+                        with open(LOG_FILE, "r", encoding="utf-8") as f:
+                            # Az utolsó 100 sort mutatjuk csak, hogy ne fagyassza le az oldalt
+                            log_content = f.readlines()
+                            last_logs = "".join(log_content[-100:]) 
+                            st.text_area("Legutóbbi naplóbejegyzések", last_logs, height=300)
+                    else:
+                        st.write("Még nincs log fájl.")
+                
+                if st.button("Log törlése", use_container_width=True):
+                    if os.path.exists(LOG_FILE):
+                        os.remove(LOG_FILE)
+                        st.success("Log fájl törölve.")
+                        logger.info("A felhasználó törölte a log fájlt. Új naplózás indul.")
+            # ==========================================
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:

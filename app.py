@@ -10,6 +10,10 @@ import os
 import gspread
 import base64
 import unicodedata
+import folium
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
+from streamlit_folium import st_folium
 from datetime import datetime
 from gspread_dataframe import set_with_dataframe
 from google.oauth2 import service_account
@@ -27,8 +31,99 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 # --- GOOGLE SHEETS KONFIGURÁCIÓ ---
 SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
 
+# --- GEOCODING SETUP ---
+geolocator = Nominatim(user_agent="futarszoli_app")
+geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
+
 # Itt hozzuk létre üresen, minden függvényen kívül
 client = None 
+
+def get_coordinates(address):
+    try:
+        location = geolocator.geocode(address)
+        if location:
+            return location.latitude, location.longitude
+        return None, None
+    except:
+        return None, None
+
+def master_lista_szinkron(df_napi, client, sheet_id):
+    sh = client.open_by_key(sheet_id)
+    ws_ugyfel = sh.worksheet("Ugyfelkor")
+    
+    # Mesterlista betöltése
+    master_df = pd.DataFrame(ws_ugyfel.get_all_records())
+    
+    # 1. ÚJ ÜGYFELEK AZONOSÍTÁSA ÉS MENTÉSE
+    uj_ugyfelek = []
+    for _, row in df_napi.iterrows():
+        u_id = str(row['ID']).strip()
+        if master_df.empty or u_id not in master_df['ID'].astype(str).values:
+            # Ha új, lekérjük a koordinátákat
+            st.info(f"Új ügyfél észlelve: {row['Nev']} - Koordináták lekérése...")
+            lat, lon = get_coordinates(row['Cim'])
+            
+            uj_adat = {
+                'ID': u_id,
+                'Nev': row['Nev'],
+                'Cim': row['Cim'],
+                'Lat': lat,
+                'Lon': lon,
+                'Sorrend': (len(master_df) + len(uj_ugyfelek) + 1) * 10,
+                'Utolso_Rendeles': pd.Timestamp.now().strftime('%Y.%m.%d'),
+                'Osszertek': row.get('Osszeg', 0),
+                'Rendeles_Szam': 1
+            }
+            uj_ugyfelek.append(uj_adat)
+
+    if uj_ugyfelek:
+        # Új adatok összefűzése és feltöltése
+        new_rows_df = pd.DataFrame(uj_ugyfelek)
+        # Itt fontos, hogy a Sheets oszlopsorrendjével egyezzen!
+        # (Feltételezzük, hogy a függvény a végére fűzi)
+        ws_ugyfel.append_rows(new_rows_df.values.tolist())
+        st.success(f"{len(uj_ugyfelek)} új ügyfél hozzáadva a Mesterlistához!")
+        # Újratöltjük a master_df-et a friss adatokkal
+        master_df = pd.DataFrame(ws_ugyfel.get_all_records())
+
+    # 2. NAPI LISTA SORRENDEZÉSE A MESTERLISTA ALAPJÁN
+    # Összefésüljük a napi rendeléseket a mesterlista 'Sorrend' oszlopával
+    df_napi = df_napi.merge(master_df[['ID', 'Sorrend', 'Lat', 'Lon']], on='ID', how='left')
+    df_napi = df_napi.sort_values(by='Sorrend').reset_index(drop=True)
+    
+    return df_napi, master_df
+
+# --- VIZUALIZÁCIÓ ---
+def utvonal_terkep(df_napi):
+    st.subheader("Napi Útvonal Tervezet")
+    
+    # Kezdőpont (pl. az első ügyfél koordinátája)
+    if not df_napi['Lat'].dropna().empty:
+        start_lat = df_napi['Lat'].dropna().iloc[0]
+        start_lon = df_napi['Lon'].dropna().iloc[0]
+        
+        m = folium.Map(location=[start_lat, start_lon], zoom_start=12)
+        
+        # Pontok felfűzése
+        points = []
+        for i, row in df_napi.iterrows():
+            if pd.notnull(row['Lat']):
+                loc = [row['Lat'], row['Lon']]
+                points.append(loc)
+                # Markerek sorszámmal
+                folium.Marker(
+                    location=loc,
+                    popup=f"{i+1}. {row['Nev']}",
+                    icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{i+1}</div>""")
+                ).add_to(m)
+        
+        # Útvonal vonalazása
+        if len(points) > 1:
+            folium.PolyLine(points, color="red", weight=2.5, opacity=0.8).add_to(m)
+            
+        st_folium(m, width=700, height=500)
+    else:
+        st.warning("Nincsenek koordináták a térkép megjelenítéséhez.")
 
 def get_google_sheets_creds():
     creds_info = st.secrets["gcp_service_account"].to_dict()

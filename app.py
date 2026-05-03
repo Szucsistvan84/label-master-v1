@@ -54,15 +54,21 @@ def get_coordinates(address):
 def tisztitott_cim_lekerese(nyers_szoveg):
     if not nyers_szoveg:
         return ""
-    # Eltávolítjuk a dollárjeleket, amik megzavarják a keresőt
+    # Tisztítás a felesleges karakterektől
     szoveg = nyers_szoveg.replace('$', '').strip()
-    # Megkeressük az irányítószámot és az utcát a házszámig (regex)
-    minta = r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-z-áéíóöőúüű]+\s*,\s*[^,.\d]+[\d/\-A-Z]*)'
+    
+    # REGEX: Irányítószám (4 szám) + Város + Utca + Házszám
+    # Ez a minta megengedi a pontokat az utca után és keresi a számokat utána
+    minta = r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-z-áéíóöőúüű]+\s*,\s*[^,]+?\s\d+[a-zA-Z0-9\/\-\.]*)'
     match = re.search(minta, szoveg)
+    
     if match:
         return match.group(1).strip()
-    # Ha a regex nem talál semmit, marad a te eredeti split-es logikád
-    return szoveg.split('. fsz')[0].split('. fszt')[0].split(', fsz')[0].split('/')[0].strip()
+    
+    # Ha a bonyolult minta nem talál semmit, egy egyszerűbb vágás, ami nem bántja a házszámot
+    # Csak a tipikus emelet/ajtó kulcsszavaktól vágunk
+    tisztitott = szoveg.split('. fsz')[0].split('. fszt')[0].split(', fsz')[0]
+    return tisztitott.strip()
 
 def master_lista_szinkron(df_napi, client, sheet_id):
     sh = client.open_by_key(sheet_id)
@@ -78,30 +84,37 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         raw_id = str(row['ID'])
         u_id = raw_id.split('-')[-1].strip() if '-' in raw_id else raw_id.strip()
         
-        if master_df.empty or u_id not in master_df['ID'].values:
+if master_df.empty or u_id not in master_df['ID'].values:
             nev = row.get('Ügyintéző', row.get('Nev', 'Ismeretlen név'))
             eredeti_cim = str(row.get('Cim', row.get('Cím', '')))
             
-            # ÚJ TISZTÍTÁSI LOGIKA HASZNÁLATA:
+            # ÚJ TISZTÍTÁSI LOGIKA (a házszám-megtartó verzióval):
             keresesi_cim = tisztitott_cim_lekerese(eredeti_cim)
-            teljes_lekerdezes = f"{keresesi_cim}, Hungary"
             
-            # DEBUG KIÍRATÁS (Streamlit és Konzolt):
-            st.write(f"🔍 **Nominatim keresés:** `{teljes_lekerdezes}` (Ügyfél: {nev})")
-            print(f"DEBUG: Nominatim lekerdezes: {teljes_lekerdezes}")
-            
+            # LEKÉRDEZÉS - Most már "Hungary" nélkül, csak a tisztított címmel
             st.info(f"Új ügyfél: {nev} - Koordináták lekérése...")
+            lat, lon = get_coordinates(keresesi_cim)
             
-            # Lekérés a tisztított címmel
-            lat, lon = get_coordinates(teljes_lekerdezes)
+            # TARTÓS NAPLÓZÁS (Session State-be mentünk, hogy a végén is lásd)
+            if 'debug_log' not in st.session_state:
+                st.session_state.debug_log = []
             
+            st.session_state.debug_log.append({
+                "Ügyfél": nev,
+                "Küldve a Nominatimnek": keresesi_cim,
+                "Eredmény": "✅ Találat" if lat else "❌ Nincs találat"
+            })
+            
+            # Azonnali vizuális visszajelzés
             if not lat:
-                st.warning(f"⚠️ Nem találtam koordinátát: {teljes_lekerdezes}")
-            
+                st.warning(f"⚠️ Nem találtam koordinátát: {keresesi_cim}")
+            else:
+                st.success(f"📍 Megvan: {keresesi_cim}")
+
             uj_adat = {
                 'ID': u_id,
                 'Nev': nev,
-                'Cim': eredeti_cim, 
+                'Cim': eredeti_cim, # A táblázatba az eredeti marad
                 'Lat': lat if lat else "",
                 'Lon': lon if lon else "",
                 'Sorrend': (len(master_df) + len(uj_ugyfelek) + 1) * 10,

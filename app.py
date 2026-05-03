@@ -1940,11 +1940,20 @@ def create_manifest_pdf(df, c_n, meta):
         digits_only = "".join(re.findall(r'\d+', p_raw))
         penz_val = p_raw if (digits_only and int(digits_only) > 0) else "" 
         
+        # --- EZT A BLOKKOT FRISSÍTSD ---
+        sorszam_nyers = row.get('Sorrend', i+1)
+        try:
+            # Ha float (10.0), akkor int-té alakítjuk, hogy ne legyen tizedesjegy
+            sorszam_vegleges = str(int(float(sorszam_nyers)))
+        except:
+            # Ha bármi hiba van az átalakításnál, marad az eredeti i+1
+            sorszam_vegleges = str(i+1)
+
         table_data.append([
-            f"{int(row.get('Sorrend', i+1))}",                   # 0: #
+            sorszam_vegleges,                                    # 0: # (Sorszám javítva)
             info_flow,                                           # 1: Név/Cím
             Paragraph(formazott_rendeles, styles['Small']),      # 2: Rendelés
-            Checkbox(10),                                        # 3: ☐ (EZ AZ ÚJ HELYE)
+            Checkbox(10),                                        # 3: ☐
             Paragraph(f"<b>{penz_val}</b>", styles['Normal']),   # 4: Pénz
             Paragraph(str(row.get('Telefon', '')), styles['Small']), # 5: Tel
             str(row.get('Összesen', ''))                         # 6: DB

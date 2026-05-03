@@ -63,19 +63,26 @@ def master_lista_szinkron(df_napi, client, sheet_id):
     for _, row in df_napi.iterrows():
         u_id = str(row['ID']).strip()
         
-        # Ellenőrizzük, hogy az ID szerepel-e már (vagy üres-e a mesterlista)
         if master_df.empty or u_id not in master_df['ID'].astype(str).values:
             
-            # Rugalmas névkezelés: megnézzük mindkét kulcsot, amit a PDF adhat
+            # 1. Név lekérése (ezt már javítottuk)
             nev = row.get('Ügyintéző', row.get('Nev', 'Ismeretlen név'))
             
+            # 2. CÍM LEKÉRÉSE BIZTONSÁGOSAN (ez a hiba forrása!)
+            # Megnézzük a 'Cim' és a 'Cím' kulcsot is
+            cim = row.get('Cim', row.get('Cím'))
+            
+            if not cim:
+                st.error(f"Hiba: Nincs cím megadva {nev} ügyfélhez!")
+                continue # Ugorjuk át, ha nincs cím, különben a get_coordinates elszállna
+                
             st.info(f"Új ügyfél észlelve: {nev} - Koordináták lekérése...")
-            lat, lon = get_coordinates(row['Cim'])
+            lat, lon = get_coordinates(cim) # Most már a biztonságos 'cim' változót használjuk
             
             uj_adat = {
                 'ID': u_id,
-                'Nev': nev,  # <--- Most már egyezik a Sheet "Nev" oszlopával
-                'Cim': row['Cim'],
+                'Nev': nev,
+                'Cim': cim, # Itt is a változót használd
                 'Lat': lat,
                 'Lon': lon,
                 'Sorrend': (len(master_df) + len(uj_ugyfelek) + 1) * 10,

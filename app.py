@@ -2363,55 +2363,55 @@ def main():
     
         st.subheader("Szállítási lista")
         
+        # --- ÜGYFÉLKÖR SZINKRON SZEKCIÓ ---
+        # Ezt hagyd meg, mert a gombok használják!
+        UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
+
         # --- MEGJELENÍTÉS ---
-        # Itt a final_column_order-t használjuk!
+        df_to_edit = st.session_state.mdf.copy()
+        
         edited_df = st.data_editor(
             df_to_edit,
             column_order=final_column_order, 
             column_config={
                 "Sorrend": st.column_config.NumberColumn(
                     "Sorrend",
-                    help="Írj be tizedest (pl. 88.5), majd nyomj a lenti gombra!",
+                    help="Írj be tizedest (pl. 88.5) a beszúráshoz!",
                     format="%.1f",
                     step=0.1,
                 ),
-                "Csoport": st.column_config.TextColumn(
-                    "Csoport", 
-                    help="Zónanév vagy szám"
-                ),
+                "Csoport": st.column_config.TextColumn("Csoport", help="Zónanév vagy szám"),
                 "Pénz": st.column_config.TextColumn("Pénz"),
                 "temp_id": None, 
             },
             num_rows="dynamic",
             key=f"editor_{st.session_state.editor_key}",
-            use_container_width=True
+            use_container_width=True,
+            hide_index=True
         )
-    
-        # --- ÜGYFÉLKÖR SZINKRON SZEKCIÓ ---
-        UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
-        # --- ÚJ: TÉRKÉP MEGJELENÍTÉSE ---
+        # --- TÉRKÉP MEGJELENÍTÉSE ---
         with st.expander("🗺️ Útvonal megtekintése a térképen", expanded=False):
-            utvonal_terkep(edited_df) # Az edited_df-et adjuk át, hogy a sorrendet kövesse!
-        
-        st.subheader("🗄️ Ügyfélkör kezelése")
-        col_sz1, col_sz2 = st.columns(2)
+            utvonal_terkep(edited_df) 
 
-        with col_sz1:
-            if st.button("💾 SORREND ÉS MENTÉS", use_container_width=True):
+        st.subheader("🗄️ Ügyfélkör kezelése")
+        
+        gomb_col1, gomb_col2, gomb_col3 = st.columns(3)
+
+        with gomb_col1:
+            if st.button("💾 SORREND ÉS MENTÉS (Cloud)", use_container_width=True):
                 temp_df = edited_df.copy()
-                
-                # Számmá alakítás és az üresek kitöltése a PDF sorrendjével
                 temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce')
+                
                 if 'Original_Order' in temp_df.columns:
                     temp_df['Sorrend'] = temp_df['Sorrend'].fillna(temp_df['Original_Order'])
                 else:
                     temp_df['Sorrend'] = temp_df['Sorrend'].fillna(999)
                 
-                # Rendezés (csak sorrend) és újrasorszámozás egészekre
                 temp_df = temp_df.sort_values(['Sorrend'])
                 temp_df['Sorrend'] = range(1, len(temp_df) + 1)
                 
+                # Itt használja az ID-t:
                 siker = sync_ugyfelkor_fel(temp_df, UGYFELKOR_SHEET_ID, client)
                 
                 if siker > 0:
@@ -2420,14 +2420,20 @@ def main():
                     st.success(f"Sikeres mentés! {siker} ügyfél szinkronizálva.")
                     st.rerun()
 
-        with col_sz2:
-            if st.button("🔄 JAVÍTOTT ADATOK BETÖLTÉSE", use_container_width=True):
-                # Lehúzzuk a friss adatokat a Sheet-ről
-                st.session_state.mdf = adatok_visszatoltese_sheetrol(st.session_state.mdf, UGYFELKOR_SHEET_ID, client)
-                
-                # Fontos: Frissítés után kényszerítjük a session_state mentését
+        with gomb_col2:
+            if st.button("🔢 SORSZÁMOK FIXÁLÁSA (1,2,3...)", use_container_width=True):
+                temp_df = edited_df.sort_values(by="Sorrend").copy()
+                temp_df['Sorrend'] = range(1, len(temp_df) + 1)
+                st.session_state.mdf = temp_df.reset_index(drop=True)
                 st.session_state.editor_key += 1
-                st.success("Adatok (nevek, csoportok, sorrend) frissítve a Google Sheet-ből!")
+                st.rerun()
+
+        with gomb_col3:
+            if st.button("🔄 JAVÍTOTT ADATOK BETÖLTÉSE", use_container_width=True):
+                # Itt is kell az ID:
+                st.session_state.mdf = adatok_visszatoltese_sheetrol(st.session_state.mdf, UGYFELKOR_SHEET_ID, client)
+                st.session_state.editor_key += 1
+                st.success("Adatok frissítve a Google Sheet-ből!")
                 st.rerun()
 
         st.divider()

@@ -29,7 +29,11 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame, Flowable
 
 # --- GOOGLE SHEETS KONFIGURÁCIÓ ---
+# 1. Ételek, árak, névnapok (Interfood_Master_Data)
 SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
+
+# 2. Ügyfelek, címek, GPS, sorrend (Etikett_Ugyfelkor_DB)
+UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
 # --- GEOCODING SETUP ---
 geolocator = Nominatim(user_agent="futarszoli_app")

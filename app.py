@@ -74,7 +74,9 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             tisztitott_cim = eredeti_cim.split('. fsz')[0].split('. fszt')[0].split(', fsz')[0].strip()
             
             st.info(f"Új ügyfél: {nev} - Koordináták lekérése...")
-            lat, lon = get_coordinates(f"Hungary, {tisztitott_cim}")
+            # Tisztább cím a kereséshez
+            keresesi_cim = tisztitott_cim.split('/')[0].strip() # Ha van benne perjel (emelet/ajto), levágjuk
+            lat, lon = get_coordinates(f"{keresesi_cim}, Hungary")
             
             uj_adat = {
                 'ID': u_id,

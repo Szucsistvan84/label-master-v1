@@ -11,6 +11,7 @@ import gspread
 import base64
 import unicodedata
 import folium
+import logging
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 from streamlit_folium import st_folium
@@ -27,6 +28,19 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame, Flowable
+
+# 2. LOGGOLÁS BEÁLLÍTÁSA
+LOG_FILE = "utvonaltervezo.log"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # --- GOOGLE SHEETS KONFIGURÁCIÓ ---
 # 1. Ételek, árak, névnapok (Interfood_Master_Data)

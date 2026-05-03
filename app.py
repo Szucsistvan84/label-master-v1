@@ -1546,8 +1546,14 @@ def merge_data(all_rows):
     
     # Sorrend fixálása
     if 'Sorrend' in res.columns:
-        res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce')
+        # Kényszerítjük a numerikus típust (float lesz az alapértelmezett)
+        res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce').fillna(0)
+        
+        # Sorbarendezzük a táblázatot a sorszám szerint
         res = res.sort_values('Sorrend')
+        
+        # Formázás a megjelenítéshez: ha kerek a szám, ne legyen .0 a végén
+        res['Sorrend'] = res['Sorrend'].apply(lambda x: int(x) if x.is_integer() else x)
 
     # --- CSOPORTOSÍTÁS (Keretezéshez) ---
     res['Csoport'] = 0

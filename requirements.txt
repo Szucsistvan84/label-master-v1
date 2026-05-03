@@ -8,3 +8,7 @@ openpyxl
 st-gsheets-connection
 gspread-dataframe
 geopy
+google-auth
+gspread
+folium
+streamlit-folium

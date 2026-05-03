@@ -2338,24 +2338,27 @@ def main():
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
         
-        # Adatok előkészítése
+        # --- 1. ADATOK ELŐKÉSZÍTÉSE ÉS TISZTÍTÁSA ---
+        # Csak EGYSZER hozzuk létre a másolatot
         df_to_edit = st.session_state.mdf.copy()
 
-        # Biztosítjuk a Sorrend létezését és típusát (tizedesek miatt float)
+        # Biztosítjuk a Sorrend létezését és típusát
         if 'Sorrend' not in df_to_edit.columns:
             df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
         
-        df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999).astype(float)
+        # Kényszerített numerikus típus (tizedesek miatt float)
+        df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999.0).astype(float)
 
-        # Csoport oszlop szöveggé alakítása (Halköz miatt)
-        if "Csoport" in df_to_edit.columns:
-            df_to_edit["Csoport"] = df_to_edit["Csoport"].astype(str).replace(['nan', 'None', '0', '0.0'], '')
-        
+        # MINDEN OSZLOP TISZTÍTÁSA (A Streamlit hiba elkerülése érdekében)
+        # Ez a rész biztosítja, hogy ne maradjon "mixed type" vagy rejtett NaN objektum
+        for col in df_to_edit.columns:
+            if col != 'Sorrend': # A Sorrend maradjon float
+                df_to_edit[col] = df_to_edit[col].astype(str).replace(['nan', 'None', '<NA>', '0.0', '0'], '')
+
         # Rendezés a megjelenítés előtt
         df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
 
-        # --- FIX OSZLOPREND MEGHATÁROZÁSA ---
-        # Ez garantálja, hogy a Sorrend lesz az ELSŐ
+        # --- 2. OSZLOPREND MEGHATÁROZÁSA ---
         preferred_order = ["Sorrend", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Csoport", "Megjegyzés", "temp_id"]
         actual_cols = df_to_edit.columns.tolist()
         final_column_order = [c for c in preferred_order if c in actual_cols]
@@ -2363,12 +2366,8 @@ def main():
     
         st.subheader("Szállítási lista")
         
-        # --- ÜGYFÉLKÖR SZINKRON SZEKCIÓ ---
-        # Ezt hagyd meg, mert a gombok használják!
-        UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
-
-        # --- MEGJELENÍTÉS ---
-        df_to_edit = st.session_state.mdf.copy()
+        # --- 3. MEGJELENÍTÉS ---
+        # FONTOS: Itt NEM szabad újra leírni a df_to_edit = st.session_state.mdf.copy() sort!
         
         edited_df = st.data_editor(
             df_to_edit,
@@ -2380,7 +2379,7 @@ def main():
                     format="%.1f",
                     step=0.1,
                 ),
-                "Csoport": st.column_config.TextColumn("Csoport", help="Zónanév vagy szám"),
+                "Csoport": st.column_config.TextColumn("Csoport"),
                 "Pénz": st.column_config.TextColumn("Pénz"),
                 "temp_id": None, 
             },

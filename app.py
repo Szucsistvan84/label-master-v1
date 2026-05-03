@@ -147,7 +147,7 @@ def utvonal_terkep(df_napi):
     valid_coords = df_napi[
         pd.to_numeric(df_napi['Lat'], errors='coerce').notnull() & 
         pd.to_numeric(df_napi['Lon'], errors='coerce').notnull()
-    ]
+    ].copy() # Copy-t használunk a biztonság kedvéért
     
     # 2. Alapértelmezett középpont (pl. Debrecen)
     center_lat, center_lon = 47.53, 21.62 
@@ -156,38 +156,42 @@ def utvonal_terkep(df_napi):
         center_lat = float(valid_coords['Lat'].iloc[0])
         center_lon = float(valid_coords['Lon'].iloc[0])
         
-    # --- EZT A KÉT SORT HOZD KI AZ 'IF' ALÓL (egy szinten legyen az 'if'-el) ---
-    
-    # 3. Térkép létrehozása (mindig lefut, a center_lat vagy Debrecen, vagy az első cím)
+    # 3. Térkép létrehozása
     m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
 
-    # 4. A póráz (szintén mindig lefut, véd a sarkvidék ellen)
+    # 4. Magyarország határaihoz igazítás (vagy a pontokhoz)
     m.fit_bounds([[45.7, 16.1], [48.6, 22.9]])
     
-    # -----------------------------------------------------------------------
-        
-        points = []
-        for i, row in df_napi.iterrows():
-            try:
-                lat = float(row['Lat'])
-                lon = float(row['Lon'])
-                if not (math.isnan(lat) or math.isnan(lon)):
-                    loc = [lat, lon]
-                    points.append(loc)
-                    # Biztonságos megoldás: ha nincs 'Nev', akkor az 'Ügyintéző'-t használja
-                    nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
-                    
-                    folium.Marker(
-                        location=loc,
-                        popup=f"{i+1}. {nev}", 
-                        icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{i+1}</div>""")
-                    ).add_to(m)
-            except (ValueError, TypeError):
-                continue # Ha nem szám, kihagyjuk a pontot
-        
-        if len(points) > 1:
-            folium.PolyLine(points, color="red", weight=2.5, opacity=0.8).add_to(m)
+    # 5. Pontok és vonal felrajzolása
+    points = []
+    # Fontos: a teljes df_napi-n megyünk végig a sorrend miatt
+    for i, row in df_napi.iterrows():
+        try:
+            # Megpróbáljuk számmá alakítani a koordinátákat
+            lat = float(row['Lat'])
+            lon = float(row['Lon'])
             
+            if not (math.isnan(lat) or math.isnan(lon)):
+                loc = [lat, lon]
+                points.append(loc)
+                
+                # Név meghatározása (ha nincs Nev, akkor Ügyintéző)
+                nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
+                
+                folium.Marker(
+                    location=loc,
+                    popup=f"{i+1}. {nev}", 
+                    icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{i+1}</div>""")
+                ).add_to(m)
+        except (ValueError, TypeError):
+            continue # Ha hibás a koordináta (pl. üres), egyszerűen kihagyjuk a pontot
+
+    # Ha van legalább két pontunk, összekötjük őket egy piros vonallal
+    if len(points) > 1:
+        folium.PolyLine(points, color="red", weight=2.5, opacity=0.8).add_to(m)
+    
+    # Térkép megjelenítése Streamlitben
+    if not valid_coords.empty:
         st_folium(m, width=700, height=500)
     else:
         st.warning("⚠️ Nincsenek érvényes koordináták (Lat/Lon) a térkép megjelenítéséhez. Kérlek ellenőrizd a Google Sheet 'Ugyfelkor' fülét!")

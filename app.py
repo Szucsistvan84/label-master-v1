@@ -2049,35 +2049,7 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     buf.seek(0)
     return buf
     
-    # --- FŐ PROGRAMFUTÁS JAVÍTVA ---
-    
-    if st.session_state.mdf is not None:
-        # Biztosítjuk, hogy legyen Csoport oszlop
-        if 'Csoport' not in st.session_state.mdf.columns:
-            st.session_state.mdf['Csoport'] = ""
-
-        st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
-        
-        edited_df = st.data_editor(
-            st.session_state.mdf,
-            key=f"editor_{st.session_state.get('editor_key', 0)}", 
-            hide_index=True,
-            use_container_width=True,
-            num_rows="dynamic",
-            column_config={
-                "Csoport": st.column_config.TextColumn(
-                    "Csoport",
-                    help="Azonos jel esetén (pl. '1') a PDF-ben egy keretbe kerülnek.",
-                    width="small"
-                ),
-                "Sorrend": st.column_config.NumberColumn("Sor", format="%.1f", width="small"),
-                "Ügyintéző": "Név",
-                "Telefon": "Tel",
-                "Pénz": "Összeg",
-                "Megjegyzés": "Infó"
-            }
-        )
-
+# --- FŐ PROGRAMFUTÁS ---
 def main():
     global client  # <--- EZT A SORT ÍRD BE IDE!
     st.set_page_config(page_title="Interfood Label Master", layout="wide")

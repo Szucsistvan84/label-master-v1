@@ -7,3 +7,4 @@ reportlab
 openpyxl
 st-gsheets-connection
 gspread-dataframe
+geopy

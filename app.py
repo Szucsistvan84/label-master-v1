@@ -10,11 +10,6 @@ import os
 import gspread
 import base64
 import unicodedata
-import folium
-import logging
-from geopy.geocoders import Nominatim
-from geopy.extra.rate_limiter import RateLimiter
-from streamlit_folium import st_folium
 from datetime import datetime
 from gspread_dataframe import set_with_dataframe
 from google.oauth2 import service_account
@@ -29,230 +24,11 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame, Flowable
 
-# 2. LOGGOLÁS BEÁLLÍTÁSA
-LOG_FILE = "utvonaltervezo.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
 # --- GOOGLE SHEETS KONFIGURÁCIÓ ---
-# 1. Ételek, árak, névnapok (Interfood_Master_Data)
 SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
-
-# 2. Ügyfelek, címek, GPS, sorrend (Etikett_Ugyfelkor_DB)
-UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
-
-# --- GEOCODING SETUP ---
-geolocator = Nominatim(user_agent="futarszoli_app")
-logger.info("Geolocator inicializálva.")
-geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)
 
 # Itt hozzuk létre üresen, minden függvényen kívül
 client = None 
-
-def get_coordinates(address):
-    """
-    Lekéri a megadott cím koordinátáit a Nominatim segítségével, 
-    hibakezeléssel és naplózással kiegészítve.
-    """
-    try:
-        # Itt a 'geocode' objektumot használjuk, ami a RateLimiter-en keresztül fut
-        location = geocode(address) 
-        
-        if location:
-            logger.info(f"Cím sikeresen feloldva: {address} -> {location.latitude}, {location.longitude}")
-            return location.latitude, location.longitude
-        else:
-            logger.warning(f"Nem található koordináta a címhez: {address}")
-            return None, None
-            
-    except Exception as e:
-        # A korábbi üres 'except:' helyett most elkapjuk a hiba okát is
-        logger.error(f"Váratlan hiba a geocoding során ({address}): {e}")
-        return None, None
-
-def tisztitott_cim_lekerese(nyers_szoveg):
-    if not nyers_szoveg:
-        return ""
-    # Tisztítás a felesleges karakterektől
-    szoveg = nyers_szoveg.replace('$', '').strip()
-    
-    # REGEX: Irányítószám (4 szám) + Város + Utca + Házszám
-    # Ez a minta megengedi a pontokat az utca után és keresi a számokat utána
-    minta = r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-z-áéíóöőúüű]+\s*,\s*[^,]+?\s\d+[a-zA-Z0-9\/\-\.]*)'
-    match = re.search(minta, szoveg)
-    
-    if match:
-        return match.group(1).strip()
-    
-    # Ha a bonyolult minta nem talál semmit, egy egyszerűbb vágás, ami nem bántja a házszámot
-    # Csak a tipikus emelet/ajtó kulcsszavaktól vágunk
-    tisztitott = szoveg.split('. fsz')[0].split('. fszt')[0].split(', fsz')[0]
-    return tisztitott.strip()
-
-def master_lista_szinkron(df_napi, client, sheet_id):
-    logger.info("Master lista szinkronizálása elindult...")
-    
-    try:
-        sh = client.open_by_key(sheet_id)
-        ws_ugyfel = sh.worksheet("Ugyfelkor")
-        master_df = pd.DataFrame(ws_ugyfel.get_all_records())
-        logger.info(f"Mesterlista beolvasva, {len(master_df)} meglévő ügyfél található.")
-    except Exception as e:
-        logger.error(f"Hiba a Google Sheets megnyitásakor: {e}")
-        st.error("Nem sikerült elérni az 'Ugyfelkor' táblázatot!")
-        return df_napi, pd.DataFrame()
-
-    # KÉNYSZERÍTSÜK SZÖVEGGÉ AZ ID-T A MESTERLISTÁBAN
-    if not master_df.empty:
-        master_df['ID'] = master_df['ID'].astype(str).str.strip()
-
-    uj_ugyfelek = []
-    for _, row in df_napi.iterrows():
-        raw_id = str(row['ID'])
-        u_id = raw_id.split('-')[-1].strip() if '-' in raw_id else raw_id.strip()
-        
-        if master_df.empty or u_id not in master_df['ID'].values:
-            nev = row.get('Ügyintéző', row.get('Nev', 'Ismeretlen név'))
-            eredeti_cim = str(row.get('Cim', row.get('Cím', '')))
-            
-            # ÚJ TISZTÍTÁSI LOGIKA
-            keresesi_cim = tisztitott_cim_lekerese(eredeti_cim)
-            
-            logger.info(f"Új ügyfél észleléve: {nev} ({u_id}). Koordináták lekérése...")
-            st.info(f"Új ügyfél: {nev} - Koordináták lekérése...")
-            
-            try:
-                lat, lon = get_coordinates(keresesi_cim)
-            except Exception as e:
-                logger.error(f"Váratlan hiba a geocoding során ({nev}): {e}")
-                lat, lon = None, None
-            
-            # TARTÓS NAPLÓZÁS (Session State + Logger)
-            if 'debug_log' not in st.session_state:
-                st.session_state.debug_log = []
-            
-            statusz_emoji = "✅ Találat" if lat else "❌ Nincs találat"
-            logger.info(f"Geocoding eredménye ({nev}): {statusz_emoji}")
-
-            st.session_state.debug_log.append({
-                "Ügyfél": nev,
-                "Küldve a Nominatimnek": keresesi_cim,
-                "Eredmény": statusz_emoji
-            })
-            
-            if not lat:
-                st.warning(f"⚠️ Nem találtam koordinátát: {keresesi_cim}")
-            else:
-                st.success(f"📍 Megvan: {keresesi_cim}")
-
-            uj_adat = {
-                'ID': u_id,
-                'Nev': nev,
-                'Cim': eredeti_cim,
-                'Lat': lat if lat else "",
-                'Lon': lon if lon else "",
-                # Itt a módosítás: nincs szorzó, de float típust használunk
-                'Sorrend': float(len(master_df) + len(uj_ugyfelek) + 1), 
-                'Utolso_Rendeles': pd.Timestamp.now().strftime('%Y.%m.%d'),
-                'Osszertek': row.get('Osszeg', 0),
-                'Rendeles_Szam': 1
-            }
-            uj_ugyfelek.append(uj_adat)
-
-    # Új ügyfelek mentése
-    if uj_ugyfelek:
-        try:
-            logger.info(f"{len(uj_ugyfelek)} új ügyfél mentése a táblázatba...")
-            new_rows_df = pd.DataFrame(uj_ugyfelek).fillna("")
-            ws_ugyfel.append_rows(new_rows_df.values.tolist())
-            
-            # Újratöltés frissítés után
-            master_df = pd.DataFrame(ws_ugyfel.get_all_records())
-            master_df['ID'] = master_df['ID'].astype(str).str.strip()
-            logger.info("Mesterlista sikeresen frissítve az új ügyfelekkel.")
-        except Exception as e:
-            logger.error(f"Hiba az új ügyfelek mentésekor: {e}")
-            st.error("Az új ügyfeleket nem sikerült elmenteni a Google Sheets-be!")
-
-    # ÖSSZEFÉSÜLÉS ELŐTTI TÍPUSKIJAVÍTÁS
-    df_napi['ID'] = df_napi['ID'].apply(lambda x: str(x).split('-')[-1].strip() if '-' in str(x) else str(x).strip())
-    
-    # Merge művelet loggolása
-    logger.info("Napi lista összefésülése a mesterlistával...")
-    df_napi = df_napi.merge(master_df[['ID', 'Sorrend', 'Lat', 'Lon']], on='ID', how='left')
-    
-    logger.info("Szinkronizáció kész.")
-    return df_napi.sort_values(by='Sorrend').reset_index(drop=True), master_df
-
-# --- VIZUALIZÁCIÓ ---
-def utvonal_terkep(df_napi):
-    st.subheader("Napi Útvonal Tervezet")
-    logger.info("Térkép generálása elindult...") # <--- Jelzés a logba
-    
-    # 1. Érvényes koordináták szűrése
-    valid_coords = df_napi[
-        pd.to_numeric(df_napi['Lat'], errors='coerce').notnull() & 
-        pd.to_numeric(df_napi['Lon'], errors='coerce').notnull()
-    ].copy()
-    
-    # 2. Alapértelmezett középpont (pl. Debrecen)
-    center_lat, center_lon = 47.53, 21.62 
-    
-    if not valid_coords.empty:
-        center_lat = float(valid_coords['Lat'].iloc[0])
-        center_lon = float(valid_coords['Lon'].iloc[0])
-        
-    # 3. Térkép létrehozása
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
-
-    # 4. Magyarország határaihoz igazítás
-    m.fit_bounds([[45.7, 16.1], [48.6, 22.9]])
-    
-    # 5. Pontok és vonal felrajzolása
-    points = []
-    for i, row in df_napi.iterrows():
-        # Név meghatározása korán, hogy a logban is használni tudjuk
-        nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
-        
-        try:
-            lat = float(row['Lat'])
-            lon = float(row['Lon'])
-            
-            if not (math.isnan(lat) or math.isnan(lon)):
-                loc = [lat, lon]
-                points.append(loc)
-                
-                folium.Marker(
-                    location=loc,
-                    popup=f"{i+1}. {nev}", 
-                    icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{i+1}</div>""")
-                ).add_to(m)
-            else:
-                logger.warning(f"Kihagyott pont (NaN): {nev} (Sor: {i+1})")
-                
-        except (ValueError, TypeError):
-            logger.warning(f"Kihagyott pont (hibás formátum): {nev} (Sor: {i+1})")
-            continue 
-
-    # Ha van legalább két pontunk, összekötjük őket
-    if len(points) > 1:
-        folium.PolyLine(points, color="red", weight=2.5, opacity=0.8).add_to(m)
-    
-    # Térkép megjelenítése Streamlitben
-    if not valid_coords.empty:
-        st_folium(m, width=700, height=500)
-        logger.info(f"Térkép sikeresen megjelenítve {len(points)} ponttal.") # <--- Siker logolása
-    else:
-        st.warning("⚠️ Nincsenek érvényes koordináták a térkép megjelenítéséhez.")
-        logger.error("A térkép nem jeleníthető meg: nincsenek érvényes koordináták a napi listában.")
 
 def get_google_sheets_creds():
     creds_info = st.secrets["gcp_service_account"].to_dict()
@@ -1544,17 +1320,10 @@ def merge_data(all_rows):
     
     res = pd.DataFrame(merged)
     
-    # Sorrend fixálása és újraosztása
+    # Sorrend fixálása
     if 'Sorrend' in res.columns:
-        # Kényszerítjük a numerikus típust, hogy a rendezés biztosan jó legyen
-        res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce').fillna(0)
-        
-        # 1. Sorbarendezés a Google Sheets-ben megadott értékek szerint
-        res = res.sort_values('Sorrend').reset_index(drop=True)
-        
-        # 2. Újraosztás: Itt kapja meg a tényleges 1, 2, 3... sorszámot
-        # Ez felülírja a 10, 20, 30-as értékeket a memóriában az export előtt
-        res['Sorrend'] = range(1, len(res) + 1)
+        res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce')
+        res = res.sort_values('Sorrend')
 
     # --- CSOPORTOSÍTÁS (Keretezéshez) ---
     res['Csoport'] = 0
@@ -1948,20 +1717,11 @@ def create_manifest_pdf(df, c_n, meta):
         digits_only = "".join(re.findall(r'\d+', p_raw))
         penz_val = p_raw if (digits_only and int(digits_only) > 0) else "" 
         
-        # --- EZT A BLOKKOT FRISSÍTSD ---
-        sorszam_nyers = row.get('Sorrend', i+1)
-        try:
-            # Ha float (10.0), akkor int-té alakítjuk, hogy ne legyen tizedesjegy
-            sorszam_vegleges = str(int(float(sorszam_nyers)))
-        except:
-            # Ha bármi hiba van az átalakításnál, marad az eredeti i+1
-            sorszam_vegleges = str(i+1)
-
         table_data.append([
-            sorszam_vegleges,                                    # 0: # (Sorszám javítva)
+            f"{int(row.get('Sorrend', i+1))}",                   # 0: #
             info_flow,                                           # 1: Név/Cím
             Paragraph(formazott_rendeles, styles['Small']),      # 2: Rendelés
-            Checkbox(10),                                        # 3: ☐
+            Checkbox(10),                                        # 3: ☐ (EZ AZ ÚJ HELYE)
             Paragraph(f"<b>{penz_val}</b>", styles['Normal']),   # 4: Pénz
             Paragraph(str(row.get('Telefon', '')), styles['Small']), # 5: Tel
             str(row.get('Összesen', ''))                         # 6: DB
@@ -2194,16 +1954,37 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     buf.seek(0)
     return buf
     
-# --- FŐ PROGRAMFUTÁS ---
+    # --- FŐ PROGRAMFUTÁS JAVÍTVA ---
+    
+    if st.session_state.mdf is not None:
+        # Biztosítjuk, hogy legyen Csoport oszlop
+        if 'Csoport' not in st.session_state.mdf.columns:
+            st.session_state.mdf['Csoport'] = ""
+
+        st.subheader("📦 Adatok ellenőrzése és Sorrendezés")
+        
+        edited_df = st.data_editor(
+            st.session_state.mdf,
+            key=f"editor_{st.session_state.get('editor_key', 0)}", 
+            hide_index=True,
+            use_container_width=True,
+            num_rows="dynamic",
+            column_config={
+                "Csoport": st.column_config.TextColumn(
+                    "Csoport",
+                    help="Azonos jel esetén (pl. '1') a PDF-ben egy keretbe kerülnek.",
+                    width="small"
+                ),
+                "Sorrend": st.column_config.NumberColumn("Sor", format="%.1f", width="small"),
+                "Ügyintéző": "Név",
+                "Telefon": "Tel",
+                "Pénz": "Összeg",
+                "Megjegyzés": "Infó"
+            }
+        )
+
 def main():
-    # 1. Globális elérés a gspread kliensnek
-    global client  
-
-    # 2. Az ID-k fix definiálása helyben
-    # Így a függvény minden sora látni fogja őket, és nem kell máshol átírni semmit
-    SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o" 
-    UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
-
+    global client  # <--- EZT A SORT ÍRD BE IDE!
     st.set_page_config(page_title="Interfood Label Master", layout="wide")
     register_fonts()
 
@@ -2296,7 +2077,7 @@ def main():
                 ev = meta_auto.get('ev')
                 het = meta_auto.get('het')
 
-                # --- Google Sheets szinkronizálás ---
+                # --- Google Sheets szinkronizálás (Heti étlap) ---
                 if ev and het:
                     session_key = f"sync_{ev}_{het}"
                     if session_key not in st.session_state:
@@ -2327,55 +2108,31 @@ def main():
 
                 if all_rows:
                     df_temp = merge_data(all_rows)
-                    with st.spinner("Ügyféladatok szinkronizálása..."):
-                        df_temp, m_df_friss = master_lista_szinkron(df_temp, client, UGYFELKOR_SHEET_ID)
-                        st.session_state.master_df = m_df_friss
-                    
+                    # Itt jön majd be később az ügyfelek sorrendjének betöltése a Sheets-ből!
                     st.session_state.mdf = df_temp
                     st.rerun()
-
-        st.divider() 
-        # JAVÍTÁS: Nincs extra behúzás, és mivel már st.sidebar-ban vagyunk, sima st.expander
-        with st.expander("🛠️ Fejlesztői eszközök"):
-            if st.button("Log fájl mutatása", use_container_width=True):
-                if os.path.exists(LOG_FILE):
-                    with open(LOG_FILE, "r", encoding="utf-8") as f:
-                        log_content = f.readlines()
-                        last_logs = "".join(log_content[-100:]) 
-                        st.text_area("Legutóbbi naplóbejegyzések", last_logs, height=300)
-                else:
-                    st.write("Még nincs log fájl.")
-            
-            if st.button("Log törlése", use_container_width=True):
-                if os.path.exists(LOG_FILE):
-                    os.remove(LOG_FILE)
-                    st.success("Log fájl törölve.")
-                    logger.info("A felhasználó törölte a log fájlt.")
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
         
-        # --- 1. ADATOK ELŐKÉSZÍTÉSE ÉS TISZTÍTÁSA ---
-        # Csak EGYSZER hozzuk létre a másolatot
+        # Adatok előkészítése
         df_to_edit = st.session_state.mdf.copy()
 
-        # Biztosítjuk a Sorrend létezését és típusát
+        # Biztosítjuk a Sorrend létezését és típusát (tizedesek miatt float)
         if 'Sorrend' not in df_to_edit.columns:
             df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
         
-        # Kényszerített numerikus típus (tizedesek miatt float)
-        df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999.0).astype(float)
+        df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999).astype(float)
 
-        # MINDEN OSZLOP TISZTÍTÁSA (A Streamlit hiba elkerülése érdekében)
-        # Ez a rész biztosítja, hogy ne maradjon "mixed type" vagy rejtett NaN objektum
-        for col in df_to_edit.columns:
-            if col != 'Sorrend': # A Sorrend maradjon float
-                df_to_edit[col] = df_to_edit[col].astype(str).replace(['nan', 'None', '<NA>', '0.0', '0'], '')
-
+        # Csoport oszlop szöveggé alakítása (Halköz miatt)
+        if "Csoport" in df_to_edit.columns:
+            df_to_edit["Csoport"] = df_to_edit["Csoport"].astype(str).replace(['nan', 'None', '0', '0.0'], '')
+        
         # Rendezés a megjelenítés előtt
         df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
 
-        # --- 2. OSZLOPREND MEGHATÁROZÁSA ---
+        # --- FIX OSZLOPREND MEGHATÁROZÁSA ---
+        # Ez garantálja, hogy a Sorrend lesz az ELSŐ
         preferred_order = ["Sorrend", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Csoport", "Megjegyzés", "temp_id"]
         actual_cols = df_to_edit.columns.tolist()
         final_column_order = [c for c in preferred_order if c in actual_cols]
@@ -2383,51 +2140,51 @@ def main():
     
         st.subheader("Szállítási lista")
         
-        # --- 3. MEGJELENÍTÉS ---
-        # FONTOS: Itt NEM szabad újra leírni a df_to_edit = st.session_state.mdf.copy() sort!
-        
+        # --- MEGJELENÍTÉS ---
+        # Itt a final_column_order-t használjuk!
         edited_df = st.data_editor(
             df_to_edit,
             column_order=final_column_order, 
             column_config={
                 "Sorrend": st.column_config.NumberColumn(
                     "Sorrend",
-                    help="Írj be tizedest (pl. 88.5) a beszúráshoz!",
+                    help="Írj be tizedest (pl. 88.5), majd nyomj a lenti gombra!",
                     format="%.1f",
                     step=0.1,
                 ),
-                "Csoport": st.column_config.TextColumn("Csoport"),
+                "Csoport": st.column_config.TextColumn(
+                    "Csoport", 
+                    help="Zónanév vagy szám"
+                ),
                 "Pénz": st.column_config.TextColumn("Pénz"),
                 "temp_id": None, 
             },
             num_rows="dynamic",
             key=f"editor_{st.session_state.editor_key}",
-            use_container_width=True,
-            hide_index=True
+            use_container_width=True
         )
-
-        # --- TÉRKÉP MEGJELENÍTÉSE ---
-        with st.expander("🗺️ Útvonal megtekintése a térképen", expanded=False):
-            utvonal_terkep(edited_df) 
+    
+        # --- ÜGYFÉLKÖR SZINKRON SZEKCIÓ ---
+        UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
         st.subheader("🗄️ Ügyfélkör kezelése")
-        
-        gomb_col1, gomb_col2, gomb_col3 = st.columns(3)
+        col_sz1, col_sz2 = st.columns(2)
 
-        with gomb_col1:
-            if st.button("💾 SORREND ÉS MENTÉS (Cloud)", use_container_width=True):
+        with col_sz1:
+            if st.button("💾 SORREND ÉS MENTÉS", use_container_width=True):
                 temp_df = edited_df.copy()
-                temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce')
                 
+                # Számmá alakítás és az üresek kitöltése a PDF sorrendjével
+                temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce')
                 if 'Original_Order' in temp_df.columns:
                     temp_df['Sorrend'] = temp_df['Sorrend'].fillna(temp_df['Original_Order'])
                 else:
                     temp_df['Sorrend'] = temp_df['Sorrend'].fillna(999)
                 
+                # Rendezés (csak sorrend) és újrasorszámozás egészekre
                 temp_df = temp_df.sort_values(['Sorrend'])
                 temp_df['Sorrend'] = range(1, len(temp_df) + 1)
                 
-                # Itt használja az ID-t:
                 siker = sync_ugyfelkor_fel(temp_df, UGYFELKOR_SHEET_ID, client)
                 
                 if siker > 0:
@@ -2436,20 +2193,14 @@ def main():
                     st.success(f"Sikeres mentés! {siker} ügyfél szinkronizálva.")
                     st.rerun()
 
-        with gomb_col2:
-            if st.button("🔢 SORSZÁMOK FIXÁLÁSA (1,2,3...)", use_container_width=True):
-                temp_df = edited_df.sort_values(by="Sorrend").copy()
-                temp_df['Sorrend'] = range(1, len(temp_df) + 1)
-                st.session_state.mdf = temp_df.reset_index(drop=True)
-                st.session_state.editor_key += 1
-                st.rerun()
-
-        with gomb_col3:
+        with col_sz2:
             if st.button("🔄 JAVÍTOTT ADATOK BETÖLTÉSE", use_container_width=True):
-                # Itt is kell az ID:
+                # Lehúzzuk a friss adatokat a Sheet-ről
                 st.session_state.mdf = adatok_visszatoltese_sheetrol(st.session_state.mdf, UGYFELKOR_SHEET_ID, client)
+                
+                # Fontos: Frissítés után kényszerítjük a session_state mentését
                 st.session_state.editor_key += 1
-                st.success("Adatok frissítve a Google Sheet-ből!")
+                st.success("Adatok (nevek, csoportok, sorrend) frissítve a Google Sheet-ből!")
                 st.rerun()
 
         st.divider()

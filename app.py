@@ -223,8 +223,28 @@ def utvonal_terkep(df_napi, client, sheet_id):
     logger.info("Térkép generálása elindult...")
     
     # 1. ÉRVÉNYES KOORDINÁTÁK SZŰRÉSE ÉS HELYREÁLLÍTÁSA
+    # Adatintegráció: Összefűzzük a napi listát a központi mdf-ből származó GPS adatokkal az ID alapján
     df_valid_gps = df_napi.copy()
     
+    if 'mdf' in st.session_state:
+        # Kiválasztjuk a központi adatbázisból csak az ID-t és a hozzá tartozó GPS-t
+        gps_torzs = st.session_state.mdf[['ID', 'Lat', 'Lon']].copy()
+        # Biztosítjuk, hogy az ID-k típusa egységesen string legyen az összeillesztéshez
+        df_valid_gps['ID'] = df_valid_gps['ID'].astype(str).str.strip()
+        gps_torzs['ID'] = gps_torzs['ID'].astype(str).str.strip()
+        
+        # Ha a napi listában már benne lennének a régi/üres Lat/Lon oszlopok, azokat eldobjuk
+        df_valid_gps = df_valid_gps.drop(columns=['Lat', 'Lon'], errors='ignore')
+        
+        # LEFT JOIN az ID alapján, így a napi listához hozzárendeljük a friss koordinátákat
+        df_valid_gps = pd.merge(df_valid_gps, gps_torzs, on='ID', how='left')
+    
+    # Ha valamiért még így sem léteznének az oszlopok, létrehozzuk őket üresen a hiba elkerülésére
+    if 'Lat' not in df_valid_gps.columns:
+        df_valid_gps['Lat'] = float('nan')
+    if 'Lon' not in df_valid_gps.columns:
+        df_valid_gps['Lon'] = float('nan')
+
     # Szigorú tisztítás stringként: levágjuk az aposztrófokat, cseréljük a vesszőt, levágjuk a szóközöket
     df_valid_gps['Lat'] = df_valid_gps['Lat'].astype(str).str.replace("'", "").str.replace(',', '.').str.strip()
     df_valid_gps['Lon'] = df_valid_gps['Lon'].astype(str).str.replace("'", "").str.replace(',', '.').str.strip()

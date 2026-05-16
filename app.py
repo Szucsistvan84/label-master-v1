@@ -416,9 +416,12 @@ def utvonal_terkep(df_napi, client, sheet_id):
                                         ws_ugyfel.update_cell(row_num, 5, str_uj_lon)
                                         
                                         # Azonnali frissítés a futó memóriában (session_state), pontosan ugyanazzal a stringgel
+                                        # Azonnali frissítés a futó memóriában (session_state)
                                         if 'mdf' in st.session_state:
-                                            st.session_state.mdf.loc[st.session_state.mdf['ID'].astype(str).str.strip() == kivalasztott_id, 'Lat'] = str_uj_lat
-                                            st.session_state.mdf.loc[st.session_state.mdf['ID'].astype(str).str.strip() == kivalasztott_id, 'Lon'] = str_uj_lon
+                                            # Biztosra megyünk: az ID-kat stringként tisztítjuk és összehasonlítjuk
+                                            mask = st.session_state.mdf['ID'].astype(str).str.strip() == str(kivalasztott_id).strip()
+                                            st.session_state.mdf.loc[mask, 'Lat'] = str_uj_lat
+                                            st.session_state.mdf.loc[mask, 'Lon'] = str_uj_lon
                                         
                                         st.success(f"🎉 Sikeresen mentve! {ugyfel_adat.get('Nev','Ügyfél')} koordinátája frissült: {uj_lat:.7f}, {uj_lon:.7f}")
                                         logger.info(f"Manuális koordináta frissítés sikeres a felhőben. ID: {kivalasztott_id}")

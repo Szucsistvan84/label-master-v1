@@ -216,14 +216,18 @@ def utvonal_terkep(df_napi, client, sheet_id):
     st.subheader("Napi Útvonal Tervezet")
     logger.info("Térkép generálása elindult...")
     
-    # 1. ÉRVÉNYES KOORDINÁTÁK SZŰRÉSE (Északi-sark és hibás adatok kizárása)
+    # 1. ÉRVÉNYES KOORDINÁTÁK SZŰRÉSE (Szigorú, de hibatűrő számmá alakítás)
     df_valid_gps = df_napi.copy()
     
-    # Biztonságos számmá alakítás
+    # Letisztítjuk a szöveges maradványokat, ha vannak (vesszők cseréje pontra, szóközök levágása)
+    df_valid_gps['Lat'] = df_valid_gps['Lat'].astype(str).str.replace(',', '.').str.strip()
+    df_valid_gps['Lon'] = df_valid_gps['Lon'].astype(str).str.replace(',', '.').str.strip()
+    
+    # Most alakítjuk számmá, a hibásakat (üres, nan, szöveg) NaN-ra állítjuk
     df_valid_gps['Lat'] = pd.to_numeric(df_valid_gps['Lat'], errors='coerce')
     df_valid_gps['Lon'] = pd.to_numeric(df_valid_gps['Lon'], errors='coerce')
     
-    # Csak a valós, Debrecen környéki koordinátákat engedjük fel a térképre (Kiszűri a 0, 999 vagy nan értékeket)
+    # Csak a valós, Debrecen környéki koordinátákat engedjük fel a térképre
     df_valid_gps = df_valid_gps[
         (df_valid_gps['Lat'].notna()) & (df_valid_gps['Lon'].notna()) &
         (df_valid_gps['Lat'] > 47.0) & (df_valid_gps['Lat'] < 48.5) &
@@ -250,8 +254,10 @@ def utvonal_terkep(df_napi, client, sheet_id):
         sorszam = row.get('Sorrend', i + 1)
         
         try:
-            lat = float(row['Lat'])
-            lon = float(row['Lon'])
+            lat_str = str(row.get('Lat', '')).replace(',', '.').strip()
+            lon_str = str(row.get('Lon', '')).replace(',', '.').strip()
+            lat = float(lat_str) if lat_str and lat_str.lower() != 'nan' else float('nan')
+            lon = float(lon_str) if lon_str and lon_str.lower() != 'nan' else float('nan')
             
             # Csak akkor rakjuk fel a térképre, ha a koordináta debreceni tartományban van
             if not (math.isnan(lat) or math.isnan(lon)) and (47.0 < lat < 48.5) and (21.0 < lon < 22.5):

@@ -247,16 +247,47 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             logger.error(f"Hiba az új ügyfelek mentésekor: {e}")
             st.error("Az új ügyfeleket nem sikerült elmenteni a Google Sheets-be!")
 
-    # ÖSSZEFÉSÜLÉS ELŐTTI TÍPUSKIJAVÍTÁS
-    df_napi['ID'] = df_napi['ID'].apply(lambda x: str(x).split('-')[-1].strip() if '-' in str(x) else str(x).strip())
+    # =========================================================================
+    # --- ÖSSZEFÉSÜLÉS ELŐTTI TÍPUSKIJAVÍTÁS (INTEGRITÁS BIZTOSÍTÁSA) ---
+    # =========================================================================
+    def tiszta_id_konverzio(x):
+        if pd.isna(x) or x == "":
+            return ""
+        s = str(x).strip()
+        # Ha van benne kötőjel (pl. napi listás formátum), levágjuk az elejét
+        if '-' in s:
+            s = s.split('-')[-1].strip()
+        # Ha float formátum (.0), eltávolítjuk
+        if s.endswith('.0'):
+            s = s[:-2]
+        # Ha egyéb tizedesjegy lenne benne (pl. pont), csak az egész részt hagyjuk meg
+        if '.' in s:
+            s = s.split('.')[0]
+        return s
+
+    # 1. Kényszerítsük az ID-kat teljesen azonos string formátumra mindkét oldalon
+    df_napi['ID'] = df_napi['ID'].apply(tiszta_id_konverzio)
+    if not master_df.empty:
+        master_df['ID'] = master_df['ID'].apply(tiszta_id_konverzio)
     
-    # Merge művelet loggolása (csak a Lat és Lon kell a Sheetsből, a többit a napi import viszi)
     logger.info("Napi lista összefésülése a mesterlistával...")
     if not master_df.empty:
+        # Kidobjuk a napi listából a meglévő (üres) Lat/Lon oszlopokat, ha a merge hozni fogja őket
+        df_napi = df_napi.drop(columns=['Lat', 'Lon'], errors='ignore')
+        
+        # Oszlopnevek tisztítása a mesterlistában, hogy ne legyen keveredés
+        master_df.columns = [c.strip() for c in master_df.columns]
+        
+        # Összefésülés (Merge) végrehajtása azonos típusú (string) ID-k alapján
         df_napi = df_napi.merge(master_df[['ID', 'Lat', 'Lon']], on='ID', how='left')
     else:
         df_napi['Lat'] = ""
         df_napi['Lon'] = ""
+        
+    # Biztosítjuk, hogy az üresen maradt (be nem azonosított) koordináták üres stringek legyenek, ne NaN-ok
+    df_napi['Lat'] = df_napi['Lat'].fillna("").astype(str).str.strip()
+    df_napi['Lon'] = df_napi['Lon'].fillna("").astype(str).str.strip()
+    # =========================================================================
     
     # --- AUTOMATIKUS SORSZÁM: Azonnal 1, 2, 3... lesz a felületen a napi sorrend szerint ---
     df_napi['Sorrend'] = range(1, len(df_napi) + 1)

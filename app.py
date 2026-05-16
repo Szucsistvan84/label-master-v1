@@ -211,166 +211,205 @@ def master_lista_szinkron(df_napi, client, sheet_id):
 
 # --- VIZUALIZÁCIÓ ---
 def utvonal_terkep(df_napi, client, sheet_id):
+    import streamlit.components.v1 as components
+    
     st.subheader("Napi Útvonal Tervezet")
     logger.info("Térkép generálása elindult...")
     
-    # 1. Érvényes koordináták szűrése
-    valid_coords = df_napi[
-        pd.to_numeric(df_napi['Lat'], errors='coerce').notnull() & 
-        pd.to_numeric(df_napi['Lon'], errors='coerce').notnull()
-    ].copy()
+    # 1. ÉRVÉNYES KOORDINÁTÁK SZŰRÉSE (Északi-sark és hibás adatok kizárása)
+    df_valid_gps = df_napi.copy()
     
-    # 2. Alapértelmezett középpont (pl. Debrecen)
+    # Biztonságos számmá alakítás
+    df_valid_gps['Lat'] = pd.to_numeric(df_valid_gps['Lat'], errors='coerce')
+    df_valid_gps['Lon'] = pd.to_numeric(df_valid_gps['Lon'], errors='coerce')
+    
+    # Csak a valós, Debrecen környéki koordinátákat engedjük fel a térképre (Kiszűri a 0, 999 vagy nan értékeket)
+    df_valid_gps = df_valid_gps[
+        (df_valid_gps['Lat'].notna()) & (df_valid_gps['Lon'].notna()) &
+        (df_valid_gps['Lat'] > 47.0) & (df_valid_gps['Lat'] < 48.5) &
+        (df_valid_gps['Lon'] > 21.0) & (df_valid_gps['Lon'] < 22.5)
+    ]
+
+    # Alapértelmezett középpont (Debrecen közepe)
     center_lat, center_lon = 47.53, 21.62 
     
-    if not valid_coords.empty:
-        # Átlagolunk, hogy a pontok közepére fókuszáljon
-        center_lat = pd.to_numeric(valid_coords['Lat']).mean()
-        center_lon = pd.to_numeric(valid_coords['Lon']).mean()
+    if not df_valid_gps.empty:
+        # Ha van érvényes adat, az aktuális pontok földrajzi közepére fókuszálunk
+        center_lat = df_valid_gps['Lat'].mean()
+        center_lon = df_valid_gps['Lon'].mean()
         
-    # 3. Térkép létrehozása (Ha van adat, ráközelít, ha nincs, Debrecent mutatja)
-    zoom_szint = 13 if not valid_coords.empty else 12
+    zoom_szint = 13 if not df_valid_gps.empty else 12
     m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_szint)
-
-    # --- JAVÍTÁS (D PONT): Kivettük a fit_bounds-ot, így nem ugrik vissza egész Magyarországra! ---
     
-    # 5. Pontok és vonal felrajzolása
+    # Pontok gyűjtése az összekötő vonalhoz (PolyLine)
     points = []
+    
+    # Fontos: A teljes napi listán megyünk végig, hogy a térkép sorrendje stimmeljen
     for i, row in df_napi.iterrows():
         nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
-        # A jelenlegi tiszta sorszámunk (index + 1)
         sorszam = row.get('Sorrend', i + 1)
         
         try:
             lat = float(row['Lat'])
             lon = float(row['Lon'])
             
-            if not (math.isnan(lat) or math.isnan(lon)):
+            # Csak akkor rakjuk fel a térképre, ha a koordináta debreceni tartományban van
+            if not (math.isnan(lat) or math.isnan(lon)) and (47.0 < lat < 48.5) and (21.0 < lon < 22.5):
                 loc = [lat, lon]
                 points.append(loc)
                 
                 folium.Marker(
                     location=loc,
-                    popup=f"<b>{sorszam}. {nev}</b><br>{row.get('Cím', '')}", 
+                    popup=f"<b>{sorszam}. {nev}</b><br>{row.get('Cim', row.get('Cím', ''))}", 
                     tooltip=f"{sorszam}. {nev}",
                     icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; border: 2px solid white; box-shadow: 0px 0px 5px rgba(0,0,0,0.5);">{sorszam}</div>""")
                 ).add_to(m)
             else:
-                logger.warning(f"Kihagyott pont (NaN): {nev} (Sor: {sorszam})")
+                logger.warning(f"Kihagyott pont a térképről (rossz tartomány vagy NaN): {nev} (Sor: {sorszam})")
                 
         except (ValueError, TypeError):
             logger.warning(f"Kihagyott pont (hibás formátum): {nev} (Sor: {sorszam})")
             continue 
 
-    # Ha van legalább két pontunk, összekötjük őket
+    # Útvonal összekötése piros vonallal
     if len(points) > 1:
         folium.PolyLine(points, color="red", weight=2.5, opacity=0.8).add_to(m)
     
-    # Térkép megjelenítése Streamlitben
-    if not valid_coords.empty:
-        st_folium(m, width=700, height=500, key="napi_terkep")
+    # Térkép kirajzolása a felületre
+    if not df_valid_gps.empty:
+        st_folium(m, use_container_width=True, height=500, key="napi_foterkepe")
         logger.info(f"Térkép sikeresen megjelenítve {len(points)} ponttal.")
     else:
-        st.warning("⚠️ Nincsenek érvényes koordináták a térkép megjelenítéséhez.")
-        logger.error("A térkép nem jeleníthető meg: nincsenek érvényes koordináták a napi listában.")
+        st.warning("⚠️ Jelenleg egyetlen címnek sincs érvényes GPS koordinátája! Kérjük, vigyél fel koordinátákat az alábbi űrlapon.")
+        # Ha teljesen üres, kirajzolunk egy alap Debrecen térképet
+        m_empty = folium.Map(location=[47.5316, 21.6273], zoom_start=12)
+        st_folium(m_empty, use_container_width=True, height=400, key="ures_terkep")
 
-    # ==========================================
-    # --- C PONT: MANUÁLIS KOORDINÁTA JAVÍTÓ ÚRLAP ---
-    # ==========================================
+    # ==================================================
+    # --- INTELLIGENS KOORDINÁTA KARBANTARTÓ PANEL ---
+    # ==================================================
     st.markdown("---")
-    st.subheader("📍 Sikertelen koordináta-keresések manuális javítása")
-
-    # Kiszűrjük azokat a sorokat a jelenlegi táblázatból, ahol nincs koordináta
-    hianyzo_koordinatak = df_napi[
-        df_napi['Lat'].isna() | (df_napi['Lat'] == '') | (df_napi['Lat'].astype(str) == 'nan') |
-        df_napi['Lon'].isna() | (df_napi['Lon'] == '') | (df_napi['Lon'].astype(str) == 'nan')
+    st.subheader("📍 Koordináták ellenőrzése és precíz finomhangolása")
+    
+    # Kiszűrjük azokat a sorokat, ahol egyáltalán nincs koordináta (vagy hibás 'nan' szöveg van benne)
+    hianyos_ugyfelek = df_napi[
+        df_napi['Lat'].isna() | (df_napi['Lat'] == '') | (df_napi['Lat'].astype(str).str.lower() == 'nan') |
+        df_napi['Lon'].isna() | (df_napi['Lon'] == '') | (df_napi['Lon'].astype(str).str.lower() == 'nan') |
+        df_napi['Lat'].astype(str).str.contains('999|0.0', na=True)
     ]
+    
+    if not hianyos_ugyfelek.empty:
+        st.error(f"🚨 Sürgős pótlást igényel: **{len(hianyos_ugyfelek)} ügyfélnek** nincs működő GPS koordinátája! (Ezeket rakja előre a lista)")
+    else:
+        st.success("✅ Minden mai cím rendelkezik alap koordinátával! (Lentebb finomíthatod őket pontos kapukhoz)")
 
-    if not hianyzo_koordinatak.empty:
-        st.warning(f"⚠️ {len(hianyzo_koordinatak)} ügyfélhez nem található GPS koordináta! (Pl. helyrajzi számos vagy pontatlan címek).")
+    # Legördülő lista építése: A hiányosak kapnak egy ❌-et és előre kerülnek, a jók egy 🎯-ot kapnak
+    lista_elemek = []
+    id_mapping = {}
+    
+    # 1. Előre soroljuk a hiányzókat
+    for idx, row in hianyos_ugyfelek.iterrows():
+        nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
+        cim = row.get('Cim', row.get('Cím', 'Nincs cím'))
+        u_id = str(row.get('ID', idx)).strip()
+        sorszam = row.get('Sorrend', idx + 1)
+        label = f"❌ [HIÁNYZIK] #{sorszam} - {nev} ({cim})"
+        lista_elemek.append(label)
+        id_mapping[label] = u_id
         
-        st.markdown("""
-        **💡 Hogyan javítsd ki?**
-        1. Nyisd meg a [Google Maps-et](https://maps.google.com).
-        2. Keresd meg a házat/helyszínt, majd **jobb klikk a térképen a pontos pontra**.
-        3. A felugró kis menü legtetején kattints a koordinátákra (ezzel automatikusan kimásolja a vágólapra).
-        4. Válaszd ki alább az ügyfelet, másold be a számokat, és mentsd el!
-        """)
-        
-        # Lista készítése a legördülő menühöz
-        ugyfel_opciok = []
-        id_mapping = {} # Segít visszafejteni, melyik ID-t választották
-        
-        for idx, row in hianyzo_koordinatak.iterrows():
+    # 2. Utána fűzzük az összes többi jól működő címet, amit a futár finomítani szeretne (pl. Klinika pavilon)
+    for idx, row in df_napi.iterrows():
+        u_id = str(row.get('ID', idx)).strip()
+        # Csak akkor adjuk hozzá, ha a hiányosak közé nem került be az előbb
+        if u_id not in hianyos_ugyfelek['ID'].astype(str).str.strip().values:
             nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
-            cim = row.get('Cím', 'Nincs cím')
-            u_id = str(row.get('ID', idx))
-            label = f"{nev} - {cim} (ID: {u_id})"
-            ugyfel_opciok.append(label)
+            cim = row.get('Cim', row.get('Cím', 'Nincs cím'))
+            sorszam = row.get('Sorrend', idx + 1)
+            label = f"🎯 [Rendben] #{sorszam} - {nev} ({cim})"
+            lista_elemek.append(label)
             id_mapping[label] = u_id
-            
-        kivalasztott_label = st.selectbox("Válaszd ki a javítandó ügyfelet:", ugyfel_opciok)
+
+    if lista_elemek:
+        kivalasztott_label = st.selectbox("Válaszd ki a javítani vagy pontosítani kívánt ügyfelet:", lista_elemek)
         kivalasztott_id = id_mapping[kivalasztott_label]
         
-        # Űrlap a beíráshoz
-        with st.form("manual_coords_form", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                uj_lat = st.text_input("Szélesség (Lat) pl.: 47.511475").strip()
-            with col2:
-                uj_lon = st.text_input("Hosszúság (Lon) pl.: 21.633386").strip()
-                
-            submit_btn = st.form_submit_button("💾 Koordináták mentése az adatbázisba")
+        # Kiválasztott ügyfél adatainak kinyerése
+        ugyfel_adat = df_napi[df_napi['ID'].astype(str).str.strip() == kivalasztott_id].iloc[0]
+        aktualis_cim = ugyfel_adat.get('Cim', ugyfel_adat.get('Cím', ''))
+        
+        st.info(f"📋 **Kiválasztott cím:** {aktualis_cim} \n\n Jelenlegi koordináták a rendszerben: Lat: `{ugyfel_adat.get('Lat','')}`, Lon: `{ugyfel_adat.get('Lon','')}`")
+        
+        # Két oszlopos elrendezés: Balra az egy-mezős űrlap, Jobbra az élő Google Maps segédablak
+        form_col, map_col = st.columns([1, 1])
+        
+        with form_col:
+            st.write("💡 **Másold ki a Google Maps-ből a koordinátákat egyben**, majd illeszd be ide:")
             
-            if submit_btn:
-                if uj_lat and uj_lon:
+            # EGYETLEN SZÖVEGES BEVITELI MEZŐ (Bolondbiztos feldolgozással)
+            gps_input = st.text_input(
+                "Google Maps koordináta (pl: 47.466281, 21.628966):", 
+                value="",
+                placeholder="Ide illeszd be a kimásolt teljes számsort...",
+                help="Kattints jobb gombbal a Google Mapsen a kívánt pontra (pl. gyárkapu), kattints a koordinátákra a másoláshoz, és illeszd be ide."
+            )
+            
+            if st.button("💾 Új koordináta elmentése a felhőbe", use_container_width=True):
+                if gps_input:
                     try:
-                        # Pontosítjuk a formátumot (ha valaki vesszőt írna pont helyett)
-                        uj_lat = uj_lat.replace(',', '.')
-                        uj_lon = uj_lon.replace(',', '.')
+                        # Feldolgozás: megtisztítjuk a zárójelektől, és felvágjuk vessző/szóköz mentén
+                        tiszta_input = gps_input.replace('(', '').replace(')', '').strip()
+                        parts = re.split(r'[\s,;]+', tiszta_input)
                         
-                        # 1. Frissítjük a memóriában (session_state) a master_df-et az ID alapján
-                        if 'master_df' in st.session_state:
-                            # Biztosítjuk, hogy az ID-k típusa egyezzen (pl. int)
-                            st.session_state.master_df.loc[st.session_state.master_df['ID'].astype(str) == kivalasztott_id, 'Lat'] = uj_lat
-                            st.session_state.master_df.loc[st.session_state.master_df['ID'].astype(str) == kivalasztott_id, 'Lon'] = uj_lon
-                        
-                        # ==========================================
-                        # 2. KIÍRÁS A GOOGLE SHEETS-BE (VALÓDI MENTÉS)
-                        # ==========================================
-                        try:
-                            # Megnyitjuk a táblázatot a kapott klienssel és ID-val
-                            sh = client.open_by_key(sheet_id)
-                            ws_ugyfel = sh.worksheet("Ugyfelkor")
+                        if len(parts) >= 2:
+                            uj_lat = float(parts[0].replace(',', '.').strip())
+                            uj_lon = float(parts[1].replace(',', '.').strip())
                             
-                            # Megkeressük, melyik sorban van az adott ID a táblázat ID oszlopában
-                            id_cells = ws_ugyfel.findall(kivalasztott_id, in_column=1) # 1 = ID oszlop
-                            
-                            if id_cells:
-                                row_num = id_cells[0].row
-                                
-                                # Fontos: Ellenőrizd a Google Sheets füleden az oszlopok sorrendjét!
-                                # Ha az ID oszloptól számolva a Lat a 4., a Lon pedig az 5. oszlop, akkor a kód jó.
-                                ws_ugyfel.update_cell(row_num, 4, uj_lat) # 4. oszlop: Lat
-                                ws_ugyfel.update_cell(row_num, 5, uj_lon) # 5. oszlop: Lon
-                                logger.info(f"Google Sheets sikeresen frissítve a felhőben! Sor: {row_num}")
+                            # Biztonsági határ ellenőrzés (Debrecen környéke)
+                            if 47.0 <= uj_lat <= 48.5 and 21.0 <= uj_lon <= 22.5:
+                                with st.spinner("Szinkronizálás a Google Sheets táblázattal..."):
+                                    sh = client.open_by_key(sheet_id)
+                                    ws_ugyfel = sh.worksheet("Ugyfelkor")
+                                    
+                                    # Kikeressük az ID sorát a Sheets első oszlopában
+                                    id_cells = ws_ugyfel.findall(kivalasztott_id, in_column=1)
+                                    
+                                    if id_cells:
+                                        row_num = id_cells[0].row
+                                        # Lat = 4. oszlop, Lon = 5. oszlop az Ugyfelkor fülön
+                                        ws_ugyfel.update_cell(row_num, 4, uj_lat)
+                                        ws_ugyfel.update_cell(row_num, 5, uj_lon)
+                                        
+                                        # Azonnali frissítés a futó memóriában (session_state), hogy azonnal átugorjon a pont a helyére
+                                        if 'mdf' in st.session_state:
+                                            st.session_state.mdf.loc[st.session_state.mdf['ID'].astype(str).str.strip() == kivalasztott_id, 'Lat'] = uj_lat
+                                            st.session_state.mdf.loc[st.session_state.mdf['ID'].astype(str).str.strip() == kivalasztott_id, 'Lon'] = uj_lon
+                                        
+                                        st.success(f"🎉 Sikeresen mentve! {ugyfel_adat.get('Nev','Ügyfél')} koordinátája frissült: {uj_lat}, {uj_lon}")
+                                        logger.info(f"Manuális koordináta frissítés sikeres a felhőben. ID: {kivalasztott_id}")
+                                        st.rerun()
+                                    else:
+                                        st.error("Ez az ügyfél ID nem található a központi Google Sheets 'Ugyfelkor' lapján!")
                             else:
-                                logger.warning(f"A keresett ID ({kivalasztott_id}) nem található a Sheets ID oszlopában.")
-                                
-                        except Exception as sheet_err:
-                            logger.error(f"Nem sikerült a Google Sheets felhőbe menteni: {sheet_err}")
-                            st.error(f"A táblázat frissítése sikertelen, de a memóriában átmenetileg módosult: {sheet_err}")
-                        
-                        # --- SIKER JELZÉSE ÉS ÚJRATÖLTÉS ---
-                        st.success(f"🎉 Koordináták sikeresen frissítve az adatbázisban (ID: {kivalasztott_id})! Az oldal újraindul...")
-                        logger.info(f"Manuális koordináta frissítés sikeres. ID: {kivalasztott_id}, Lat: {uj_lat}, Lon: {uj_lon}")
-                        st.rerun()
-                        
+                                st.error("⚠️ Ez a koordináta kívül esik a működési régión! Kérlek, ellenőrizd a számokat.")
+                        else:
+                            st.error("⚠️ Nem sikerült szétválasztani a számokat! Győződj meg róla, hogy a másolt szövegben van vessző vagy szóköz.")
+                    except ValueError:
+                        st.error("⚠️ Kérlek, hogy csak a Mapsből kimásolt számokat illeszd be ide ponttal elválasztva (pl. 47.466281)!")
                     except Exception as e:
                         st.error(f"Hiba történt a mentés során: {e}")
                         logger.error(f"Hiba a manuális koordináta mentésnél: {e}")
-    else:
-        st.success("✨ Minden mai címhez van érvényes GPS koordináta! Nincs manuális javítást igénylő ügyfél.")
+                else:
+                    st.warning("Nem írtál be semmit a koordináta mezőbe!")
+                    
+        with map_col:
+            st.write("🗺️ **Beágyazott Google Maps segédablak:**")
+            # Biztonságos URL-kódolás a címnek az Iframe-hez
+            biztonsagos_cim = aktualis_cim.replace(' ', '+')
+            maps_url = f"https://maps.google.com/maps?q={biztonsagos_cim}&t=&z=16&ie=UTF8&iwloc=&output=embed"
+            
+            # Élő Google Maps iframe beágyazása, hogy ne navigáljon el az oldalról
+            components.iframe(maps_url, height=280, scrolling=True)
+            st.caption("A fenti ablak segít beazonosítani a címet. A jobb klikkes másoláshoz érdemes a Google Mapset egy külön böngészőlapon is megnyitni.")
 
 def get_google_sheets_creds():
     creds_info = st.secrets["gcp_service_account"].to_dict()

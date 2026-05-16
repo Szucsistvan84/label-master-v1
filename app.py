@@ -210,7 +210,7 @@ def master_lista_szinkron(df_napi, client, sheet_id):
     return df_napi, master_df
 
 # --- VIZUALIZÁCIÓ ---
-def utvonal_terkep(df_napi):
+def utvonal_terkep(df_napi, client, sheet_id):
     st.subheader("Napi Útvonal Tervezet")
     logger.info("Térkép generálása elindult...")
     

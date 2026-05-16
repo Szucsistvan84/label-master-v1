@@ -2532,7 +2532,7 @@ def main():
         gomb_col1, gomb_col2 = st.columns(2)
 
         with gomb_col1:
-            # 1. GOMB: HELYI RENDEZÉS ÉS ÚJRASORSZÁMOZÁS (Nem bántja a felhőt)
+            # 1. GOMB: HELYI RENDEZÉS ÉS ÚJRASORSZÁMOZÁS (A Napi listát rendezi a memóriában)
             if st.button("🔄 Sorrend frissítése és újrasorszámozás", use_container_width=True):
                 logger.info("Ideiglenes napi sorrend újrarendezése a felületen...")
                 
@@ -2543,8 +2543,8 @@ def main():
                 edited_df = edited_df.sort_values('Sorrend').reset_index(drop=True)
                 edited_df['Sorrend'] = range(1, len(edited_df) + 1)
                 
-                # Elmentjük a memóriába (session_state), és léptetjük a kulcsot az újrarajzoláshoz
-                st.session_state.master_df = edited_df  # <-- Figyelj rá, hogy a kódod mdf-et vagy master_df-et használ-e a session_state-ben! Ha mdf, írd át arra!
+                # --- ITT A JAVÍTÁS: st.session_state.mdf-et mentjük, mert ez a napi lista! ---
+                st.session_state.mdf = edited_df
                 st.session_state.editor_key += 1
                 
                 st.success("🔄 A sorrend frissítve! A térkép és a PDF-ek az új sorrendet követik.")

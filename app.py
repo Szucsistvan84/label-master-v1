@@ -274,10 +274,15 @@ def utvonal_terkep(df_napi, client, sheet_id):
         sorszam = row.get('Sorrend', i + 1)
         
         try:
-            lat_str = str(row.get('Lat', '')).replace(',', '.').strip()
-            lon_str = str(row.get('Lon', '')).replace(',', '.').strip()
-            lat = float(lat_str) if lat_str and lat_str.lower() != 'nan' else float('nan')
-            lon = float(lon_str) if lon_str and lon_str.lower() != 'nan' else float('nan')
+            # Letisztítjuk az aposztrófot és a vesszőt a ciklusban is, mielőtt számmá alakítanánk
+            lat_clean = str(row.get('Lat', '')).replace("'", "").replace(',', '.').strip()
+            lon_clean = str(row.get('Lon', '')).replace("'", "").replace(',', '.').strip()
+            
+            lat_val = pd.to_numeric(lat_clean, errors='coerce')
+            lon_val = pd.to_numeric(lon_clean, errors='coerce')
+            
+            lat = koordinata_helyreallito(lat_val)
+            lon = koordinata_helyreallito(lon_val)
             
             # Csak akkor rakjuk fel a térképre, ha a koordináta debreceni tartományban van
             if not (math.isnan(lat) or math.isnan(lon)) and (47.0 < lat < 48.5) and (21.0 < lon < 22.5):

@@ -101,8 +101,8 @@ def master_lista_szinkron(df_napi, client, sheet_id):
     logger.info("Master lista szinkronizálása elindult...")
     
     try:
-        # A mentés gomb belsejében is javítsd ki ezt a sort:
-        sh = client.open_by_key(UGYFELKOR_SHEET_ID)  # <-- Itt is legyen csupa nagybetű!
+        # A függvényen belül a mentési résznél így kell kinéznie:
+        sh = client.open_by_key(sheet_id)  # <-- Itt kisbetűs sheet_id kell, mert a függvény fejlécéből kapja!
         ws_ugyfel = sh.worksheet("Ugyfelkor")
         
         # Beolvasás: ha a táblázat üres (csak a fejléc van meg), egy üres DataFrame-et hozunk létre

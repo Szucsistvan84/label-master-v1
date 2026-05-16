@@ -1544,17 +1544,15 @@ def merge_data(all_rows):
     
     res = pd.DataFrame(merged)
     
-    # Sorrend fixálása és újraosztása
-    if 'Sorrend' in res.columns:
-        # Kényszerítjük a numerikus típust, hogy a rendezés biztosan jó legyen
-        res['Sorrend'] = pd.to_numeric(res['Sorrend'], errors='coerce').fillna(0)
-        
-        # 1. Sorbarendezés a Google Sheets-ben megadott értékek szerint
-        res = res.sort_values('Sorrend').reset_index(drop=True)
-        
-        # 2. Újraosztás: Itt kapja meg a tényleges 1, 2, 3... sorszámot
-        # Ez felülírja a 10, 20, 30-as értékeket a memóriában az export előtt
-        res['Sorrend'] = range(1, len(res) + 1)
+    # --- JAVÍTÁS AZ "A" PONTHOZ ---
+    # Nem rendezünk többet a Google Sheets 'Sorrend' oszlopa alapján (mivel töröljük).
+    # Helyette megtartjuk az importálás (menetterv) eredeti, természetes sorrendjét,
+    # és egyszerűen kap egy tiszta, automatikus sorszámozást 1-től a sorok száma alapján:
+    res['Sorrend'] = range(1, len(res) + 1)
+    
+    # A csoportosítási rész (ha van a kódban utána) maradhat változatlanul:
+    if 'Csoport' in res.columns:
+        res['Csoport'] = res['Csoport'].astype(str).replace(['nan', 'None', '0', '0.0'], '')
 
     # --- CSOPORTOSÍTÁS (Keretezéshez) ---
     res['Csoport'] = 0

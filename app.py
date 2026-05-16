@@ -153,14 +153,13 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             else:
                 st.success(f"📍 Megvan: {keresesi_cim}")
 
+            # --- JAVÍTÁS: KIVETTIK A SORREND OSZLOPOT A MENTÉSBŐL ---
             uj_adat = {
                 'ID': u_id,
                 'Nev': nev,
                 'Cim': eredeti_cim,
                 'Lat': lat if lat else "",
                 'Lon': lon if lon else "",
-                # Itt a módosítás: nincs szorzó, de float típust használunk
-                'Sorrend': float(len(master_df) + len(uj_ugyfelek) + 1), 
                 'Utolso_Rendeles': pd.Timestamp.now().strftime('%Y.%m.%d'),
                 'Osszertek': row.get('Osszeg', 0),
                 'Rendeles_Szam': 1
@@ -187,10 +186,15 @@ def master_lista_szinkron(df_napi, client, sheet_id):
     
     # Merge művelet loggolása
     logger.info("Napi lista összefésülése a mesterlistával...")
-    df_napi = df_napi.merge(master_df[['ID', 'Sorrend', 'Lat', 'Lon']], on='ID', how='left')
+    
+    # --- JAVÍTÁS: CSAK az ID, Lat és Lon oszlopokat vesszük át a Google Sheets-ből ---
+    df_napi = df_napi.merge(master_df[['ID', 'Lat', 'Lon']], on='ID', how='left')
+    
+    # --- AUTOMATIKUS SORSZÁM: Itt kapja meg a fix 1, 2, 3... sorrendet a napi beérkezés alapján ---
+    df_napi['Sorrend'] = range(1, len(df_napi) + 1)
     
     logger.info("Szinkronizáció kész.")
-    return df_napi.sort_values(by='Sorrend').reset_index(drop=True), master_df
+    return df_napi, master_df
 
 # --- VIZUALIZÁCIÓ ---
 def utvonal_terkep(df_napi):

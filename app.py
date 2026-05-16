@@ -107,8 +107,7 @@ def master_lista_szinkron(df_napi, client, sheet_id):
     logger.info("Master lista szinkronizálása elindult...")
     
     try:
-        # A függvényen belül a mentési résznél így kell kinéznie:
-        sh = client.open_by_key(sheet_id)  # <-- Itt kisbetűs sheet_id kell, mert a függvény fejlécéből kapja!
+        sh = client.open_by_key(sheet_id)  
         ws_ugyfel = sh.worksheet("Ugyfelkor")
         
         # Beolvasás: ha a táblázat üres (csak a fejléc van meg), egy üres DataFrame-et hozunk létre
@@ -124,7 +123,56 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         st.error("Nem sikerült elérni az 'Ugyfelkor' táblázatot!")
         return df_napi, pd.DataFrame()
 
-    # KÉNYSZERÍTSÜK SZÖVEGGÉ AZ ID-T A MESTERLISTÁBAN
+    # =========================================================================
+    # === AUTOMATIKUS TÖRZSDATBÁZIS TISZTÍTÁS ÉS APOSZTRÓFOZÁS INDULÁSKOR ===
+    # =========================================================================
+    if not master_df.empty and 'Lat' in master_df.columns and 'Lon' in master_df.columns:
+        logger.info("Kevert formátumok ellenőrzése és automatikus tisztítása...")
+        
+        # Tisztítjuk a memóriában lévő értékeket a biztonság kedvéért (leszedjük a sallangot)
+        master_df['Lat_clean'] = master_df['Lat'].astype(str).str.replace("'", "").str.replace(',', '.').str.strip()
+        master_df['Lon_clean'] = master_df['Lon'].astype(str).str.replace("'", "").str.replace(',', '.').str.strip()
+        
+        try:
+            # Végigmegyünk az összes soron, és ha valahol hiányzik az aposztróf a Sheets-ben, pótoljuk!
+            for idx, row in master_df.iterrows():
+                lat_val = row['Lat_clean']
+                lon_val = row['Lon_clean']
+                u_id = str(row['ID']).strip()
+                
+                # Csak akkor foglalkozunk vele, ha van érvényes koordinátája
+                if lat_val and lon_val and lat_val.lower() != 'nan' and lon_val.lower() != 'nan':
+                    # Megkeressük a sor számát az ID alapján
+                    id_cells = ws_ugyfel.findall(u_id, in_column=1)
+                    if id_cells:
+                        r_num = id_cells[0].row
+                        
+                        # Lekérjük a Google Sheets-ben lévő NYERS értéket
+                        curr_lat = str(ws_ugyfel.cell(r_num, 4).value).strip()
+                        
+                        # HA NEM APOSZTRÓFFAL KEZDŐDIK -> Programozottan felülírjuk kényszerített szöveges formátumra!
+                        if curr_lat and not curr_lat.startswith("'"):
+                            str_fix_lat = f"'{float(lat_val):.7f}"
+                            str_fix_lon = f"'{float(lon_val):.7f}"
+                            
+                            ws_ugyfel.update(range_name=f"D{r_num}", values=[[str_fix_lat]], value_input_option='RAW')
+                            ws_ugyfel.update(range_name=f"E{r_num}", values=[[str_fix_lon]], value_input_option='RAW')
+                            logger.info(f"ID: {u_id} sikeresen átalakítva kényszerített szöveges formátumra a felhőben.")
+                            
+            # Miután a felhőt szinkronba hoztuk, újraolvassuk a tiszta adatokat a memóriába
+            records = ws_ugyfel.get_all_records()
+            master_df = pd.DataFrame(records)
+            logger.info("Mesterlista sikeresen újraolvasva a tiszta felhős adatokból.")
+            
+        except Exception as e:
+            logger.warning(f"Automatikus adatbázis-tisztítás során hiba lépett fel: {e}")
+            
+        # Oszlopok takarítása
+        if 'Lat_clean' in master_df.columns:
+            master_df = master_df.drop(columns=['Lat_clean', 'Lon_clean'], errors='ignore')
+    # =========================================================================
+
+    # KÉNYSZERÍTSÜK SZÖVEGGÉ AZ ID-T A MESTERLISTÁBAN (Ez a te eredeti kódod folytatása)
     if not master_df.empty:
         master_df['ID'] = master_df['ID'].astype(str).str.strip()
 

@@ -406,16 +406,21 @@ def utvonal_terkep(df_napi, client, sheet_id):
                                     
                                     if id_cells:
                                         row_num = id_cells[0].row
+                                        
+                                        # GYÖKÉROK JAVÍTÁSA: Fix 7 tizedesjegyre kerekített string formátum, aposztróffal az elején
+                                        str_uj_lat = f"'{uj_lat:.7f}"
+                                        str_uj_lon = f"'{uj_lon:.7f}"
+                                        
                                         # Lat = 4. oszlop, Lon = 5. oszlop az Ugyfelkor fülön
-                                        ws_ugyfel.update_cell(row_num, 4, uj_lat)
-                                        ws_ugyfel.update_cell(row_num, 5, uj_lon)
+                                        ws_ugyfel.update_cell(row_num, 4, str_uj_lat)
+                                        ws_ugyfel.update_cell(row_num, 5, str_uj_lon)
                                         
-                                        # Azonnali frissítés a futó memóriában (session_state), hogy azonnal átugorjon a pont a helyére
+                                        # Azonnali frissítés a futó memóriában (session_state), pontosan ugyanazzal a stringgel
                                         if 'mdf' in st.session_state:
-                                            st.session_state.mdf.loc[st.session_state.mdf['ID'].astype(str).str.strip() == kivalasztott_id, 'Lat'] = uj_lat
-                                            st.session_state.mdf.loc[st.session_state.mdf['ID'].astype(str).str.strip() == kivalasztott_id, 'Lon'] = uj_lon
+                                            st.session_state.mdf.loc[st.session_state.mdf['ID'].astype(str).str.strip() == kivalasztott_id, 'Lat'] = str_uj_lat
+                                            st.session_state.mdf.loc[st.session_state.mdf['ID'].astype(str).str.strip() == kivalasztott_id, 'Lon'] = str_uj_lon
                                         
-                                        st.success(f"🎉 Sikeresen mentve! {ugyfel_adat.get('Nev','Ügyfél')} koordinátája frissült: {uj_lat}, {uj_lon}")
+                                        st.success(f"🎉 Sikeresen mentve! {ugyfel_adat.get('Nev','Ügyfél')} koordinátája frissült: {uj_lat:.7f}, {uj_lon:.7f}")
                                         logger.info(f"Manuális koordináta frissítés sikeres a felhőben. ID: {kivalasztott_id}")
                                         st.rerun()
                                     else:

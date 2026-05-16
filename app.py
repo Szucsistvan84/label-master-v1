@@ -2523,49 +2523,66 @@ def main():
 
         # --- TÉRKÉP MEGJELENÍTÉSE ---
         with st.expander("🗺️ Útvonal megtekintése a térképen", expanded=False):
-            utvonal_terkep(edited_df) 
+            # A térkép megkapja a szükséges adatokat és a klienseket a manuális mentéshez
+            utvonal_terkep(edited_df, client, sheet_id) 
 
         st.subheader("🗄️ Ügyfélkör kezelése")
         
-        gomb_col1, gomb_col2, gomb_col3 = st.columns(3)
+        # Most már csak 2 gombra van szükségünk a 3 helyett
+        gomb_col1, gomb_col2 = st.columns(2)
 
         with gomb_col1:
-            if st.button("💾 SORREND ÉS MENTÉS (Cloud)", use_container_width=True):
-                temp_df = edited_df.copy()
-                temp_df['Sorrend'] = pd.to_numeric(temp_df['Sorrend'], errors='coerce')
+            # 1. GOMB: HELYI RENDEZÉS ÉS ÚJRASORSZÁMOZÁS (Nem bántja a felhőt)
+            if st.button("🔄 Sorrend frissítése és újrasorszámozás", use_container_width=True):
+                logger.info("Ideiglenes napi sorrend újrarendezése a felületen...")
                 
-                if 'Original_Order' in temp_df.columns:
-                    temp_df['Sorrend'] = temp_df['Sorrend'].fillna(temp_df['Original_Order'])
-                else:
-                    temp_df['Sorrend'] = temp_df['Sorrend'].fillna(999)
+                # Kényszerítjük a numerikus típust a biztonság kedvéért
+                edited_df['Sorrend'] = pd.to_numeric(edited_df['Sorrend'], errors='coerce').fillna(999)
                 
-                temp_df = temp_df.sort_values(['Sorrend'])
-                temp_df['Sorrend'] = range(1, len(temp_df) + 1)
+                # Sorba rendezzük a beírt tizedesek alapján, majd újraosztjuk a tiszta 1, 2, 3-at
+                edited_df = edited_df.sort_values('Sorrend').reset_index(drop=True)
+                edited_df['Sorrend'] = range(1, len(edited_df) + 1)
                 
-                # Itt használja az ID-t:
-                siker = sync_ugyfelkor_fel(temp_df, UGYFELKOR_SHEET_ID, client)
+                # Elmentjük a memóriába (session_state), és léptetjük a kulcsot az újrarajzoláshoz
+                st.session_state.master_df = edited_df  # <-- Figyelj rá, hogy a kódod mdf-et vagy master_df-et használ-e a session_state-ben! Ha mdf, írd át arra!
+                st.session_state.editor_key += 1
                 
-                if siker > 0:
-                    st.session_state.mdf = temp_df
-                    st.session_state.editor_key += 1
-                    st.success(f"Sikeres mentés! {siker} ügyfél szinkronizálva.")
-                    st.rerun()
+                st.success("🔄 A sorrend frissítve! A térkép és a PDF-ek az új sorrendet követik.")
+                st.rerun()
 
         with gomb_col2:
-            if st.button("🔢 SORSZÁMOK FIXÁLÁSA (1,2,3...)", use_container_width=True):
-                temp_df = edited_df.sort_values(by="Sorrend").copy()
-                temp_df['Sorrend'] = range(1, len(temp_df) + 1)
-                st.session_state.mdf = temp_df.reset_index(drop=True)
-                st.session_state.editor_key += 1
-                st.rerun()
-
-        with gomb_col3:
-            if st.button("🔄 JAVÍTOTT ADATOK BETÖLTÉSE", use_container_width=True):
-                # Itt is kell az ID:
-                st.session_state.mdf = adatok_visszatoltese_sheetrol(st.session_state.mdf, UGYFELKOR_SHEET_ID, client)
-                st.session_state.editor_key += 1
-                st.success("Adatok frissítve a Google Sheet-ből!")
-                st.rerun()
+            # 2. GOMB: CÉLZOTT ADATMENTÉS A FELHŐBE (A sorszámot kihagyja)
+            if st.button("💾 Módosított adatok (Név, Megjegyzés, Telefon) mentése", use_container_width=True):
+                logger.info("Adatmódosítások mentése a felhőbe...")
+                try:
+                    sh = client.open_by_key(sheet_id)
+                    ws_ugyfel = sh.worksheet("Ugyfelkor")
+                    
+                    records = ws_ugyfel.get_all_records()
+                    if records:
+                        # Végigmegyünk a képernyőn látható sorokon
+                        for _, row in edited_df.iterrows():
+                            u_id = str(row['ID']).strip()
+                            id_cells = ws_ugyfel.findall(u_id, in_column=1) # 1. oszlop az ID
+                            
+                            if id_cells:
+                                row_num = id_cells[0].row
+                                
+                                # Kizárólag a fix törzsadatokat írjuk felül az Ugyfelkor lapon
+                                # ID=1, Nev=2, Cim=3, Telefon=6, Csoport=7, Megjegyzes=8
+                                ws_ugyfel.update_cell(row_num, 2, str(row.get('Ügyintéző', row.get('Nev', ''))))
+                                ws_ugyfel.update_cell(row_num, 3, str(row.get('Cím', row.get('Cim', ''))))
+                                ws_ugyfel.update_cell(row_num, 6, str(row.get('Telefon', '')))
+                                ws_ugyfel.update_cell(row_num, 7, str(row.get('Csoport', '')))
+                                ws_ugyfel.update_cell(row_num, 8, str(row.get('Megjegyzés', row.get('Megjegyzes', ''))))
+                        
+                        st.success("🎉 A javított nevek, telefonok, csoportok és megjegyzések sikeresen elmentve a Google Sheets-be!")
+                        st.rerun()
+                    else:
+                        st.error("A mesterlista üres a Google Sheets-ben, nincs mit frissíteni!")
+                except Exception as e:
+                    logger.error(f"Hiba a kézi módosítások mentésekor: {e}")
+                    st.error(f"Hiba történt a mentés során: {e}")
 
         st.divider()
 

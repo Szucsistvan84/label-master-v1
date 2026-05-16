@@ -407,24 +407,23 @@ def utvonal_terkep(df_napi, client, sheet_id):
                                     if id_cells:
                                         row_num = id_cells[0].row
                                         
-                                        # GYÖKÉROK JAVÍTÁSA: Fix 7 tizedesjegyre kerekített string formátum, aposztróffal az elején
-                                        str_uj_lat = f"'{uj_lat:.7f}"
-                                        str_uj_lon = f"'{uj_lon:.7f}"
+                                        # Tiszta formázott szöveg (string) fix 7 tizedesjeggyel, aposztróf nélkül!
+                                        str_uj_lat = f"{uj_lat:.7f}"
+                                        str_uj_lon = f"{uj_lon:.7f}"
                                         
-                                        # Lat = 4. oszlop, Lon = 5. oszlop az Ugyfelkor fülön
-                                        ws_ugyfel.update_cell(row_num, 4, str_uj_lat)
-                                        ws_ugyfel.update_cell(row_num, 5, str_uj_lon)
+                                        # --- ATOMBIZTOS MEGOLDÁS: RAW opcióval kényszerítjük a Google-t ---
+                                        # Ez megakadályozza, hogy a Google magyar területi beállítása tizedesvesszővé alakítsa a pontot!
+                                        ws_ugyfel.update_cell(row_num, 4, str_uj_lat, value_input_option='RAW')
+                                        ws_ugyfel.update_cell(row_num, 5, str_uj_lon, value_input_option='RAW')
                                         
-                                        # Azonnali frissítés a futó memóriában (session_state), pontosan ugyanazzal a stringgel
-                                        # Azonnali frissítés a futó memóriában (session_state)
+                                        # Azonnali frissítés a futó memóriában (session_state) maszkolással
                                         if 'mdf' in st.session_state:
-                                            # Biztosra megyünk: az ID-kat stringként tisztítjuk és összehasonlítjuk
                                             mask = st.session_state.mdf['ID'].astype(str).str.strip() == str(kivalasztott_id).strip()
                                             st.session_state.mdf.loc[mask, 'Lat'] = str_uj_lat
                                             st.session_state.mdf.loc[mask, 'Lon'] = str_uj_lon
                                         
-                                        st.success(f"🎉 Sikeresen mentve! {ugyfel_adat.get('Nev','Ügyfél')} koordinátája frissült: {uj_lat:.7f}, {uj_lon:.7f}")
-                                        logger.info(f"Manuális koordináta frissítés sikeres a felhőben. ID: {kivalasztott_id}")
+                                        st.success(f"🎉 Sikeresen mentve! {ugyfel_adat.get('Nev','Ügyfél')} koordinátája frissült: {str_uj_lat}, {str_uj_lon}")
+                                        logger.info(f"Manuális koordináta frissítés sikeres a felhőben (RAW). ID: {kivalasztott_id}")
                                         st.rerun()
                                     else:
                                         st.error("Ez az ügyfél ID nem található a központi Google Sheets 'Ugyfelkor' lapján!")

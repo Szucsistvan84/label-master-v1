@@ -302,7 +302,7 @@ def utvonal_terkep(df_napi, client, sheet_id):
     df_valid_gps['Lat'] = pd.to_numeric(df_valid_gps['Lat'], errors='coerce')
     df_valid_gps['Lon'] = pd.to_numeric(df_valid_gps['Lon'], errors='coerce')
     
-    # --- AUTOMATIKUS JAVÍTÁS (Ha valami régi, milliós érték maradt volna) ---
+    # Csak akkor rakjuk fel a térképre, ha a koordináta érvényes MAGYARORSZÁGI tartományban van
     def koordinata_helyreallito(ertek):
         if pd.isna(ertek):
             return ertek
@@ -316,22 +316,23 @@ def utvonal_terkep(df_napi, client, sheet_id):
     df_valid_gps['Lat'] = df_valid_gps['Lat'].apply(koordinata_helyreallito)
     df_valid_gps['Lon'] = df_valid_gps['Lon'].apply(koordinata_helyreallito)
     
-    # Csak a valós, Debrecen környéki koordinátákat engedjük fel a térképre
+    # --- ORSZÁGOS HATÁROK BEÁLLÍTÁSA ---
+    # Így Budapest, Debrecen vagy bármelyik magyar város címei azonnal működni fognak!
     df_valid_gps = df_valid_gps[
         (df_valid_gps['Lat'].notna()) & (df_valid_gps['Lon'].notna()) &
-        (df_valid_gps['Lat'] > 47.0) & (df_valid_gps['Lat'] < 48.5) &
-        (df_valid_gps['Lon'] > 21.0) & (df_valid_gps['Lon'] < 22.5)
+        (df_valid_gps['Lat'] > 45.5) & (df_valid_gps['Lat'] < 48.7) &
+        (df_valid_gps['Lon'] > 16.0) & (df_valid_gps['Lon'] < 23.0)
     ]
 
-    # Alapértelmezett középpont (Debrecen közepe)
-    center_lat, center_lon = 47.53, 21.62 
-    
+    # Dinamikus alapértelmezett középpont (Ha van adat, az aktuális pontok átlaga, ha nincs, akkor Budapest/Magyarország közepe)
     if not df_valid_gps.empty:
-        # Ha van érvényes adat, az aktuális pontok földrajzi közepére fókuszálunk
         center_lat = df_valid_gps['Lat'].mean()
         center_lon = df_valid_gps['Lon'].mean()
+        zoom_szint = 13
+    else:
+        center_lat, center_lon = 47.4979, 19.0402  # Budapest központja, mint országos fallback
+        zoom_szint = 8
         
-    zoom_szint = 13 if not df_valid_gps.empty else 12
     m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_szint)
     
     # Pontok gyűjtése az összekötő vonalhoz (PolyLine)
@@ -340,7 +341,16 @@ def utvonal_terkep(df_napi, client, sheet_id):
     # Fontos: A teljes napi listán megyünk végig, hogy a térkép sorrendje stimmeljen
     for i, row in df_napi.iterrows():
         nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
-        sorszam = row.get('Sorrend', i + 1)
+        
+        # --- ATOMBIZTOS SORSZÁM ÉS ID EGÉS SZÁMMÁ ALAKÍTÁSA (.0 NÉLKÜL) ---
+        nyers_sorszam = str(row.get('Sorrend', i + 1)).split('.')[0]
+        try:
+            tiszta_sorszam = int(nyers_sorszam)
+        except:
+            tiszta_sorszam = nyers_sorszam
+
+        nyers_id = str(row.get('ID', '')).strip()
+        tiszta_id = nyers_id[:-2] if nyers_id.endswith('.0') else nyers_id
         
         try:
             # Letisztítjuk az aposztrófot és a vesszőt a ciklusban is, mielőtt számmá alakítanánk
@@ -353,22 +363,22 @@ def utvonal_terkep(df_napi, client, sheet_id):
             lat = koordinata_helyreallito(lat_val)
             lon = koordinata_helyreallito(lon_val)
             
-            # Csak akkor rakjuk fel a térképre, ha a koordináta debreceni tartományban van
-            if not (math.isnan(lat) or math.isnan(lon)) and (47.0 < lat < 48.5) and (21.0 < lon < 22.5):
+            # Ellenőrzés az új, kiterjesztett országos koordináta-határok alapján
+            if not (math.isnan(lat) or math.isnan(lon)) and (45.5 < lat < 48.7) and (16.0 < lon < 23.0):
                 loc = [lat, lon]
                 points.append(loc)
                 
                 folium.Marker(
                     location=loc,
-                    popup=f"<b>{sorszam}. {nev}</b><br>{row.get('Cim', row.get('Cím', ''))}", 
-                    tooltip=f"{sorszam}. {nev}",
-                    icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; border: 2px solid white; box-shadow: 0px 0px 5px rgba(0,0,0,0.5);">{sorszam}</div>""")
+                    popup=f"<b>#{tiszta_sorszam} sorszám</b><br>ID: {tiszta_id}<br>Név: {nev}<br>Cím: {row.get('Cim', row.get('Cím', ''))}", 
+                    tooltip=f"{tiszta_sorszam}. {nev}",
+                    icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; border: 2px solid white; box-shadow: 0px 0px 5px rgba(0,0,0,0.5);">{tiszta_sorszam}</div>""")
                 ).add_to(m)
             else:
-                logger.warning(f"Kihagyott pont a térképről (rossz tartomány vagy NaN): {nev} (Sor: {sorszam})")
+                logger.warning(f"Kihagyott pont a térképről (rossz tartomány vagy NaN): {nev} (Sor: {tiszta_sorszam})")
                 
         except (ValueError, TypeError):
-            logger.warning(f"Kihagyott pont (hibás formátum): {nev} (Sor: {sorszam})")
+            logger.warning(f"Kihagyott pont (hibás formátum): {nev} (Sor: {tiszta_sorszam})")
             continue 
 
     # Útvonal összekötése piros vonallal
@@ -381,8 +391,8 @@ def utvonal_terkep(df_napi, client, sheet_id):
         logger.info(f"Térkép sikeresen megjelenítve {len(points)} ponttal.")
     else:
         st.warning("⚠️ Jelenleg egyetlen címnek sincs érvényes GPS koordinátája! Kérjük, vigyél fel koordinátákat az alábbi űrlapon.")
-        # Ha teljesen üres, kirajzolunk egy alap Debrecen térképet
-        m_empty = folium.Map(location=[47.5316, 21.6273], zoom_start=12)
+        # Ha teljesen üres, kirajzolunk egy alap országos térképet Budapest központtal
+        m_empty = folium.Map(location=[47.4979, 19.0402], zoom_start=8)
         st_folium(m_empty, use_container_width=True, height=400, key="ures_terkep")
 
     # ==================================================

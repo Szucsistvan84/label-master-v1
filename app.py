@@ -427,14 +427,15 @@ def utvonal_terkep(df_napi, client, sheet_id):
                                     if id_cells:
                                         row_num = id_cells[0].row
                                         
-                                        # Tiszta formázott szöveg (string) fix 7 tizedesjeggyel, aposztróf nélkül!
+                                        # Tiszta formázott szöveg (string) fix 7 tizedesjeggyel
                                         str_uj_lat = f"{uj_lat:.7f}"
                                         str_uj_lon = f"{uj_lon:.7f}"
                                         
-                                        # --- ATOMBIZTOS MEGOLDÁS: RAW opcióval kényszerítjük a Google-t ---
-                                        # Ez megakadályozza, hogy a Google magyar területi beállítása tizedesvesszővé alakítsa a pontot!
-                                        ws_ugyfel.update_cell(row_num, 4, str_uj_lat, value_input_option='RAW')
-                                        ws_ugyfel.update_cell(row_num, 5, str_uj_lon, value_input_option='RAW')
+                                        # --- VERZIÓFÜGGETLEN RAW MENTÉS ---
+                                        # Az update_cell helyett az update metódust használjuk cellatartománnyal,
+                                        # így a régebbi gspread könyvtárak sem fognak hibát dobni a value_input_option miatt!
+                                        ws_ugyfel.update(range_name=f"D{row_num}", values=[[str_uj_lat]], value_input_option='RAW')
+                                        ws_ugyfel.update(range_name=f"E{row_num}", values=[[str_uj_lon]], value_input_option='RAW')
                                         
                                         # Azonnali frissítés a futó memóriában (session_state) maszkolással
                                         if 'mdf' in st.session_state:
@@ -443,7 +444,7 @@ def utvonal_terkep(df_napi, client, sheet_id):
                                             st.session_state.mdf.loc[mask, 'Lon'] = str_uj_lon
                                         
                                         st.success(f"🎉 Sikeresen mentve! {ugyfel_adat.get('Nev','Ügyfél')} koordinátája frissült: {str_uj_lat}, {str_uj_lon}")
-                                        logger.info(f"Manuális koordináta frissítés sikeres a felhőben (RAW). ID: {kivalasztott_id}")
+                                        logger.info(f"Manuális koordináta frissítés sikeres a felhőben (RAW-update). ID: {kivalasztott_id}")
                                         st.rerun()
                                     else:
                                         st.error("Ez az ügyfél ID nem található a központi Google Sheets 'Ugyfelkor' lapján!")

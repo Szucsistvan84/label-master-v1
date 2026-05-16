@@ -322,18 +322,40 @@ def utvonal_terkep(df_napi):
                             st.session_state.master_df.loc[st.session_state.master_df['ID'].astype(str) == kivalasztott_id, 'Lat'] = uj_lat
                             st.session_state.master_df.loc[st.session_state.master_df['ID'].astype(str) == kivalasztott_id, 'Lon'] = uj_lon
                         
-                        # 2. KIÍRÁS A GOOGLE SHEETS-BE
-                        # Lekérjük az Ugyfelkor munkalapot a meglévő klienseddel (pl. st.session_state.sh vagy ahogy a kódod hívja)
-                        # Ehhez szükségünk lesz a Sheets-et frissítő kódodra, de a háttérben a session_state már frissült!
+                        # ==========================================
+                        # 2. KIÍRÁS A GOOGLE SHEETS-BE (VALÓDI MENTÉS)
+                        # ==========================================
+                        try:
+                            # Megnyitjuk a táblázatot a kapott klienssel és ID-val
+                            sh = client.open_by_key(sheet_id)
+                            ws_ugyfel = sh.worksheet("Ugyfelkor")
+                            
+                            # Megkeressük, melyik sorban van az adott ID a táblázat ID oszlopában
+                            id_cells = ws_ugyfel.findall(kivalasztott_id, in_column=1) # 1 = ID oszlop
+                            
+                            if id_cells:
+                                row_num = id_cells[0].row
+                                
+                                # Fontos: Ellenőrizd a Google Sheets füleden az oszlopok sorrendjét!
+                                # Ha az ID oszloptól számolva a Lat a 4., a Lon pedig az 5. oszlop, akkor a kód jó.
+                                ws_ugyfel.update_cell(row_num, 4, uj_lat) # 4. oszlop: Lat
+                                ws_ugyfel.update_cell(row_num, 5, uj_lon) # 5. oszlop: Lon
+                                logger.info(f"Google Sheets sikeresen frissítve a felhőben! Sor: {row_num}")
+                            else:
+                                logger.warning(f"A keresett ID ({kivalasztott_id}) nem található a Sheets ID oszlopában.")
+                                
+                        except Exception as sheet_err:
+                            logger.error(f"Nem sikerült a Google Sheets felhőbe menteni: {sheet_err}")
+                            st.error(f"A táblázat frissítése sikertelen, de a memóriában átmenetileg módosult: {sheet_err}")
                         
+                        # --- SIKER JELZÉSE ÉS ÚJRATÖLTÉS ---
                         st.success(f"🎉 Koordináták sikeresen frissítve az adatbázisban (ID: {kivalasztott_id})! Az oldal újraindul...")
                         logger.info(f"Manuális koordináta frissítés sikeres. ID: {kivalasztott_id}, Lat: {uj_lat}, Lon: {uj_lon}")
                         st.rerun()
+                        
                     except Exception as e:
                         st.error(f"Hiba történt a mentés során: {e}")
                         logger.error(f"Hiba a manuális koordináta mentésnél: {e}")
-                else:
-                    st.error("❌ Mindkét mezőt (Szélesség és Hosszúság) ki kell tölteni!")
     else:
         st.success("✨ Minden mai címhez van érvényes GPS koordináta! Nincs manuális javítást igénylő ügyfél.")
 

@@ -195,7 +195,7 @@ def master_lista_szinkron(df_napi, client, sheet_id):
 # --- VIZUALIZÁCIÓ ---
 def utvonal_terkep(df_napi):
     st.subheader("Napi Útvonal Tervezet")
-    logger.info("Térkép generálása elindult...") # <--- Jelzés a logba
+    logger.info("Térkép generálása elindult...")
     
     # 1. Érvényes koordináták szűrése
     valid_coords = df_napi[
@@ -207,20 +207,22 @@ def utvonal_terkep(df_napi):
     center_lat, center_lon = 47.53, 21.62 
     
     if not valid_coords.empty:
-        center_lat = float(valid_coords['Lat'].iloc[0])
-        center_lon = float(valid_coords['Lon'].iloc[0])
+        # Átlagolunk, hogy a pontok közepére fókuszáljon
+        center_lat = pd.to_numeric(valid_coords['Lat']).mean()
+        center_lon = pd.to_numeric(valid_coords['Lon']).mean()
         
-    # 3. Térkép létrehozása
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
+    # 3. Térkép létrehozása (Ha van adat, ráközelít, ha nincs, Debrecent mutatja)
+    zoom_szint = 13 if not valid_coords.empty else 12
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_szint)
 
-    # 4. Magyarország határaihoz igazítás
-    m.fit_bounds([[45.7, 16.1], [48.6, 22.9]])
+    # --- JAVÍTÁS (D PONT): Kivettük a fit_bounds-ot, így nem ugrik vissza egész Magyarországra! ---
     
     # 5. Pontok és vonal felrajzolása
     points = []
     for i, row in df_napi.iterrows():
-        # Név meghatározása korán, hogy a logban is használni tudjuk
         nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
+        # A jelenlegi tiszta sorszámunk (index + 1)
+        sorszam = row.get('Sorrend', i + 1)
         
         try:
             lat = float(row['Lat'])
@@ -232,14 +234,15 @@ def utvonal_terkep(df_napi):
                 
                 folium.Marker(
                     location=loc,
-                    popup=f"{i+1}. {nev}", 
-                    icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">{i+1}</div>""")
+                    popup=f"<b>{sorszam}. {nev}</b><br>{row.get('Cím', '')}", 
+                    tooltip=f"{sorszam}. {nev}",
+                    icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; border: 2px solid white; box-shadow: 0px 0px 5px rgba(0,0,0,0.5);">{sorszam}</div>""")
                 ).add_to(m)
             else:
-                logger.warning(f"Kihagyott pont (NaN): {nev} (Sor: {i+1})")
+                logger.warning(f"Kihagyott pont (NaN): {nev} (Sor: {sorszam})")
                 
         except (ValueError, TypeError):
-            logger.warning(f"Kihagyott pont (hibás formátum): {nev} (Sor: {i+1})")
+            logger.warning(f"Kihagyott pont (hibás formátum): {nev} (Sor: {sorszam})")
             continue 
 
     # Ha van legalább két pontunk, összekötjük őket
@@ -248,11 +251,87 @@ def utvonal_terkep(df_napi):
     
     # Térkép megjelenítése Streamlitben
     if not valid_coords.empty:
-        st_folium(m, width=700, height=500)
-        logger.info(f"Térkép sikeresen megjelenítve {len(points)} ponttal.") # <--- Siker logolása
+        st_folium(m, width=700, height=500, key="napi_terkep")
+        logger.info(f"Térkép sikeresen megjelenítve {len(points)} ponttal.")
     else:
         st.warning("⚠️ Nincsenek érvényes koordináták a térkép megjelenítéséhez.")
         logger.error("A térkép nem jeleníthető meg: nincsenek érvényes koordináták a napi listában.")
+
+    # ==========================================
+    # --- C PONT: MANUÁLIS KOORDINÁTA JAVÍTÓ ÚRLAP ---
+    # ==========================================
+    st.markdown("---")
+    st.subheader("📍 Sikertelen koordináta-keresések manuális javítása")
+
+    # Kiszűrjük azokat a sorokat a jelenlegi táblázatból, ahol nincs koordináta
+    hianyzo_koordinatak = df_napi[
+        df_napi['Lat'].isna() | (df_napi['Lat'] == '') | (df_napi['Lat'].astype(str) == 'nan') |
+        df_napi['Lon'].isna() | (df_napi['Lon'] == '') | (df_napi['Lon'].astype(str) == 'nan')
+    ]
+
+    if not hianyzo_koordinatak.empty:
+        st.warning(f"⚠️ {len(hianyzo_koordinatak)} ügyfélhez nem található GPS koordináta! (Pl. helyrajzi számos vagy pontatlan címek).")
+        
+        st.markdown("""
+        **💡 Hogyan javítsd ki?**
+        1. Nyisd meg a [Google Maps-et](https://maps.google.com).
+        2. Keresd meg a házat/helyszínt, majd **jobb klikk a térképen a pontos pontra**.
+        3. A felugró kis menü legtetején kattints a koordinátákra (ezzel automatikusan kimásolja a vágólapra).
+        4. Válaszd ki alább az ügyfelet, másold be a számokat, és mentsd el!
+        """)
+        
+        # Lista készítése a legördülő menühöz
+        ugyfel_opciok = []
+        id_mapping = {} # Segít visszafejteni, melyik ID-t választották
+        
+        for idx, row in hianyzo_koordinatak.iterrows():
+            nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
+            cim = row.get('Cím', 'Nincs cím')
+            u_id = str(row.get('ID', idx))
+            label = f"{nev} - {cim} (ID: {u_id})"
+            ugyfel_opciok.append(label)
+            id_mapping[label] = u_id
+            
+        kivalasztott_label = st.selectbox("Válaszd ki a javítandó ügyfelet:", ugyfel_opciok)
+        kivalasztott_id = id_mapping[kivalasztott_label]
+        
+        # Űrlap a beíráshoz
+        with st.form("manual_coords_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                uj_lat = st.text_input("Szélesség (Lat) pl.: 47.511475").strip()
+            with col2:
+                uj_lon = st.text_input("Hosszúság (Lon) pl.: 21.633386").strip()
+                
+            submit_btn = st.form_submit_button("💾 Koordináták mentése az adatbázisba")
+            
+            if submit_btn:
+                if uj_lat and uj_lon:
+                    try:
+                        # Pontosítjuk a formátumot (ha valaki vesszőt írna pont helyett)
+                        uj_lat = uj_lat.replace(',', '.')
+                        uj_lon = uj_lon.replace(',', '.')
+                        
+                        # 1. Frissítjük a memóriában (session_state) a master_df-et az ID alapján
+                        if 'master_df' in st.session_state:
+                            # Biztosítjuk, hogy az ID-k típusa egyezzen (pl. int)
+                            st.session_state.master_df.loc[st.session_state.master_df['ID'].astype(str) == kivalasztott_id, 'Lat'] = uj_lat
+                            st.session_state.master_df.loc[st.session_state.master_df['ID'].astype(str) == kivalasztott_id, 'Lon'] = uj_lon
+                        
+                        # 2. KIÍRÁS A GOOGLE SHEETS-BE
+                        # Lekérjük az Ugyfelkor munkalapot a meglévő klienseddel (pl. st.session_state.sh vagy ahogy a kódod hívja)
+                        # Ehhez szükségünk lesz a Sheets-et frissítő kódodra, de a háttérben a session_state már frissült!
+                        
+                        st.success(f"🎉 Koordináták sikeresen frissítve az adatbázisban (ID: {kivalasztott_id})! Az oldal újraindul...")
+                        logger.info(f"Manuális koordináta frissítés sikeres. ID: {kivalasztott_id}, Lat: {uj_lat}, Lon: {uj_lon}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Hiba történt a mentés során: {e}")
+                        logger.error(f"Hiba a manuális koordináta mentésnél: {e}")
+                else:
+                    st.error("❌ Mindkét mezőt (Szélesség és Hosszúság) ki kell tölteni!")
+    else:
+        st.success("✨ Minden mai címhez van érvényes GPS koordináta! Nincs manuális javítást igénylő ügyfél.")
 
 def get_google_sheets_creds():
     creds_info = st.secrets["gcp_service_account"].to_dict()

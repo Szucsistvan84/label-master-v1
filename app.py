@@ -222,16 +222,30 @@ def utvonal_terkep(df_napi, client, sheet_id):
     st.subheader("Napi Útvonal Tervezet")
     logger.info("Térkép generálása elindult...")
     
-    # 1. ÉRVÉNYES KOORDINÁTÁK SZŰRÉSE (Szigorú, de hibatűrő számmá alakítás)
+    # 1. ÉRVÉNYES KOORDINÁTÁK SZŰRÉSE ÉS HELYREÁLLÍTÁSA
     df_valid_gps = df_napi.copy()
     
-    # Letisztítjuk a szöveges maradványokat, ha vannak (vesszők cseréje pontra, szóközök levágása)
-    df_valid_gps['Lat'] = df_valid_gps['Lat'].astype(str).str.replace(',', '.').str.strip()
-    df_valid_gps['Lon'] = df_valid_gps['Lon'].astype(str).str.replace(',', '.').str.strip()
+    # Szigorú tisztítás stringként: levágjuk az aposztrófokat, cseréljük a vesszőt, levágjuk a szóközöket
+    df_valid_gps['Lat'] = df_valid_gps['Lat'].astype(str).str.replace("'", "").str.replace(',', '.').str.strip()
+    df_valid_gps['Lon'] = df_valid_gps['Lon'].astype(str).str.replace("'", "").str.replace(',', '.').str.strip()
     
-    # Most alakítjuk számmá, a hibásakat (üres, nan, szöveg) NaN-ra állítjuk
+    # Számmá alakítás
     df_valid_gps['Lat'] = pd.to_numeric(df_valid_gps['Lat'], errors='coerce')
     df_valid_gps['Lon'] = pd.to_numeric(df_valid_gps['Lon'], errors='coerce')
+    
+    # --- AUTOMATIKUS JAVÍTÁS (Ha valami régi, milliós érték maradt volna) ---
+    def koordinata_helyreallito(ertek):
+        if pd.isna(ertek):
+            return ertek
+        if abs(ertek) > 100:
+            temp = float(ertek)
+            while abs(temp) > 100:
+                temp /= 10.0
+            return temp
+        return ertek
+
+    df_valid_gps['Lat'] = df_valid_gps['Lat'].apply(koordinata_helyreallito)
+    df_valid_gps['Lon'] = df_valid_gps['Lon'].apply(koordinata_helyreallito)
     
     # Csak a valós, Debrecen környéki koordinátákat engedjük fel a térképre
     df_valid_gps = df_valid_gps[

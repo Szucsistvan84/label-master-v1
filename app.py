@@ -61,20 +61,26 @@ def get_coordinates(address):
     """
     Lekéri a megadott cím koordinátáit a Nominatim segítségével, 
     hibakezeléssel és naplózással kiegészítve.
+    A GYÖKÉROK JAVÍTÁSA: Kényszerített ponttal ellátott String formátumot ad vissza,
+    hogy a Google Sheets/Excel ne tudja tizedesvesszővé alakítani!
     """
     try:
         # Itt a 'geocode' objektumot használjuk, ami a RateLimiter-en keresztül fut
         location = geocode(address) 
         
         if location:
-            logger.info(f"Cím sikeresen feloldva: {address} -> {location.latitude}, {location.longitude}")
-            return location.latitude, location.longitude
+            # Szöveggé alakítjuk fix 7 tizedesjeggyel, ponttal elválasztva
+            # Az elejére rakott apostróffal (') kényszerítjük a Google Sheets-et a String tárolásra!
+            str_lat = f"'{location.latitude:.7f}"
+            str_lon = f"'{location.longitude:.7f}"
+            
+            logger.info(f"Cím sikeresen feloldva: {address} -> Lat: {str_lat}, Lon: {str_lon}")
+            return str_lat, str_lon
         else:
             logger.warning(f"Nem található koordináta a címhez: {address}")
             return None, None
             
     except Exception as e:
-        # A korábbi üres 'except:' helyett most elkapjuk a hiba okát is
         logger.error(f"Váratlan hiba a geocoding során ({address}): {e}")
         return None, None
 

@@ -105,19 +105,31 @@ def tisztitott_cim_lekerese(nyers_szoveg):
 
 def master_lista_szinkron(df_napi, client, sheet_id):
     logger.info("Master lista szinkronizálása elindult...")
-    
+
+    # =========================================================================
+    # --- JAVÍTOTT, SZIGORÚ SZÖVEGES BEOLVASÁS A GOOGLE SHEETS-BŐL ---
+    # =========================================================================
+    # A numeric_mode='RAW' biztosítja, hogy az aposztróffal mentett ID-k 
+    # ne alakuljanak át float számmá (.0), hanem tiszta szövegek maradjanak!
     try:
         sh = client.open_by_key(sheet_id)  
         ws_ugyfel = sh.worksheet("Ugyfelkor")
         
-        # Beolvasás alapértelmezetten
-        records = ws_ugyfel.get_all_records()
+        # --- JAVÍTOTT: numeric_mode='RAW' megakadályozza a lebegőpontos (.0) torzítást ---
+        records = ws_ugyfel.get_all_records(numeric_mode='RAW')
         if records:
             master_df = pd.DataFrame(records)
         else:
             master_df = pd.DataFrame(columns=['ID', 'Nev', 'Cim', 'Lat', 'Lon', 'Telefon', 'Csoport', 'Megjegyzes', 'Utolso_Rendeles', 'Osszertek', 'Rendeles_Szam'])
             
-        logger.info(f"Mesterlista beolvasva, {len(master_df)} meglévő ügyfél található.")
+        # EXTRA BIZTONSÁG: Oszlopnevek megtisztítása és az ID kényszerítése tiszta szöveggé
+        master_df.columns = [c.strip() for c in master_df.columns]
+        if 'ID' in master_df.columns:
+            master_df['ID'] = master_df['ID'].astype(str).str.strip()
+            # Ha valamiért mégis becsúszott volna egy .0 a memóriában, itt levágjuk:
+            master_df['ID'] = master_df['ID'].apply(lambda x: x.split('.')[0] if x.endswith('.0') else x)
+            
+        logger.info(f"Mesterlista sikeresen beolvasva RAW módban, {len(master_df)} meglévő ügyfél.")
     except Exception as e:
         logger.error(f"Hiba a Google Sheets megnyitásakor: {e}")
         st.error("Nem sikerült elérni az 'Ugyfelkor' táblázatot!")

@@ -2347,7 +2347,7 @@ def main():
             # 1. Master Adatbázis beolvasása és tisztítása
             m_df = pd.DataFrame(sheet.worksheet("Master_Adatbazis").get_all_records())
             m_df.columns = [col.strip().replace('\ufeff', '') for col in m_df.columns]
-            st.session_state.master_df = m_df
+            st.session_state.etelek_master_df = m_df  # <-- EZT ÍRD ÁT IDE!
             
             # 2. Névnapok beolvasása és tisztítása
             n_df = pd.DataFrame(sheet.worksheet("Nevnapok").get_all_records())

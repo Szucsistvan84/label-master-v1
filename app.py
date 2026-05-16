@@ -2625,10 +2625,10 @@ def main():
                 st.session_state.c_n, 
                 st.session_state.c_p, 
                 meta,
-                st.session_state.master_df,       # <--- ÚJ
-                st.session_state.nevnapok_df,     # <--- ÚJ
-                st.session_state.keresztnevek_df,  # <--- ÚJ
-                st.session_state.etlap_api_df  # <--- EZ HIÁNYZOTT!
+                st.session_state.etelek_master_df,  # <--- EZT ÍRD ÁT ITT IS AZ ÚJRA!
+                st.session_state.nevnapok_df,     
+                st.session_state.keresztnevek_df,  
+                st.session_state.etlap_api_df  
             ),
             "etikettek.pdf", 
             use_container_width=True

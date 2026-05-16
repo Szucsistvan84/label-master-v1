@@ -290,17 +290,38 @@ def master_lista_szinkron(df_napi, client, sheet_id):
 # --- VIZUALIZÁCIÓ ---
 def utvonal_terkep(df_napi, client, sheet_id):
     import streamlit.components.v1 as components
+    import pandas as pd
+    import streamlit as st
+    import folium
+    import math
+    from streamlit_folium import st_folium
     
     st.subheader("Napi Útvonal Tervezet")
     logger.info("Térkép generálása elindult...")
     
     # 1. ÉRVÉNYES KOORDINÁTÁK SZŰRÉSE ÉS HELYREÁLLÍTÁSA
-    # Adatintegráció: Összefűzzük a napi listát a központi mdf-ből származó GPS adatokkal az ID alapján
     df_valid_gps = df_napi.copy()
     
-    if 'mdf' in st.session_state:
+    # Biztosítjuk, hogy a napi lista fejlécében ne maradjunk ékezet nélkül
+    if 'Név' in df_valid_gps.columns and 'Nev' not in df_valid_gps.columns:
+        df_valid_gps['Nev'] = df_valid_gps['Név']
+    if 'Cím' in df_valid_gps.columns and 'Cim' not in df_valid_gps.columns:
+        df_valid_gps['Cim'] = df_valid_gps['Cím']
+
+    if 'mdf' in st.session_state and not st.session_state.mdf.empty:
+        # Tisztítjuk a session state-ben lévő master_df oszlopneveit a biztonság kedvéért
+        st.session_state.mdf.columns = [c.strip() for c in st.session_state.mdf.columns]
+        
+        # --- GOLYÓÁLLÓ OSZLOPKERESŐ: Megnézi mi van a Sheets-ben (Lat vagy Lat) ---
+        lat_col = 'Lat' if 'Lat' in st.session_state.mdf.columns else 'Lat'
+        lon_col = 'Lon' if 'Lon' in st.session_state.mdf.columns else 'Lon'
+        
         # Kiválasztjuk a központi adatbázisból csak az ID-t és a hozzá tartozó GPS-t
-        gps_torzs = st.session_state.mdf[['ID', 'Lat', 'Lon']].copy()
+        gps_torzs = st.session_state.mdf[['ID', lat_col, lon_col]].copy()
+        
+        # Egységesítjük az oszlopneveket a belső logikához
+        gps_torzs.columns = ['ID', 'Lat', 'Lon']
+        
         # Biztosítjuk, hogy az ID-k típusa egységesen string legyen az összeillesztéshez
         df_valid_gps['ID'] = df_valid_gps['ID'].astype(str).str.strip()
         gps_torzs['ID'] = gps_torzs['ID'].astype(str).str.strip()
@@ -329,31 +350,32 @@ def utvonal_terkep(df_napi, client, sheet_id):
     def koordinata_helyreallito(ertek):
         if pd.isna(ertek):
             return ertek
-        if abs(ertek) > 100:
+        try:
             temp = float(ertek)
-            while abs(temp) > 100:
-                temp /= 10.0
+            if abs(temp) > 100:
+                while abs(temp) > 100:
+                    temp /= 10.0
             return temp
-        return ertek
+        except:
+            return float('nan')
 
     df_valid_gps['Lat'] = df_valid_gps['Lat'].apply(koordinata_helyreallito)
     df_valid_gps['Lon'] = df_valid_gps['Lon'].apply(koordinata_helyreallito)
     
     # --- ORSZÁGOS HATÁROK BEÁLLÍTÁSA ---
-    # Így Budapest, Debrecen vagy bármelyik magyar város címei azonnal működni fognak!
     df_valid_gps = df_valid_gps[
         (df_valid_gps['Lat'].notna()) & (df_valid_gps['Lon'].notna()) &
         (df_valid_gps['Lat'] > 45.5) & (df_valid_gps['Lat'] < 48.7) &
         (df_valid_gps['Lon'] > 16.0) & (df_valid_gps['Lon'] < 23.0)
     ]
 
-    # Dinamikus alapértelmezett középpont (Ha van adat, az aktuális pontok átlaga, ha nincs, akkor Budapest/Magyarország közepe)
+    # Dinamikus alapértelmezett középpont
     if not df_valid_gps.empty:
         center_lat = df_valid_gps['Lat'].mean()
         center_lon = df_valid_gps['Lon'].mean()
         zoom_szint = 13
     else:
-        center_lat, center_lon = 47.4979, 19.0402  # Budapest központja, mint országos fallback
+        center_lat, center_lon = 47.4979, 19.0402  # Budapest fallback
         zoom_szint = 8
         
     m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_szint)
@@ -361,9 +383,17 @@ def utvonal_terkep(df_napi, client, sheet_id):
     # Pontok gyűjtése az összekötő vonalhoz (PolyLine)
     points = []
     
+    # Kompatibilitási fallback a ciklushoz: biztosítjuk a belső változók meglétét
+    df_loop = df_napi.copy()
+    if 'Név' in df_loop.columns and 'Nev' not in df_loop.columns:
+        df_loop['Nev'] = df_loop['Név']
+    if 'Cím' in df_loop.columns and 'Cim' not in df_loop.columns:
+        df_loop['Cim'] = df_loop['Cím']
+
     # Fontos: A teljes napi listán megyünk végig, hogy a térkép sorrendje stimmeljen
-    for i, row in df_napi.iterrows():
-        nev = row.get('Nev', row.get('Ügyintéző', 'Ismeretlen'))
+    for i, row in df_loop.iterrows():
+        nev = row.get('Nev', row.get('Név', row.get('Ügyintéző', 'Ismeretlen')))
+        cim = row.get('Cim', row.get('Cím', 'Ismeretlen cím'))
         
         # --- ATOMBIZTOS SORSZÁM ÉS ID EGÉS SZÁMMÁ ALAKÍTÁSA (.0 NÉLKÜL) ---
         nyers_sorszam = str(row.get('Sorrend', i + 1)).split('.')[0]
@@ -376,32 +406,33 @@ def utvonal_terkep(df_napi, client, sheet_id):
         tiszta_id = nyers_id[:-2] if nyers_id.endswith('.0') else nyers_id
         
         try:
-            # Letisztítjuk az aposztrófot és a vesszőt a ciklusban is, mielőtt számmá alakítanánk
-            lat_clean = str(row.get('Lat', '')).replace("'", "").replace(',', '.').strip()
-            lon_clean = str(row.get('Lon', '')).replace("'", "").replace(',', '.').strip()
+            # Megnézzük, hogy a merge-ölt df_valid_gps-ben megvannak-e a tiszta koordináták ehhez az ID-hoz
+            match = df_valid_gps[df_valid_gps['ID'] == tiszta_id]
+            if not match.empty:
+                lat = match.iloc[0]['Lat']
+                lon = match.iloc[0]['Lon']
+            else:
+                lat_clean = str(row.get('Lat', '')).replace("'", "").replace(',', '.').strip()
+                lon_clean = str(row.get('Lon', '')).replace("'", "").replace(',', '.').strip()
+                lat = koordinata_helyreallito(pd.to_numeric(lat_clean, errors='coerce'))
+                lon = koordinata_helyreallito(pd.to_numeric(lon_clean, errors='coerce'))
             
-            lat_val = pd.to_numeric(lat_clean, errors='coerce')
-            lon_val = pd.to_numeric(lon_clean, errors='coerce')
-            
-            lat = koordinata_helyreallito(lat_val)
-            lon = koordinata_helyreallito(lon_val)
-            
-            # Ellenőrzés az új, kiterjesztett országos koordináta-határok alapján
+            # Ellenőrzés az országos koordináta-határok alapján
             if not (math.isnan(lat) or math.isnan(lon)) and (45.5 < lat < 48.7) and (16.0 < lon < 23.0):
                 loc = [lat, lon]
                 points.append(loc)
                 
                 folium.Marker(
                     location=loc,
-                    popup=f"<b>#{tiszta_sorszam} sorszám</b><br>ID: {tiszta_id}<br>Név: {nev}<br>Cím: {row.get('Cim', row.get('Cím', ''))}", 
+                    popup=f"<b>#{tiszta_sorszam} sorszám</b><br>ID: {tiszta_id}<br>Név: {nev}<br>Cím: {cim}", 
                     tooltip=f"{tiszta_sorszam}. {nev}",
                     icon=folium.DivIcon(html=f"""<div style="font-family: sans-serif; color: white; background-color: blue; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; border: 2px solid white; box-shadow: 0px 0px 5px rgba(0,0,0,0.5);">{tiszta_sorszam}</div>""")
                 ).add_to(m)
             else:
                 logger.warning(f"Kihagyott pont a térképről (rossz tartomány vagy NaN): {nev} (Sor: {tiszta_sorszam})")
                 
-        except (ValueError, TypeError):
-            logger.warning(f"Kihagyott pont (hibás formátum): {nev} (Sor: {tiszta_sorszam})")
+        except Exception as err:
+            logger.warning(f"Kihagyott pont hiba miatt: {nev} (Sor: {tiszta_sorszam}): {err}")
             continue 
 
     # Útvonal összekötése piros vonallal
@@ -414,7 +445,6 @@ def utvonal_terkep(df_napi, client, sheet_id):
         logger.info(f"Térkép sikeresen megjelenítve {len(points)} ponttal.")
     else:
         st.warning("⚠️ Jelenleg egyetlen címnek sincs érvényes GPS koordinátája! Kérjük, vigyél fel koordinátákat az alábbi űrlapon.")
-        # Ha teljesen üres, kirajzolunk egy alap országos térképet Budapest központtal
         m_empty = folium.Map(location=[47.4979, 19.0402], zoom_start=8)
         st_folium(m_empty, use_container_width=True, height=400, key="ures_terkep")
 

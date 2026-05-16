@@ -103,7 +103,14 @@ def master_lista_szinkron(df_napi, client, sheet_id):
     try:
         sh = client.open_by_key(sheet_id)
         ws_ugyfel = sh.worksheet("Ugyfelkor")
-        master_df = pd.DataFrame(ws_ugyfel.get_all_records())
+        
+        # Beolvasás: ha a táblázat üres (csak a fejléc van meg), egy üres DataFrame-et hozunk létre
+        records = ws_ugyfel.get_all_records()
+        if records:
+            master_df = pd.DataFrame(records)
+        else:
+            master_df = pd.DataFrame(columns=['ID', 'Nev', 'Cim', 'Lat', 'Lon', 'Telefon', 'Csoport', 'Megjegyzes', 'Utolso_Rendeles', 'Osszertek', 'Rendeles_Szam'])
+            
         logger.info(f"Mesterlista beolvasva, {len(master_df)} meglévő ügyfél található.")
     except Exception as e:
         logger.error(f"Hiba a Google Sheets megnyitásakor: {e}")
@@ -153,15 +160,18 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             else:
                 st.success(f"📍 Megvan: {keresesi_cim}")
 
-            # --- JAVÍTÁS: KIVETTIK A SORREND OSZLOPOT A MENTÉSBŐL ---
+            # --- JAVÍTOTT, ELCSÚSZÁS-MENTES OSZLOPREND ---
             uj_adat = {
                 'ID': u_id,
                 'Nev': nev,
                 'Cim': eredeti_cim,
                 'Lat': lat if lat else "",
                 'Lon': lon if lon else "",
+                'Telefon': str(row.get('Telefon', '')),
+                'Csoport': str(row.get('Csoport', '')),
+                'Megjegyzes': str(row.get('Megjegyzés', row.get('Megjegyzes', ''))),
                 'Utolso_Rendeles': pd.Timestamp.now().strftime('%Y.%m.%d'),
-                'Osszertek': row.get('Osszeg', 0),
+                'Osszertek': row.get('Osszeg', row.get('Pénz', 0)),
                 'Rendeles_Szam': 1
             }
             uj_ugyfelek.append(uj_adat)
@@ -184,13 +194,15 @@ def master_lista_szinkron(df_napi, client, sheet_id):
     # ÖSSZEFÉSÜLÉS ELŐTTI TÍPUSKIJAVÍTÁS
     df_napi['ID'] = df_napi['ID'].apply(lambda x: str(x).split('-')[-1].strip() if '-' in str(x) else str(x).strip())
     
-    # Merge művelet loggolása
+    # Merge művelet loggolása (csak a Lat és Lon kell a Sheetsből, a többit a napi import viszi)
     logger.info("Napi lista összefésülése a mesterlistával...")
+    if not master_df.empty:
+        df_napi = df_napi.merge(master_df[['ID', 'Lat', 'Lon']], on='ID', how='left')
+    else:
+        df_napi['Lat'] = ""
+        df_napi['Lon'] = ""
     
-    # --- JAVÍTÁS: CSAK az ID, Lat és Lon oszlopokat vesszük át a Google Sheets-ből ---
-    df_napi = df_napi.merge(master_df[['ID', 'Lat', 'Lon']], on='ID', how='left')
-    
-    # --- AUTOMATIKUS SORSZÁM: Itt kapja meg a fix 1, 2, 3... sorrendet a napi beérkezés alapján ---
+    # --- AUTOMATIKUS SORSZÁM: Azonnal 1, 2, 3... lesz a felületen a napi sorrend szerint ---
     df_napi['Sorrend'] = range(1, len(df_napi) + 1)
     
     logger.info("Szinkronizáció kész.")

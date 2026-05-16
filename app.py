@@ -110,7 +110,7 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         sh = client.open_by_key(sheet_id)  
         ws_ugyfel = sh.worksheet("Ugyfelkor")
         
-        # Beolvasás: ha a táblázat üres (csak a fejléc van meg), egy üres DataFrame-et hozunk létre
+        # Beolvasás alapértelmezetten
         records = ws_ugyfel.get_all_records()
         if records:
             master_df = pd.DataFrame(records)
@@ -124,55 +124,63 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         return df_napi, pd.DataFrame()
 
     # =========================================================================
-    # === AUTOMATIKUS TÖRZSDATBÁZIS TISZTÍTÁS ÉS APOSZTRÓFOZÁS INDULÁSKOR ===
+    # === SIKERES TÖRZSDATBÁZIS TISZTÍTÁS ÉS APOSZTRÓFOZÁS BATCH MÓDBAN ===
     # =========================================================================
     if not master_df.empty and 'Lat' in master_df.columns and 'Lon' in master_df.columns:
-        logger.info("Kevert formátumok ellenőrzése és automatikus tisztítása...")
-        
-        # Tisztítjuk a memóriában lévő értékeket a biztonság kedvéért (leszedjük a sallangot)
-        master_df['Lat_clean'] = master_df['Lat'].astype(str).str.replace("'", "").str.replace(',', '.').str.strip()
-        master_df['Lon_clean'] = master_df['Lon'].astype(str).str.replace("'", "").str.replace(',', '.').str.strip()
-        
         try:
-            # Végigmegyünk az összes soron, és ha valahol hiányzik az aposztróf a Sheets-ben, pótoljuk!
-            for idx, row in master_df.iterrows():
-                lat_val = row['Lat_clean']
-                lon_val = row['Lon_clean']
-                u_id = str(row['ID']).strip()
+            # Lekérjük az összes cella NYERS értékét a D és E oszlopból (Lat és Lon)
+            # A get_all_values() megmutatja, amit a felhasználó ténylegesen lát (a formázott stringet)
+            all_cells = ws_ugyfel.get_all_values()
+            
+            updates = []
+            # Végigmegyünk a sorokon (a 0. sor a fejléc, ezért a Sheets-ben az i+1-edik sor lesz)
+            for i, row_cells in enumerate(all_cells):
+                if i == 0:  # Fejlécet kihagyjuk
+                    continue
                 
-                # Csak akkor foglalkozunk vele, ha van érvényes koordinátája
-                if lat_val and lon_val and lat_val.lower() != 'nan' and lon_val.lower() != 'nan':
-                    # Megkeressük a sor számát az ID alapján
-                    id_cells = ws_ugyfel.findall(u_id, in_column=1)
-                    if id_cells:
-                        r_num = id_cells[0].row
+                # Biztonságos indexelés (ha rövidebb lenne a sor)
+                lat_in_sheet = row_cells[3] if len(row_cells) > 3 else ""
+                lon_in_sheet = row_cells[4] if len(row_cells) > 4 else ""
+                
+                # Megtisztítjuk az esetleges whitespace-ektől, nan szövegektől
+                lat_clean = str(lat_in_sheet).replace("'", "").replace(',', '.').strip()
+                lon_clean = str(lon_in_sheet).replace("'", "").replace(',', '.').strip()
+                
+                if lat_clean and lon_clean and lat_clean.lower() != 'nan' and lon_clean.lower() != 'nan':
+                    # PRÓBA: Megnézzük, hogy a Google Sheets számnak vagy tiszta szövegnek látja-e.
+                    # Ha a get_all_values() tizedesvesszővel hozza le, vagy hiányzik az aposztróf kényszerítés, javítjuk!
+                    # Hogy ne terheljük túl az API-t, összegyűjtjük a frissítéseket egy listába
+                    try:
+                        float_lat = float(lat_clean)
+                        float_lon = float(lon_clean)
                         
-                        # Lekérjük a Google Sheets-ben lévő NYERS értéket
-                        curr_lat = str(ws_ugyfel.cell(r_num, 4).value).strip()
+                        # Fix 7 tizedesjegyre formázott kényszerített szöveg
+                        target_lat = f"'{float_lat:.7f}"
+                        target_lon = f"'{float_lon:.7f}"
                         
-                        # HA NEM APOSZTRÓFFAL KEZDŐDIK -> Programozottan felülírjuk kényszerített szöveges formátumra!
-                        if curr_lat and not curr_lat.startswith("'"):
-                            str_fix_lat = f"'{float(lat_val):.7f}"
-                            str_fix_lon = f"'{float(lon_val):.7f}"
-                            
-                            ws_ugyfel.update(range_name=f"D{r_num}", values=[[str_fix_lat]], value_input_option='RAW')
-                            ws_ugyfel.update(range_name=f"E{r_num}", values=[[str_fix_lon]], value_input_option='RAW')
-                            logger.info(f"ID: {u_id} sikeresen átalakítva kényszerített szöveges formátumra a felhőben.")
-                            
-            # Miután a felhőt szinkronba hoztuk, újraolvassuk a tiszta adatokat a memóriába
-            records = ws_ugyfel.get_all_records()
-            master_df = pd.DataFrame(records)
-            logger.info("Mesterlista sikeresen újraolvasva a tiszta felhős adatokból.")
-            
-        except Exception as e:
-            logger.warning(f"Automatikus adatbázis-tisztítás során hiba lépett fel: {e}")
-            
-        # Oszlopok takarítása
-        if 'Lat_clean' in master_df.columns:
-            master_df = master_df.drop(columns=['Lat_clean', 'Lon_clean'], errors='ignore')
+                        # Ha a táblázatban lévő érték nem egyezik hajszálpontosan a kényszerített szöveggel, hozzáadjuk a frissítendők közé
+                        # Ez elkapja azokat a cellákat, amiket a Google önkényesen számmá konvertált!
+                        if lat_in_sheet != f"{float_lat:.7f}" or "," in str(lat_in_sheet):
+                            updates.append({'range': f'D{i+1}', 'values': [[target_lat]]})
+                            updates.append({'range': f'E{i+1}', 'values': [[target_lon]]})
+                    except ValueError:
+                        continue
+
+            # Ha találtunk javítandó koordinátát, egyetlen villámgyors kéréssel (batch) átírjuk az összeset!
+            if updates:
+                logger.info(f"Automatikus tisztítás indítása: {len(updates)} cella frissítése aposztrófos formátumra...")
+                ws_ugyfel.batch_update(updates, value_input_option='RAW')
+                
+                # Újraolvassuk a frissített mesterlistát a memóriába
+                records = ws_ugyfel.get_all_records()
+                master_df = pd.DataFrame(records)
+                logger.info("Mesterlista sikeresen szinkronizálva és újraolvasva.")
+                
+        except Exception as batch_err:
+            logger.warning(f"Batch adatbázis-tisztítás sikertelen: {batch_err}")
     # =========================================================================
 
-    # KÉNYSZERÍTSÜK SZÖVEGGÉ AZ ID-T A MESTERLISTÁBAN (Ez a te eredeti kódod folytatása)
+    # KÉNYSZERÍTSÜK SZÖVEGGÉ AZ ID-T A MESTERLISTÁBAN
     if not master_df.empty:
         master_df['ID'] = master_df['ID'].astype(str).str.strip()
 

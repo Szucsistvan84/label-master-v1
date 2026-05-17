@@ -396,7 +396,7 @@ def utvonal_terkep(df_napi, client, sheet_id):
     if 'ID' in df_valid_gps.columns:
         df_valid_gps['ID'] = df_valid_gps['ID'].apply(tiszta_id_konverter)
 
-    # TISZTÍTÁS: 'mdf' helyett a valóságban létező 'ugyfelkor_df'-et használjuk
+# TISZTÍTÁS: 'mdf' helyett a valóságban létező 'ugyfelkor_df'-et használjuk
     if 'ugyfelkor_df' in st.session_state and not st.session_state.ugyfelkor_df.empty:
         # Tisztítjuk a session state-ben lévő ugyfelkor_df oszlopneveit
         st.session_state.ugyfelkor_df.columns = [c.strip() for c in st.session_state.ugyfelkor_df.columns]
@@ -421,15 +421,23 @@ def utvonal_terkep(df_napi, client, sheet_id):
             gps_torzs = st.session_state.ugyfelkor_df[[id_col, lat_col, lon_col]].copy()
             gps_torzs.columns = ['ID', 'Lat', 'Lon']
             
-            # --- FORMÁTUM FIX: Kényszerítjük, hogy mindkét ID tiszta, szóközmentes szöveg legyen ---
-            gps_torzs['ID'] = gps_torzs['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
-            df_valid_gps['ID'] = df_valid_gps['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+            # --- ATOMBIZTOS ID TISZTÍTÁS (Eltávolítja az aposztrófokat és felesleges karaktereket) ---
+            def szigoru_id_tisztito(val):
+                if pd.isna(val):
+                    return ""
+                # Kiszedünk minden aposztrófot, szóközt, és levágjuk a .0 végződést
+                s = str(val).replace("'", "").replace('"', '').strip()
+                s = re.sub(r'\.0$', '', s)
+                return s
+
+            gps_torzs['ID'] = gps_torzs['ID'].apply(szigoru_id_tisztito)
+            df_valid_gps['ID'] = df_valid_gps['ID'].apply(szigoru_id_tisztito)
             
             # --- EXTRA BIZTONSÁG: Google Sheets aposztrófok és vesszők tisztítása számokká ---
             def tisztit_koordinata(val):
                 if pd.isna(val):
                     return None
-                val_str = str(val).replace("'", "").replace(",", ".").strip()
+                val_str = str(val).replace("'", "").replace('"', '').replace(",", ".").strip()
                 try:
                     return float(val_str)
                 except:
@@ -441,7 +449,7 @@ def utvonal_terkep(df_napi, client, sheet_id):
             # Ha a napi listában már benne lennének a régi/üres oszlopok, eldobjuk őket a merge előtt
             df_valid_gps = df_valid_gps.drop(columns=['Lat', 'Lon'], errors='ignore')
             
-            # Összeillesztés a garantáltan azonos formátumú ID oszlopok alapján
+            # Összeillesztés a garantáltan letisztított ID oszlopok alapján
             df_valid_gps = pd.merge(df_valid_gps, gps_torzs, on='ID', how='left')
         else:
             logger.warning(f"A törzslista oszlopai hiányosak vagy eltérőek a várttól: {list(st.session_state.ugyfelkor_df.columns)}")

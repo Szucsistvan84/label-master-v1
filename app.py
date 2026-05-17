@@ -587,12 +587,85 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
     st.markdown("---")
     st.subheader("🛠️ Ügyfél Koordináták Karbantartása / Javítása")
     
-    # 🔴 EGYSZERI ADATBÁZIS NAGYTAKARÍTÓ GOMB
+    # 🔴 EGYSZERI ADATBÁZIS NAGYTAKARÍTÓ GOMB (Beépített, golyóálló verzió)
     with st.expander("⚠️ VESZÉLYES ZÓNA: Google Sheets Adatbázis Formátum Javítása"):
         st.write("Ez a gomb végigmegy a teljes Google Sheets táblázatodon, és az összes elrontott dupla aposztrófos (''47...) koordinátát átalakítja szép, egységes, szóló aposztrófos formátumra.")
+        
         if st.button("🚨 FUTTASD A GOOGLE SHEETS NAGYTAKARÍTÁST"):
-            google_sheet_nagytakaritas(SHEET_ID_UGYFELKOR)
-            st.rerun()
+            try:
+                with st.spinner("⏳ Kapcsolódás és nagytakarítás folyamatban..."):
+                    # Hitelesítés felépítése helyben
+                    if "gcp_service_account" in st.secrets:
+                        creds_dict = dict(st.secrets["gcp_service_account"])
+                    else:
+                        creds_dict = dict(st.secrets)
+
+                    if "private_key" in creds_dict: 
+                        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+                        
+                    scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+                    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+                    client = gspread.authorize(creds)
+
+                    sheet = client.open_by_key(SHEET_ID_UGYFELKOR)
+                    worksheet = sheet.worksheet("Ugyfelkor")
+
+                    rows = worksheet.get_all_values()
+
+                    if not rows:
+                        st.warning("A táblázat üres!")
+                    else:
+                        header = rows[0]
+                        lat_idx = header.index("Lat") if "Lat" in header else -1
+                        lon_idx = header.index("Lon") if "Lon" in header else -1
+
+                        if lat_idx == -1 or lon_idx == -1:
+                            st.error("❌ Nem találom a 'Lat' vagy 'Lon' oszlopot a táblázatban!")
+                        else:
+                            javitott_db = 0
+                            # Itt helyben hívjuk meg a tisztítást, így biztosan látja!
+                            for idx, row_data in enumerate(rows[1:], start=2):
+                                if len(row_data) <= max(lat_idx, lon_idx):
+                                    continue
+                                    
+                                nyers_lat = str(row_data[lat_idx]).strip()
+                                nyers_lon = str(row_data[lon_idx]).strip()
+                                
+                                uj_lat = None
+                                uj_lon = None
+                                
+                                # Szigorú helyi tisztítás minden külső függőség nélkül
+                                if nyers_lat and nyers_lat != "None":
+                                    t_lat = nyers_lat.replace("'", "").replace('"', '').replace(",", ".").strip()
+                                    try:
+                                        f_lat = round(float(t_lat), 7)
+                                        uj_lat = f"'{str(f_lat).replace('.', ',')}"
+                                    except: pass
+                                        
+                                if nyers_lon and nyers_lon != "None":
+                                    t_lon = nyers_lon.replace("'", "").replace('"', '').replace(",", ".").strip()
+                                    try:
+                                        f_lon = round(float(t_lon), 7)
+                                        uj_lon = f"'{str(f_lon).replace('.', ',')}"
+                                    except: pass
+
+                                # Ha eltérés van, azonnal javítjuk a cellát
+                                if (uj_lat and uj_lat != nyers_lat) or (uj_lon and uj_lon != nyers_lon):
+                                    st.write(f"🛠️ Sor javítása: {idx}. sor (ID: {row_data[0]})")
+                                    if uj_lat:
+                                        worksheet.update_cell(idx, lat_idx + 1, uj_lat)
+                                    if uj_lon:
+                                        worksheet.update_cell(idx, lon_idx + 1, uj_lon)
+                                    javitott_db += 1
+
+                            st.success(f"🎉 SIKER! Összesen {javitott_db} sor lett tökéletesen egységesítve szóló aposztrófra!")
+                            
+                            # Memória takarítás
+                            if 'ugyfelkor_df' in st.session_state:
+                                del st.session_state['ugyfelkor_df']
+                            st.rerun()
+            except Exception as e:
+                st.error(f"Hiba a takarítás során: {e}")
     
     # 🟢 ÚJ LUSTA BETÖLTÉS PAJZS: Ha üres az ügyfélkör (mert még nem olvastunk be PDF-et),
     # akkor közvetlenül a Google Sheets-ből rántjuk le a teljes listát a karbantartáshoz.

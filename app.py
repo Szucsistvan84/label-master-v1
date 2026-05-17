@@ -359,7 +359,7 @@ def master_lista_szinkron(df_napi, client, sheet_id):
     return df_napi, master_df
 
 # --- VIZUALIZÁCIÓ ---
-def utvonal_terkep(df_napi, sheet_id, client):
+def utvonal_terkep(df_napi, sheet_id=None, client=None):
     """
     Kiszállítási útvonal térképes megjelenítése Folium-mal.
     Az egy címre/koordinátára eső ügyfeleket intelligensen összevonja tól-ig sorszámmal.
@@ -369,9 +369,20 @@ def utvonal_terkep(df_napi, sheet_id, client):
     
     st.subheader("🗺️ Tervezett Kiszállítási Útvonal")
     
-    # 1. Google Sheets törzslista beolvasása
+    # Atombiztos session_state ellenőrzés, hogy elkerüljük a 'str' object has no attribute hibát
+    actual_client = client if (client and not isinstance(client, str)) else st.session_state.get('client')
+    actual_sheet_id = sheet_id if (sheet_id and isinstance(sheet_id, str)) else st.session_state.get('sheet_id')
+
+    if not actual_client:
+        st.error("❌ A Google Sheets kliens nincs inicializálva vagy rossz formátumban lett átadva!")
+        return
+    if not actual_sheet_id:
+        st.error("❌ A Google Sheets ID (sheet_id) hiányzik vagy érvénytelen!")
+        return
+
+    # 1. Google Sheets törzslista beolvasása az igazi klienssel
     try:
-        sh = client.open_by_key(sheet_id)
+        sh = actual_client.open_by_key(actual_sheet_id)
         ws = sh.worksheet("Ugyfelkor")
         df_torzs = pd.DataFrame(ws.get_all_records())
     except Exception as e:

@@ -47,28 +47,53 @@ logger = logging.getLogger(__name__)
 SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
 
 # ==============================================================================
-# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (STABILIZÁLT VERZIÓ)
+# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (TELJESEN AUTOMATIZÁLT)
 # ==============================================================================
 import gspread
 import pandas as pd
 import time
+from google.oauth2.service_account import Credentials
 
-# Megpróbáljuk betölteni a hozzáférést a Streamlit secrets-ből
-try:
-    if hasattr(st, "secrets") and "google_credentials" in st.secrets:
+def get_gspread_client():
+    """Golyóálló hitelesítés Streamlit Secrets vagy helyi JSON alapján"""
+    scopes = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    
+    # 1. Próba: Streamlit Cloud Secrets (google_credentials néven)
+    if "google_credentials" in st.secrets:
         creds_dict = dict(st.secrets["google_credentials"])
-        client = gspread.service_account_from_dict(creds_dict)
-    elif hasattr(st, "secrets") and "gspread" in st.secrets:
-        # Alternatív elnevezés, ha korábban gspread néven volt mentve
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        return gspread.authorize(creds)
+        
+    # 2. Próba: Streamlit Cloud Secrets (gspread néven)
+    if "gspread" in st.secrets:
         creds_dict = dict(st.secrets["gspread"])
-        client = gspread.service_account_from_dict(creds_dict)
-    else:
-        # Ha helyben futtatod és van service_account.json fájlod
-        client = gspread.service_account()
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        return gspread.authorize(creds)
+        
+    # 3. Próba: Helyi futtatás service_account.json fájllal
+    import os
+    local_json = "service_account.json"
+    if os.path.exists(local_json):
+        creds = Credentials.from_service_account_info(local_json, scopes=scopes)
+        return gspread.authorize(creds)
+        
+    # Ha egyik sem nyert, hibát dobunk részletes leírással
+    raise ValueError(
+        "A Streamlit Secrets nem tartalmazza a 'google_credentials' kulcsot, "
+        "és a projekt gyökerében sincs service_account.json fájl!"
+    )
+
+# Kapcsolódás indítása
+try:
+    client = get_gspread_client()
 except Exception as e:
     st.error(f"❌ Nem sikerült a Google Sheets hitelesítés! Hiba: {e}")
-    st.info("Tipp: Ellenőrizd a .streamlit/secrets.toml fájlt vagy a Streamlit Cloud Advanced Settings > Secrets menüpontot!")
+    st.warning("⚠️ Kérlek ellenőrizd a Streamlit Cloud felületén az Advanced Settings > Secrets menüpontot!")
     st.stop()
+
 
 # --- ADATOK BETÖLTÉSE IDŐZÍTETT SZÜNETEKKEL ---
 try:

@@ -3062,6 +3062,23 @@ def main():
         
         # --- 1. ADATOK ELŐKÉSZÍTÉSE ÉS TISZTÍTÁSA ---
         # Csak EGYSZER hozzuk létre a másolatot
+        
+        # 3. FŐABLAK MEGJELENÍTÉSE
+    if st.session_state.mdf is not None and not st.session_state.mdf.empty:
+        
+        # 🧬 ADATVÉDELMI FÁL START: Ha a belépett felhasználó FUTÁR, azonnal eldobjuk a többi járat adatait!
+        if st.session_state.user_szerep == "futar":
+            if 'Járat' in st.session_state.mdf.columns:
+                # Csak azokat a sorokat hagyjuk meg a futárnak, amik az ő járatához tartoznak
+                st.session_state.mdf = st.session_state.mdf[st.session_state.mdf['Járat'] == st.session_state.user_jarat].copy()
+            
+            # Figyelmeztetés, ha a futárnak mára nincs is kiírva címe
+            if st.session_state.mdf.empty:
+                st.warning(f"✉️ Kedves {st.session_state.user_nev}! A mai napra nincsenek aktív címeid rögzítve a(z) {st.session_state.user_jarat} útvonalon.")
+        # 🧬 ADATVÉDELMI FÁL END
+        
+        # --- 1. ADATOK ELŐKÉSZÍTÉSE ÉS TISZTÍTÁSA ---
+        # Csak EGYSZER hozzuk létre a másolatot
         df_to_edit = st.session_state.mdf.copy()
 
         # Biztosítjuk a Sorrend létezését és típusát

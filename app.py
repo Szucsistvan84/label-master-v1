@@ -365,11 +365,15 @@ def utvonal_terkep(df_napi, client, sheet_id):
     if 'Lon' not in df_valid_gps.columns:
         df_valid_gps['Lon'] = float('nan')
 
-    # Szigorú tisztítás stringként: levágjuk az aposztrófokat, cseréljük a vesszőt, levágjuk a szóközöket
-    df_valid_gps['Lat'] = df_valid_gps['Lat'].astype(str).str.replace("'", "").str.replace(',', '.').str.strip()
-    df_valid_gps['Lon'] = df_valid_gps['Lon'].astype(str).str.replace("'", "").str.replace(',', '.').str.strip()
+    # Szigorú tisztítás stringként: ELŐSZÖR mindent stringre kényszerítünk, és letakarítjuk a felhős maradványokat
+    df_valid_gps['Lat'] = df_valid_gps['Lat'].astype(str).str.replace("'", "", regex=False).str.replace(',', '.', regex=False).str.strip()
+    df_valid_gps['Lon'] = df_valid_gps['Lon'].astype(str).str.replace("'", "", regex=False).str.replace(',', '.', regex=False).str.strip()
     
-    # Számmá alakítás
+    # Biztonsági tisztítás: Ha a Google Sheets-ből üres vagy "None" string jött vissza, alakítsuk NaN-ná
+    df_valid_gps['Lat'] = df_valid_gps['Lat'].replace(['nan', 'none', '', 'None'], float('nan'))
+    df_valid_gps['Lon'] = df_valid_gps['Lon'].replace(['nan', 'none', '', 'None'], float('nan'))
+
+    # Számmá alakítás - Így a '47.5272940' már tökéletes float (tizedes tört) típus lesz!
     df_valid_gps['Lat'] = pd.to_numeric(df_valid_gps['Lat'], errors='coerce')
     df_valid_gps['Lon'] = pd.to_numeric(df_valid_gps['Lon'], errors='coerce')
     

@@ -394,40 +394,54 @@ def utvonal_terkep(df_napi, client, sheet_id):
     if 'ID' in df_valid_gps.columns:
         df_valid_gps['ID'] = df_valid_gps['ID'].apply(tiszta_id_konverter)
 
-    if 'mdf' in st.session_state and not st.session_state.mdf.empty:
-        # Tisztítjuk a session state-ben lévő master_df oszlopneveit a biztonság kedvéért
-        st.session_state.mdf.columns = [c.strip() for c in st.session_state.mdf.columns]
+    # TISZTÍTÁS: 'mdf' helyett a valóságban létező 'ugyfelkor_df'-et használjuk
+    if 'ugyfelkor_df' in st.session_state and not st.session_state.ugyfelkor_df.empty:
+        # Tisztítjuk a session state-ben lévő ugyfelkor_df oszlopneveit a biztonság kedvéért
+        st.session_state.ugyfelkor_df.columns = [c.strip() for c in st.session_state.ugyfelkor_df.columns]
         
         # --- ATOMBIZTOS OSZLOPKERESŐ FALLBACK ---
-        id_col = 'ID' if 'ID' in st.session_state.mdf.columns else ('id' if 'id' in st.session_state.mdf.columns else None)
+        id_col = 'ID' if 'ID' in st.session_state.ugyfelkor_df.columns else ('id' if 'id' in st.session_state.ugyfelkor_df.columns else None)
         
         lat_col = None
-        for c in ['Lat', 'Lat', 'lat']:
-            if c in st.session_state.mdf.columns:
+        for c in ['Lat', 'lat']:
+            if c in st.session_state.ugyfelkor_df.columns:
                 lat_col = c
                 break
                 
         lon_col = None
-        for c in ['Lon', 'Lon', 'lon']:
-            if c in st.session_state.mdf.columns:
+        for c in ['Lon', 'lon']:
+            if c in st.session_state.ugyfelkor_df.columns:
                 lon_col = c
                 break
         
         # Csak akkor vágunk bele a merge-be, ha mindhárom oszlopot megtaláltuk a törzslistában
         if id_col and lat_col and lon_col:
-            gps_torzs = st.session_state.mdf[[id_col, lat_col, lon_col]].copy()
+            gps_torzs = st.session_state.ugyfelkor_df[[id_col, lat_col, lon_col]].copy()
             gps_torzs.columns = ['ID', 'Lat', 'Lon']  # Egységesítjük belső elnevezésre
             
-            # Tisztítjuk a törzslista ID-it is ugyanazzal a szigorú logikával!
+            # Tisztítjuk a törzslista ID-it
             gps_torzs['ID'] = gps_torzs['ID'].apply(tiszta_id_konverter)
+            
+            # --- EXTRA BIZTONSÁG: Google Sheets aposztrófok és vesszők tisztítása számokká ---
+            def tisztit_koordinata(val):
+                if pd.isna(val):
+                    return None
+                val_str = str(val).replace("'", "").replace(",", ".").strip()
+                try:
+                    return float(val_str)
+                except:
+                    return None
+
+            gps_torzs['Lat'] = gps_torzs['Lat'].apply(tisztit_koordinata)
+            gps_torzs['Lon'] = gps_torzs['Lon'].apply(tisztit_koordinata)
             
             # Ha a napi listában már benne lennének a régi/üres oszlopok, eldobjuk őket a merge előtt
             df_valid_gps = df_valid_gps.drop(columns=['Lat', 'Lon'], errors='ignore')
             
-            # Összeillesztés - Ezután a tiszta stringek (pl. "450259") tökéletesen illeszkedni fognak
+            # Összeillesztés
             df_valid_gps = pd.merge(df_valid_gps, gps_torzs, on='ID', how='left')
         else:
-            logger.warning(f"A törzslista oszlopai hiányosak vagy eltérőek a várttól: {list(st.session_state.mdf.columns)}")
+            logger.warning(f"A törzslista oszlopai hiányosak vagy eltérőek a várttól: {list(st.session_state.ugyfelkor_df.columns)}")
     
     # Ha valamiért nem sikerült a merge, vagy hiányoznak az oszlopok, létrehozzuk őket üresen
     if 'Lat' not in df_valid_gps.columns:

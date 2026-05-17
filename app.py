@@ -396,7 +396,7 @@ def utvonal_terkep(df_napi, client, sheet_id):
 
     # TISZTÍTÁS: 'mdf' helyett a valóságban létező 'ugyfelkor_df'-et használjuk
     if 'ugyfelkor_df' in st.session_state and not st.session_state.ugyfelkor_df.empty:
-        # Tisztítjuk a session state-ben lévő ugyfelkor_df oszlopneveit a biztonság kedvéért
+        # Tisztítjuk a session state-ben lévő ugyfelkor_df oszlopneveit
         st.session_state.ugyfelkor_df.columns = [c.strip() for c in st.session_state.ugyfelkor_df.columns]
         
         # --- ATOMBIZTOS OSZLOPKERESŐ FALLBACK ---
@@ -414,13 +414,14 @@ def utvonal_terkep(df_napi, client, sheet_id):
                 lon_col = c
                 break
         
-        # Csak akkor vágunk bele a merge-be, ha mindhárom oszlopot megtaláltuk a törzslistában
+        # Csak akkor vágunk bele a merge-be, ha mindhárom oszlopot megtaláltuk
         if id_col and lat_col and lon_col:
             gps_torzs = st.session_state.ugyfelkor_df[[id_col, lat_col, lon_col]].copy()
-            gps_torzs.columns = ['ID', 'Lat', 'Lon']  # Egységesítjük belső elnevezésre
+            gps_torzs.columns = ['ID', 'Lat', 'Lon']
             
-            # Tisztítjuk a törzslista ID-it
-            gps_torzs['ID'] = gps_torzs['ID'].apply(tiszta_id_konverter)
+            # --- FORMÁTUM FIX: Kényszerítjük, hogy mindkét ID tiszta, szóközmentes szöveg legyen ---
+            gps_torzs['ID'] = gps_torzs['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+            df_valid_gps['ID'] = df_valid_gps['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
             
             # --- EXTRA BIZTONSÁG: Google Sheets aposztrófok és vesszők tisztítása számokká ---
             def tisztit_koordinata(val):
@@ -438,7 +439,7 @@ def utvonal_terkep(df_napi, client, sheet_id):
             # Ha a napi listában már benne lennének a régi/üres oszlopok, eldobjuk őket a merge előtt
             df_valid_gps = df_valid_gps.drop(columns=['Lat', 'Lon'], errors='ignore')
             
-            # Összeillesztés
+            # Összeillesztés a garantáltan azonos formátumú ID oszlopok alapján
             df_valid_gps = pd.merge(df_valid_gps, gps_torzs, on='ID', how='left')
         else:
             logger.warning(f"A törzslista oszlopai hiányosak vagy eltérőek a várttól: {list(st.session_state.ugyfelkor_df.columns)}")

@@ -365,77 +365,56 @@ def utvonal_terkep(df_napi, client, sheet_id):
     import streamlit as st
     import folium
     import math
+    import re
     from streamlit_folium import st_folium
+    from gspread_dataframe import set_with_dataframe
     
-    st.subheader("Napi Útvonal Tervezet")
+    st.subheader("🗺️ Napi Kiszedési és Kiszállítási Útvonal")
     logger.info("Térkép generálása elindult...")
     
-    # 1. ÉRVÉNYES KOORDINÁTÁK SZŰRÉSE ÉS HELYREÁLLÍTÁSA
+    if df_napi is None or df_napi.empty:
+        st.info("💡 Nincs megjeleníthető napi adat. Kérjük, futtasd a feldolgozást!")
+        return
+        
     df_valid_gps = df_napi.copy()
-    
-    # Tisztítsuk meg a napi lista oszlopneveit is a biztonság kedvéért
     df_valid_gps.columns = [c.strip() for c in df_valid_gps.columns]
     
-    # Biztosítjuk, hogy a napi lista fejlécében ne maradjunk ékezet nélkül a belső logikához
+    # Ékezetes oszlopok egységesítése
     if 'Név' in df_valid_gps.columns and 'Nev' not in df_valid_gps.columns:
         df_valid_gps['Nev'] = df_valid_gps['Név']
     if 'Cím' in df_valid_gps.columns and 'Cim' not in df_valid_gps.columns:
         df_valid_gps['Cim'] = df_valid_gps['Cím']
 
-    # --- ATOMBIZTOS ID TISZTÍTÓ FÜGGVÉNY (Eltávolítja a .0-t és a szóközöket) ---
-    def tiszta_id_konverter(val):
+    # --- ATOMBIZTOS ID TISZTÍTÓ (Mindkét oldalon ugyanazt a szigorú logikát használja) ---
+    def szigoru_id_konverter(val):
         if pd.isna(val):
             return ""
-        s = str(val).replace("'", "").replace(' ', '').strip()
+        s = str(val).replace("'", "").replace('"', '').replace(' ', '').strip()
         if '-' in s:
             s = s.split('-')[-1]
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
 
-    # Tisztítjuk a napi lista ID-it, hogy ne maradjon benne .0 formátum hiba
-    if 'ID' in df_valid_gps.columns:
-        df_valid_gps['ID'] = df_valid_gps['ID'].apply(tiszta_id_konverter)
+    df_valid_gps['ID'] = df_valid_gps['ID'].apply(szigoru_id_konverter)
 
-# TISZTÍTÁS: 'mdf' helyett a valóságban létező 'ugyfelkor_df'-et használjuk
+    # --- GOOGLE SHEETS TÖRZSLISTA ÖSSZEILLESZTÉSE ---
     if 'ugyfelkor_df' in st.session_state and not st.session_state.ugyfelkor_df.empty:
-        # Tisztítjuk a session state-ben lévő ugyfelkor_df oszlopneveit
         st.session_state.ugyfelkor_df.columns = [c.strip() for c in st.session_state.ugyfelkor_df.columns]
         
-        # --- ATOMBIZTOS OSZLOPKERESŐ FALLBACK ---
         id_col = 'ID' if 'ID' in st.session_state.ugyfelkor_df.columns else ('id' if 'id' in st.session_state.ugyfelkor_df.columns else None)
+        lat_col = 'Lat' if 'Lat' in st.session_state.ugyfelkor_df.columns else ('lat' if 'lat' in st.session_state.ugyfelkor_df.columns else None)
+        lon_col = 'Lon' if 'Lon' in st.session_state.ugyfelkor_df.columns else ('lon' if 'lon' in st.session_state.ugyfelkor_df.columns else None)
         
-        lat_col = None
-        for c in ['Lat', 'lat']:
-            if c in st.session_state.ugyfelkor_df.columns:
-                lat_col = c
-                break
-                
-        lon_col = None
-        for c in ['Lon', 'lon']:
-            if c in st.session_state.ugyfelkor_df.columns:
-                lon_col = c
-                break
-        
-        # Csak akkor vágunk bele a merge-be, ha mindhárom oszlopot megtaláltuk
         if id_col and lat_col and lon_col:
             gps_torzs = st.session_state.ugyfelkor_df[[id_col, lat_col, lon_col]].copy()
             gps_torzs.columns = ['ID', 'Lat', 'Lon']
             
-            # --- ATOMBIZTOS ID TISZTÍTÁS (Eltávolítja az aposztrófokat és felesleges karaktereket) ---
-            def szigoru_id_tisztito(val):
-                if pd.isna(val):
-                    return ""
-                # Kiszedünk minden aposztrófot, szóközt, és levágjuk a .0 végződést
-                s = str(val).replace("'", "").replace('"', '').strip()
-                s = re.sub(r'\.0$', '', s)
-                return s
-
-            gps_torzs['ID'] = gps_torzs['ID'].apply(szigoru_id_tisztito)
-            df_valid_gps['ID'] = df_valid_gps['ID'].apply(szigoru_id_tisztito)
+            # Tisztítjuk a törzslista ID-it is szigorúan
+            gps_torzs['ID'] = gps_torzs['ID'].apply(szigoru_id_konverter)
             
-            # --- EXTRA BIZTONSÁG: Google Sheets aposztrófok és vesszők tisztítása számokká ---
+            # Tisztítjuk a koordináta karaktereket (aposztrófok és vesszők eltávolítása számokká)
             def tisztit_koordinata(val):
-                if pd.isna(val):
+                if pd.isna(val) or val == "":
                     return None
                 val_str = str(val).replace("'", "").replace('"', '').replace(",", ".").strip()
                 try:
@@ -446,63 +425,66 @@ def utvonal_terkep(df_napi, client, sheet_id):
             gps_torzs['Lat'] = gps_torzs['Lat'].apply(tisztit_koordinata)
             gps_torzs['Lon'] = gps_torzs['Lon'].apply(tisztit_koordinata)
             
-            # Ha a napi listában már benne lennének a régi/üres oszlopok, eldobjuk őket a merge előtt
+            # Régi oszlopok eldobása a napi listából az ütközés elkerülésére
             df_valid_gps = df_valid_gps.drop(columns=['Lat', 'Lon'], errors='ignore')
             
-            # Összeillesztés a garantáltan letisztított ID oszlopok alapján
+            # Végrehajtjuk a fő összeillesztést
             df_valid_gps = pd.merge(df_valid_gps, gps_torzs, on='ID', how='left')
-        else:
-            logger.warning(f"A törzslista oszlopai hiányosak vagy eltérőek a várttól: {list(st.session_state.ugyfelkor_df.columns)}")
-    
-    # Ha valamiért nem sikerült a merge, vagy hiányoznak az oszlopok, létrehozzuk őket üresen
+
+    # Alapértelmezett üres oszlopok, ha nem léteznének
     if 'Lat' not in df_valid_gps.columns:
-        df_valid_gps['Lat'] = float('nan')
+        df_valid_gps['Lat'] = None
     if 'Lon' not in df_valid_gps.columns:
-        df_valid_gps['Lon'] = float('nan')
+        df_valid_gps['Lon'] = None
 
-    # Szigorú tisztítás stringként: ELŐSZÖR mindent stringre kényszerítünk, és letakarítjuk a felhős maradványokat
-    df_valid_gps['Lat'] = df_valid_gps['Lat'].astype(str).str.replace("'", "", regex=False).str.replace(',', '.', regex=False).str.strip()
-    df_valid_gps['Lon'] = df_valid_gps['Lon'].astype(str).str.replace("'", "", regex=False).str.replace(',', '.', regex=False).str.strip()
-    
-    # Biztonsági tisztítás: Ha a Google Sheets-ből üres vagy "None" string jött vissza, alakítsuk NaN-ná
-    df_valid_gps['Lat'] = df_valid_gps['Lat'].replace(['nan', 'none', '', 'None'], float('nan'))
-    df_valid_gps['Lon'] = df_valid_gps['Lon'].replace(['nan', 'none', '', 'None'], float('nan'))
-
-    # Számmá alakítás - Így a '47.5272940' már tökéletes float (tizedes tört) típus lesz!
-    df_valid_gps['Lat'] = pd.to_numeric(df_valid_gps['Lat'], errors='coerce')
-    df_valid_gps['Lon'] = pd.to_numeric(df_valid_gps['Lon'], errors='coerce')
-    
-    # Csak akkor rakjuk fel a térképre, ha a koordináta érvényes MAGYARORSZÁGI tartományban van
-    def koordinata_helyreallito(ertek):
-        if pd.isna(ertek):
-            return ertek
+    # --- MENTÉS A GOOGLE SHEETS 'ADATOK' ÉS 'RENDELESEK' LAPFÜLEKRE ---
+    try:
+        sh_ugyfel = client.open_by_key(sheet_id)
+        
+        # 1. 'Adatok' munkalap mentése (A telefonos appnak)
         try:
-            temp = float(ertek)
-            if abs(temp) > 100:
-                while abs(temp) > 100:
-                    temp /= 10.0
-            return temp
-        except:
-            return float('nan')
+            ws_adatok = sh_ugyfel.worksheet("Adatok")
+            ws_adatok.clear()  # Régi adatok törlése
+            # Felkészítjük a mentendő adatot szöveges formátumban, hogy a Google Sheets ne rontsa el
+            df_mentes_adatok = df_valid_gps.copy()
+            set_with_dataframe(ws_adatok, df_mentes_adatok, include_index=False)
+            logger.info("Napi adatok sikeresen mentve az 'Adatok' munkalapra.")
+        except Exception as e_adatok:
+            logger.error(f"Hiba az Adatok munkalap mentésekor: {e_adatok}")
 
-    df_valid_gps['Lat'] = df_valid_gps['Lat'].apply(koordinata_helyreallito)
-    df_valid_gps['Lon'] = df_valid_gps['Lon'].apply(koordinata_helyreallito)
-    
-    # --- ORSZÁGOS HATÁROK BEÁLLÍTÁSA ---
-    df_valid_gps = df_valid_gps[
-        (df_valid_gps['Lat'].notna()) & (df_valid_gps['Lon'].notna()) &
-        (df_valid_gps['Lat'] > 45.5) & (df_valid_gps['Lat'] < 48.7) &
-        (df_valid_gps['Lon'] > 16.0) & (df_valid_gps['Lon'] < 23.0)
-    ]
+        # 2. 'Rendelesek' munkalap mentése (Összesített statisztika)
+        try:
+            ws_rendelesek = sh_ugyfel.worksheet("Rendelesek")
+            # Kiválogatjuk a szükséges oszlopokat a Rendelesek lapra
+            df_rendelesek_lap = pd.DataFrame()
+            df_rendelesek_lap['Datum'] = [datetime.today().strftime('%Y.%m.%d')] * len(df_valid_gps)
+            df_rendelesek_lap['Ugyfel_ID'] = df_valid_gps['ID']
+            df_rendelesek_lap['Ugyfel_Neve'] = df_valid_gps.get('Nev', df_valid_gps.get('Név', ' Ismeretlen'))
+            df_rendelesek_lap['Osszeg'] = df_valid_gps.get('Fizetendő', 0)
+            df_rendelesek_lap['Tetel_Szam'] = df_valid_gps.get('Sorrend', 1)
+            
+            # Hozzáfűzzük a meglévő adatokhoz, vagy felülírjuk igény szerint (itt most frissítjük a napit)
+            ws_rendelesek.clear()
+            set_with_dataframe(ws_rendelesek, df_rendelesek_lap, include_index=False)
+            logger.info("Rendelések sikeresen szinkronizálva a 'Rendelesek' munkalapra.")
+            st.success("📊 Napi adatok és rendelések sikeresen mentve a Google Sheets-be!")
+    except Exception as sheets_main_err:
+        logger.error(f"Súlyos hiba a Google Sheets mentési folyamatban: {sheets_main_err}")
 
-    # Dinamikus alapértelmezett középpont
-    if not df_valid_gps.empty:
-        center_lat = df_valid_gps['Lat'].mean()
-        center_lon = df_valid_gps['Lon'].mean()
-        zoom_szint = 13
+    # --- TÉRKÉP MEGJELENÍTÉSI SZŰRÉS (Csak a rajzoláshoz!) ---
+    # Külön szűrjük a jó és rossz koordinátákat, hogy ne dobjuk el a hiányzó címeket a táblázatból!
+    df_jo_terkepre = df_valid_gps[
+        df_valid_gps['Lat'].notna() & df_valid_gps['Lon'].notna()
+    ].copy()
+
+    # Dinamikus térkép középpont meghatározása Debrecenre vagy a pontok átlagára
+    if not df_jo_terkepre.empty:
+        center_lat = df_jo_terkepre['Lat'].mean()
+        center_lon = df_jo_terkepre['Lon'].mean()
+        zoom_szint = 12
     else:
-        center_lat, center_lon = 47.4979, 19.0402  # Budapest fallback
-        zoom_szint = 8
+        center_lat, center_lon = 47.5316, 21.6273  # Debrecen fix fallback, ha nincs pont
+        zoom_szint = 11
         
     m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_szint)
     

@@ -206,6 +206,24 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
 
+    # ATOMBIZtos KOORDINÁTA TISZTÍTÓ FÜGGVÉNY (Golyóállóvá tétel)
+    def biztonsagos_koordinata_tisztito(val):
+        """
+        Bármilyen hibás formátumú koordinátából (''47,52 vagy '47.52 vagy float)
+        tiszta, lebegőpontos (float) számot varázsol. Ha üres vagy hibás, None-t ad vissza.
+        """
+        if pd.isna(val) or str(val).strip() == "" or str(val).lower() == "none":
+            return None
+        try:
+            # 1. Stringgé alakítjuk, levágunk minden felesleges szemetet (aposztrófok, idézőjelek)
+            s = str(val).replace("'", "").replace('"', '').strip()
+            # 2. A magyar tizedesvesszőt pontra cseréljük a Python float() számára
+            s = s.replace(",", ".")
+            # 3. Számmá alakítjuk
+            return float(s)
+        except Exception:
+            return None
+
     # 1. TÖRZSLISTA (Ugyfelkor fül) BEOLVASÁSA RAW MÓDBAN
     try:
         sh = client.open_by_key(sheet_id)  
@@ -223,7 +241,13 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             master_df['ID'] = master_df['ID'].astype(str).str.strip().apply(lambda x: x.split('.')[0] if x.endswith('.0') else x)
             master_df['ID'] = master_df['ID'].apply(tiszta_id_konverzio)
             
-        logger.info(f"Mesterlista sikeresen beolvasva RAW módban, {len(master_df)} meglévő ügyfél.")
+        # JAVÍTÁS: Az Ugyfelkor-ból beolvasott koordinátákat AZONNAL megtisztítjuk a memóriában float típusra!
+        if 'Lat' in master_df.columns:
+            master_df['Lat'] = master_df['Lat'].apply(biztonsagos_koordinata_tisztito)
+        if 'Lon' in master_df.columns:
+            master_df['Lon'] = master_df['Lon'].apply(biztonsagos_koordinata_tisztito)
+            
+        logger.info(f"Mesterlista sikeresen beolvasva RAW módban és letisztítva, {len(master_df)} meglévő ügyfél.")
     except Exception as e:
         logger.error(f"Hiba a törzslista (Ugyfelkor) megnyitásakor: {e}")
         st.error("Nem sikerült elérni az 'Ugyfelkor' táblázatot!")
@@ -258,12 +282,12 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             
             try:
                 lat, lon = get_coordinates(keresesi_cim)
-                # Rövid 0.2 másodperces pihentetés, hogy a geopy-t se terheljük túl hirtelen
                 time.sleep(0.2)
             except Exception as e:
                 logger.error(f"Hiba a geocoding során ({nev}): {e}")
-                lat, lon = "", ""
+                lat, lon = None, None
             
+            # Ha az automata sikeresen talált koordinátát, elmentjük (az adatbázis kedvéért magyar formátumban)
             lat_str = f"'{str(lat).replace('.', ',')}" if lat else ""
             lon_str = f"'{str(lon).replace('.', ',')}" if lon else ""
             
@@ -276,6 +300,7 @@ def master_lista_szinkron(df_napi, client, sheet_id):
                 'ID': u_id,
                 'Név': nev,
                 'Cím': eredeti_cim,
+                # Az adatbázis mentéshez string verziót használunk
                 'Lat': lat_str,
                 'Lon': lon_str,
                 'Telefon': str(row.get('Telefon', '')),
@@ -287,19 +312,20 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             }
             uj_ugyfelek.append(uj_adat)
 
+            # A lokális master_df-hez már tiszta float-ként adjuk hozzá, hogy a térkép azonnal lássa
+            elokeszitett_uj_adat = uj_adat.copy()
+            elokeszitett_uj_adat['Lat'] = lat if lat else None
+            elokeszitett_uj_adat['Lon'] = lon if lon else None
+            master_df = pd.concat([master_df, pd.DataFrame([elokeszitett_uj_adat])], ignore_index=True)
+
     # Új ügyfelek mentése a törzsbe (Ugyfelkor fül)
     if uj_ugyfelek:
         try:
             logger.info(f"{len(uj_ugyfelek)} új ügyfél hozzáadása a törzslistához...")
             new_rows_df = pd.DataFrame(uj_ugyfelek).fillna("")
             
-            # 1 másodperc taktikai szünet az írás előtt, nehogy belefussunk a Write kvótába is
             time.sleep(1.0)
             ws_ugyfel.append_rows(new_rows_df.values.tolist(), value_input_option='RAW')
-            
-            # --- MEGOLDÁS A 429-RE: Nem olvassuk be újra az egészet a Google-től! ---
-            # Helyette a meglévő master_df-hez fűzzük hozzá lokálisan az új sorokat a memóriában:
-            master_df = pd.concat([master_df, new_rows_df], ignore_index=True)
             logger.info("Lokális master_df frissítve az új ügyfelekkel, API hívás megspórolva.")
             
         except Exception as e:
@@ -317,11 +343,12 @@ def master_lista_szinkron(df_napi, client, sheet_id):
                 
         df_napi = df_napi.merge(master_df[b_cols], on='ID', how='left')
     else:
-        if 'Lat' not in df_napi.columns: df_napi['Lat'] = ""
-        if 'Lon' not in df_napi.columns: df_napi['Lon'] = ""
+        if 'Lat' not in df_napi.columns: df_napi['Lat'] = None
+        if 'Lon' not in df_napi.columns: df_napi['Lon'] = None
 
-    df_napi['Lat'] = df_napi['Lat'].fillna("").astype(str).str.strip()
-    df_napi['Lon'] = df_napi['Lon'].fillna("").astype(str).str.strip()
+    # Biztosítjuk, hogy a napi listában is tiszta float formátumok maradjanak a térképrajzolásig
+    df_napi['Lat'] = df_napi['Lat'].apply(biztonsagos_koordinata_tisztito)
+    df_napi['Lon'] = df_napi['Lon'].apply(biztonsagos_koordinata_tisztito)
 
     # 5. DINAMIKUS NAPI SORSZÁM GENERÁLÁSA
     df_napi['Sorrend'] = range(1, len(df_napi) + 1)
@@ -338,7 +365,6 @@ def master_lista_szinkron(df_napi, client, sheet_id):
 
     # 7. FRISSÍTÉS AZ "ADATOK" FÜLRE
     try:
-        # Újabb kis szünet az írási művelet előtt
         time.sleep(1.0)
         ws_adatok = sh.worksheet("Adatok")
         ws_adatok.clear()  
@@ -349,6 +375,11 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         ]
         
         save_df = df_napi[[c for c in export_cols if c in df_napi.columns]].copy()
+        
+        # JAVÍTÁS AZ EXPORTNÁL: Mielőtt kiírjuk a Sheets-be az Adatok fülre, visszaalakítjuk a string formátumra, 
+        # hogy ott is szépen, egységesen jelenjen meg (magyar vesszős, de dupla aposztrófok nélkül!)
+        save_df['Lat'] = save_df['Lat'].apply(lambda x: f"'{str(x).replace('.', ',')}" if pd.notna(x) else "")
+        save_df['Lon'] = save_df['Lon'].apply(lambda x: f"'{str(x).replace('.', ',')}" if pd.notna(x) else "")
         
         set_with_dataframe(ws_adatok, save_df)
         logger.info("🚀 A mai menetterv sikeresen kiküldve az 'Adatok' fülre!")

@@ -93,7 +93,7 @@ try:
     
     # 2. Ételek törzslista betöltése
     st.info("🔄 Ételek master lista betöltése...")
-    ws_etelek = sh.worksheet("Etelek_Master")
+    ws_etelek = sh.worksheet("Master_Adatbazis")
     records_etelek = ws_etelek.get_all_records()
     etelek_master_df = pd.DataFrame(records_etelek)
     

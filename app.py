@@ -28,7 +28,6 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame, Flowable
-from takarito import google_sheet_nagytakaritas
 
 # 2. LOGGOLÁS BEÁLLÍTÁSA
 LOG_FILE = "utvonaltervezo.log"

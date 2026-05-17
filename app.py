@@ -2943,7 +2943,7 @@ def main():
                 if all_rows:
                     df_temp = merge_data(all_rows)
                     with st.spinner("Ügyféladatok szinkronizálása..."):
-                        df_temp, m_df_friss = master_lista_szinkron(df_temp, client, UGYFELKOR_SHEET_ID)
+                        df_temp, m_df_friss = master_lista_szinkron(df_temp, UGYFELKOR_SHEET_ID, client)
                         st.session_state.master_df = m_df_friss
                     
                     st.session_state.mdf = df_temp

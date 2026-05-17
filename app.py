@@ -154,14 +154,13 @@ def master_lista_szinkron(df_napi, client, sheet_id):
     def tiszta_id_konverzio(x):
         if pd.isna(x) or x == "":
             return ""
-        s = str(x).strip()
+        # 1. Teljes tisztítás: aposztrófok és szóközök kigyomlálása
+        s = str(x).replace("'", "").replace(' ', '').strip()
         if '-' in s:
-            s = s.split('-')[-1].strip()
-        if s.endswith('.0'):
-            s = s[:-2]
-        if '.' in s:
-            s = s.split('.')[0]
-        return s if (s.isdigit() and len(s) >= 4) else ""
+            s = s.split('-')[-1]
+        # 2. Szigorúan CSAK a számjegyeket tartjuk meg (pl. "'450259" -> "450259")
+        tisztitott = "".join(filter(str.isdigit, s))
+        return tisztitott if len(tisztitott) > 0 else ""
 
     df_napi['ID'] = df_napi['ID'].apply(tiszta_id_konverzio)
     if not master_df.empty:

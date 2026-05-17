@@ -46,6 +46,69 @@ logger = logging.getLogger(__name__)
 # 1. Ételek, árak, névnapok (Interfood_Master_Data)
 SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
 
+# ==============================================================================
+# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (KVÓTAKÍMÉLŐ VERZIÓ)
+# ==============================================================================
+try:
+    if "google_credentials" in st.secrets:
+        creds_dict = dict(st.secrets["google_credentials"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=[
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ])
+        client = gspread.authorize(creds)
+    else:
+        st.error("Hiányzó Google Sheets jogosultságok (secrets)!")
+        st.stop()
+except Exception as e:
+    st.error(f"Nem sikerült csatlakozni a Google Sheets-hez: {e}")
+    st.stop()
+
+# --- ADATOK BETÖLTÉSE IDŐZÍTETT SZÜNETEKKEL ---
+try:
+    import time
+    
+    # Megnyitjuk a táblázatot a fent megadott SHEET_ID-val
+    sh = client.open_by_key(SHEET_ID)
+    
+    # 1. Étlap betöltése
+    st.info("🔄 Étlap betöltése...")
+    ws_etlap = sh.worksheet("Etlap")
+    records_etlap = ws_etlap.get_all_records()
+    etlap_api_df = pd.DataFrame(records_etlap)
+    
+    # 1.2 másodperces taktikai szünet a Google API-nak
+    time.sleep(1.2)
+    
+    # 2. Ételek törzslista betöltése
+    st.info("🔄 Ételek master lista betöltése...")
+    ws_etelek = sh.worksheet("Etelek_Master")
+    records_etelek = ws_etelek.get_all_records()
+    etelek_master_df = pd.DataFrame(records_etelek)
+    
+    # Újabb szünet
+    time.sleep(1.2)
+    
+    # 3. Névnapok betöltése
+    st.info("🔄 Névnapok betöltése...")
+    ws_nevnapok = sh.worksheet("Nevnapok")
+    records_nevnapok = ws_nevnapok.get_all_records()
+    nevnapok_df = pd.DataFrame(records_nevnapok)
+    
+    # Újabb szünet
+    time.sleep(1.2)
+    
+    # 4. Keresztnevek betöltése
+    st.info("🔄 Keresztnevek betöltése...")
+    ws_keresztnevek = sh.worksheet("Keresztnevek")
+    records_keresztnevek = ws_keresztnevek.get_all_records()
+    keresztnevek_df = pd.DataFrame(records_keresztnevek)
+    
+    st.success("✅ Minden tábla sikeresen, kvótakímélő módon betöltve!")
+
+except Exception as e:
+    st.error(f"⚠️ Hiba a táblák betöltésekor: {e}")
+
 # 2. Ügyfelek, címek, GPS, sorrend (Etikett_Ugyfelkor_DB)
 UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 

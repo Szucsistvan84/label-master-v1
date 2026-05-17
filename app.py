@@ -755,10 +755,19 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
         
         if kivallasztott:
             kiv_id = kivallasztott.split("] ")[1].split(" - ")[0].strip()
-            kiv_sor = df_karbantartas_forras[df_karbantartas_forras['ID'] == kiv_id].iloc[0]
             
-            aktualis_cim = kiv_sor.get('Cím', kiv_sor.get('Cim', 'Nincs cím'))
-            aktualis_nev = kiv_sor.get('Név', kiv_sor.get('Nev', kiv_sor.get('Ügyintéző', 'Ismeretlen')))
+            # 🟢 JAVÍTÁS: Különválasztjuk a szűrést az elem lekérésétől
+            talalatok = df_karbantartas_forras[df_karbantartas_forras['ID'] == kiv_id]
+            
+            if not talalatok.empty:
+                kiv_sor = talalatok.iloc[0]
+                aktualis_cim = kiv_sor.get('Cím', kiv_sor.get('Cim', 'Nincs cím'))
+                aktualis_nev = kiv_sor.get('Név', kiv_sor.get('Nev', kiv_sor.get('Ügyintéző', 'Ismeretlen')))
+            else:
+                # 🟢 Biztonsági védőháló: ha a nagytakarítás miatt épp üres a cache
+                st.warning("⚠️ A kiválasztott ügyfél adatai frissülnek. Kérjük, válassz ki egy ügyfelet újra a listából!")
+                aktualis_cim = "Frissítés alatt..."
+                aktualis_nev = "Frissítés alatt..."
             
             form_col, map_col = st.columns([1.2, 1])
             

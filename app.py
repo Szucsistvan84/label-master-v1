@@ -590,18 +590,26 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                                 t_lat = round(f_lat, 6)
                                 t_lon = round(f_lon, 6)
                                 
+                                # Fontos: Itt tizedesvesszővel és aposztróffal rakjuk össze a stringet
                                 formazott_lat = f"'{str(t_lat).replace('.', ',')}"
                                 formazott_lon = f"'{str(t_lon).replace('.', ',')}"
                                 
-                                sh = actual_client.open_by_key(actual_sheet_id)
+                                sh = client.open_by_key(sheet_id)
                                 ws = sh.worksheet("Ugyfelkor")
                                 cell = ws.find(str(kiv_id))
                                 if cell:
-                                    ws.update_cell(cell.row, 4, formazott_lat)
-                                    ws.update_cell(cell.row, 5, formazott_lon)
-                                    st.success(f"✅ Siker! {aktualis_nev} koordinátái elmentve!")
+                                    # JAVÍTÁS ITT: kényszerítjük a RAW (nyers szöveges) bevitelt a Sheets felé!
+                                    ws.update_cell(cell.row, 4, formazott_lat, value_input_option='RAW')
+                                    ws.update_cell(cell.row, 5, formazott_lon, value_input_option='RAW')
+                                    
+                                    st.success(f"✅ Siker! {aktualis_nev} koordinátái elmentve (Formátum: {formazott_lat})!")
+                                    
+                                    # Minden cache/session state takarítása, ami a betöltésért felel
                                     if 'google_data_loaded' in st.session_state:
                                         del st.session_state['google_data_loaded']
+                                    if 'master_ugyfelkor_df' in st.session_state:
+                                        st.session_state['master_ugyfelkor_df'] = None
+                                        
                                     st.rerun()
                                 else:
                                     st.error("❌ Az ügyfél nem található a törzslistában!")

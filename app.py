@@ -584,9 +584,16 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
     from streamlit_folium import st_folium
     st_folium(m, width=700, height=500, returned_objects=[])
 
-# --- ÁLLANDÓ KOORDINÁTA KARBANTARTÓ PANEL ---
+    # --- ÁLLANDÓ KOORDINÁTA KARBANTARTÓ PANEL ---
     st.markdown("---")
     st.subheader("🛠️ Ügyfél Koordináták Karbantartása / Javítása")
+    
+    # 🔴 EGYSZERI ADATBÁZIS NAGYTAKARÍTÓ GOMB
+    with st.expander("⚠️ VESZÉLYES ZÓNA: Google Sheets Adatbázis Formátum Javítása"):
+        st.write("Ez a gomb végigmegy a teljes Google Sheets táblázatodon, és az összes elrontott dupla aposztrófos (''47...) koordinátát átalakítja szép, egységes, szóló aposztrófos formátumra.")
+        if st.button("🚨 FUTTASD A GOOGLE SHEETS NAGYTAKARÍTÁST"):
+            google_sheet_nagytakaritas(SHEET_ID_UGYFELKOR)
+            st.rerun()
     
     # 🟢 ÚJ LUSTA BETÖLTÉS PAJZS: Ha üres az ügyfélkör (mert még nem olvastunk be PDF-et),
     # akkor közvetlenül a Google Sheets-ből rántjuk le a teljes listát a karbantartáshoz.

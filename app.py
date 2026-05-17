@@ -47,57 +47,46 @@ logger = logging.getLogger(__name__)
 SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
 
 # ==============================================================================
-# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (TELJESEN AUTOMATIZÁLT)
+# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (JAVÍTOTT, EREDETI HITELESÍTÉSSEL)
 # ==============================================================================
 import gspread
 import pandas as pd
 import time
 from google.oauth2.service_account import Credentials
 
-def get_gspread_client():
-    """Golyóálló hitelesítés Streamlit Secrets vagy helyi JSON alapján"""
-    scopes = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    
-    # 1. Próba: Streamlit Cloud Secrets (google_credentials néven)
-    if "google_credentials" in st.secrets:
-        creds_dict = dict(st.secrets["google_credentials"])
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        return gspread.authorize(creds)
-        
-    # 2. Próba: Streamlit Cloud Secrets (gspread néven)
-    if "gspread" in st.secrets:
-        creds_dict = dict(st.secrets["gspread"])
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        return gspread.authorize(creds)
-        
-    # 3. Próba: Helyi futtatás service_account.json fájllal
-    import os
-    local_json = "service_account.json"
-    if os.path.exists(local_json):
-        creds = Credentials.from_service_account_info(local_json, scopes=scopes)
-        return gspread.authorize(creds)
-        
-    # Ha egyik sem nyert, hibát dobunk részletes leírással
-    raise ValueError(
-        "A Streamlit Secrets nem tartalmazza a 'google_credentials' kulcsot, "
-        "és a projekt gyökerében sincs service_account.json fájl!"
-    )
-
-# Kapcsolódás indítása
+# Kapcsolódás a Google Sheets-hez az eredeti, működő Secrets eléréseddel
 try:
-    client = get_gspread_client()
+    if "gspread" in st.secrets:
+        # Ha a korábbi működő verzióban 'gspread' néven volt elmentve
+        creds_dict = dict(st.secrets["gspread"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=[
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ])
+        client = gspread.authorize(creds)
+    elif "google_credentials" in st.secrets:
+        # Ha mégis ezen a néven lenne
+        creds_dict = dict(st.secrets["google_credentials"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=[
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ])
+        client = gspread.authorize(creds)
+    else:
+        # Visszaeső ág az eredeti logikád szerint, hátha közvetlenül a secrets-ben vannak a mezők
+        creds_dict = dict(st.secrets)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=[
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ])
+        client = gspread.authorize(creds)
 except Exception as e:
-    st.error(f"❌ Nem sikerült a Google Sheets hitelesítés! Hiba: {e}")
-    st.warning("⚠️ Kérlek ellenőrizd a Streamlit Cloud felületén az Advanced Settings > Secrets menüpontot!")
+    st.error(f"Nem sikerült csatlakozni a Google Sheets-hez: {e}")
     st.stop()
 
 
-# --- ADATOK BETÖLTÉSE IDŐZÍTETT SZÜNETEKKEL ---
+# --- ADATOK BETÖLTÉSE IDŐZÍTETT SZÜNETEKKEL (Ez védi meg a 429-es hibától) ---
 try:
-    # Megnyitjuk a táblázatot
     sh = client.open_by_key(SHEET_ID)
     
     # 1. Étlap betöltése
@@ -106,7 +95,7 @@ try:
     records_etlap = ws_etlap.get_all_records()
     etlap_api_df = pd.DataFrame(records_etlap)
     
-    # 1.2 másodperces taktikai szünet a Google API-nak
+    # Taktikai szünet a Google API-nak
     time.sleep(1.2)
     
     # 2. Ételek törzslista betöltése
@@ -115,7 +104,7 @@ try:
     records_etelek = ws_etelek.get_all_records()
     etelek_master_df = pd.DataFrame(records_etelek)
     
-    # Újabb szünet
+    # Taktikai szünet a Google API-nak
     time.sleep(1.2)
     
     # 3. Névnapok betöltése
@@ -124,7 +113,7 @@ try:
     records_nevnapok = ws_nevnapok.get_all_records()
     nevnapok_df = pd.DataFrame(records_nevnapok)
     
-    # Újabb szünet
+    # Taktikai szünet a Google API-nak
     time.sleep(1.2)
     
     # 4. Keresztnevek betöltése

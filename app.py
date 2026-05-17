@@ -44,10 +44,12 @@ logger = logging.getLogger(__name__)
 
 # --- GOOGLE SHEETS KONFIGURÁCIÓ ---
 # 1. Ételek, árak, névnapok (Interfood_Master_Data)
-SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
+SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
+# 2. Ügyfélkör és rendelési adatok (Etikett_Ugyfelkor_DB)
+SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
 # ==============================================================================
-# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (CACHE-MENTES, STABIL VERZIÓ)
+# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (KÉT TÁBLÁZAT ÖSSZEKÖTÉSE)
 # ==============================================================================
 import gspread
 import pandas as pd
@@ -56,7 +58,7 @@ from google.oauth2.service_account import Credentials
 
 # CSAK AKKOR TÖLTÜNK LE, HA MÉG EBBEN A MUNKAMENETBEN NEM TÖRTÉNT MEG
 if "google_data_loaded" not in st.session_state:
-    with st.spinner("🔄 Adatok biztonságos betöltése a Google Sheets-ből... (Ez csak egyszer fut le indításkor)"):
+    with st.spinner("🔄 Mindkét Google Sheets adatbázis biztonságos betöltése..."):
         try:
             # Hitelesítés összeállítása
             if "gcp_service_account" in st.secrets:
@@ -72,30 +74,40 @@ if "google_data_loaded" not in st.session_state:
                 "https://www.googleapis.com/auth/drive"
             ])
             client = gspread.authorize(creds)
-            sh = client.open_by_key(SHEET_ID)
+            
+            # --- 1. TÁBLÁZAT MEGNYITÁSA (Master Data) ---
+            sh_master = client.open_by_key(SHEET_ID_MASTER)
             
             # 1. Étlap betöltése
-            ws_etlap = sh.worksheet("Etlap")
+            ws_etlap = sh_master.worksheet("Etlap")
             st.session_state.etlap_api_df = pd.DataFrame(ws_etlap.get_all_records())
             time.sleep(1.2)
             
-            # 2. Ételek törzslista betöltése
-            ws_etelek = sh.worksheet("Master_Adatbazis")
+            # 2. Ételek törzslista betöltése (Kellékek miatt)
+            ws_etelek = sh_master.worksheet("Master_Adatbazis")
             st.session_state.etelek_master_df = pd.DataFrame(ws_etelek.get_all_records())
             time.sleep(1.2)
             
             # 3. Névnapok betöltése
-            ws_nevnapok = sh.worksheet("Nevnapok")
+            ws_nevnapok = sh_master.worksheet("Nevnapok")
             st.session_state.nevnapok_df = pd.DataFrame(ws_nevnapok.get_all_records())
             time.sleep(1.2)
             
             # 4. Keresztnevek betöltése
-            ws_keresztnevek = sh.worksheet("Keresztnevek")
+            ws_keresztnevek = sh_master.worksheet("Keresztnevek")
             st.session_state.keresztnevek_df = pd.DataFrame(ws_keresztnevek.get_all_records())
+            time.sleep(1.2)
             
-            # Megjelöljük, hogy a letöltés sikeres, többször nem kell futni ebben a körben
+            # --- 2. TÁBLÁZAT MEGNYITÁSA (Ügyfélkör és GPS adatok) ---
+            sh_ugyfel = client.open_by_key(SHEET_ID_UGYFELKOR)
+            
+            # 5. Ügyfélkör (Lat, Lon koordinátákkal)
+            ws_ugyfelkor = sh_ugyfel.worksheet("Ugyfelkor")
+            st.session_state.ugyfelkor_df = pd.DataFrame(ws_ugyfelkor.get_all_records())
+            
+            # Megjelöljük, hogy a letöltés sikeres
             st.session_state.google_data_loaded = True
-            st.success("✅ Minden tábla sikeresen és biztonságosan betöltve!")
+            st.success("✅ Minden adatbázis sikeresen összekötve és betöltve!")
             time.sleep(0.5)
             st.rerun()
 
@@ -103,11 +115,12 @@ if "google_data_loaded" not in st.session_state:
             st.error(f"❌ Nem sikerült csatlakozni a Google Sheets-hez: {e}")
             st.stop()
 
-# Globális változók átadása a kódod többi részének (hogy minden gomb és függvény lássa őket)
+# Globális változók átadása a kódod többi részének
 etlap_api_df = st.session_state.etlap_api_df
 etelek_master_df = st.session_state.etelek_master_df
 nevnapok_df = st.session_state.nevnapok_df
 keresztnevek_df = st.session_state.keresztnevek_df
+ugyfelkor_df = st.session_state.ugyfelkor_df  # <-- Ez az új fegyverünk!
 
 # 2. Ügyfelek, címek, GPS, sorrend (Etikett_Ugyfelkor_DB)
 UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"

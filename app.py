@@ -2409,7 +2409,13 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
 
             # ÖSSZESÍTŐ - Jobb oldalon (A biztosan működő 'Összesen' kulccsal)
             p.setFont(f_bold, 7.5)
-            p.drawRightString(x + lw - inner_m, y_eff + 7 * mm, f"Össz: {int(r.get('Összesen', 0))} db")
+            # 🟢 JAVÍTOTT, BIZTONSÁGOS VERZIÓ:
+            try:
+                osszesen_db = int(float(str(r.get('Összesen', 0)).replace("'", "").strip() or 0))
+            except ValueError:
+                osszesen_db = 0  # Ha mégis szöveg maradt volna benne, akkor 0 db-ot ír ki, de nem omlik össze!
+            
+            p.drawRightString(x + lw - inner_m, y_eff + 7 * mm, f"Össz: {osszesen_db} db")
 
             # --- KELLÉK SOR (Fentebb tolva: 12.5 mm) ---
             if kellek_kiiras:

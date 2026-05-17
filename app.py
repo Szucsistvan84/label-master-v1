@@ -314,10 +314,11 @@ def utvonal_terkep(df_napi, client, sheet_id):
     def tiszta_id_konverter(val):
         if pd.isna(val):
             return ""
-        s = str(val).strip()
-        if s.endswith('.0'):
-            s = s[:-2]
-        return s
+        s = str(val).replace("'", "").replace(' ', '').strip()
+        if '-' in s:
+            s = s.split('-')[-1]
+        tisztitott = "".join(filter(str.isdigit, s))
+        return tisztitott if len(tisztitott) > 0 else ""
 
     # Tisztítjuk a napi lista ID-it, hogy ne maradjon benne .0 formátum hiba
     if 'ID' in df_valid_gps.columns:

@@ -47,78 +47,67 @@ logger = logging.getLogger(__name__)
 SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
 
 # ==============================================================================
-# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (MEGLÉVŐ KULCSHOZ IGAZÍTVA)
+# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (CACHE-MENTES, STABIL VERZIÓ)
 # ==============================================================================
 import gspread
 import pandas as pd
 import time
 from google.oauth2.service_account import Credentials
 
-try:
-    # Összerakjuk a hitelesítést a Streamlit felületén lévő pontos elnevezés [gcp_service_account] alapján
-    if "gcp_service_account" in st.secrets:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-    else:
-        # Ha esetleg a gyökérbe is be lenne ömlesztve biztonság kedvéért
-        creds_dict = dict(st.secrets)
+# CSAK AKKOR TÖLTÜNK LE, HA MÉG EBBEN A MUNKAMENETBEN NEM TÖRTÉNT MEG
+if "google_data_loaded" not in st.session_state:
+    with st.spinner("🔄 Adatok biztonságos betöltése a Google Sheets-ből... (Ez csak egyszer fut le indításkor)"):
+        try:
+            # Hitelesítés összeállítása
+            if "gcp_service_account" in st.secrets:
+                creds_dict = dict(st.secrets["gcp_service_account"])
+            else:
+                creds_dict = dict(st.secrets)
 
-    # Biztonsági sortörés tisztítása, amit a Google elvár
-    if "private_key" in creds_dict:
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+            if "private_key" in creds_dict:
+                creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
 
-    # Hitelesítés indítása
-    creds = Credentials.from_service_account_info(creds_dict, scopes=[
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ])
-    client = gspread.authorize(creds)
-    
-except Exception as e:
-    st.error(f"❌ Nem sikerült csatlakozni a Google Sheets-hez: {e}")
-    st.stop()
+            creds = Credentials.from_service_account_info(creds_dict, scopes=[
+                "https://spreadsheets.google.com/feeds",
+                "https://www.googleapis.com/auth/drive"
+            ])
+            client = gspread.authorize(creds)
+            sh = client.open_by_key(SHEET_ID)
+            
+            # 1. Étlap betöltése
+            ws_etlap = sh.worksheet("Etlap")
+            st.session_state.etlap_api_df = pd.DataFrame(ws_etlap.get_all_records())
+            time.sleep(1.2)
+            
+            # 2. Ételek törzslista betöltése
+            ws_etelek = sh.worksheet("Master_Adatbazis")
+            st.session_state.etelek_master_df = pd.DataFrame(ws_etelek.get_all_records())
+            time.sleep(1.2)
+            
+            # 3. Névnapok betöltése
+            ws_nevnapok = sh.worksheet("Nevnapok")
+            st.session_state.nevnapok_df = pd.DataFrame(ws_nevnapok.get_all_records())
+            time.sleep(1.2)
+            
+            # 4. Keresztnevek betöltése
+            ws_keresztnevek = sh.worksheet("Keresztnevek")
+            st.session_state.keresztnevek_df = pd.DataFrame(ws_keresztnevek.get_all_records())
+            
+            # Megjelöljük, hogy a letöltés sikeres, többször nem kell futni ebben a körben
+            st.session_state.google_data_loaded = True
+            st.success("✅ Minden tábla sikeresen és biztonságosan betöltve!")
+            time.sleep(0.5)
+            st.rerun()
 
+        except Exception as e:
+            st.error(f"❌ Nem sikerült csatlakozni a Google Sheets-hez: {e}")
+            st.stop()
 
-# --- ADATOK BETÖLTÉSE IDŐZÍTETT SZÜNETEKKEL (Ez védi meg a 429-es kvótahibától) ---
-try:
-    sh = client.open_by_key(SHEET_ID)
-    
-    # 1. Étlap betöltése
-    st.info("🔄 Étlap betöltése...")
-    ws_etlap = sh.worksheet("Etlap")
-    records_etlap = ws_etlap.get_all_records()
-    etlap_api_df = pd.DataFrame(records_etlap)
-    
-    # Taktikai szünet a Google API-nak (Hogy ne kapjunk 429-es hibát)
-    time.sleep(1.2)
-    
-    # 2. Ételek törzslista betöltése
-    st.info("🔄 Ételek master lista betöltése...")
-    ws_etelek = sh.worksheet("Master_Adatbazis")
-    records_etelek = ws_etelek.get_all_records()
-    etelek_master_df = pd.DataFrame(records_etelek)
-    
-    # Taktikai szünet a Google API-nak
-    time.sleep(1.2)
-    
-    # 3. Névnapok betöltése
-    st.info("🔄 Névnapok betöltése...")
-    ws_nevnapok = sh.worksheet("Nevnapok")
-    records_nevnapok = ws_nevnapok.get_all_records()
-    nevnapok_df = pd.DataFrame(records_nevnapok)
-    
-    # Taktikai szünet a Google API-nak
-    time.sleep(1.2)
-    
-    # 4. Keresztnevek betöltése
-    st.info("🔄 Keresztnevek betöltése...")
-    ws_keresztnevek = sh.worksheet("Keresztnevek")
-    records_keresztnevek = ws_keresztnevek.get_all_records()
-    keresztnevek_df = pd.DataFrame(records_keresztnevek)
-    
-    st.success("✅ Minden tábla sikeresen, kvótakímélő módon betöltve!")
-
-except Exception as e:
-    st.error(f"⚠️ Hiba történt a táblák adatainak beolvasásakor: {e}")
+# Globális változók átadása a kódod többi részének (hogy minden gomb és függvény lássa őket)
+etlap_api_df = st.session_state.etlap_api_df
+etelek_master_df = st.session_state.etelek_master_df
+nevnapok_df = st.session_state.nevnapok_df
+keresztnevek_df = st.session_state.keresztnevek_df
 
 # 2. Ügyfelek, címek, GPS, sorrend (Etikett_Ugyfelkor_DB)
 UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"

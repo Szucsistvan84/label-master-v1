@@ -611,13 +611,13 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
     st.markdown("---")
     st.subheader("🛠️ Ügyfél Koordináták Karbantartása / Javítása")
     
-    # 🔴 EGYSZERI ADATBÁZIS NAGYTAKARÍTÓ GOMB (Végleges, javított verzió)
+    # 🔴 EGYSZERI ADATBÁZIS NAGYTAKARÍTÓ GOMB (API-KÍMÉLŐ, BATCH UPDATE VERZIÓ)
     with st.expander("⚠️ VESZÉLYES ZÓNA: Google Sheets Adatbázis Formátum Javítása"):
-        st.write("Ez a gomb végigmegy a teljes Google Sheets táblázatodon, és az összes elrontott dupla aposztrófos (''47...) koordinátát átalakítja szép, egységes, szóló aposztrófos formátumra.")
+        st.write("Ez a gomb végigmegy a teljes Google Sheets táblázatodon, és az összes elrontott dupla aposztrófos (''47...) koordinátát átalakítja szép, egységes, szóló aposztrófos formátumra – mindezt EGYETLEN API hívással.")
         
         if st.button("🚨 FUTTASD A GOOGLE SHEETS NAGYTAKARÍTÁST"):
             try:
-                with st.spinner("⏳ Kapcsolódás és nagytakarítás folyamatban..."):
+                with st.spinner("⏳ Adatbázis letöltése és elemzése..."):
                     if "gcp_service_account" in st.secrets:
                         creds_dict = dict(st.secrets["gcp_service_account"])
                     else:
@@ -633,6 +633,7 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                     sheet = client.open_by_key(SHEET_ID_UGYFELKOR)
                     worksheet = sheet.worksheet("Ugyfelkor")
 
+                    # 1. Beolvassuk az egészet egy nagy listába (1 olvasási API hívás)
                     rows = worksheet.get_all_values()
 
                     if not rows:
@@ -646,7 +647,9 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                             st.error("❌ Nem találom a 'Lat' vagy 'Lon' oszlopot a táblázatban!")
                         else:
                             javitott_db = 0
+                            frissitando_cellak = []
                             
+                            # 2. Végigmegyünk a memóriában lévő adatokon (0 API hívás)
                             for idx, row_data in enumerate(rows[1:], start=2):
                                 if len(row_data) <= max(lat_idx, lon_idx):
                                     continue
@@ -657,7 +660,7 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                                 uj_lat = None
                                 uj_lon = None
                                 
-                                # A fenti biztonságos tisztító meghívása
+                                # Tisztítás meghívása (mivel az app.py tetejére betetted, itt már látni fogja!)
                                 tiszta_lat = biztonsagos_koordinata_tisztito(nyers_lat)
                                 if tiszta_lat is not None:
                                     uj_lat = f"'{str(tiszta_lat).replace('.', ',')}"
@@ -666,20 +669,33 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                                 if tiszta_lon is not None:
                                     uj_lon = f"'{str(tiszta_lon).replace('.', ',')}"
 
-                                # Ha a táblázatban lévő érték nem egyezik a tiszta formátummal, javítjuk
-                                if (uj_lat and uj_lat != nyers_lat) or (uj_lon and uj_lon != nyers_lon):
-                                    st.write(f"🛠️ Sor javítása: {idx}. sor (ID: {row_data[0]}) | Nyers: {nyers_lat} -> Új: {uj_lat}")
-                                    if uj_lat:
-                                        worksheet.update_cell(idx, lat_idx + 1, uj_lat)
-                                    if uj_lon:
-                                        worksheet.update_cell(idx, lon_idx + 1, uj_lon)
+                                # Ha változott az adat, betesszük a gyűjtőbe a cellát az új értékkel
+                                valtozott = False
+                                if uj_lat and uj_lat != nyers_lat:
+                                    frissitando_cellak.append(gspread.Cell(row=idx, col=lat_idx + 1, value=uj_lat))
+                                    valtozott = True
+                                if uj_lon and uj_lon != nyers_lon:
+                                    frissitando_cellak.append(gspread.Cell(row=idx, col=lon_idx + 1, value=uj_lon))
+                                    valtozott = True
+                                    
+                                if valtozott:
                                     javitott_db += 1
 
-                            st.success(f"🎉 SIKER! Összesen {javitott_db} sor lett tökéletesen egységesítve szóló aposztrófra!")
+                            # 3. KÖTEGELT FELTÖLTÉS (Összesen 1 darab API hívás!)
+                            if frissitando_cellak:
+                                with st.spinner(f"⏳ {len(frissitando_cellak)} cella egységesítése a felhőben..."):
+                                    worksheet.update_cells(frissitando_cellak, value_input_option='USER_ENTERED')
+                                st.success(f"🎉 SIKER! Összesen {javitott_db} ügyfél koordinátája lett javítva és szinkronizálva!")
+                            else:
+                                st.info("✨ Az adatbázis már teljesen tiszta, nem volt mit javítani!")
                             
+                            # Cache törlése, hogy kényszerítsük a friss adatot
                             if 'ugyfelkor_df' in st.session_state:
                                 del st.session_state['ugyfelkor_df']
+                                
+                            # Kis szünet, majd tiszta lappal újraindul az oldal
                             st.rerun()
+                            
             except Exception as e:
                 st.error(f"Hiba a takarítás során: {e}")
     

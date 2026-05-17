@@ -47,39 +47,28 @@ logger = logging.getLogger(__name__)
 SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
 
 # ==============================================================================
-# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (PONTOS RECEPT ALAPJÁN)
+# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (KÖZVETLEN STREAMLIT FUNKCIÓVAL)
 # ==============================================================================
 import gspread
 import pandas as pd
 import time
-from google.oauth2.service_account import Credentials
 
 try:
-    # 1. Megpróbáljuk az eredeti, nálad működő [sheets][service_account] struktúrát
+    # A gspread beépített service_account_from_dict funkciója automatikusan 
+    # gatyába rázza a Streamlit fura formátumait és a sortöréseket is.
     if "sheets" in st.secrets and "service_account" in st.secrets["sheets"]:
-        creds_dict = dict(st.secrets["sheets"]["service_account"])
-    # 2. Visszaeső ág, ha időközben mégis változott volna a Streamlit felületén
+        client = gspread.service_account_from_dict(dict(st.secrets["sheets"]["service_account"]))
     elif "google_credentials" in st.secrets:
-        creds_dict = dict(st.secrets["google_credentials"])
+        client = gspread.service_account_from_dict(dict(st.secrets["google_credentials"]))
     elif "gspread" in st.secrets:
-        creds_dict = dict(st.secrets["gspread"])
+        client = gspread.service_account_from_dict(dict(st.secrets["gspread"]))
     else:
-        creds_dict = dict(st.secrets)
-
-    # Biztonsági sortörés javítás (\n -> valódi sortörés)
-    if "private_key" in creds_dict:
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-
-    # Hitelesítés összeállítása
-    creds = Credentials.from_service_account_info(creds_dict, scopes=[
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ])
-    client = gspread.authorize(creds)
-
+        # Ha teljesen ömlesztve lenne a gyökérben
+        client = gspread.service_account_from_dict(dict(st.secrets))
+        
 except Exception as e:
     st.error(f"❌ Nem sikerült csatlakozni a Google Sheets-hez: {e}")
-    st.info("Tipp: A kulcsod valószínűleg a [sheets] blokkban van a Streamlit felületén.")
+    st.info("Ha a hiba nem szűnik meg, az azt jelenti, hogy a Secrets tartalma sérült vagy hiányos a felhőben.")
     st.stop()
 
 

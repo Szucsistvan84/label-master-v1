@@ -58,7 +58,7 @@ from google.oauth2.service_account import Credentials
 
 # CSAK AKKOR TÖLTÜNK LE, HA MÉG EBBEN A MUNKAMENETBEN NEM TÖRTÉNT MEG
 if "google_data_loaded" not in st.session_state:
-    with st.spinner("🔄 Adatbázisok biztonságos betöltése... (Kvótakímélő mód aktív)"):
+    with st.spinner("🔄 Alapadatok biztonságos betöltése... (Kvótakímélő mód aktív)"):
         try:
             # Hitelesítés összeállítása
             if "gcp_service_account" in st.secrets:
@@ -93,22 +93,19 @@ if "google_data_loaded" not in st.session_state:
             
             ws_keresztnevek = sh_master.worksheet("Keresztnevek")
             st.session_state.keresztnevek_df = pd.DataFrame(ws_keresztnevek.get_all_records())
-            time.sleep(2.0)
+            time.sleep(1.0)
             
-            # --- 2. TÁBLÁZAT: Ügyfélkör ---
-            sh_ugyfel = client.open_by_key(SHEET_ID_UGYFELKOR)
-            time.sleep(2.0)
-            
-            ws_ugyfelkor = sh_ugyfel.worksheet("Ugyfelkor")
-            ugyfel_df_nyers = pd.DataFrame(ws_ugyfelkor.get_all_records())
-            
-            # Elmentjük mindkét néven a session state-be, hogy a régi és az új kódrészek is megtalálják!
-            st.session_state.ugyfelkor_df = ugyfel_df_nyers
-            st.session_state.mdf = ugyfel_df_nyers
+            # --- JAVÍTÁS: Nem töltjük le az ügyfélkört előre az indításkor! ---
+            # Kezdetben csak egy üres vázat hozunk létre a session_state-ben, nehogy összeomoljon az app.
+            # Ezt a PDF feldolgozása gomb (vagy a Karbantartó panel) fogja frissíteni valódi adatokkal.
+            if "ugyfelkor_df" not in st.session_state or st.session_state.ugyfelkor_df is None:
+                ures_vaz = pd.DataFrame(columns=['ID', 'Név', 'Cím', 'Lat', 'Lon', 'Telefon', 'Csoport', 'Megjegyzés'])
+                st.session_state.ugyfelkor_df = ures_vaz
+                st.session_state.mdf = ures_vaz
             
             # Megjelöljük a sikeres betöltést
             st.session_state.google_data_loaded = True
-            st.success("✅ Minden tábla sikeresen, kvótakímélő módon szinkronizálva!")
+            st.success("✅ Alapadatok sikeresen szinkronizálva!")
             time.sleep(0.5)
             st.rerun()
 
@@ -116,13 +113,13 @@ if "google_data_loaded" not in st.session_state:
             st.error(f"❌ Hiba a táblák betöltésekor: {e}")
             st.stop()
 
-# Globális változók átadása (hogy a kód minden porcikája lássa)
-etlap_api_df = st.session_state.etlap_api_df
-etelek_master_df = st.session_state.etelek_master_df
-nevnapok_df = st.session_state.nevnapok_df
-keresztnevek_df = st.session_state.keresztnevek_df
-ugyfelkor_df = st.session_state.ugyfelkor_df
-mdf = st.session_state.mdf
+# Globális változók biztonságos átadása default értékekkel (ha még üresek lennének)
+etlap_api_df = st.session_state.get('etlap_api_df', pd.DataFrame())
+etelek_master_df = st.session_state.get('etelek_master_df', pd.DataFrame())
+nevnapok_df = st.session_state.get('nevnapok_df', pd.DataFrame())
+keresztnevek_df = st.session_state.get('keresztnevek_df', pd.DataFrame())
+ugyfelkor_df = st.session_state.get('ugyfelkor_df', pd.DataFrame())
+mdf = st.session_state.get('mdf', pd.DataFrame())
 
 # 2. Ügyfelek, címek, GPS, sorrend (Etikett_Ugyfelkor_DB)
 UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"

@@ -362,26 +362,25 @@ def master_lista_szinkron(df_napi, client, sheet_id):
 def utvonal_terkep(df_napi, sheet_id=None, client=None):
     """
     Kiszállítási útvonal térképes megjelenítése Folium-mal.
-    Az egy címre/koordinátára eső ügyfeleket intelligensen összevonja tól-ig sorszámmal.
+    KIZÁRÓLAG a hajszálpontosan egyező koordinátájú (társasház/cég) ügyfeleket vonja össze.
     """
     import folium
     import folium.plugins
     
     st.subheader("🗺️ Tervezett Kiszállítási Útvonal")
     
-    # Közvetlenül a session_state-ből olvassuk ki a biztos pontosság érdekében, 
-    # ha a paraméterként átadott érték nem megfelelő
+    # Session state és kliens ellenőrzése
     actual_client = st.session_state.get('client') if 'client' in st.session_state else client
     actual_sheet_id = st.session_state.get('sheet_id') if 'sheet_id' in st.session_state else sheet_id
 
     if not actual_client or isinstance(actual_client, str):
-        st.error("❌ A Google Sheets kliens nincs inicializálva vagy rossz formátumban lett átadva!")
+        st.error("❌ A Google Sheets kliens nincs inicializálva!")
         return
     if not actual_sheet_id:
-        st.error("❌ A Google Sheets ID (sheet_id) hiányzik vagy érvénytelen!")
+        st.error("❌ A Google Sheets ID hiányzik!")
         return
 
-    # 1. Google Sheets törzslista beolvasása az igazi klienssel
+    # 1. Google Sheets törzslista beolvasása
     try:
         sh = actual_client.open_by_key(actual_sheet_id)
         ws = sh.worksheet("Ugyfelkor")
@@ -406,15 +405,15 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
             df_valid_gps[col] = df_valid_gps[col].astype(str).str.replace("'", "").str.replace('"', '').str.replace(",", ".").str.strip()
             df_valid_gps[col] = pd.to_numeric(df_valid_gps[col], errors='coerce')
 
-    # Csak a valós, jó koordináták megtartása a térképhez
+    # Csak a valós, jó koordináták megtartása
     df_jo_gps = df_valid_gps[df_valid_gps['Lat'].notna() & df_valid_gps['Lon'].notna()].copy()
     df_jo_gps = df_jo_gps[(df_jo_gps['Lat'] >= -90) & (df_jo_gps['Lat'] <= 90) & (df_jo_gps['Lon'] >= -180) & (df_jo_gps['Lon'] <= 180)]
 
     if df_jo_gps.empty:
-        st.info("💡 Nincs megjeleníthető koordináta a térképen. Használd a karbantartó panelt!")
+        st.info("💡 Nincs megjeleníthető koordináta a térképen.")
         m = folium.Map(location=[47.5316, 21.6273], zoom_start=12)
     else:
-        # Sorrend szerinti rendezés az útvonalhoz
+        # Sorrend meghatározása
         if 'Sorrend' in df_jo_gps.columns:
             df_jo_gps['Kijelzendo_Sorrend'] = pd.to_numeric(df_jo_gps['Sorrend'], errors='coerce')
         else:
@@ -423,39 +422,35 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
         df_jo_gps = df_jo_gps.sort_values(by='Kijelzendo_Sorrend')
 
         # Térkép középpontja
-        m = folium.Map(location=[df_jo_gps.iloc[0]['Lat'], df_jo_gps.iloc[0]['Lon']], zoom_start=13)
+        m = folium.Map(location=[df_jo_gps.iloc[0]['Lat'], df_jo_gps.iloc[0]['Lon']], zoom_start=14)
 
-        # --- INTELLIGENS CSOPORTOSÍTÁS FÖLDRAJZI HELY ALAPJÁN (TÖMBHÁZ KEZELÉS) ---
-        # Kerekítjük 6 tizedesre a csoportosításhoz, hogy a mikroszkopikus eltérések ne zavarjanak be
-        df_jo_gps['Lat_Group'] = df_jo_gps['Lat'].round(6)
-        df_jo_gps['Lon_Group'] = df_jo_gps['Lon'].round(6)
+        # --- SEBÉSZI PONTOSSÁGÚ TÖMBHÁZ CSOPORTOSÍTÁS (SZÖVEGES KOORDINÁTA-PÁR ALAPJÁN) ---
+        # Létrehozunk egy kulcsot a nyers, módosítatlan karakterekből, így csak a 100%-ban azonos pontok olvadnak össze
+        df_jo_gps['Coord_Key'] = df_jo_gps['Lat'].astype(str) + "_" + df_jo_gps['Lon'].astype(str)
         
-        # Egyedi megállók kigyűjtése az útvonalvonal rajzolásához (sorrendet tartva)
         vonal_pontok = []
         utolso_pont = None
-        
-        # Csoportosítjuk az ügyfeleket koordináta szerint, de megtartjuk az útvonal sorrendjét
         megallok = []
-        for (lat_g, lon_g), group in df_jo_gps.groupby(['Lat_Group', 'Lon_Group'], sort=False):
-            # Sorrendbe tesszük a csoporton belül is az ügyfeleket
+        
+        # Csoportosítás a szigorú szöveges kulcs alapján, az útvonal sorrendjét megtartva
+        for coord_key, group in df_jo_gps.groupby('Coord_Key', sort=False):
             group = group.sort_values(by='Kijelzendo_Sorrend')
             sorszamok = group['Kijelzendo_Sorrend'].astype(int).tolist()
             
-            # Tól-ig felirat meghatározása
             if len(sorszamok) > 1:
                 tol_ig_szoveg = f"{min(sorszamok)}-{max(sorszamok)}"
             else:
                 tol_ig_szoveg = str(sorszamok[0])
                 
             megallok.append({
-                'lat': lat_g,
-                'lon': lon_g,
+                'lat': group.iloc[0]['Lat'],
+                'lon': group.iloc[0]['Lon'],
                 'tol_ig': tol_ig_szoveg,
                 'ugyfelek': group.to_dict('records'),
                 'elso_sorszam': min(sorszamok)
             })
             
-        # Megállók rendezése az első sorszám szerint, hogy az útvonalvonal tökéletes legyen
+        # Megállók végső sorrendbe rendezése a menetterv szerint
         megallok = sorted(megallok, key=lambda x: x['elso_sorszam'])
         
         for megallo in megallok:
@@ -464,7 +459,7 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                 vonal_pontok.append(aktualis_pont)
                 utolso_pont = aktualis_pont
 
-        # Útvonalvonal kirajzolása
+        # Útvonalvonal (AntPath)
         if len(vonal_pontok) >= 2:
             try:
                 folium.plugins.AntPath(
@@ -474,14 +469,13 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
             except:
                 folium.PolyLine(vonal_pontok, color="#0072ff", weight=4, opacity=0.7).add_to(m)
 
-        # Intelligens megálló-márkerek elhelyezése
+        # Márkerek elhelyezése
         for megallo in megallok:
-            # Összerakjuk a felugró ablak HTML tartalmát a csoport összes tagjával
             cím = megallo['ugyfelek'][0].get('Cím', megallo['ugyfelek'][0].get('Cim', 'Nincs cím'))
             
             popup_html = f"""
-            <div style="font-family: Arial, sans-serif; min-width: 200px;">
-                <h4 style="margin:0 0 5px 0; color:#0072ff;">📭 Megálló: {megallo['tol_ig']}</h4>
+            <div style="font-family: Arial, sans-serif; min-width: 210px;">
+                <h4 style="margin:0 0 5px 0; color:#0072ff;">📭 Megállópont: {megallo['tol_ig']}</h4>
                 <p style="margin:0 0 10px 0; font-size:12px; color:#555;"><b>Cím:</b> {cím}</p>
                 <table style="width:100%; border-collapse: collapse; font-size:12px;">
                     <tr style="background:#f0f0f0; font-weight:bold;">
@@ -502,8 +496,8 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                 """
             popup_html += "</table></div>"
 
-            # Kör ikon méretezése (ha tól-ig szöveg van, kicsit szélesebbre vesszük a kört)
-            doboz_szelesseg = "36px" if "-" in megallo['tol_ig'] else "26px"
+            # Dinamikus méretezés a szöveg hosszától függően (ha pl "15-18", szélesebb legyen)
+            doboz_szelesseg = "38px" if "-" in megallo['tol_ig'] else "26px"
             
             folium.Marker(
                 location=[megallo['lat'], megallo['lon']],
@@ -532,11 +526,11 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                 )
             ).add_to(m)
 
-    # Térkép megjelenítése
+    # Térkép kirajzolása
     from streamlit_folium import st_folium
     st_folium(m, width=700, height=500, returned_objects=[])
 
-    # --- ÁLLANDÓ KOORDINÁTA KARBANTARTÓ PANEL (INTELLIGENS EGYBE-BEVITEL) ---
+    # --- ÁLLANDÓ KOORDINÁTA KARBANTARTÓ PANEL ---
     st.markdown("---")
     st.subheader("🛠️ Ügyfél Koordináták Karbantartása / Javítása")
     
@@ -599,7 +593,7 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                                 formazott_lat = f"'{str(t_lat).replace('.', ',')}"
                                 formazott_lon = f"'{str(t_lon).replace('.', ',')}"
                                 
-                                sh = client.open_by_key(sheet_id)
+                                sh = actual_client.open_by_key(actual_sheet_id)
                                 ws = sh.worksheet("Ugyfelkor")
                                 cell = ws.find(str(kiv_id))
                                 if cell:

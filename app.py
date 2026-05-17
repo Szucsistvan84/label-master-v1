@@ -228,7 +228,6 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         return tisztitott if len(tisztitott) > 0 else ""
 
 # 🟢 1. AZ UGÝFELKÖR BEOLVASÁSÁNAK GYORSÍTÓTÁRAZÁSA (API VÉDELEM)
-# Ez a függvény teljesen kívülre kerül, így a Streamlit 10 percig a szupergyors memóriából dolgozik
 @st.cache_data(ttl=600)
 def _tiszta_ugyfelkor_letoltes(sheet_id):
     if "gcp_service_account" in st.secrets:
@@ -255,8 +254,7 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
     return records
 
 
-# 🟢 2. A FŐ BEOLVASÓ ÉS TISZTÍTÓ BLOKK (A függvényed belső magja)
-# Figyelj rá, hogy ha ez egy függvényen belül van, a behúzások (4 szóköz) stimmeljenek!
+# 🟢 2. A FŐ BEOLVASÓ ÉS TISZTÍTÓ BLOKK (Visszatérésekkel javítva)
     try:
         # A Google-től csak akkor kérünk adatot, ha a 10 perc letelt, különben memóriából rántja elő!
         records = _tiszta_ugyfelkor_letoltes(SHEET_ID_UGYFELKOR)
@@ -272,17 +270,20 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
             master_df['ID'] = master_df['ID'].astype(str).str.strip().apply(lambda x: x.split('.')[0] if x.endswith('.0') else x)
             master_df['ID'] = master_df['ID'].apply(tiszta_id_konverzio)
             
-        # Az Ugyfelkor-ból beolvasott koordinátákat megtisztítjuk a legtetejére kitett GLOBÁLIS függvénnyel
+        # Tisztítás a legtetejére kitett GLOBÁLIS függvénnyel
         if 'Lat' in master_df.columns:
             master_df['Lat'] = master_df['Lat'].apply(biztonsagos_koordinata_tisztito)
         if 'Lon' in master_df.columns:
             master_df['Lon'] = master_df['Lon'].apply(biztonsagos_koordinata_tisztito)
             
-        # Elmentjük a megtisztított mesterlistát a session_state-be, hogy a térkép megkapja
+        # Elmentjük a session_state-be a térképnek
         st.session_state.ugyfelkor_df = master_df.copy()
         st.session_state.mdf = master_df.copy()
             
         logger.info(f"Mesterlista sikeresen beolvasva CACHE módban és letisztítva, {len(master_df)} meglévő ügyfél.")
+        
+        # 🟢 KRITIKUS JAVÍTÁS: Sikeres futás esetén is visszaadjuk a két várt adatot!
+        return df_napi, master_df
 
     except Exception as e:
         logger.error(f"Hiba a törzslista (Ugyfelkor) megnyitásakor: {e}")

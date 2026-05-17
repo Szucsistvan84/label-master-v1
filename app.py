@@ -105,31 +105,47 @@ def tisztitott_cim_lekerese(nyers_szoveg):
 
 def master_lista_szinkron(df_napi, client, sheet_id):
     """
-    Összefésüli a napi listát a törzslistával (Ugyfelkor) szigorúan ID alapján.
+    Összefésüli a napi listát a törzslistával (Ugyfelkor) szigorúan 6 jegyű ID alapján.
+    Kevesebb API hívást használ, megelőzve a Google Sheets 429-es kvótahibáját.
     """
     import pandas as pd
     import streamlit as st
     import logging
+    import time  # <--- Szükséges a rövid szünetekhez
     from gspread_dataframe import set_with_dataframe
     
     logger = logging.getLogger(__name__)
-    logger.info("🧬 Master lista szinkronizálása elindult az új struktúra alapján...")
+    logger.info("🧬 Master lista szinkronizálása elindult az új struktúra alapján (Kvótavédelemmel)...")
     master_df = pd.DataFrame()
 
-    # 1. TÖRZSLISTA (Ugyfelkor fül) BEOLVASÁSA BIZTONSÁGOSAN
+    # Golyóálló ID tisztító függvény
+    def tiszta_id_konverzio(x):
+        if pd.isna(x) or x == "":
+            return ""
+        s = str(x).replace("'", "").replace(' ', '').strip()
+        if '-' in s:
+            s = s.split('-')[-1]
+        tisztitott = "".join(filter(str.isdigit, s))
+        return tisztitott if len(tisztitott) > 0 else ""
+
+    # 1. TÖRZSLISTA (Ugyfelkor fül) BEOLVASÁSA RAW MÓDBAN
     try:
         sh = client.open_by_key(sheet_id)  
         ws_ugyfel = sh.worksheet("Ugyfelkor")
         
-        # JAVÍTÁS: A 'RAW' paraméter eltávolítva, ami csendben összeomlasztotta a letöltést!
-        records = ws_ugyfel.get_all_records()
+        records = ws_ugyfel.get_all_records(numeric_mode='RAW')
         if records:
             master_df = pd.DataFrame(records)
         else:
-            master_df = pd.DataFrame(columns=['ID', 'Név', 'Cím', 'Lat', 'Lon', 'Telefon', 'Csoport', 'Megjegyzés'])
+            master_df = pd.DataFrame(columns=['ID', 'Név', 'Cím', 'Lat', 'Lon', 'Telefon', 'Csoport', 'Megjegyzés', 'Utolso_Rendeles', 'Osszertek', 'Rendeles_Szam'])
             
         master_df.columns = [c.strip() for c in master_df.columns]
-        logger.info(f"Mesterlista sikeresen beolvasva, {len(master_df)} meglévő ügyfél.")
+        
+        if 'ID' in master_df.columns:
+            master_df['ID'] = master_df['ID'].astype(str).str.strip().apply(lambda x: x.split('.')[0] if x.endswith('.0') else x)
+            master_df['ID'] = master_df['ID'].apply(tiszta_id_konverzio)
+            
+        logger.info(f"Mesterlista sikeresen beolvasva RAW módban, {len(master_df)} meglévő ügyfél.")
     except Exception as e:
         logger.error(f"Hiba a törzslista (Ugyfelkor) megnyitásakor: {e}")
         st.error("Nem sikerült elérni az 'Ugyfelkor' táblázatot!")
@@ -137,27 +153,18 @@ def master_lista_szinkron(df_napi, client, sheet_id):
 
     # 2. NAPI IMPORTÁLT LISTA FEJLÉC ÉS ID TISZTÍTÁSA
     df_napi.columns = [c.strip() for c in df_napi.columns]
+    
     if 'Preferált Sorrend' in df_napi.columns:
         df_napi = df_napi.drop(columns=['Preferált Sorrend'], errors='ignore')
 
-    # --- PÁNCÉLOZOTT ID TISZTÍTÓ FÜGGVÉNY ---
-    def tiszta_id_konverzio(x):
-        if pd.isna(x) or x == "": return ""
-        s = str(x).replace("'", "").replace(' ', '').strip()
-        if '.' in s: s = s.split('.')[0] # Levágja a .0-t
-        if '-' in s: s = s.split('-')[-1] # Levágja a H- prefixet
-        tisztitott = "".join(filter(str.isdigit, s)) # CSAK a számjegyeket hagyja meg
-        return tisztitott if len(tisztitott) > 0 else ""
-
     df_napi['ID'] = df_napi['ID'].apply(tiszta_id_konverzio)
-    if not master_df.empty:
-        master_df['ID'] = master_df['ID'].apply(tiszta_id_konverzio)
 
     # 3. ÚJ ÜGYFELEK ÉSZLELÉSE ÉS AUTOMATIKUS GEOMAPOLÁSA
     uj_ugyfelek = []
     for _, row in df_napi.iterrows():
         u_id = str(row['ID'])
-        if not u_id: continue
+        if not u_id: 
+            continue
             
         if master_df.empty or u_id not in master_df['ID'].values:
             nev = row.get('Ügyintéző', row.get('Név', row.get('Nev', 'Ismeretlen név')))
@@ -169,41 +176,62 @@ def master_lista_szinkron(df_napi, client, sheet_id):
                 keresesi_cim = eredeti_cim
             
             logger.info(f"✨ Új ügyfél észleléve: {nev} ({u_id}). Koordináták lekérése...")
+            st.info(f"Új ügyfél fedezve fel: {nev} - GPS lekérés...")
             
             try:
                 lat, lon = get_coordinates(keresesi_cim)
+                # Rövid 0.2 másodperces pihentetés, hogy a geopy-t se terheljük túl hirtelen
+                time.sleep(0.2)
             except Exception as e:
+                logger.error(f"Hiba a geocoding során ({nev}): {e}")
                 lat, lon = "", ""
             
             lat_str = f"'{str(lat).replace('.', ',')}" if lat else ""
             lon_str = f"'{str(lon).replace('.', ',')}" if lon else ""
+            
+            if lat:
+                st.success(f"📍 GPS megvan: {nev}")
+            else:
+                st.warning(f"⚠️ Nem találtam koordinátát: {nev}")
 
             uj_adat = {
-                'ID': u_id, 'Név': nev, 'Cím': eredeti_cim, 'Lat': lat_str, 'Lon': lon_str,
-                'Telefon': str(row.get('Telefon', '')), 'Csoport': str(row.get('Csoport', '')),
+                'ID': u_id,
+                'Név': nev,
+                'Cím': eredeti_cim,
+                'Lat': lat_str,
+                'Lon': lon_str,
+                'Telefon': str(row.get('Telefon', '')),
+                'Csoport': str(row.get('Csoport', '')),
                 'Megjegyzés': str(row.get('Megjegyzés', row.get('Megjegyzes', ''))),
                 'Utolso_Rendeles': pd.Timestamp.now().strftime('%Y.%m.%d'),
-                'Osszertek': '0Ft', 'Rendeles_Szam': 1
+                'Osszertek': '0Ft',
+                'Rendeles_Szam': 1
             }
             uj_ugyfelek.append(uj_adat)
 
-    # Új ügyfelek mentése a törzsbe
+    # Új ügyfelek mentése a törzsbe (Ugyfelkor fül)
     if uj_ugyfelek:
         try:
+            logger.info(f"{len(uj_ugyfelek)} új ügyfél hozzáadása a törzslistához...")
             new_rows_df = pd.DataFrame(uj_ugyfelek).fillna("")
+            
+            # 1 másodperc taktikai szünet az írás előtt, nehogy belefussunk a Write kvótába is
+            time.sleep(1.0)
             ws_ugyfel.append_rows(new_rows_df.values.tolist(), value_input_option='RAW')
             
-            # Sima újraolvasás a hiba elkerülése miatt
-            records = ws_ugyfel.get_all_records()
-            master_df = pd.DataFrame(records)
-            master_df.columns = [c.strip() for c in master_df.columns]
-            master_df['ID'] = master_df['ID'].apply(tiszta_id_konverzio)
+            # --- MEGOLDÁS A 429-RE: Nem olvassuk be újra az egészet a Google-től! ---
+            # Helyette a meglévő master_df-hez fűzzük hozzá lokálisan az új sorokat a memóriában:
+            master_df = pd.concat([master_df, new_rows_df], ignore_index=True)
+            logger.info("Lokális master_df frissítve az új ügyfelekkel, API hívás megspórolva.")
+            
         except Exception as e:
             logger.error(f"Hiba az új ügyfelek mentésekor: {e}")
+            st.error("Az új ügyfeleket nem sikerült elmenteni a törzslistába!")
 
     # 4. SZIGORÚ ÖSSZEFÉSÜLÉS (Koordináták áthúzása a napi listába)
     if not master_df.empty:
         df_napi = df_napi.drop(columns=['Lat', 'Lon'], errors='ignore')
+        
         b_cols = ['ID', 'Lat', 'Lon']
         for c in ['Csoport', 'Megjegyzés']:
             if c in master_df.columns and c not in df_napi.columns:
@@ -216,23 +244,40 @@ def master_lista_szinkron(df_napi, client, sheet_id):
 
     df_napi['Lat'] = df_napi['Lat'].fillna("").astype(str).str.strip()
     df_napi['Lon'] = df_napi['Lon'].fillna("").astype(str).str.strip()
+
+    # 5. DINAMIKUS NAPI SORSZÁM GENERÁLÁSA
     df_napi['Sorrend'] = range(1, len(df_napi) + 1)
 
+    # 6. HIÁNYZÓ MOBILOS OSZLOPOK DEFAULTOZÁSA
     for col in ['Rendelés', 'Megjegyzés', 'Járat', 'Fizetendő', 'Fizetési Mód', 'Státusz', 'Időbélyeg']:
         if col not in df_napi.columns:
-            if col == 'Státusz': df_napi[col] = "Kiszállítás alatt"
-            elif col == 'Fizetendő': df_napi[col] = 0
-            else: df_napi[col] = ""
+            if col == 'Státusz':
+                df_napi[col] = "Kiszállítás alatt"
+            elif col == 'Fizetendő':
+                df_napi[col] = 0
+            else:
+                df_napi[col] = ""
 
+    # 7. FRISSÍTÉS AZ "ADATOK" FÜLRE
     try:
+        # Újabb kis szünet az írási művelet előtt
+        time.sleep(1.0)
         ws_adatok = sh.worksheet("Adatok")
-        ws_adatok.clear() 
-        export_cols = ['ID', 'Név', 'Cím', 'Telefon', 'Csoport', 'Sorrend', 'Lat', 'Lon', 'Rendelés', 'Megjegyzés', 'Járat', 'Fizetendő', 'Fizetési Mód', 'Státusz', 'Időbélyeg']
+        ws_adatok.clear()  
+        
+        export_cols = [
+            'ID', 'Név', 'Cím', 'Telefon', 'Csoport', 'Sorrend', 'Lat', 'Lon', 
+            'Rendelés', 'Megjegyzés', 'Járat', 'Fizetendő', 'Fizetési Mód', 'Státusz', 'Időbélyeg'
+        ]
+        
         save_df = df_napi[[c for c in export_cols if c in df_napi.columns]].copy()
+        
         set_with_dataframe(ws_adatok, save_df)
+        logger.info("🚀 A mai menetterv sikeresen kiküldve az 'Adatok' fülre!")
     except Exception as e:
-        logger.warning(f"Adatok fül frissítése megszakadt: {e}")
+        logger.warning(f"A térkép elkészült, de az 'Adatok' fül frissítése megszakadt: {e}")
 
+    logger.info("Szinkronizáció teljesen kész.")
     return df_napi, master_df
 
 # --- VIZUALIZÁCIÓ ---

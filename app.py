@@ -798,7 +798,12 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
             form_col, map_col = st.columns([1.2, 1])
             
             with form_col:
-                st.info(f"**Kiválasztva:** {aktualis_nev}\n* **Cím:** {aktualis_cim}\n* **Jelenlegi GPS:** Lat: `{kiv_sor['Lat']}`, Lon: `{kiv_sor['Lon']}`")
+                # 🟢 JAVÍTOTT, GOLYÓÁLLÓ VERZIÓ:
+                # Biztonságosan kinyerjük a koordinátákat, megelőzve az UnboundLocalError-t
+                biztonsagos_lat = kiv_sor.get('Lat', 'Nincs adat') if isinstance(kiv_sor, dict) or hasattr(kiv_sor, 'get') else getattr(kiv_sor, 'Lat', 'Nincs adat')
+                biztonsagos_lon = kiv_sor.get('Lon', 'Nincs adat') if isinstance(kiv_sor, dict) or hasattr(kiv_sor, 'get') else getattr(kiv_sor, 'Lon', 'Nincs adat')
+                
+                st.info(f"**Kiválasztva:** {aktualis_nev}\n* **Cím:** {aktualis_cim}\n* **Jelenlegi GPS:** Lat: `{biztonsagos_lat}`, Lon: `{biztonsagos_lon}`")
                 
                 with st.form("gps_javito_form", clear_on_submit=False):
                     akt_lat = str(kiv_sor['Lat']).replace("'", "").strip() if pd.notna(kiv_sor['Lat']) else ""

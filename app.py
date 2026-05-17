@@ -2868,7 +2868,7 @@ def main():
                     st.error("Nem adtál meg PIN kódot!")
                 else:
                     # Lekérjük a Google Sheets-ből a futár törzsadatokat
-                    futar_adatok = _tiszta_futar_lista_letoltes(UGYFELKOR_SHEET_ID)
+                    futar_adatok = _tiszta_futar_lista_letoltes("1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8")
                     
                     talalt_futar = None
                     for f in futar_adatok:

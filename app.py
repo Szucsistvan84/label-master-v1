@@ -794,6 +794,23 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                 st.warning("⚠️ A kiválasztott ügyfél adatai frissülnek. Kérjük, válassz ki egy ügyfelet újra a listából!")
                 aktualis_cim = "Frissítés alatt..."
                 aktualis_nev = "Frissítés alatt..."
+
+            # 🟢 INNEN JÖN AZ ÚJ GOLYÓÁLLÓ BLOKK AZ UNBOUNDLOCALERROR ELLEN:
+            if 'kiv_sor' in locals() and kiv_sor is not None:
+                # Ha a kiv_sor egy Pandas Series, átalakítjuk sima szótárrá a biztonság kedvéért
+                sor_dict = kiv_sor.to_dict() if hasattr(kiv_sor, 'to_dict') else dict(kiv_sor)
+                
+                biztonsagos_lat = sor_dict.get('Lat', 'Nincs adat')
+                biztonsagos_lon = sor_dict.get('Lon', 'Nincs adat')
+                
+                # Ha az érték üres vagy NaN, akkor is 'Nincs adat'-ot írunk ki
+                if pd.isna(biztonsagos_lat) or str(biztonsagos_lat).strip() == "": biztonsagos_lat = 'Nincs adat'
+                if pd.isna(biztonsagos_lon) or str(biztonsagos_lon).strip() == "": biztonsagos_lon = 'Nincs adat'
+                
+                st.info(f"**Kiválasztva:** {aktualis_nev}\n* **Cím:** {aktualis_cim}\n* **Jelenlegi GPS:** Lat: `{biztonsagos_lat}`, Lon: `{biztonsagos_lon}`")
+            else:
+                biztonsagos_lat = "Nincs adat"
+                biztonsagos_lon = "Nincs adat"
             
             form_col, map_col = st.columns([1.2, 1])
             

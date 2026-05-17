@@ -369,11 +369,12 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
     
     st.subheader("🗺️ Tervezett Kiszállítási Útvonal")
     
-    # Atombiztos session_state ellenőrzés, hogy elkerüljük a 'str' object has no attribute hibát
-    actual_client = client if (client and not isinstance(client, str)) else st.session_state.get('client')
-    actual_sheet_id = sheet_id if (sheet_id and isinstance(sheet_id, str)) else st.session_state.get('sheet_id')
+    # Közvetlenül a session_state-ből olvassuk ki a biztos pontosság érdekében, 
+    # ha a paraméterként átadott érték nem megfelelő
+    actual_client = st.session_state.get('client') if 'client' in st.session_state else client
+    actual_sheet_id = st.session_state.get('sheet_id') if 'sheet_id' in st.session_state else sheet_id
 
-    if not actual_client:
+    if not actual_client or isinstance(actual_client, str):
         st.error("❌ A Google Sheets kliens nincs inicializálva vagy rossz formátumban lett átadva!")
         return
     if not actual_sheet_id:

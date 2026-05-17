@@ -509,18 +509,18 @@ def utvonal_terkep(df_napi, client, sheet_id):
     # Térkép kirajzolása a felületre
     st_folium(m, width=700, height=500, returned_objects=[])
 
-# --- ÁLLANDÓ KOORDINÁTA KARBANTARTÓ PANEL ---
+# --- ÁLLANDÓ KOORDINÁTA KARBANTARTÓ PANEL (INTELLIGENS EGYBE-BEVITEL) ---
     st.markdown("---")
     st.subheader("🛠️ Ügyfél Koordináták Karbantartása / Javítása")
     
     if not df_valid_gps.empty:
-        # Összerakjuk a listát úgy, hogy a koordináta nélküliek legyenek legfelül, de a JÓK IS látszódjanak a javításhoz
         df_rendezett_karbantartas = df_valid_gps.copy()
         
+        # Atombiztos név- és címmeghatározás a lenyíló listához, hogy ne legyen "Ismeretlen"
         df_rendezett_karbantartas['Karbantarto_Nev'] = df_rendezett_karbantartas.apply(
-            lambda r: f"⚠️ [HIÁNYZÓ GPS] {r['ID']} - {r.get('Név', r.get('Nev', 'Ismeretlen'))} ({r.get('Cím', r.get('Cim', 'Nincs cím'))})"
+            lambda r: f"⚠️ [HIÁNYZÓ GPS] {r['ID']} - {r.get('Név', r.get('Nev', r.get('Ügyintéző', 'Ismeretlen')))} ({r.get('Cím', r.get('Cim', 'Nincs cím'))})"
             if pd.isna(r['Lat']) or pd.isna(r['Lon']) or str(r['Lat']).strip() == ""
-            else f"📍 [Térképen van] {r['ID']} - {r.get('Név', r.get('Nev', 'Ismeretlen'))} ({r.get('Cím', r.get('Cim', 'Nincs cím'))})", axis=1
+            else f"📍 [Térképen van] {r['ID']} - {r.get('Név', r.get('Nev', r.get('Ügyintéző', 'Ismeretlen')))} ({r.get('Cím', r.get('Cim', 'Nincs cím'))})", axis=1
         )
         
         lista_opciok = df_rendezett_karbantartas['Karbantarto_Nev'].tolist()
@@ -532,34 +532,60 @@ def utvonal_terkep(df_napi, client, sheet_id):
             kiv_sor = df_valid_gps[df_valid_gps['ID'] == kiv_id].iloc[0]
             
             aktualis_cim = kiv_sor.get('Cím', kiv_sor.get('Cim', 'Nincs cím'))
+            aktualis_nev = kiv_sor.get('Név', kiv_sor.get('Nev', kiv_sor.get('Ügyintéző', 'Ismeretlen')))
             
-            # Két oszlopra osztjuk: balra az űrlap, jobbra a térkép segédablak
+            # Két oszlopra osztjuk a felületet: balra az űrlap, jobbra a beágyazott térkép
             form_col, map_col = st.columns([1.2, 1])
             
             with form_col:
-                st.info(f"**Jelenlegi koordináták:**\nLat: `{kiv_sor['Lat']}`, Lon: `{kiv_sor['Lon']}`")
+                st.info(f"**Kiválasztva:** {aktualis_nev}\n* **Cím:** {aktualis_cim}\n* **Jelenlegi GPS:** Lat: `{kiv_sor['Lat']}`, Lon: `{kiv_sor['Lon']}`")
                 
-                # Form a rögzítéshez - alapértelmezettnek beírjuk a mostani értékeket, hogy könnyű legyen módosítani
+                # Form az intelligens beillesztéshez
                 with st.form("gps_javito_form", clear_on_submit=False):
-                    col1, col2 = st.columns(2)
+                    # Ha már van koordináta, alapértelmezettnek felkínáljuk egyben kimásolható formában
                     akt_lat = str(kiv_sor['Lat']).replace("'", "").strip() if pd.notna(kiv_sor['Lat']) else ""
                     akt_lon = str(kiv_sor['Lon']).replace("'", "").strip() if pd.notna(kiv_sor['Lon']) else ""
+                    alap_ertek = f"{akt_lat}, {akt_lon}" if akt_lat and akt_lon else ""
                     
-                    uj_lat = col1.text_input("Szélesség (Lat) pl: 47.5316", value=akt_lat)
-                    uj_lon = col2.text_input("Hosszúság (Lon) pl: 21.6273", value=akt_lon)
+                    st.markdown("**Másold be a Google Maps-ről kapott értéket egyben:**")
+                    egyben_koordinata = st.text_input(
+                        "Koordináták (Lat, Lon)", 
+                        value=alap_ertek,
+                        placeholder="Pl: 47.50009618323779, 21.628484829271308"
+                    )
                     
-                    submit = st.form_submit_button("💾 Koordináták mentése a törzslistába")
+                    submit = st.form_submit_button("💾 Koordináták mentése és Google Sheets frissítése")
                     
                     if submit:
-                        if uj_lat and uj_lon:
+                        if egyben_koordinata:
                             try:
-                                # Tisztítás és formázás a Google Sheets elvárása szerint
-                                t_lat = str(uj_lat).strip().replace("'", "").replace('"', '').replace(",", ".")
-                                t_lon = str(uj_lon).strip().replace("'", "").replace('"', '').replace(",", ".")
+                                # Ha van benne vessző, akkor kettévágjuk
+                                if "," in egyben_koordinata:
+                                    reszek = egyben_koordinata.split(",")
+                                    nyers_lat = reszek[0].strip()
+                                    nyers_lon = reszek[1].strip()
+                                else:
+                                    # Ha véletlenül szóközökkel választottad el
+                                    reszek = egyben_koordinata.split()
+                                    if len(reszek) >= 2:
+                                        nyers_lat = reszek[0].strip()
+                                        nyers_lon = reszek[1].strip()
+                                    else:
+                                        st.error("❌ Nem felismerhető formátum! Kérjük, vesszővel elválasztva másold be a két számot.")
+                                        st.stop()
+                                
+                                # Tisztítás és formázás a Google Sheets elvárása szerint (pont cseréje vesszőre, ' jel az elejére)
+                                t_lat = nyers_lat.replace("'", "").replace('"', '').replace(",", ".")
+                                t_lon = nyers_lon.replace("'", "").replace('"', '').replace(",", ".")
+                                
+                                # Biztonsági ellenőrzés, hogy valóban számokat kaptunk-e
+                                float(t_lat)
+                                float(t_lon)
                                 
                                 formazott_lat = f"'{t_lat}".replace(".", ",")
                                 formazott_lon = f"'{t_lon}".replace(".", ",")
                                 
+                                # Mentés indítása a Google Sheets-be
                                 sh = client.open_by_key(sheet_id)
                                 ws = sh.worksheet("Ugyfelkor")
                                 
@@ -568,25 +594,26 @@ def utvonal_terkep(df_napi, client, sheet_id):
                                     ws.update_cell(cell.row, 4, formazott_lat) # Lat oszlop
                                     ws.update_cell(cell.row, 5, formazott_lon) # Lon oszlop
                                     
-                                    st.success(f"✅ {kiv_sor.get('Név', kiv_sor.get('Nev', 'Ügyfél'))} koordinátái sikeresen elmentve!")
-                                    logger.info(f"Kézi GPS rögzítve az ügyfélhez: {kiv_id} -> Lat: {t_lat}, Lon: {t_lon}")
+                                    st.success(f"✅ Siker! {aktualis_nev} koordinátái elmentve!")
+                                    logger.info(f"Intelligens GPS rögzítve: {kiv_id} -> Lat: {t_lat}, Lon: {t_lon}")
                                     
                                     if 'google_data_loaded' in st.session_state:
                                         del st.session_state['google_data_loaded']
                                     st.rerun()
                                 else:
-                                    st.error("❌ Ez az ügyfél nem található a törzslistában!")
+                                    st.error("❌ Ez az ügyfél nem található az Ugyfelkor törzslistában!")
+                            except ValueError:
+                                st.error("❌ A beillesztett szöveg nem érvényes koordináta szám! Ellenőrizd, mit másoltál ki.")
                             except Exception as save_err:
                                 st.error(f"❌ Hiba történt a mentés során: {save_err}")
                         else:
-                            st.error("❌ Kérjük, mindkét mezőt töltsd ki!")
+                            st.error("❌ A mező nem maradhat üresen!")
             
             with map_col:
                 st.write("🗺️ **Beágyazott Google Maps segédablak:**")
                 biztonsagos_cim = str(aktualis_cim).replace(' ', '+')
                 maps_url = f"https://maps.google.com/maps?q={biztonsagos_cim}&t=&z=16&ie=UTF8&iwloc=&output=embed"
                 
-                # Megjelenítjük az iframe-et a kiválasztott címhez
                 st.components.v1.iframe(maps_url, height=260, scrolling=True)
                 st.caption("A fenti ablak segít beazonosítani a címet.")
                 

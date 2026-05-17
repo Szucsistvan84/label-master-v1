@@ -509,66 +509,87 @@ def utvonal_terkep(df_napi, client, sheet_id):
     # Térkép kirajzolása a felületre
     st_folium(m, width=700, height=500, returned_objects=[])
 
-    # --- HIÁNYZÓ GPS-ES ÜGYFELEK LISTÁJA ÉS KÉZI RÖGZÍTŐŰRLAPJA ---
-    if not df_rossz_gps.empty:
-        st.warning(f"⚠️ Sürgős pótlást igényel: {len(df_rossz_gps)} ügyfélnek nincs működő GPS koordinátája!")
+# --- ÁLLANDÓ KOORDINÁTA KARBANTARTÓ PANEL ---
+    st.markdown("---")
+    st.subheader("🛠️ Ügyfél Koordináták Karbantartása / Javítása")
+    
+    if not df_valid_gps.empty:
+        # Összerakjuk a listát úgy, hogy a koordináta nélküliek legyenek legfelül, de a JÓK IS látszódjanak a javításhoz
+        df_rendezett_karbantartas = df_valid_gps.copy()
         
-        # Kiválasztó doboz a hibás ügyfelek közül
-        lista_opciok = [f"{row['ID']} - {row.get('Nev','Ismeretlen')} ({row.get('Cim','Nincs cím')})" for _, row in df_rossz_gps.iterrows()]
-        kivallasztott = st.selectbox("Válaszd ki az ügyfelet a koordináta rögzítéséhez:", lista_opciok)
+        df_rendezett_karbantartas['Karbantarto_Nev'] = df_rendezett_karbantartas.apply(
+            lambda r: f"⚠️ [HIÁNYZÓ GPS] {r['ID']} - {r.get('Név', r.get('Nev', 'Ismeretlen'))} ({r.get('Cím', r.get('Cim', 'Nincs cím'))})"
+            if pd.isna(r['Lat']) or pd.isna(r['Lon']) or str(r['Lat']).strip() == ""
+            else f"📍 [Térképen van] {r['ID']} - {r.get('Név', r.get('Nev', 'Ismeretlen'))} ({r.get('Cím', r.get('Cim', 'Nincs cím'))})", axis=1
+        )
+        
+        lista_opciok = df_rendezett_karbantartas['Karbantarto_Nev'].tolist()
+        kivallasztott = st.selectbox("Válaszd ki a javítani vagy pótolni kívánt ügyfelet:", lista_opciok)
         
         if kivallasztott:
-            kiv_id = kivallasztott.split(" - ")[0]
-            kiv_sor = df_rossz_gps[df_rossz_gps['ID'] == kiv_id].iloc[0]
+            # Kivonjuk az ID-t a szövegből
+            kiv_id = kivallasztott.split("] ")[1].split(" - ")[0].strip()
+            kiv_sor = df_valid_gps[df_valid_gps['ID'] == kiv_id].iloc[0]
             
-            st.write(f"**Célpont:** {kiv_sor.get('Cim', 'Nincs cím')}")
+            aktualis_cim = kiv_sor.get('Cím', kiv_sor.get('Cim', 'Nincs cím'))
             
-            # Form a koordináta beküldéséhez
-            with st.form("gps_form", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                uj_lat = col1.text_input("Szélesség (Lat) pl: 47.5316")
-                uj_lon = col2.text_input("Hosszúság (Lon) pl: 21.6273")
+            # Két oszlopra osztjuk: balra az űrlap, jobbra a térkép segédablak
+            form_col, map_col = st.columns([1.2, 1])
+            
+            with form_col:
+                st.info(f"**Jelenlegi koordináták:**\nLat: `{kiv_sor['Lat']}`, Lon: `{kiv_sor['Lon']}`")
                 
-                submit = st.form_submit_button("💾 Koordináták mentése a törzslistába")
-                
-                if submit:
-                    if uj_lat and uj_lon:
-                        try:
-                            # Formázás a Google Sheets stílusára (' és vessző)
-                            formazott_lat = f"'{uj_lat}".replace(".", ",")
-                            formazott_lon = f"'{uj_lon}".replace(".", ",")
-                            
-                            sh = client.open_by_key(sheet_id)
-                            ws = sh.worksheet("Ugyfelkor")
-                            
-                            # Megkeressük a sort ID alapján
-                            cell = ws.find(str(kiv_id))
-                            if cell:
-                                ws.update_cell(cell.row, 4, formazott_lat) # Lat oszlop
-                                ws.update_cell(cell.row, 5, formazott_lon) # Lon oszlop
-                                
-                                st.success(f"✅ {kiv_sor.get('Nev')} koordinátái sikeresen elmentve! Kérjük, frissítsd az oldalt a megjelenítéshez.")
-                                logger.info(f"Kézi GPS rögzítve az ügyfélhez: {kiv_id}")
-                                if 'google_data_loaded' in st.session_state:
-                                    del st.session_state['google_data_loaded']
-                                st.rerun()
-                            else:
-                                st.error("❌ Ez az ügyfél nem található a törzslistában!")
-                        except Exception as save_err:
-                            st.error(f"❌ Hiba történt a mentés során: {save_err}")
-                    else:
-                        st.error("❌ Kérjük, mindkét mezőt töltsd ki!")
+                # Form a rögzítéshez - alapértelmezettnek beírjuk a mostani értékeket, hogy könnyű legyen módosítani
+                with st.form("gps_javito_form", clear_on_submit=False):
+                    col1, col2 = st.columns(2)
+                    akt_lat = str(kiv_sor['Lat']).replace("'", "").strip() if pd.notna(kiv_sor['Lat']) else ""
+                    akt_lon = str(kiv_sor['Lon']).replace("'", "").strip() if pd.notna(kiv_sor['Lon']) else ""
                     
-        with map_col:
-            st.write("🗺️ **Beágyazott Google Maps segédablak:**")
-            # Biztonságos URL-kódolás a címnek az Iframe-hez
-            biztonsagos_cim = aktualis_cim.replace(' ', '+')
-            maps_url = f"https://maps.google.com/maps?q={biztonsagos_cim}&t=&z=16&ie=UTF8&iwloc=&output=embed"
+                    uj_lat = col1.text_input("Szélesség (Lat) pl: 47.5316", value=akt_lat)
+                    uj_lon = col2.text_input("Hosszúság (Lon) pl: 21.6273", value=akt_lon)
+                    
+                    submit = st.form_submit_button("💾 Koordináták mentése a törzslistába")
+                    
+                    if submit:
+                        if uj_lat and uj_lon:
+                            try:
+                                # Tisztítás és formázás a Google Sheets elvárása szerint
+                                t_lat = str(uj_lat).strip().replace("'", "").replace('"', '').replace(",", ".")
+                                t_lon = str(uj_lon).strip().replace("'", "").replace('"', '').replace(",", ".")
+                                
+                                formazott_lat = f"'{t_lat}".replace(".", ",")
+                                formazott_lon = f"'{t_lon}".replace(".", ",")
+                                
+                                sh = client.open_by_key(sheet_id)
+                                ws = sh.worksheet("Ugyfelkor")
+                                
+                                cell = ws.find(str(kiv_id))
+                                if cell:
+                                    ws.update_cell(cell.row, 4, formazott_lat) # Lat oszlop
+                                    ws.update_cell(cell.row, 5, formazott_lon) # Lon oszlop
+                                    
+                                    st.success(f"✅ {kiv_sor.get('Név', kiv_sor.get('Nev', 'Ügyfél'))} koordinátái sikeresen elmentve!")
+                                    logger.info(f"Kézi GPS rögzítve az ügyfélhez: {kiv_id} -> Lat: {t_lat}, Lon: {t_lon}")
+                                    
+                                    if 'google_data_loaded' in st.session_state:
+                                        del st.session_state['google_data_loaded']
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Ez az ügyfél nem található a törzslistában!")
+                            except Exception as save_err:
+                                st.error(f"❌ Hiba történt a mentés során: {save_err}")
+                        else:
+                            st.error("❌ Kérjük, mindkét mezőt töltsd ki!")
             
-            # Élő Google Maps iframe beágyazása, hogy ne navigáljon el az oldalról
-            components.iframe(maps_url, height=280, scrolling=True)
-            st.caption("A fenti ablak segít beazonosítani a címet. A jobb klikkes másoláshoz érdemes a Google Mapset egy külön böngészőlapon is megnyitni.")
-
+            with map_col:
+                st.write("🗺️ **Beágyazott Google Maps segédablak:**")
+                biztonsagos_cim = str(aktualis_cim).replace(' ', '+')
+                maps_url = f"https://maps.google.com/maps?q={biztonsagos_cim}&t=&z=16&ie=UTF8&iwloc=&output=embed"
+                
+                # Megjelenítjük az iframe-et a kiválasztott címhez
+                st.components.v1.iframe(maps_url, height=260, scrolling=True)
+                st.caption("A fenti ablak segít beazonosítani a címet.")
+                
 def get_google_sheets_creds():
     creds_info = st.secrets["gcp_service_account"].to_dict()
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]

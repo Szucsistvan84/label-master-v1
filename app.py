@@ -604,7 +604,11 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                 sh_ugyfel = client.open_by_key(SHEET_ID_UGYFELKOR)
                 ws_ugyfelkor = sh_ugyfel.worksheet("Ugyfelkor")
                 
-                records = ws_ugyfelkor.get_all_records(numeric_mode='RAW')
+                # 🟢 JAVÍTÁS ITT IS: Kompatibilis beolvasás numeric_mode nélkül
+                try:
+                    records = ws_ugyfelkor.get_all_records(value_render_option='UNFORMATTED_VALUE')
+                except:
+                    records = ws_ugyfelkor.get_all_records()
                 if records:
                     tisztitott_master = pd.DataFrame(records)
                     tisztitott_master.columns = [c.strip() for c in tisztitott_master.columns]

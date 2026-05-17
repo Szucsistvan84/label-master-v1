@@ -227,51 +227,40 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
 
-    # ATOMBIZtos KOORDINÁTA TISZTÍTÓ FÜGGVÉNY (Golyóállóvá tétel)
-    def biztonsagos_koordinata_tisztito(val):
-        """
-        Bármilyen hibás formátumú koordinátából (''47,52 vagy '47.52 vagy float)
-        tiszta, lebegőpontos (float) számot varázsol. Ha üres vagy hibás, None-t ad vissza.
-        """
-        if pd.isna(val) or str(val).strip() == "" or str(val).lower() == "none":
-            return None
-        try:
-            # 1. Stringgé alakítjuk, levágunk minden felesleges szemetet (aposztrófok, idézőjelek)
-            s = str(val).replace("'", "").replace('"', '').strip()
-            # 2. A magyar tizedesvesszőt pontra cseréljük a Python float() számára
-            s = s.replace(",", ".")
-            # 3. Számmá alakítjuk
-            return float(s)
-        except Exception:
-            return None
-
-    # 1. TÖRZSLISTA (Ugyfelkor fül) BEOLVASÁSA RAW MÓDBAN ÉS HITELLESÍTÉS BIZTOSÍTÁSA
+# 🟢 1. AZ UGÝFELKÖR BEOLVASÁSÁNAK GYORSÍTÓTÁRAZÁSA (API VÉDELEM)
+# Ez a függvény teljesen kívülre kerül, így a Streamlit 10 percig a szupergyors memóriából dolgozik
+@st.cache_data(ttl=600)
+def _tiszta_ugyfelkor_letoltes(sheet_id):
+    if "gcp_service_account" in st.secrets:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+    else:
+        creds_dict = dict(st.secrets)
+        
+    if "private_key" in creds_dict: 
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
+    creds = Credentials.from_service_account_info(creds_dict, scopes=[
+        "https://spreadsheets.google.com/feeds", 
+        "https://www.googleapis.com/auth/drive"
+    ])
+    client = gspread.authorize(creds)
+    sh = client.open_by_key(sheet_id)  
+    ws_ugyfel = sh.worksheet("Ugyfelkor")
+    
     try:
-        # 🟢 JAVÍTÁS: Mivel az app elején nincs globális kliens, itt helyben biztosítjuk a gspread kapcsolatot
-        if "gcp_service_account" in st.secrets:
-            creds_dict = dict(st.secrets["gcp_service_account"])
-        else:
-            creds_dict = dict(st.secrets)
-            
-        if "private_key" in creds_dict: 
-            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-            
-        creds = Credentials.from_service_account_info(creds_dict, scopes=[
-            "https://spreadsheets.google.com/feeds", 
-            "https://www.googleapis.com/auth/drive"
-        ])
-        client = gspread.authorize(creds)
+        records = ws_ugyfel.get_all_records(value_render_option='UNFORMATTED_VALUE')
+    except:
+        records = ws_ugyfel.get_all_records()
         
-        # Kapcsolódás a táblázathoz (A SHEET_ID_UGYFELKOR-t használva)
-        sh = client.open_by_key(SHEET_ID_UGYFELKOR)  
-        ws_ugyfel = sh.worksheet("Ugyfelkor")
+    return records
+
+
+# 🟢 2. A FŐ BEOLVASÓ ÉS TISZTÍTÓ BLOKK (A függvényed belső magja)
+# Figyelj rá, hogy ha ez egy függvényen belül van, a behúzások (4 szóköz) stimmeljenek!
+    try:
+        # A Google-től csak akkor kérünk adatot, ha a 10 perc letelt, különben memóriából rántja elő!
+        records = _tiszta_ugyfelkor_letoltes(SHEET_ID_UGYFELKOR)
         
-        # 🟢 JAVÍTÁS: numeric_mode helyett a kompatibilis verziót használjuk, így nem dob hibát!
-        try:
-            records = ws_ugyfel.get_all_records(value_render_option='UNFORMATTED_VALUE')
-        except:
-            # Ha a nagyon régi gspread verzió futna, akkor paraméter nélkül olvassuk be
-            records = ws_ugyfel.get_all_records()
         if records:
             master_df = pd.DataFrame(records)
         else:
@@ -283,17 +272,18 @@ def master_lista_szinkron(df_napi, client, sheet_id):
             master_df['ID'] = master_df['ID'].astype(str).str.strip().apply(lambda x: x.split('.')[0] if x.endswith('.0') else x)
             master_df['ID'] = master_df['ID'].apply(tiszta_id_konverzio)
             
-        # Az Ugyfelkor-ból beolvasott koordinátákat AZONNAL megtisztítjuk a memóriában float típusra!
+        # Az Ugyfelkor-ból beolvasott koordinátákat megtisztítjuk a legtetejére kitett GLOBÁLIS függvénnyel
         if 'Lat' in master_df.columns:
             master_df['Lat'] = master_df['Lat'].apply(biztonsagos_koordinata_tisztito)
         if 'Lon' in master_df.columns:
             master_df['Lon'] = master_df['Lon'].apply(biztonsagos_koordinata_tisztito)
             
-        # 🟢 KRITIKUS LÉPÉS: Elmentjük a megtisztított mesterlistát a session_state-be, hogy a térkép megkapja!
+        # Elmentjük a megtisztított mesterlistát a session_state-be, hogy a térkép megkapja
         st.session_state.ugyfelkor_df = master_df.copy()
         st.session_state.mdf = master_df.copy()
             
-        logger.info(f"Mesterlista sikeresen beolvasva RAW módban és letisztítva, {len(master_df)} meglévő ügyfél.")
+        logger.info(f"Mesterlista sikeresen beolvasva CACHE módban és letisztítva, {len(master_df)} meglévő ügyfél.")
+
     except Exception as e:
         logger.error(f"Hiba a törzslista (Ugyfelkor) megnyitásakor: {e}")
         st.error(f"Nem sikerült elérni az 'Ugyfelkor' táblázatot! Hiba: {e}")

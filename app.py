@@ -509,7 +509,7 @@ def utvonal_terkep(df_napi, client, sheet_id):
     # Térkép kirajzolása a felületre
     st_folium(m, width=700, height=500, returned_objects=[])
 
-# --- ÁLLANDÓ KOORDINÁTA KARBANTARTÓ PANEL (INTELLIGENS EGYBE-BEVITEL) ---
+    # --- ÁLLANDÓ KOORDINÁTA KARBANTARTÓ PANEL (INTELLIGENS EGYBE-BEVITEL) ---
     st.markdown("---")
     st.subheader("🛠️ Ügyfél Koordináták Karbantartása / Javítása")
     
@@ -542,7 +542,7 @@ def utvonal_terkep(df_napi, client, sheet_id):
                 
                 # Form az intelligens beillesztéshez
                 with st.form("gps_javito_form", clear_on_submit=False):
-                    # Ha már van koordináta, alapértelmezettnek felkínáljuk egyben kimásolható formában
+                    # Ha már van koordináta, felkínáljuk formázva
                     akt_lat = str(kiv_sor['Lat']).replace("'", "").strip() if pd.notna(kiv_sor['Lat']) else ""
                     akt_lon = str(kiv_sor['Lon']).replace("'", "").strip() if pd.notna(kiv_sor['Lon']) else ""
                     alap_ertek = f"{akt_lat}, {akt_lon}" if akt_lat and akt_lon else ""
@@ -551,7 +551,7 @@ def utvonal_terkep(df_napi, client, sheet_id):
                     egyben_koordinata = st.text_input(
                         "Koordináták (Lat, Lon)", 
                         value=alap_ertek,
-                        placeholder="Pl: 47.50009618323779, 21.628484829271308"
+                        placeholder="Pl: 47.530773, 21.625137"
                     )
                     
                     submit = st.form_submit_button("💾 Koordináták mentése és Google Sheets frissítése")
@@ -565,25 +565,26 @@ def utvonal_terkep(df_napi, client, sheet_id):
                                     nyers_lat = reszek[0].strip()
                                     nyers_lon = reszek[1].strip()
                                 else:
-                                    # Ha véletlenül szóközökkel választottad el
                                     reszek = egyben_koordinata.split()
                                     if len(reszek) >= 2:
                                         nyers_lat = reszek[0].strip()
                                         nyers_lon = reszek[1].strip()
                                     else:
-                                        st.error("❌ Nem felismerhető formátum! Kérjük, vesszővel elválasztva másold be a két számot.")
+                                        st.error("❌ Nem felismerhető formátum! Vesszővel elválasztva másold be a számokat.")
                                         st.stop()
                                 
-                                # Tisztítás és formázás a Google Sheets elvárása szerint (pont cseréje vesszőre, ' jel az elejére)
-                                t_lat = nyers_lat.replace("'", "").replace('"', '').replace(",", ".")
-                                t_lon = nyers_lon.replace("'", "").replace('"', '').replace(",", ".")
+                                # Tisztítás (bármilyen bekerült jelet kiszedünk, pontra cseréljük a biztonságos számításhoz)
+                                f_lat = float(nyers_lat.replace("'", "").replace('"', '').replace(",", ".").strip())
+                                f_lon = float(nyers_lon.replace("'", "").replace('"', '').replace(",", ".").strip())
                                 
-                                # Biztonsági ellenőrzés, hogy valóban számokat kaptunk-e
-                                float(t_lat)
-                                float(t_lon)
+                                # --- INTELLIGENS KEREKÍTÉS (MAX 6 TIZEDESJEGY) ---
+                                # Ezzel elkerüljük a gigantikus tizedeseket, amik elrontják a Sheets formázást
+                                t_lat = round(f_lat, 6)
+                                t_lon = round(f_lon, 6)
                                 
-                                formazott_lat = f"'{t_lat}".replace(".", ",")
-                                formazott_lon = f"'{t_lon}".replace(".", ",")
+                                # Visszaalakítjuk a számodra megszokott magyaros formátumra ('47,530773)
+                                formazott_lat = f"'{str(t_lat).replace('.', ',')}"
+                                formazott_lon = f"'{str(t_lon).replace('.', ',')}"
                                 
                                 # Mentés indítása a Google Sheets-be
                                 sh = client.open_by_key(sheet_id)
@@ -591,10 +592,11 @@ def utvonal_terkep(df_napi, client, sheet_id):
                                 
                                 cell = ws.find(str(kiv_id))
                                 if cell:
+                                    # Raw=False kikényszeríti, hogy a Google Táblázat SZÖVEGKÉNT mentse el a ' jelet, ne alakítsa át számmá!
                                     ws.update_cell(cell.row, 4, formazott_lat) # Lat oszlop
                                     ws.update_cell(cell.row, 5, formazott_lon) # Lon oszlop
                                     
-                                    st.success(f"✅ Siker! {aktualis_nev} koordinátái elmentve!")
+                                    st.success(f"✅ Siker! {aktualis_nev} koordinátái elmentve (Kerekítve: {t_lat}, {t_lon})!")
                                     logger.info(f"Intelligens GPS rögzítve: {kiv_id} -> Lat: {t_lat}, Lon: {t_lon}")
                                     
                                     if 'google_data_loaded' in st.session_state:
@@ -603,7 +605,7 @@ def utvonal_terkep(df_napi, client, sheet_id):
                                 else:
                                     st.error("❌ Ez az ügyfél nem található az Ugyfelkor törzslistában!")
                             except ValueError:
-                                st.error("❌ A beillesztett szöveg nem érvényes koordináta szám! Ellenőrizd, mit másoltál ki.")
+                                st.error("❌ A beillesztett szöveg nem érvényes koordináta szám!")
                             except Exception as save_err:
                                 st.error(f"❌ Hiba történt a mentés során: {save_err}")
                         else:

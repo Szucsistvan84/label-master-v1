@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
 
 # ==============================================================================
-# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (AZ EREDETI MŰKÖDŐ VERZIÓD)
+# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (MEGLÉVŐ KULCSHOZ IGAZÍTVA)
 # ==============================================================================
 import gspread
 import pandas as pd
@@ -55,17 +55,26 @@ import time
 from google.oauth2.service_account import Credentials
 
 try:
-    # EZ VOLT A TE EREDETI, JÓL BEVÁLT HITELESÍTÉSI SOROD:
-    creds = Credentials.from_service_account_info(
-        st.secrets["sheets"]["service_account"], 
-        scopes=[
-            "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/drive"
-        ]
-    )
+    # Összerakjuk a hitelesítést a Streamlit felületén lévő pontos elnevezés [gcp_service_account] alapján
+    if "gcp_service_account" in st.secrets:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+    else:
+        # Ha esetleg a gyökérbe is be lenne ömlesztve biztonság kedvéért
+        creds_dict = dict(st.secrets)
+
+    # Biztonsági sortörés tisztítása, amit a Google elvár
+    if "private_key" in creds_dict:
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+
+    # Hitelesítés indítása
+    creds = Credentials.from_service_account_info(creds_dict, scopes=[
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ])
     client = gspread.authorize(creds)
+    
 except Exception as e:
-    st.error(f"Nem sikerült csatlakozni a Google Sheets-hez: {e}")
+    st.error(f"❌ Nem sikerült csatlakozni a Google Sheets-hez: {e}")
     st.stop()
 
 

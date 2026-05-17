@@ -47,28 +47,25 @@ logger = logging.getLogger(__name__)
 SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
 
 # ==============================================================================
-# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (KÖZVETLEN STREAMLIT FUNKCIÓVAL)
+# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (AZ EREDETI MŰKÖDŐ VERZIÓD)
 # ==============================================================================
 import gspread
 import pandas as pd
 import time
+from google.oauth2.service_account import Credentials
 
 try:
-    # A gspread beépített service_account_from_dict funkciója automatikusan 
-    # gatyába rázza a Streamlit fura formátumait és a sortöréseket is.
-    if "sheets" in st.secrets and "service_account" in st.secrets["sheets"]:
-        client = gspread.service_account_from_dict(dict(st.secrets["sheets"]["service_account"]))
-    elif "google_credentials" in st.secrets:
-        client = gspread.service_account_from_dict(dict(st.secrets["google_credentials"]))
-    elif "gspread" in st.secrets:
-        client = gspread.service_account_from_dict(dict(st.secrets["gspread"]))
-    else:
-        # Ha teljesen ömlesztve lenne a gyökérben
-        client = gspread.service_account_from_dict(dict(st.secrets))
-        
+    # EZ VOLT A TE EREDETI, JÓL BEVÁLT HITELESÍTÉSI SOROD:
+    creds = Credentials.from_service_account_info(
+        st.secrets["sheets"]["service_account"], 
+        scopes=[
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ]
+    )
+    client = gspread.authorize(creds)
 except Exception as e:
-    st.error(f"❌ Nem sikerült csatlakozni a Google Sheets-hez: {e}")
-    st.info("Ha a hiba nem szűnik meg, az azt jelenti, hogy a Secrets tartalma sérült vagy hiányos a felhőben.")
+    st.error(f"Nem sikerült csatlakozni a Google Sheets-hez: {e}")
     st.stop()
 
 

@@ -203,6 +203,32 @@ def tisztitott_cim_lekerese(nyers_szoveg):
     return tisztitott.strip()
 
 # ==============================================================================
+# 🟢 FUTÁR JOGOSULTSÁGOK LETÖLTÉSE A GOOGLE SHEETS-BŐL
+# ==============================================================================
+@st.cache_data(ttl=300)  # 5 percig őrzi meg a memóriában a futárokat, hogy védje a kvótát
+def _tiszta_futar_lista_letoltes(sheet_id):
+    if "gcp_service_account" in st.secrets:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+    else:
+        creds_dict = dict(st.secrets)
+        
+    if "private_key" in creds_dict: 
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
+    creds = Credentials.from_service_account_info(creds_dict, scopes=[
+        "https://spreadsheets.google.com/feeds", 
+        "https://www.googleapis.com/auth/drive"
+    ])
+    local_client = gspread.authorize(creds)
+    sh = local_client.open_by_key(sheet_id)
+    
+    try:
+        ws_futarok = sh.worksheet("Futárok")
+        return ws_futarok.get_all_records()
+    except Exception as e:
+        return []
+
+# ==============================================================================
 # 🟢 1. AZ ÜGYFÉLKÖR BEOLVASÁSÁNAK GYORSÍTÓTÁRAZÁSA (API VÉDELEM)
 # Ez teljesen kívül helyezkedik el, így a Streamlit képes megfelelően cache-elni!
 # ==============================================================================

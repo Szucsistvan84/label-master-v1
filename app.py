@@ -2876,9 +2876,14 @@ def main():
                     # Lekérjük a Google Sheets-ből a futár törzsadatokat
                     futar_adatok = _tiszta_futar_lista_letoltes("1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8")
                     
+                    # 🟢 JAVÍTOTT FUTÁR ELLENŐRZŐ CIKLUS:
                     talalt_futar = None
                     for f in futar_adatok:
-                        if str(f.get('PIN_Kod', '')).strip() == str(pin_input).strip():
+                        # Kivesszük a PIN-t, megtisztítjuk a tripla aposztrófoktól, szóközöktől és szöveggé alakítjuk
+                        tisztitott_sheet_pin = str(f.get('PIN_Kod', '')).replace("'", "").strip()
+                        tisztitott_input_pin = str(pin_input).replace("'", "").strip()
+                        
+                        if tisztitott_sheet_pin == tisztitott_input_pin:
                             talalt_futar = f
                             break
                     

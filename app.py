@@ -29,6 +29,30 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame, Flowable
 
+def biztonsagos_koordinata_tisztito(val):
+    """
+    Minden létező koordináta formátumot (sima szám, magyar vesszős, 
+    szimpla vagy dupla aposztrófos hibákat) tiszta float számmá alakít.
+    """
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    s = str(val).strip()
+    if not s or s.lower() == "none":
+        return None
+        
+    # Letakarítjuk az összes szimpla és dupla aposztrófot
+    s = s.replace("'", "").replace('"', '')
+    # Magyar tizedesvessző kicserélése pontra
+    s = s.replace(",", ".")
+    
+    try:
+        f = float(s)
+        if abs(f) > 180:
+            return None
+        return round(f, 7)
+    except:
+        return None
+
 # 2. LOGGOLÁS BEÁLLÍTÁSA
 LOG_FILE = "utvonaltervezo.log"
 
@@ -587,14 +611,13 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
     st.markdown("---")
     st.subheader("🛠️ Ügyfél Koordináták Karbantartása / Javítása")
     
-    # 🔴 EGYSZERI ADATBÁZIS NAGYTAKARÍTÓ GOMB (Beépített, golyóálló verzió)
+    # 🔴 EGYSZERI ADATBÁZIS NAGYTAKARÍTÓ GOMB (Végleges, javított verzió)
     with st.expander("⚠️ VESZÉLYES ZÓNA: Google Sheets Adatbázis Formátum Javítása"):
         st.write("Ez a gomb végigmegy a teljes Google Sheets táblázatodon, és az összes elrontott dupla aposztrófos (''47...) koordinátát átalakítja szép, egységes, szóló aposztrófos formátumra.")
         
         if st.button("🚨 FUTTASD A GOOGLE SHEETS NAGYTAKARÍTÁST"):
             try:
                 with st.spinner("⏳ Kapcsolódás és nagytakarítás folyamatban..."):
-                    # Hitelesítés felépítése helyben
                     if "gcp_service_account" in st.secrets:
                         creds_dict = dict(st.secrets["gcp_service_account"])
                     else:
@@ -623,7 +646,7 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                             st.error("❌ Nem találom a 'Lat' vagy 'Lon' oszlopot a táblázatban!")
                         else:
                             javitott_db = 0
-                            # Itt helyben hívjuk meg a tisztítást, így biztosan látja!
+                            
                             for idx, row_data in enumerate(rows[1:], start=2):
                                 if len(row_data) <= max(lat_idx, lon_idx):
                                     continue
@@ -634,24 +657,18 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                                 uj_lat = None
                                 uj_lon = None
                                 
-                                # Szigorú helyi tisztítás minden külső függőség nélkül
-                                if nyers_lat and nyers_lat != "None":
-                                    t_lat = nyers_lat.replace("'", "").replace('"', '').replace(",", ".").strip()
-                                    try:
-                                        f_lat = round(float(t_lat), 7)
-                                        uj_lat = f"'{str(f_lat).replace('.', ',')}"
-                                    except: pass
+                                # A fenti biztonságos tisztító meghívása
+                                tiszta_lat = biztonsagos_koordinata_tisztito(nyers_lat)
+                                if tiszta_lat is not None:
+                                    uj_lat = f"'{str(tiszta_lat).replace('.', ',')}"
                                         
-                                if nyers_lon and nyers_lon != "None":
-                                    t_lon = nyers_lon.replace("'", "").replace('"', '').replace(",", ".").strip()
-                                    try:
-                                        f_lon = round(float(t_lon), 7)
-                                        uj_lon = f"'{str(f_lon).replace('.', ',')}"
-                                    except: pass
+                                tiszta_lon = biztonsagos_koordinata_tisztito(nyers_lon)
+                                if tiszta_lon is not None:
+                                    uj_lon = f"'{str(tiszta_lon).replace('.', ',')}"
 
-                                # Ha eltérés van, azonnal javítjuk a cellát
+                                # Ha a táblázatban lévő érték nem egyezik a tiszta formátummal, javítjuk
                                 if (uj_lat and uj_lat != nyers_lat) or (uj_lon and uj_lon != nyers_lon):
-                                    st.write(f"🛠️ Sor javítása: {idx}. sor (ID: {row_data[0]})")
+                                    st.write(f"🛠️ Sor javítása: {idx}. sor (ID: {row_data[0]}) | Nyers: {nyers_lat} -> Új: {uj_lat}")
                                     if uj_lat:
                                         worksheet.update_cell(idx, lat_idx + 1, uj_lat)
                                     if uj_lon:
@@ -660,7 +677,6 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
 
                             st.success(f"🎉 SIKER! Összesen {javitott_db} sor lett tökéletesen egységesítve szóló aposztrófra!")
                             
-                            # Memória takarítás
                             if 'ugyfelkor_df' in st.session_state:
                                 del st.session_state['ugyfelkor_df']
                             st.rerun()

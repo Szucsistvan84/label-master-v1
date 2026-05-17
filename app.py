@@ -858,6 +858,13 @@ def sync_interfood_etlap(year, week, sheet_id):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
+    # 🟢 ÚJ KVÓTAVÉDELMI PAJZS: Ha ebben a munkamenetben ez a hét már le lett szinkronizálva, 
+    # ne terheljük a Google-t és az Interfood API-t, ugorjuk át!
+    cache_key = f"sync_done_{year}_{week}"
+    if st.session_state.get(cache_key, False):
+        logging.info(f"Interfood étlap szinkron ({year}/W{week}) ebből a munkamenetből már megvolt, átugrás.")
+        return True
+    
     try:
         # 1. LÉPÉS: Letöltés megkísérlése
         st.info(f"Kapcsolódás az API-hoz: {api_url}")
@@ -880,23 +887,30 @@ def sync_interfood_etlap(year, week, sheet_id):
             df = pd.read_excel(BytesIO(content))
         except Exception as ex_err:
             st.error(f"Excel beolvasási hiba: {ex_err}")
-            # Megnézzük a nyers válasz elejét, hátha hibaüzenet jött le fájl helyett
             st.write("A kapott válasz eleje (nyers):", content[:100])
             st.stop()
             return False
 
         # 4. LÉPÉS: Google Sheets feltöltés
-        # ... (itt jön a gspread rész, amit már megírtunk) ...
-        # (Beillesztem ide a biztonság kedvéért a végét is)
-        creds_info = st.secrets["gcp_service_account"].to_dict()
-        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+        # Hitelesítés javítása, hogy golyóálló legyen
+        if "gcp_service_account" in st.secrets:
+            creds_info = dict(st.secrets["gcp_service_account"])
+        else:
+            creds_info = dict(st.secrets)
+            
+        if "private_key" in creds_info:
+            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+            
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        
         from google.oauth2 import service_account
         import gspread
         from gspread_dataframe import set_with_dataframe
         
         creds = service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
         client = gspread.authorize(creds)
+        
+        # 🛡️ Itt történt a 429-es hiba a Google túlterhelése miatt:
         sheet = client.open_by_key(sheet_id)
         
         try:
@@ -907,8 +921,18 @@ def sync_interfood_etlap(year, week, sheet_id):
         worksheet.clear()
         set_with_dataframe(worksheet, df)
         
+        # 🟢 SIKER: Elmentjük a memóriába, hogy többször ne fusson le feleslegesen!
+        st.session_state[cache_key] = True
+        
         st.toast(f"Sikeres szinkron: {year}/W{week}", icon="✅")
         return True
+        
+    except gspread.exceptions.APIError as api_err:
+        # 🛡️ HA A GOOGLE LEZÁRTA A CSAPOT (429), ELKAPJUK ÉS NEM ENGEDJÜK ÖSSZEOMLANI AZ APP-OT
+        if "Quota exceeded" in str(api_err):
+            st.warning(f"⚠️ Google Sheets hívási limit túllépve (429). A szinkronizálást most átugorjuk, de az app megy tovább!")
+            return True
+        raise api_err # Ha más típusú Google hiba, akkor engedjük tovább a hibakezelőre
         
     except Exception as e:
         # 1. Piros hibaüzenet kiírása
@@ -919,17 +943,11 @@ def sync_interfood_etlap(year, week, sheet_id):
             st.write(f"Hiba típusa: {type(e).__name__}")
             st.write(f"Üzenet: {str(e)}")
             import traceback
-            st.code(traceback.format_exc()) # Ez kiírja a teljes hiba-útvonalat
+            st.code(traceback.format_exc())
         
         # 3. STOP - Itt megáll az élet, lesz időd másolni
         st.warning("A program futása megállt a hiba miatt. Másold ki a fenti adatokat!")
         st.stop()
-
-# --- PÉLDA A HASZNÁLATRA ---
-# Amikor a meta függvényed kiolvassa:
-# ev, het = get_meta_info(menetterv_file)
-# if ev and het:
-#     sync_interfood_etlap(ev, het, SHEET_ID)
 
 def load_etlap_from_sheets(sheet_id):
     """

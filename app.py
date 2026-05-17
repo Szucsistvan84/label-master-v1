@@ -242,7 +242,12 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         sh = client.open_by_key(SHEET_ID_UGYFELKOR)  
         ws_ugyfel = sh.worksheet("Ugyfelkor")
         
-        records = ws_ugyfel.get_all_records(numeric_mode='RAW')
+        # 🟢 JAVÍTÁS: numeric_mode helyett a kompatibilis verziót használjuk, így nem dob hibát!
+        try:
+            records = ws_ugyfel.get_all_records(value_render_option='UNFORMATTED_VALUE')
+        except:
+            # Ha a nagyon régi gspread verzió futna, akkor paraméter nélkül olvassuk be
+            records = ws_ugyfel.get_all_records()
         if records:
             master_df = pd.DataFrame(records)
         else:

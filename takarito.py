@@ -3,6 +3,25 @@ from google.oauth2 import service_account
 import streamlit as st
 import pandas as pd
 
+# 🟢 BEÉPÍTETT TISZTÍTÓ: Így már nem fogja azt mondani, hogy 'not defined'
+def biztonsagos_koordinata_tisztito(val):
+    if pd.isna(val) or val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    # Letakarítjuk a szimpla és dupla aposztrófokat is
+    s = s.replace("'", "").replace('"', '')
+    # Magyar tizedesvessző kicserélése pontra
+    s = s.replace(",", ".")
+    try:
+        f = float(s)
+        if abs(f) > 180:
+            return None
+        return round(f, 7)
+    except:
+        return None
+
 def google_sheet_nagytakaritas(sheet_id):
     try:
         # HITELESÍTÉS (Streamlit secrets-ből automatikusan)
@@ -55,20 +74,15 @@ def google_sheet_nagytakaritas(sheet_id):
             uj_lon = None
             
             if nyers_lat:
-                tiszta_lat = nyers_lat.replace("'", "").replace('"', '').replace(",", ".").strip()
-                try:
-                    float(tiszta_lat)
-                    uj_lat = f"'{tiszta_lat.replace('.', ',')}"
-                except ValueError:
-                    pass
+                # Meghívjuk a beépített tisztítót
+                tiszta_lat = biztonsagos_koordinata_tisztito(nyers_lat)
+                if tiszta_lat is not None:
+                    uj_lat = f"'{str(tiszta_lat).replace('.', ',')}"
                     
             if nyers_lon:
-                tiszta_lon = nyers_lon.replace("'", "").replace('"', '').replace(",", ".").strip()
-                try:
-                    float(tiszta_lon)
-                    uj_lon = f"'{tiszta_lon.replace('.', ',')}"
-                except ValueError:
-                    pass
+                tiszta_lon = biztonsagos_koordinata_tisztito(nyers_lon)
+                if tiszta_lon is not None:
+                    uj_lon = f"'{str(tiszta_lon).replace('.', ',')}"
 
             # Ha változott valami, felküldjük a javítást
             if (uj_lat and uj_lat != nyers_lat) or (uj_lon and uj_lon != nyers_lon):

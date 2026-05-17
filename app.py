@@ -47,40 +47,30 @@ logger = logging.getLogger(__name__)
 SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
 
 # ==============================================================================
-# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (INTELLIGENS MEZŐSZŰRÉSSEL)
+# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (PONTOS RECEPT ALAPJÁN)
 # ==============================================================================
 import gspread
 import pandas as pd
 import time
 from google.oauth2.service_account import Credentials
 
-# Összegyűjtjük a Google Service Account kötelező mezőit
-google_keys = [
-    "type", "project_id", "private_key_id", "private_key", 
-    "client_email", "client_id", "auth_uri", "token_uri", 
-    "auth_provider_x509_cert_url", "client_x509_cert_url", "universe_domain"
-]
-
 try:
-    creds_dict = {}
-    
-    # 1. Megnézzük, hogy egy alkulcs alatt van-e (gspread vagy google_credentials)
-    if "gspread" in st.secrets:
-        creds_dict = {k: v for k, v in dict(st.secrets["gspread"]).items() if k in google_keys}
+    # 1. Megpróbáljuk az eredeti, nálad működő [sheets][service_account] struktúrát
+    if "sheets" in st.secrets and "service_account" in st.secrets["sheets"]:
+        creds_dict = dict(st.secrets["sheets"]["service_account"])
+    # 2. Visszaeső ág, ha időközben mégis változott volna a Streamlit felületén
     elif "google_credentials" in st.secrets:
-        creds_dict = {k: v for k, v in dict(st.secrets["google_credentials"]).items() if k in google_keys}
+        creds_dict = dict(st.secrets["google_credentials"])
+    elif "gspread" in st.secrets:
+        creds_dict = dict(st.secrets["gspread"])
     else:
-        # 2. Ha ömlesztve van a secrets gyökerében, csak a Google mezőket szűrjük ki
-        creds_dict = {k: v for k, v in dict(st.secrets).items() if k in google_keys}
-    
-    # Ha a legfontosabb mezők hiányoznak, az azt jelenti, hogy egyáltalán nincs meg a kulcs
-    if "client_email" not in creds_dict or "private_key" not in creds_dict:
-        raise ValueError("A szükséges hitelesítési mezők (client_email, private_key) hiányoznak a Secrets-ből!")
+        creds_dict = dict(st.secrets)
 
-    # Újszerű, biztonságos kulcs-beolvasás, a sortörések (\n) automatikus javításával
+    # Biztonsági sortörés javítás (\n -> valódi sortörés)
     if "private_key" in creds_dict:
         creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
 
+    # Hitelesítés összeállítása
     creds = Credentials.from_service_account_info(creds_dict, scopes=[
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
@@ -88,8 +78,8 @@ try:
     client = gspread.authorize(creds)
 
 except Exception as e:
-    st.error(f"Nem sikerült csatlakozni a Google Sheets-hez: {e}")
-    st.info("Tipp: Ha a hiba továbbra is fennáll, ellenőrizd a Streamlit Cloud Secrets mezőit.")
+    st.error(f"❌ Nem sikerült csatlakozni a Google Sheets-hez: {e}")
+    st.info("Tipp: A kulcsod valószínűleg a [sheets] blokkban van a Streamlit felületén.")
     st.stop()
 
 
@@ -103,7 +93,7 @@ try:
     records_etlap = ws_etlap.get_all_records()
     etlap_api_df = pd.DataFrame(records_etlap)
     
-    # Taktikai szünet a Google API-nak
+    # Taktikai szünet a Google API-nak (Hogy ne kapjunk 429-es hibát)
     time.sleep(1.2)
     
     # 2. Ételek törzslista betöltése

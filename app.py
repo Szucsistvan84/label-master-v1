@@ -359,154 +359,169 @@ def master_lista_szinkron(df_napi, client, sheet_id):
     return df_napi, master_df
 
 # --- VIZUALIZÁCIÓ ---
-def utvonal_terkep(df_napi, client, sheet_id):
-    import streamlit.components.v1 as components
-    import pandas as pd
-    import streamlit as st
+def utvonal_terkep(df_napi, sheet_id, client):
+    """
+    Kiszállítási útvonal térképes megjelenítése Folium-mal.
+    Az egy címre/koordinátára eső ügyfeleket intelligensen összevonja tól-ig sorszámmal.
+    """
     import folium
-    import math
-    import re
-    from streamlit_folium import st_folium
-    from gspread_dataframe import set_with_dataframe
+    import folium.plugins
     
-    st.subheader("🗺️ Napi Kiszedési és Kiszállítási Útvonal")
-    logger.info("Térkép generálása elindult...")
+    st.subheader("🗺️ Tervezett Kiszállítási Útvonal")
     
-    if df_napi is None or df_napi.empty:
-        st.info("💡 Nincs megjeleníthető napi adat. Kérjük, futtasd a feldolgozást!")
-        return
-        
-    df_valid_gps = df_napi.copy()
-    df_valid_gps.columns = [c.strip() for c in df_valid_gps.columns]
-    
-    # Ékezetes oszlopok egységesítése
-    if 'Név' in df_valid_gps.columns and 'Nev' not in df_valid_gps.columns:
-        df_valid_gps['Nev'] = df_valid_gps['Név']
-    if 'Cím' in df_valid_gps.columns and 'Cim' not in df_valid_gps.columns:
-        df_valid_gps['Cim'] = df_valid_gps['Cím']
-
-    # --- ATOMBIZTOS ID TISZTÍTÓ ---
-    def szigoru_id_konverter(val):
-        if pd.isna(val):
-            return ""
-        s = str(val).replace("'", "").replace('"', '').replace(' ', '').strip()
-        if '-' in s:
-            s = s.split('-')[-1]
-        tisztitott = "".join(filter(str.isdigit, s))
-        return tisztitott if len(tisztitott) > 0 else ""
-
-    df_valid_gps['ID'] = df_valid_gps['ID'].apply(szigoru_id_konverter)
-
-    # --- GOOGLE SHEETS TÖRZSLISTA ÖSSZEILLESZTÉSE ---
-    if 'ugyfelkor_df' in st.session_state and not st.session_state.ugyfelkor_df.empty:
-        st.session_state.ugyfelkor_df.columns = [c.strip() for c in st.session_state.ugyfelkor_df.columns]
-        
-        id_col = 'ID' if 'ID' in st.session_state.ugyfelkor_df.columns else ('id' if 'id' in st.session_state.ugyfelkor_df.columns else None)
-        lat_col = 'Lat' if 'Lat' in st.session_state.ugyfelkor_df.columns else ('lat' if 'lat' in st.session_state.ugyfelkor_df.columns else None)
-        lon_col = 'Lon' if 'Lon' in st.session_state.ugyfelkor_df.columns else ('lon' if 'lon' in st.session_state.ugyfelkor_df.columns else None)
-        
-        if id_col and lat_col and lon_col:
-            gps_torzs = st.session_state.ugyfelkor_df[[id_col, lat_col, lon_col]].copy()
-            gps_torzs.columns = ['ID', 'Lat', 'Lon']
-            
-            gps_torzs['ID'] = gps_torzs['ID'].apply(szigoru_id_konverter)
-            
-            def tisztit_koordinata(val):
-                if pd.isna(val) or val == "":
-                    return None
-                val_str = str(val).replace("'", "").replace('"', '').replace(",", ".").strip()
-                try:
-                    return float(val_str)
-                except:
-                    return None
-
-            gps_torzs['Lat'] = gps_torzs['Lat'].apply(tisztit_koordinata)
-            gps_torzs['Lon'] = gps_torzs['Lon'].apply(tisztit_koordinata)
-            
-            df_valid_gps = df_valid_gps.drop(columns=['Lat', 'Lon'], errors='ignore')
-            df_valid_gps = pd.merge(df_valid_gps, gps_torzs, on='ID', how='left')
-
-    if 'Lat' not in df_valid_gps.columns:
-        df_valid_gps['Lat'] = None
-    if 'Lon' not in df_valid_gps.columns:
-        df_valid_gps['Lon'] = None
-
-    # --- MENTÉS A GOOGLE SHEETS 'ADATOK' ÉS 'RENDELESEK' LAPFÜLEKRE ---
+    # 1. Google Sheets törzslista beolvasása
     try:
-        sh_ugyfel = client.open_by_key(sheet_id)
+        sh = client.open_by_key(sheet_id)
+        ws = sh.worksheet("Ugyfelkor")
+        df_torzs = pd.DataFrame(ws.get_all_records())
+    except Exception as e:
+        st.error(f"Nem sikerült beolvasni az Ugyfelkor törzslistát: {e}")
+        return
+
+    # 2. Adatok összefésülése
+    df_valid_gps = df_napi.copy()
+    if 'ID' in df_valid_gps.columns and 'ID' in df_torzs.columns:
+        df_valid_gps['ID'] = df_valid_gps['ID'].astype(str).str.strip()
+        df_torzs['ID'] = df_torzs['ID'].astype(str).str.strip()
         
-        # 1. 'Adatok' munkalap mentése
-        try:
-            ws_adatok = sh_ugyfel.worksheet("Adatok")
-            ws_adatok.clear()
-            df_mentes_adatok = df_valid_gps.copy()
-            set_with_dataframe(ws_adatok, df_mentes_adatok, include_index=False)
-            logger.info("Napi adatok sikeresen mentve az 'Adatok' munkalapra.")
-        except Exception as e_adatok:
-            logger.error(f"Hiba az Adatok munkalap mentésekor: {e_adatok}")
+        cols_to_drop = [c for c in ['Lat', 'Lon', 'Név', 'Cím'] if c in df_valid_gps.columns]
+        df_megtisztitott = df_valid_gps.drop(columns=cols_to_drop)
+        df_valid_gps = pd.merge(df_megtisztitott, df_torzs[['ID', 'Név', 'Cím', 'Lat', 'Lon']], on='ID', how='left')
 
-        # 2. 'Rendelesek' munkalap mentése
-        try:
-            ws_rendelesek = sh_ugyfel.worksheet("Rendelesek")
-            df_rendelesek_lap = pd.DataFrame()
-            df_rendelesek_lap['Datum'] = [datetime.today().strftime('%Y.%m.%d')] * len(df_valid_gps)
-            df_rendelesek_lap['Ugyfel_ID'] = df_valid_gps['ID']
-            df_rendelesek_lap['Ugyfel_Neve'] = df_valid_gps.get('Nev', df_valid_gps.get('Név', 'Ismeretlen'))
-            df_rendelesek_lap['Osszeg'] = df_valid_gps.get('Fizetendő', 0)
-            df_rendelesek_lap['Tetel_Szam'] = df_valid_gps.get('Sorrend', 1)
-            
-            ws_rendelesek.clear()
-            set_with_dataframe(ws_rendelesek, df_rendelesek_lap, include_index=False)
-            logger.info("Rendelések sikeresen szinkronizálva a 'Rendelesek' munkalapra.")
-            st.success("📊 Napi adatok és rendelések sikeresen szinkronizálva a Google Sheets-be!")
-        except Exception as e_rendelesek:
-            logger.error(f"Hiba a Rendelesek munkalap mentésekor: {e_rendelesek}")
+    # Koordináták tisztítása és számmá alakítása
+    for col in ['Lat', 'Lon']:
+        if col in df_valid_gps.columns:
+            df_valid_gps[col] = df_valid_gps[col].astype(str).str.replace("'", "").str.replace('"', '').str.replace(",", ".").str.strip()
+            df_valid_gps[col] = pd.to_numeric(df_valid_gps[col], errors='coerce')
 
-    except Exception as sheets_main_err:
-        logger.error(f"Súlyos hiba a Google Sheets mentési folyamatban: {sheets_main_err}")
-
-    # --- JÓ ÉS ROSSZ GPS CÍMEK SZÉTVÁLASZTÁSA A TÉRKÉPHEZ ---
+    # Csak a valós, jó koordináták megtartása a térképhez
     df_jo_gps = df_valid_gps[df_valid_gps['Lat'].notna() & df_valid_gps['Lon'].notna()].copy()
-    df_rossz_gps = df_valid_gps[df_valid_gps['Lat'].isna() | df_valid_gps['Lon'].isna()].copy()
+    df_jo_gps = df_jo_gps[(df_jo_gps['Lat'] >= -90) & (df_jo_gps['Lat'] <= 90) & (df_jo_gps['Lon'] >= -180) & (df_jo_gps['Lon'] <= 180)]
 
-    # Térkép alaphelyzet (Debrecen)
-    if not df_jo_gps.empty:
-        center_lat = df_jo_gps['Lat'].mean()
-        center_lon = df_jo_gps['Lon'].mean()
-        zoom_szint = 12
+    if df_jo_gps.empty:
+        st.info("💡 Nincs megjeleníthető koordináta a térképen. Használd a karbantartó panelt!")
+        m = folium.Map(location=[47.5316, 21.6273], zoom_start=12)
     else:
-        center_lat, center_lon = 47.5316, 21.6273
-        zoom_szint = 11
-        
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_szint)
+        # Sorrend szerinti rendezés az útvonalhoz
+        if 'Sorrend' in df_jo_gps.columns:
+            df_jo_gps['Kijelzendo_Sorrend'] = pd.to_numeric(df_jo_gps['Sorrend'], errors='coerce')
+        else:
+            df_jo_gps['Kijelzendo_Sorrend'] = range(1, len(df_jo_gps) + 1)
+            
+        df_jo_gps = df_jo_gps.sort_values(by='Kijelzendo_Sorrend')
 
-    # Márkerek hozzáadása a jó koordinátákhoz (Sorszámozott, ékezetbiztos verzió)
-    for idx, row in df_jo_gps.iterrows():
-        # --- ATOMBIZTOS NÉV ÉS CÍM KERESÉS ---
-        # Megkeressük a nevet (ékezetes vagy ékezet nélküli oszlopból)
-        ugyfel_neve = row.get('Név', row.get('Nev', row.get('Ügyintéző', 'Ismeretlen')))
-        # Megkeressük a címet
-        ugyfel_cime = row.get('Cím', row.get('Cim', 'Nincs cím'))
-        # Megkeressük a sorrendet (ha nincs, akkor a táblázatbeli index + 1 lesz a sorszám)
-        sorszam = row.get('Sorrend', idx + 1)
-        
-        popup_info = f"<b>{sorszam}. {ugyfel_neve}</b><br>{ugyfel_cime}<br>ID: {row['ID']}"
-        
-        # --- SORSZÁMOZOTT PÖTTY GENERÁLÁSA ---
-        folium.Marker(
-            location=[row['Lat'], row['Lon']],
-            popup=folium.Popup(popup_info, max_width=300),
-            # Egyedi HTML alapú ikon, ami egy szép kék körben fehér sorszámot jelenít meg
-            icon=folium.plugins.BeautifyIcon(
-                icon_shape='marker',
-                number=int(sorszam) if pd.notna(sorszam) else idx + 1,
-                border_color='#00788d',
-                background_color='#00a2b9',
-                text_color='white'
-            ) if 'plugins' in dir(folium) else folium.Icon(color='blue', icon='info-sign')
-        ).add_to(m)
+        # Térkép középpontja
+        m = folium.Map(location=[df_jo_gps.iloc[0]['Lat'], df_jo_gps.iloc[0]['Lon']], zoom_start=13)
 
-    # Térkép kirajzolása a felületre
+        # --- INTELLIGENS CSOPORTOSÍTÁS FÖLDRAJZI HELY ALAPJÁN (TÖMBHÁZ KEZELÉS) ---
+        # Kerekítjük 6 tizedesre a csoportosításhoz, hogy a mikroszkopikus eltérések ne zavarjanak be
+        df_jo_gps['Lat_Group'] = df_jo_gps['Lat'].round(6)
+        df_jo_gps['Lon_Group'] = df_jo_gps['Lon'].round(6)
+        
+        # Egyedi megállók kigyűjtése az útvonalvonal rajzolásához (sorrendet tartva)
+        vonal_pontok = []
+        utolso_pont = None
+        
+        # Csoportosítjuk az ügyfeleket koordináta szerint, de megtartjuk az útvonal sorrendjét
+        megallok = []
+        for (lat_g, lon_g), group in df_jo_gps.groupby(['Lat_Group', 'Lon_Group'], sort=False):
+            # Sorrendbe tesszük a csoporton belül is az ügyfeleket
+            group = group.sort_values(by='Kijelzendo_Sorrend')
+            sorszamok = group['Kijelzendo_Sorrend'].astype(int).tolist()
+            
+            # Tól-ig felirat meghatározása
+            if len(sorszamok) > 1:
+                tol_ig_szoveg = f"{min(sorszamok)}-{max(sorszamok)}"
+            else:
+                tol_ig_szoveg = str(sorszamok[0])
+                
+            megallok.append({
+                'lat': lat_g,
+                'lon': lon_g,
+                'tol_ig': tol_ig_szoveg,
+                'ugyfelek': group.to_dict('records'),
+                'elso_sorszam': min(sorszamok)
+            })
+            
+        # Megállók rendezése az első sorszám szerint, hogy az útvonalvonal tökéletes legyen
+        megallok = sorted(megallok, key=lambda x: x['elso_sorszam'])
+        
+        for megallo in megallok:
+            aktualis_pont = [megallo['lat'], megallo['lon']]
+            if utolso_pont is None or utolso_pont != aktualis_pont:
+                vonal_pontok.append(aktualis_pont)
+                utolso_pont = aktualis_pont
+
+        # Útvonalvonal kirajzolása
+        if len(vonal_pontok) >= 2:
+            try:
+                folium.plugins.AntPath(
+                    locations=vonal_pontok, dash_array=[10, 20], delay=1000,
+                    color='#0072ff', pulse_color='#ffffff', weight=5, opacity=0.8
+                ).add_to(m)
+            except:
+                folium.PolyLine(vonal_pontok, color="#0072ff", weight=4, opacity=0.7).add_to(m)
+
+        # Intelligens megálló-márkerek elhelyezése
+        for megallo in megallok:
+            # Összerakjuk a felugró ablak HTML tartalmát a csoport összes tagjával
+            cím = megallo['ugyfelek'][0].get('Cím', megallo['ugyfelek'][0].get('Cim', 'Nincs cím'))
+            
+            popup_html = f"""
+            <div style="font-family: Arial, sans-serif; min-width: 200px;">
+                <h4 style="margin:0 0 5px 0; color:#0072ff;">📭 Megálló: {megallo['tol_ig']}</h4>
+                <p style="margin:0 0 10px 0; font-size:12px; color:#555;"><b>Cím:</b> {cím}</p>
+                <table style="width:100%; border-collapse: collapse; font-size:12px;">
+                    <tr style="background:#f0f0f0; font-weight:bold;">
+                        <th style="padding:3px; border:1px solid #ddd;">Sor.</th>
+                        <th style="padding:3px; border:1px solid #ddd;">Név</th>
+                        <th style="padding:3px; border:1px solid #ddd;">ID</th>
+                    </tr>
+            """
+            for u in megallo['ugyfelek']:
+                u_nev = u.get('Név', u.get('Nev', u.get('Ügyintéző', 'Ismeretlen')))
+                u_sor = int(u['Kijelzendo_Sorrend'])
+                popup_html += f"""
+                    <tr>
+                        <td style="padding:3px; border:1px solid #ddd; text-align:center; font-weight:bold;">{u_sor}</td>
+                        <td style="padding:3px; border:1px solid #ddd;">{u_nev}</td>
+                        <td style="padding:3px; border:1px solid #ddd; text-align:center; color:#777;">{u['ID']}</td>
+                    </tr>
+                """
+            popup_html += "</table></div>"
+
+            # Kör ikon méretezése (ha tól-ig szöveg van, kicsit szélesebbre vesszük a kört)
+            doboz_szelesseg = "36px" if "-" in megallo['tol_ig'] else "26px"
+            
+            folium.Marker(
+                location=[megallo['lat'], megallo['lon']],
+                popup=folium.Popup(popup_html, max_width=350),
+                icon=folium.DivIcon(
+                    html=f"""
+                    <div style="
+                        position: relative;
+                        background-color: #0072ff;
+                        color: white;
+                        border: 2px solid white;
+                        border-radius: 13px;
+                        width: {doboz_szelesseg};
+                        height: 26px;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        font-weight: bold;
+                        font-size: 11px;
+                        white-space: nowrap;
+                        padding: 0 4px;
+                        box-shadow: 0px 2px 5px rgba(0,0,0,0.4);
+                        transform: translate(-50%, -50%);
+                    ">{megallo['tol_ig']}</div>
+                    """
+                )
+            ).add_to(m)
+
+    # Térkép megjelenítése
+    from streamlit_folium import st_folium
     st_folium(m, width=700, height=500, returned_objects=[])
 
     # --- ÁLLANDÓ KOORDINÁTA KARBANTARTÓ PANEL (INTELLIGENS EGYBE-BEVITEL) ---
@@ -516,10 +531,9 @@ def utvonal_terkep(df_napi, client, sheet_id):
     if not df_valid_gps.empty:
         df_rendezett_karbantartas = df_valid_gps.copy()
         
-        # Atombiztos név- és címmeghatározás a lenyíló listához, hogy ne legyen "Ismeretlen"
         df_rendezett_karbantartas['Karbantarto_Nev'] = df_rendezett_karbantartas.apply(
             lambda r: f"⚠️ [HIÁNYZÓ GPS] {r['ID']} - {r.get('Név', r.get('Nev', r.get('Ügyintéző', 'Ismeretlen')))} ({r.get('Cím', r.get('Cim', 'Nincs cím'))})"
-            if pd.isna(r['Lat']) or pd.isna(r['Lon']) or str(r['Lat']).strip() == ""
+            if pd.isna(r['Lat']) or pd.isna(r['Lon']) or str(r['Lat']).strip() == "" or float(r['Lat']) > 90
             else f"📍 [Térképen van] {r['ID']} - {r.get('Név', r.get('Nev', r.get('Ügyintéző', 'Ismeretlen')))} ({r.get('Cím', r.get('Cim', 'Nincs cím'))})", axis=1
         )
         
@@ -527,97 +541,74 @@ def utvonal_terkep(df_napi, client, sheet_id):
         kivallasztott = st.selectbox("Válaszd ki a javítani vagy pótolni kívánt ügyfelet:", lista_opciok)
         
         if kivallasztott:
-            # Kivonjuk az ID-t a szövegből
             kiv_id = kivallasztott.split("] ")[1].split(" - ")[0].strip()
             kiv_sor = df_valid_gps[df_valid_gps['ID'] == kiv_id].iloc[0]
             
             aktualis_cim = kiv_sor.get('Cím', kiv_sor.get('Cim', 'Nincs cím'))
             aktualis_nev = kiv_sor.get('Név', kiv_sor.get('Nev', kiv_sor.get('Ügyintéző', 'Ismeretlen')))
             
-            # Két oszlopra osztjuk a felületet: balra az űrlap, jobbra a beágyazott térkép
             form_col, map_col = st.columns([1.2, 1])
             
             with form_col:
                 st.info(f"**Kiválasztva:** {aktualis_nev}\n* **Cím:** {aktualis_cim}\n* **Jelenlegi GPS:** Lat: `{kiv_sor['Lat']}`, Lon: `{kiv_sor['Lon']}`")
                 
-                # Form az intelligens beillesztéshez
                 with st.form("gps_javito_form", clear_on_submit=False):
-                    # Ha már van koordináta, felkínáljuk formázva
                     akt_lat = str(kiv_sor['Lat']).replace("'", "").strip() if pd.notna(kiv_sor['Lat']) else ""
                     akt_lon = str(kiv_sor['Lon']).replace("'", "").strip() if pd.notna(kiv_sor['Lon']) else ""
-                    alap_ertek = f"{akt_lat}, {akt_lon}" if akt_lat and akt_lon else ""
+                    if akt_lat and float(akt_lat.replace(",", ".")) > 90:
+                        alap_ertek = ""
+                    else:
+                        alap_ertek = f"{akt_lat}, {akt_lon}" if akt_lat and akt_lon else ""
                     
                     st.markdown("**Másold be a Google Maps-ről kapott értéket egyben:**")
-                    egyben_koordinata = st.text_input(
-                        "Koordináták (Lat, Lon)", 
-                        value=alap_ertek,
-                        placeholder="Pl: 47.530773, 21.625137"
-                    )
-                    
+                    egyben_koordinata = st.text_input("Koordináták (Lat, Lon)", value=alap_ertek, placeholder="Pl: 47.530773, 21.625137")
                     submit = st.form_submit_button("💾 Koordináták mentése és Google Sheets frissítése")
                     
                     if submit:
                         if egyben_koordinata:
                             try:
-                                # Ha van benne vessző, akkor kettévágjuk
                                 if "," in egyben_koordinata:
                                     reszek = egyben_koordinata.split(",")
-                                    nyers_lat = reszek[0].strip()
-                                    nyers_lon = reszek[1].strip()
+                                    nyers_lat, nyers_lon = reszek[0].strip(), reszek[1].strip()
                                 else:
                                     reszek = egyben_koordinata.split()
                                     if len(reszek) >= 2:
-                                        nyers_lat = reszek[0].strip()
-                                        nyers_lon = reszek[1].strip()
+                                        nyers_lat, nyers_lon = reszek[0].strip(), reszek[1].strip()
                                     else:
-                                        st.error("❌ Nem felismerhető formátum! Vesszővel elválasztva másold be a számokat.")
+                                        st.error("❌ Nem felismerhető formátum!")
                                         st.stop()
                                 
-                                # Tisztítás (bármilyen bekerült jelet kiszedünk, pontra cseréljük a biztonságos számításhoz)
                                 f_lat = float(nyers_lat.replace("'", "").replace('"', '').replace(",", ".").strip())
                                 f_lon = float(nyers_lon.replace("'", "").replace('"', '').replace(",", ".").strip())
                                 
-                                # --- INTELLIGENS KEREKÍTÉS (MAX 6 TIZEDESJEGY) ---
-                                # Ezzel elkerüljük a gigantikus tizedeseket, amik elrontják a Sheets formázást
                                 t_lat = round(f_lat, 6)
                                 t_lon = round(f_lon, 6)
                                 
-                                # Visszaalakítjuk a számodra megszokott magyaros formátumra ('47,530773)
                                 formazott_lat = f"'{str(t_lat).replace('.', ',')}"
                                 formazott_lon = f"'{str(t_lon).replace('.', ',')}"
                                 
-                                # Mentés indítása a Google Sheets-be
                                 sh = client.open_by_key(sheet_id)
                                 ws = sh.worksheet("Ugyfelkor")
-                                
                                 cell = ws.find(str(kiv_id))
                                 if cell:
-                                    # Raw=False kikényszeríti, hogy a Google Táblázat SZÖVEGKÉNT mentse el a ' jelet, ne alakítsa át számmá!
-                                    ws.update_cell(cell.row, 4, formazott_lat) # Lat oszlop
-                                    ws.update_cell(cell.row, 5, formazott_lon) # Lon oszlop
-                                    
-                                    st.success(f"✅ Siker! {aktualis_nev} koordinátái elmentve (Kerekítve: {t_lat}, {t_lon})!")
-                                    logger.info(f"Intelligens GPS rögzítve: {kiv_id} -> Lat: {t_lat}, Lon: {t_lon}")
-                                    
+                                    ws.update_cell(cell.row, 4, formazott_lat)
+                                    ws.update_cell(cell.row, 5, formazott_lon)
+                                    st.success(f"✅ Siker! {aktualis_nev} koordinátái elmentve!")
                                     if 'google_data_loaded' in st.session_state:
                                         del st.session_state['google_data_loaded']
                                     st.rerun()
                                 else:
-                                    st.error("❌ Ez az ügyfél nem található az Ugyfelkor törzslistában!")
+                                    st.error("❌ Az ügyfél nem található a törzslistában!")
                             except ValueError:
-                                st.error("❌ A beillesztett szöveg nem érvényes koordináta szám!")
+                                st.error("❌ Érvénytelen koordináta szám!")
                             except Exception as save_err:
-                                st.error(f"❌ Hiba történt a mentés során: {save_err}")
-                        else:
-                            st.error("❌ A mező nem maradhat üresen!")
+                                st.error(f"❌ Mentési hiba: {save_err}")
             
             with map_col:
                 st.write("🗺️ **Beágyazott Google Maps segédablak:**")
                 biztonsagos_cim = str(aktualis_cim).replace(' ', '+')
                 maps_url = f"https://maps.google.com/maps?q={biztonsagos_cim}&t=&z=16&ie=UTF8&iwloc=&output=embed"
-                
                 st.components.v1.iframe(maps_url, height=260, scrolling=True)
-                st.caption("A fenti ablak segít beazonosítani a címet.")
                 
 def get_google_sheets_creds():
     creds_info = st.secrets["gcp_service_account"].to_dict()

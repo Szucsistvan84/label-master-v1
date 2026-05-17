@@ -558,16 +558,56 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
     from streamlit_folium import st_folium
     st_folium(m, width=700, height=500, returned_objects=[])
 
-    # --- ÁLLANDÓ KOORDINÁTA KARBANTARTÓ PANEL ---
+# --- ÁLLANDÓ KOORDINÁTA KARBANTARTÓ PANEL ---
     st.markdown("---")
     st.subheader("🛠️ Ügyfél Koordináták Karbantartása / Javítása")
     
-    if not df_valid_gps.empty:
-        df_rendezett_karbantartas = df_valid_gps.copy()
+    # 🟢 ÚJ LUSTA BETÖLTÉS PAJZS: Ha üres az ügyfélkör (mert még nem olvastunk be PDF-et),
+    # akkor közvetlenül a Google Sheets-ből rántjuk le a teljes listát a karbantartáshoz.
+    if 'ugyfelkor_df' not in st.session_state or st.session_state.ugyfelkor_df.empty:
+        with st.spinner("🔄 Teljes ügyfélkör betöltése a Google Sheets-ből a karbantartáshoz..."):
+            try:
+                if "gcp_service_account" in st.secrets:
+                    creds_dict = dict(st.secrets["gcp_service_account"])
+                else:
+                    creds_dict = dict(st.secrets)
+                if "private_key" in creds_dict: 
+                    creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+                creds = Credentials.from_service_account_info(creds_dict, scopes=["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"])
+                client = gspread.authorize(creds)
+                
+                sh_ugyfel = client.open_by_key(SHEET_ID_UGYFELKOR)
+                ws_ugyfelkor = sh_ugyfel.worksheet("Ugyfelkor")
+                
+                records = ws_ugyfelkor.get_all_records(numeric_mode='RAW')
+                if records:
+                    tisztitott_master = pd.DataFrame(records)
+                    tisztitott_master.columns = [c.strip() for c in tisztitott_master.columns]
+                    
+                    # Alkalmazzuk a golyóálló koordináta tisztítót az Ugyfelkor adatokra
+                    if 'Lat' in tisztitott_master.columns:
+                        tisztitott_master['Lat'] = tisztitott_master['Lat'].apply(biztonsagos_koordinata_tisztito)
+                    if 'Lon' in tisztitott_master.columns:
+                        tisztitott_master['Lon'] = tisztitott_master['Lon'].apply(biztonsagos_koordinata_tisztito)
+                    
+                    st.session_state.ugyfelkor_df = tisztitott_master
+            except Exception as e:
+                st.error(f"Nem sikerült közvetlenül elérni a Google Sheets ügyfélkört: {e}")
+
+    # Biztosítjuk, hogy a panel az éppen aktuálisan elérhető legnagyobb ügyféllistából dolgozzon
+    # (Ha futott PDF, akkor abból, ha nem, akkor a fent letöltött teljes listából)
+    if 'ugyfelkor_df' in st.session_state and not st.session_state.ugyfelkor_df.empty:
+        df_karbantartas_forras = st.session_state.ugyfelkor_df
+    else:
+        df_karbantartas_forras = df_valid_gps
+
+    # 🟡 INNENTŐL FOLYTATÓDIK A RÉGI KÓDOD (Csak az első if feltételt írtuk át df_karbantartas_forras-ra):
+    if not df_karbantartas_forras.empty:
+        df_rendezett_karbantartas = df_karbantartas_forras.copy()
         
         df_rendezett_karbantartas['Karbantarto_Nev'] = df_rendezett_karbantartas.apply(
             lambda r: f"⚠️ [HIÁNYZÓ GPS] {r['ID']} - {r.get('Név', r.get('Nev', r.get('Ügyintéző', 'Ismeretlen')))} ({r.get('Cím', r.get('Cim', 'Nincs cím'))})"
-            if pd.isna(r['Lat']) or pd.isna(r['Lon']) or str(r['Lat']).strip() == "" or float(r['Lat']) > 90
+            if pd.isna(r['Lat']) or pd.isna(r['Lon']) or str(r['Lat']).strip() == "" or float(str(r['Lat']).replace("'", "").replace(",", ".").strip()) > 90
             else f"📍 [Térképen van] {r['ID']} - {r.get('Név', r.get('Nev', r.get('Ügyintéző', 'Ismeretlen')))} ({r.get('Cím', r.get('Cim', 'Nincs cím'))})", axis=1
         )
         
@@ -576,7 +616,7 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
         
         if kivallasztott:
             kiv_id = kivallasztott.split("] ")[1].split(" - ")[0].strip()
-            kiv_sor = df_valid_gps[df_valid_gps['ID'] == kiv_id].iloc[0]
+            kiv_sor = df_karbantartas_forras[df_karbantartas_forras['ID'] == kiv_id].iloc[0]
             
             aktualis_cim = kiv_sor.get('Cím', kiv_sor.get('Cim', 'Nincs cím'))
             aktualis_nev = kiv_sor.get('Név', kiv_sor.get('Nev', kiv_sor.get('Ügyintéző', 'Ismeretlen')))
@@ -589,10 +629,12 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                 with st.form("gps_javito_form", clear_on_submit=False):
                     akt_lat = str(kiv_sor['Lat']).replace("'", "").strip() if pd.notna(kiv_sor['Lat']) else ""
                     akt_lon = str(kiv_sor['Lon']).replace("'", "").strip() if pd.notna(kiv_sor['Lon']) else ""
-                    if akt_lat and float(akt_lat.replace(",", ".")) > 90:
+                    try:
+                        valid_lat_test = float(akt_lat.replace(",", "."))
+                        if valid_lat_test > 90: alap_ertek = ""
+                        else: alap_ertek = f"{akt_lat}, {akt_lon}" if akt_lat and akt_lon else ""
+                    except:
                         alap_ertek = ""
-                    else:
-                        alap_ertek = f"{akt_lat}, {akt_lon}" if akt_lat and akt_lon else ""
                     
                     st.markdown("**Másold be a Google Maps-ről kapott értéket egyben:**")
                     egyben_koordinata = st.text_input("Koordináták (Lat, Lon)", value=alap_ertek, placeholder="Pl: 47.530773, 21.625137")

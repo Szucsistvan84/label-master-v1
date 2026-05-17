@@ -2787,8 +2787,12 @@ def main():
 
         # --- TÉRKÉP MEGJELENÍTÉSE ---
         with st.expander("🗺️ Útvonal megtekintése a térképen", expanded=False):
-            # A térkép megkapja a szükséges adatokat és a klienseket a manuális mentéshez
-            utvonal_terkep(edited_df, client, UGYFELKOR_SHEET_ID) 
+            # Név szerinti paraméterátadással teljesen kizárjuk az összecserélés lehetőségét
+            utvonal_terkep(
+                df_napi=edited_df, 
+                sheet_id=UGYFELKOR_SHEET_ID, 
+                client=client
+            ) 
 
         st.subheader("🗄️ Ügyfélkör kezelése")
         

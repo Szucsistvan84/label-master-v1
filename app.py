@@ -480,13 +480,30 @@ def utvonal_terkep(df_napi, client, sheet_id):
         
     m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_szint)
 
-    # Márkerek hozzáadása a jó koordinátákhoz
+    # Márkerek hozzáadása a jó koordinátákhoz (Sorszámozott, ékezetbiztos verzió)
     for idx, row in df_jo_gps.iterrows():
-        popup_info = f"<b>{row.get('Nev', 'Ismeretlen')}</b><br>{row.get('Cim', 'Nincs cím')}<br>ID: {row['ID']}"
+        # --- ATOMBIZTOS NÉV ÉS CÍM KERESÉS ---
+        # Megkeressük a nevet (ékezetes vagy ékezet nélküli oszlopból)
+        ugyfel_neve = row.get('Név', row.get('Nev', row.get('Ügyintéző', 'Ismeretlen')))
+        # Megkeressük a címet
+        ugyfel_cime = row.get('Cím', row.get('Cim', 'Nincs cím'))
+        # Megkeressük a sorrendet (ha nincs, akkor a táblázatbeli index + 1 lesz a sorszám)
+        sorszam = row.get('Sorrend', idx + 1)
+        
+        popup_info = f"<b>{sorszam}. {ugyfel_neve}</b><br>{ugyfel_cime}<br>ID: {row['ID']}"
+        
+        # --- SORSZÁMOZOTT PÖTTY GENERÁLÁSA ---
         folium.Marker(
             location=[row['Lat'], row['Lon']],
             popup=folium.Popup(popup_info, max_width=300),
-            icon=folium.Icon(color='blue', icon='info-sign')
+            # Egyedi HTML alapú ikon, ami egy szép kék körben fehér sorszámot jelenít meg
+            icon=folium.plugins.BeautifyIcon(
+                icon_shape='marker',
+                number=int(sorszam) if pd.notna(sorszam) else idx + 1,
+                border_color='#00788d',
+                background_color='#00a2b9',
+                text_color='white'
+            ) if 'plugins' in dir(folium) else folium.Icon(color='blue', icon='info-sign')
         ).add_to(m)
 
     # Térkép kirajzolása a felületre

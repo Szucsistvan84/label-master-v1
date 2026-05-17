@@ -202,7 +202,40 @@ def tisztitott_cim_lekerese(nyers_szoveg):
     tisztitott = szoveg.split('. fsz')[0].split('. fszt')[0].split(', fsz')[0]
     return tisztitott.strip()
 
-def master_lista_szinkron(df_napi, client, sheet_id):
+# ==============================================================================
+# 🟢 1. AZ ÜGYFÉLKÖR BEOLVASÁSÁNAK GYORSÍTÓTÁRAZÁSA (API VÉDELEM)
+# Ez teljesen kívül helyezkedik el, így a Streamlit képes megfelelően cache-elni!
+# ==============================================================================
+@st.cache_data(ttl=600)
+def _tiszta_ugyfelkor_letoltes(sheet_id):
+    if "gcp_service_account" in st.secrets:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+    else:
+        creds_dict = dict(st.secrets)
+        
+    if "private_key" in creds_dict: 
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
+    creds = Credentials.from_service_account_info(creds_dict, scopes=[
+        "https://spreadsheets.google.com/feeds", 
+        "https://www.googleapis.com/auth/drive"
+    ])
+    local_client = gspread.authorize(creds)
+    sh = local_client.open_by_key(sheet_id)  
+    ws_ugyfel = sh.worksheet("Ugyfelkor")
+    
+    try:
+        records = ws_ugyfel.get_all_records(value_render_option='UNFORMATTED_VALUE')
+    except:
+        records = ws_ugyfel.get_all_records()
+        
+    return records
+
+
+# ==============================================================================
+# 🟢 2. A JAVÍTOTT, TELJES MESTER LISTA SZINKRONIZÁLÓ FÜGGVÉNY
+# ==============================================================================
+def master_lista_szinkron(df_napi, sheet_id, client):
     """
     Összefésüli a napi listát a törzslistával (Ugyfelkor) szigorúan 6 jegyű ID alapján.
     Kevesebb API hívást használ, megelőzve a Google Sheets 429-es kvótahibáját.
@@ -227,37 +260,14 @@ def master_lista_szinkron(df_napi, client, sheet_id):
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
 
-# 🟢 1. AZ UGÝFELKÖR BEOLVASÁSÁNAK GYORSÍTÓTÁRAZÁSA (API VÉDELEM)
-@st.cache_data(ttl=600)
-def _tiszta_ugyfelkor_letoltes(sheet_id):
-    if "gcp_service_account" in st.secrets:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-    else:
-        creds_dict = dict(st.secrets)
-        
-    if "private_key" in creds_dict: 
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-        
-    creds = Credentials.from_service_account_info(creds_dict, scopes=[
-        "https://spreadsheets.google.com/feeds", 
-        "https://www.googleapis.com/auth/drive"
-    ])
-    client = gspread.authorize(creds)
-    sh = client.open_by_key(sheet_id)  
-    ws_ugyfel = sh.worksheet("Ugyfelkor")
-    
+    # --- 1. LÉPÉS: TÖRZSLISTA BEOLVASÁSA ÉS TISZTÍTÁSA ---
     try:
-        records = ws_ugyfel.get_all_records(value_render_option='UNFORMATTED_VALUE')
-    except:
-        records = ws_ugyfel.get_all_records()
+        # Kapcsolódás a táblázathoz a külső klienssel az Adatok fül eléréséhez
+        sh = client.open_by_key(sheet_id)
+        ws_ugyfel = sh.worksheet("Ugyfelkor")
         
-    return records
-
-
-# 🟢 2. A FŐ BEOLVASÓ ÉS TISZTÍTÓ BLOKK (Visszatérésekkel javítva)
-    try:
         # A Google-től csak akkor kérünk adatot, ha a 10 perc letelt, különben memóriából rántja elő!
-        records = _tiszta_ugyfelkor_letoltes(SHEET_ID_UGYFELKOR)
+        records = _tiszta_ugyfelkor_letoltes(sheet_id)
         
         if records:
             master_df = pd.DataFrame(records)
@@ -281,16 +291,13 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
         st.session_state.mdf = master_df.copy()
             
         logger.info(f"Mesterlista sikeresen beolvasva CACHE módban és letisztítva, {len(master_df)} meglévő ügyfél.")
-        
-        # 🟢 KRITIKUS JAVÍTÁS: Sikeres futás esetén is visszaadjuk a két várt adatot!
-        return df_napi, master_df
 
     except Exception as e:
         logger.error(f"Hiba a törzslista (Ugyfelkor) megnyitásakor: {e}")
         st.error(f"Nem sikerült elérni az 'Ugyfelkor' táblázatot! Hiba: {e}")
         return df_napi, pd.DataFrame()
 
-    # 2. NAPI IMPORTÁLT LISTA FEJLÉC ÉS ID TISZTÍTÁSA
+    # --- 2. LÉPÉS: NAPI IMPORTÁLT LISTA FEJLÉC ÉS ID TISZTÍTÁSA ---
     df_napi.columns = [c.strip() for c in df_napi.columns]
     
     if 'Preferált Sorrend' in df_napi.columns:
@@ -298,7 +305,7 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
 
     df_napi['ID'] = df_napi['ID'].apply(tiszta_id_konverzio)
 
-    # 3. ÚJ ÜGYFELEK ÉSZLELÉSE ÉS AUTOMATIKUS GEOMAPOLÁSA
+    # --- 3. LÉPÉS: ÚJ ÜGYFELEK ÉSZLELÉSE ÉS AUTOMATIKUS GEOMAPOLÁSA ---
     uj_ugyfelek = []
     for _, row in df_napi.iterrows():
         u_id = str(row['ID'])
@@ -337,7 +344,6 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
                 'ID': u_id,
                 'Név': nev,
                 'Cím': eredeti_cim,
-                # Az adatbázis mentéshez string verziót használunk
                 'Lat': lat_str,
                 'Lon': lon_str,
                 'Telefon': str(row.get('Telefon', '')),
@@ -369,7 +375,7 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
             logger.error(f"Hiba az új ügyfelek mentésekor: {e}")
             st.error("Az új ügyfeleket nem sikerült elmenteni a törzslistába!")
 
-    # 4. SZIGORÚ ÖSSZEFÉSÜLÉS (Koordináták áthúzása a napi listába)
+    # --- 4. LÉPÉS: SZIGORÚ ÖSSZEFÉSÜLÉS (Koordináták áthúzása a napi listába) ---
     if not master_df.empty:
         df_napi = df_napi.drop(columns=['Lat', 'Lon'], errors='ignore')
         
@@ -387,10 +393,10 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
     df_napi['Lat'] = df_napi['Lat'].apply(biztonsagos_koordinata_tisztito)
     df_napi['Lon'] = df_napi['Lon'].apply(biztonsagos_koordinata_tisztito)
 
-    # 5. DINAMIKUS NAPI SORSZÁM GENERÁLÁSA
+    # --- 5. LÉPÉS: DINAMIKUS NAPI SORSZÁM GENERÁLÁSA ---
     df_napi['Sorrend'] = range(1, len(df_napi) + 1)
 
-    # 6. HIÁNYZÓ MOBILOS OSZLOPOK DEFAULTOZÁSA
+    # --- 6. LÉPÉS: HIÁNYZÓ MOBILOS OSZLOPOK DEFAULTOZÁSA ---
     for col in ['Rendelés', 'Megjegyzés', 'Járat', 'Fizetendő', 'Fizetési Mód', 'Státusz', 'Időbélyeg']:
         if col not in df_napi.columns:
             if col == 'Státusz':
@@ -400,7 +406,7 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
             else:
                 df_napi[col] = ""
 
-    # 7. FRISSÍTÉS AZ "ADATOK" FÜLRE
+    # --- 7. LÉPÉS: FRISSÍTÉS AZ "ADATOK" FÜLRE ---
     try:
         time.sleep(1.0)
         ws_adatok = sh.worksheet("Adatok")
@@ -413,8 +419,7 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
         
         save_df = df_napi[[c for c in export_cols if c in df_napi.columns]].copy()
         
-        # JAVÍTÁS AZ EXPORTNÁL: Mielőtt kiírjuk a Sheets-be az Adatok fülre, visszaalakítjuk a string formátumra, 
-        # hogy ott is szépen, egységesen jelenjen meg (magyar vesszős, de dupla aposztrófok nélkül!)
+        # JAVÍTÁS AZ EXPORTNÁL: Visszaalakítjuk a string formátumra a táblázathoz
         save_df['Lat'] = save_df['Lat'].apply(lambda x: f"'{str(x).replace('.', ',')}" if pd.notna(x) else "")
         save_df['Lon'] = save_df['Lon'].apply(lambda x: f"'{str(x).replace('.', ',')}" if pd.notna(x) else "")
         
@@ -424,6 +429,8 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
         logger.warning(f"A térkép elkészült, de az 'Adatok' fül frissítése megszakadt: {e}")
 
     logger.info("Szinkronizáció teljesen kész.")
+    
+    # 🟢 EZ AZ EGYETLEN REÁLIS RETURN A FÜGGVÉNY LEGVÉGÉN!
     return df_napi, master_df
 
 # --- VIZUALIZÁCIÓ ---

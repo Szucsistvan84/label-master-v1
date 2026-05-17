@@ -2846,6 +2846,61 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     
 # --- FŐ PROGRAMFUTÁS ---
 def main():
+    # --- 🔐 PIN KÓDOS BELÉPTETŐ RENDSZER START ---
+    if "bejelentkezve" not in st.session_state:
+        st.session_state.bejelentkezve = False
+        st.session_state.user_nev = ""
+        st.session_state.user_jarat = ""
+        st.session_state.user_szerep = "futar"
+
+    # Ha még nincs bejelentkezve, megállítjuk az appot és csak a bejelentkező panelt mutatjuk
+    if not st.session_state.bejelentkezve:
+        st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🎯 Label Master</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280;'>A rendszer használatához kérjük, azonosítsd magad!</p>", unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns([1, 1.5, 1])
+        with col2:
+            st.info("Add meg a 4 jegyű futár PIN kódodat.")
+            pin_input = st.text_input("PIN KÓD:", type="password", max_chars=4, key="login_pin_field")
+            
+            if st.button("🔑 BELÉPÉS", use_container_width=True):
+                if not pin_input:
+                    st.error("Nem adtál meg PIN kódot!")
+                else:
+                    # Lekérjük a Google Sheets-ből a futár törzsadatokat
+                    futar_adatok = _tiszta_futar_lista_letoltes(UGYFELKOR_SHEET_ID)
+                    
+                    talalt_futar = None
+                    for f in futar_adatok:
+                        if str(f.get('PIN_Kod', '')).strip() == str(pin_input).strip():
+                            talalt_futar = f
+                            break
+                    
+                    if talalt_futar:
+                        st.session_state.bejelentkezve = True
+                        st.session_state.user_nev = talalt_futar.get('Név', 'Ismeretlen futár')
+                        st.session_state.user_jarat = talalt_futar.get('Jarat', '')
+                        st.session_state.user_szerep = talalt_futar.get('Szerep', 'futar')
+                        
+                        st.success(f"Sikeres belépés! Üdvözlünk, {st.session_state.user_nev}!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Helytelen vagy érvénytelen PIN kód!")
+                        
+        return # Megállítja a main()-t, így semmi más nem renderelődik ki mögé!
+    
+    # Felhasználói státusz panel az oldalsáv tetejére
+    st.sidebar.markdown(f"### 👤 {st.session_state.user_nev}")
+    if st.session_state.user_szerep == "admin":
+        st.sidebar.success("⭐ Adminisztrátor Mód")
+    else:
+        st.sidebar.caption(f"🚚 Járathoz rendelve: {st.session_state.user_jarat}")
+        
+    if st.sidebar.button("🚪 Kijelentkezés"):
+        st.session_state.bejelentkezve = False
+        st.rerun()
+    # --- 🔐 PIN KÓDOS BELÉPTETŐ RENDSZER END ---
+    
     # 1. Globális elérés a gspread kliensnek
     global client  
 

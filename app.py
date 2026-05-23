@@ -2942,15 +2942,20 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     
 # --- FŐ PROGRAMFUTÁS ---
 def main():
-    # --- 🔐 BIZTONSÁGOS KÉTTÉNYEZŐS BELÉPTETŐ RENDSZER START ---
-    if "bejelentkezve" not in st.session_state:
-        st.session_state.bejelentkezve = False
-        st.session_state.user_nev = ""
-        st.session_state.user_jarat = ""
-        st.session_state.user_szerep = "futar"
+    # 🟢 ALVÓ MÓD / RENDSZERÉBRESZTÉS ELLENŐRZÉSE
+    # Amíg a Streamlit feléled, egy szép töltőképernyőt mutatunk, megakadályozva a "kifagyás" érzetet
+    with st.spinner("⏳ A Label Master rendszer ébredezik és kapcsolódik a szerverhez... Kérjük, várjon egy pillanatot!"):
+        if "bejelentkezve" not in st.session_state:
+            st.session_state.bejelentkezve = False
+            st.session_state.user_nev = ""
+            st.session_state.user_jarat = ""
+            st.session_state.user_szerep = "futar"
+        
+        # Minimális mikro-ellenőrzés, ami megvárja, hogy a Python motor teljesen üzemkész legyen
+        app_ready = True 
 
-    # Ha még nincs bejelentkezve, megállítjuk az appot és csak a biztonsági panelt mutatjuk
-    if not st.session_state.bejelentkezve:
+    # Ha még nincs bejelentkezve, megállítjuk az appot és CSAK AKKOR mutatjuk a panelt, ha az app már 100%-osan felébredt
+    if not st.session_state.bejelentkezve and app_ready:
         st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🎯 Label Master</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
         

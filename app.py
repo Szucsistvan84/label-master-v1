@@ -3230,18 +3230,32 @@ def main():
                             sheet_idx = idx[0]
                             módosult_darab += 1
                             
-                            # Frissítjük a Sheets DataFrame-ben a módosítható mezőket
-                            # Kezeljük az ékezetes és ékezet nélküli oszlopneveket is a maximális biztonságért
-                            sheets_df.at[sheet_idx, 'Név'] = str(row.get('Ügyintéző', row.get('Nev', row.get('Név', sheets_df.at[sheet_idx, 'Név']))))
-                            sheets_df.at[sheet_idx, 'Cím'] = str(row.get('Cím', row.get('Cim', sheets_df.at[sheet_idx, 'Cím'])))
-                            sheets_df.at[sheet_idx, 'Telefon'] = str(row.get('Telefon', sheets_df.at[sheet_idx, 'Telefon']))
-                            sheets_df.at[sheet_idx, 'Csoport'] = str(row.get('Csoport', sheets_df.at[sheet_idx, 'Csoport']))
-                            sheets_df.at[sheet_idx, 'Megjegyzés'] = str(row.get('Megjegyzés', row.get('Megjegyzes', sheets_df.at[sheet_idx, 'Megjegyzés'])))
+                            # Kigyűjtjük az éppen feldolgozott sor oszlopneveit, hogy lássuk, pontosan mi van benne
+                            elerheto_oszlopok = row.index.tolist()
+                            
+                            # --- NÉV FRISSÍTÉSE ---
+                            if 'Név' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Név'] = str(row['Név'])
+                            elif 'Nev' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Név'] = str(row['Nev'])
+                            elif 'Ügyintéző' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Név'] = str(row['Ügyintéző'])
+                            
+                            # --- CÍM FRISSÍTÉSE ---
+                            if 'Cím' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Cím'] = str(row['Cím'])
+                            elif 'Cim' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Cím'] = str(row['Cim'])
+                            
+                            # --- TELEFON ÉS CSOPORT ---
+                            if 'Telefon' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Telefon'] = str(row['Telefon'])
+                            if 'Csoport' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Csoport'] = str(row['Csoport'])
+                            
+                            # --- MEGJEGYZÉS FRISSÍTÉSE (Itt csúszott el!) ---
+                            if 'Megjegyzés' in elerheto_oszlopok: 
+                                sheets_df.at[sheet_idx, 'Megjegyzés'] = str(row['Megjegyzés']).strip()
+                            elif 'Megjegyzes' in elerheto_oszlopok: 
+                                sheets_df.at[sheet_idx, 'Megjegyzés'] = str(row['Megjegyzes']).strip()
                             
                             # A koordinátákat is szinkronban tartjuk a tiszta formátumban
-                            if 'Lat' in row and pd.notna(row['Lat']):
+                            if 'Lat' in elerheto_oszlopok and pd.notna(row['Lat']):
                                 sheets_df.at[sheet_idx, 'Lat'] = row['Lat']
-                            if 'Lon' in row and pd.notna(row['Lon']):
+                            if 'Lon' in elerheto_oszlopok and pd.notna(row['Lon']):
                                 sheets_df.at[sheet_idx, 'Lon'] = row['Lon']
 
                     # 4. Ha volt egyezés, egyetlen csomagban ürítünk és visszatoljuk (2 db API kérés)

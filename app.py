@@ -3236,6 +3236,7 @@ def main():
                     
                     módosult_darab = 0
                     
+                    # 3. Végigmegyünk a Streamlitben éppen szerkesztett tiszta adatokon (a memóriában)
                     for _, row in edited_df_clean.iterrows():
                         current_id = row['ID']
                         if not current_id:
@@ -3271,7 +3272,6 @@ def main():
                     # 4. Mentési kísérlet részletes hibavadászattal
                     if módosult_darab > 0:
                         try:
-                            # Mentés előtti utolsó típusellenőrzés
                             mentes_elotti_tipusok = sheets_df.dtypes.to_dict()
                             
                             ws_ugyfel.clear()
@@ -3283,24 +3283,23 @@ def main():
                             st.rerun()
                             
                         except Exception as belső_hiba:
-                            # 🔴 HA ITT ELBUKIK, KITESZÜNK MINDEN INFÓT A KÉPERNYŐRE!
                             st.error(f"💥 Mentési hiba lépett fel: {belső_hiba}")
                             st.markdown("### 🕵️‍♂️ Nyomozati anyag a hibáról:")
-                            
                             st.write("**1. Milyen oszloptípusokkal jött le a Google Sheets-ből a táblázat?**")
                             st.json(str(eredeti_tipusok))
-                            
                             st.write("**2. Milyen oszloptípusok keletkeztek a mentés pillanatára?**")
                             st.json(str(mentes_elotti_tipusok))
-                            
-                            st.write("**3. Oszlopok részletes állapota (hol maradt int64/float64 és üres érték együtt):**")
+                            st.write("**3. Oszlopok részletes állapota:**")
                             for col in sheets_df.columns:
                                 üres_darab = (sheets_df[col] == '').sum()
                                 st.write(f" - `{col}` oszlop típusa: **{sheets_df[col].dtype}**, ebből üres cellák száma: `{üres_darab}`")
-                            
                             st.stop()
                     else:
                         st.warning("Nem találtunk megegyező ID-jú ügyfelet a mentéshez.")
+                        
+                except Exception as e:
+                    logger.error(f"Hiba a kézi módosítások mentésekor: {e}")
+                    st.error(f"Hiba történt a mentés során: {e}")
 
         st.divider()
 

@@ -3201,36 +3201,57 @@ def main():
                 st.rerun()
 
         with gomb_col2:
-            # 2. GOMB: CÉLZOTT ADATMENTÉS A FELHŐBE (A sorszámot kihagyja)
+            # 2. GOMB: CÉLZOTT ADATMENTÉS A FELHŐBE (Batch update-tel, kvótakímélően)
             if st.button("💾 Módosított adatok (Név, Megjegyzés, Telefon) mentése", use_container_width=True):
-                logger.info("Adatmódosítások mentése a felhőbe...")
+                logger.info("Adatmódosítások mentése a felhőbe batch update-tel...")
                 try:
-                    # 🟢 JAVÍTÁS: A nem létező sheet_id helyett a SHEET_ID_UGYFELKOR-t használjuk!
                     sh = client.open_by_key(SHEET_ID_UGYFELKOR)
                     ws_ugyfel = sh.worksheet("Ugyfelkor")
                     
-                    records = ws_ugyfel.get_all_records()
-                    if records:
-                        # Végigmegyünk a képernyőn látható sorokon
-                        for _, row in edited_df.iterrows():
-                            u_id = str(row['ID']).strip()
-                            id_cells = ws_ugyfel.findall(u_id, in_column=1) # 1. oszlop az ID
-                            
-                            if id_cells:
-                                row_num = id_cells[0].row
-                                
-                                # Kizárólag a fix törzsadatokat írjuk felül az Ugyfelkor lapon
-                                # ID=1, Nev=2, Cim=3, Telefon=6, Csoport=7, Megjegyzes=8
-                                ws_ugyfel.update_cell(row_num, 2, str(row.get('Ügyintéző', row.get('Nev', ''))))
-                                ws_ugyfel.update_cell(row_num, 3, str(row.get('Cím', row.get('Cim', ''))))
-                                ws_ugyfel.update_cell(row_num, 6, str(row.get('Telefon', '')))
-                                ws_ugyfel.update_cell(row_num, 7, str(row.get('Csoport', '')))
-                                ws_ugyfel.update_cell(row_num, 8, str(row.get('Megjegyzés', row.get('Megjegyzes', ''))))
+                    # 1. Letöltjük a Google Sheets jelenlegi teljes Ugyfelkor állapotát egy DataFrame-be (1 db API kérés)
+                    sheets_df = pd.DataFrame(ws_ugyfel.get_all_records())
+                    
+                    # 2. Biztosítjuk, hogy az ID-k szövegként (string) legyenek összehasonlítva a pontos egyezésért
+                    sheets_df['ID'] = sheets_df['ID'].astype(str).str.strip()
+                    
+                    módosult_darab = 0
+                    
+                    # 3. Végigmegyünk a Streamlitben éppen szerkesztett adatokon (a memóriában)
+                    for _, row in edited_df.iterrows():
+                        current_id = str(row['ID']).strip()
                         
-                        st.success("🎉 A javított nevek, telefonok, csoportok és megjegyzések sikeresen elmentve a Google Sheets-be!")
+                        # Megkeressük ezt az ID-t a Google Sheets-ből letöltött táblázatban
+                        idx = sheets_df[sheets_df['ID'] == current_id].index
+                        if not idx.empty:
+                            sheet_idx = idx[0]
+                            módosult_darab += 1
+                            
+                            # Frissítjük a Sheets DataFrame-ben a módosítható mezőket
+                            # Kezeljük az ékezetes és ékezet nélküli oszlopneveket is a maximális biztonságért
+                            sheets_df.at[sheet_idx, 'Név'] = str(row.get('Ügyintéző', row.get('Nev', row.get('Név', sheets_df.at[sheet_idx, 'Név']))))
+                            sheets_df.at[sheet_idx, 'Cím'] = str(row.get('Cím', row.get('Cim', sheets_df.at[sheet_idx, 'Cím'])))
+                            sheets_df.at[sheet_idx, 'Telefon'] = str(row.get('Telefon', sheets_df.at[sheet_idx, 'Telefon']))
+                            sheets_df.at[sheet_idx, 'Csoport'] = str(row.get('Csoport', sheets_df.at[sheet_idx, 'Csoport']))
+                            sheets_df.at[sheet_idx, 'Megjegyzés'] = str(row.get('Megjegyzés', row.get('Megjegyzes', sheets_df.at[sheet_idx, 'Megjegyzés'])))
+                            
+                            # A koordinátákat is szinkronban tartjuk a tiszta formátumban
+                            if 'Lat' in row and pd.notna(row['Lat']):
+                                sheets_df.at[sheet_idx, 'Lat'] = row['Lat']
+                            if 'Lon' in row and pd.notna(row['Lon']):
+                                sheets_df.at[sheet_idx, 'Lon'] = row['Lon']
+
+                    # 4. Ha volt egyezés, egyetlen csomagban ürítünk és visszatoljuk (2 db API kérés)
+                    if módosult_darab > 0:
+                        ws_ugyfel.clear()
+                        from gspread_dataframe import set_with_dataframe
+                        set_with_dataframe(ws_ugyfel, sheets_df)
+                        
+                        st.success("🎉 A módosítások (beleértve a megjegyzéseket és koordinátákat) sikeresen elmentve a Google Sheets-be!")
+                        st.balloons()
                         st.rerun()
                     else:
-                        st.error("A mesterlista üres a Google Sheets-ben, nincs mit frissíteni!")
+                        st.warning("Nem találtunk megegyező ID-jú ügyfelet a mentéshez.")
+                        
                 except Exception as e:
                     logger.error(f"Hiba a kézi módosítások mentésekor: {e}")
                     st.error(f"Hiba történt a mentés során: {e}")

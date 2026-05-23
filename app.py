@@ -2206,8 +2206,6 @@ def merge_data(all_rows):
         return pd.DataFrame()
     
     # --- HIBA JAVÍTÁSA ITT ---
-    # Ha az all_rows nem DataFrame-ek listája, hanem soroké, 
-    # akkor előbb csinálunk belőle egy nagy táblázatot.
     if isinstance(all_rows, list) and len(all_rows) > 0:
         if not isinstance(all_rows[0], pd.DataFrame):
             combined = pd.DataFrame(all_rows)
@@ -2223,6 +2221,14 @@ def merge_data(all_rows):
     for tid in unique_ids:
         subset = combined[combined['temp_id'] == tid]
         base = subset.iloc[0].to_dict()
+        
+        # 🟢 ÚJ: Megtartjuk a PDF-ből jövő egyedi járatszámot ennél az ügyfélnél
+        if 'pdf_jarat' in subset.columns:
+            # Ha valamiért eltérne a csoporton belül, az első érvényeset vesszük ki
+            nem_ures_jarat = subset['pdf_jarat'].dropna().astype(str).str.strip()
+            nem_ures_jarat = nem_ures_jarat[nem_ures_jarat != ""]
+            if not nem_ures_jarat.empty:
+                base['pdf_jarat'] = nem_ures_jarat.iloc[0]
         
         if len(subset) > 1:
             # Rendelések összefűzése
@@ -2250,13 +2256,17 @@ def merge_data(all_rows):
     
     res = pd.DataFrame(merged)
     
-    # --- JAVÍTÁS AZ "A" PONTHOZ ---
-    # Nem rendezünk többet a Google Sheets 'Sorrend' oszlopa alapján (mivel töröljük).
-    # Helyette megtartjuk az importálás (menetterv) eredeti, természetes sorrendjét,
-    # és egyszerűen kap egy tiszta, automatikus sorszámozást 1-től a sorok száma alapján:
+    # 🟢 ÚJ: Áttesszük a hivatalos 'Járat' oszlopba a kinyert egyedi járatokat
+    if 'pdf_jarat' in res.columns:
+        res['Járat'] = res['pdf_jarat'].astype(str).str.strip()
+    
+    # Biztosítjuk a tiszta oszlopneveket
+    res.columns = [c.strip() for c in res.columns]
+    
+    # Automatikus sorszámozás 1-től
     res['Sorrend'] = range(1, len(res) + 1)
     
-    # A csoportosítási rész (ha van a kódban utána) maradhat változatlanul:
+    # A csoportosítási rész maradhat változatlanul:
     if 'Csoport' in res.columns:
         res['Csoport'] = res['Csoport'].astype(str).replace(['nan', 'None', '0', '0.0'], '')
 
@@ -2279,7 +2289,7 @@ def merge_data(all_rows):
                 res.at[res.index[i], 'Csoport'] = res.iloc[i-1]['Csoport']
                 
     return res
-
+    
 def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, etlap_api_df):
     if df is None or df.empty: return None
     if 'Sorrend' not in df.columns: df['Sorrend'] = range(1, len(df) + 1)

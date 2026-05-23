@@ -3215,19 +3215,31 @@ def main():
                     # 1. Letöltjük a Google Sheets jelenlegi teljes Ugyfelkor állapotát egy DataFrame-be (1 db API kérés)
                     sheets_df = pd.DataFrame(ws_ugyfel.get_all_records())
                     
-                    # 🟢 JAVÍTÁS: Minden üres cellát üres stringre cserélünk, és az ID-t szöveggé alakítjuk (nincs int64 konfliktus)
+                    # Minden üres cellát üres stringre cserélünk a letöltött táblázatban
                     sheets_df = sheets_df.fillna('')
-                    sheets_df['ID'] = sheets_df['ID'].astype(str).str.strip()
                     
-                    # A Streamlitből jövő szerkesztett táblázatot is megtisztítjuk a biztonság kedvéért
+                    # 🟢 GOLYÓÁLLÓ ID ÁTALAKÍTÁS: Megszabadulunk a .0 tizedesjegyektől és szöveggé alakítjuk
+                    def tiszta_id_szoveg(val):
+                        if pd.isna(val) or val == '':
+                            return ''
+                        val_str = str(val).strip()
+                        if val_str.endswith('.0'):
+                            val_str = val_str[:-2]
+                        return val_str
+
+                    sheets_df['ID'] = sheets_df['ID'].apply(tiszta_id_szoveg)
+                    
+                    # A Streamlitből jövő szerkesztett táblázatot is ugyanígy megtisztítjuk
                     edited_df_clean = edited_df.fillna('')
-                    edited_df_clean['ID'] = edited_df_clean['ID'].astype(str).str.strip()
+                    edited_df_clean['ID'] = edited_df_clean['ID'].apply(tiszta_id_szoveg)
                     
                     módosult_darab = 0
                     
                     # 3. Végigmegyünk a Streamlitben éppen szerkesztett tiszta adatokon (a memóriában)
                     for _, row in edited_df_clean.iterrows():
-                        current_id = str(row['ID']).strip()
+                        current_id = row['ID']
+                        if not current_id:  # Ha üres az ID, kihagyjuk
+                            continue
                         
                         # Megkeressük ezt az ID-t a Google Sheets-ből letöltött táblázatban
                         idx = sheets_df[sheets_df['ID'] == current_id].index
@@ -3235,7 +3247,6 @@ def main():
                             sheet_idx = idx[0]
                             módosult_darab += 1
                             
-                            # Kigyűjtjük az éppen feldolgozott sor oszlopneveit, hogy lássuk, pontosan mi van benne
                             elerheto_oszlopok = row.index.tolist()
                             
                             # --- NÉV FRISSÍTÉSE ---
@@ -3263,17 +3274,20 @@ def main():
                             if 'Lon' in elerheto_oszlopok and row['Lon'] != '':
                                 sheets_df.at[sheet_idx, 'Lon'] = row['Lon']
 
-                    # 4. Ha volt egyezés, egyetlen csomagban ürítünk és visszatoljuk (2 db API kérés)
+                    # 4. Mentés és Visszajelzés kezelése
                     if módosult_darab > 0:
                         ws_ugyfel.clear()
                         from gspread_dataframe import set_with_dataframe
                         set_with_dataframe(ws_ugyfel, sheets_df)
                         
-                        st.success("🎉 A módosítások (beleértve a megjegyzéseket és koordinátákat) sikeresen elmentve a Google Sheets-be!")
+                        st.success(f"🎉 Siker! Összesen {módosult_darab} ügyfél adatai sikeresen elmentve a Google Sheets-be!")
                         st.balloons()
                         st.rerun()
                     else:
-                        st.warning("Nem találtunk megegyező ID-jú ügyfelet a mentéshez.")
+                        # 🔴 Ha nem talált egyezést, most már hangos, piros hibaüzenetet kapunk és kiírjuk a mintát!
+                        st.error("❌ Mentési hiba: A módosított ügyfél ID-ja nem található meg a Google Sheets listájában!")
+                        st.write("Szerkesztett ID-k a Streamlitben:", edited_df_clean['ID'].tolist())
+                        st.write("Létező Sheets ID minták a felhőben:", sheets_df['ID'].head(5).tolist())
                         
                 except Exception as e:
                     logger.error(f"Hiba a kézi módosítások mentésekor: {e}")

@@ -478,6 +478,16 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         ws_adatok = sh.worksheet("Adatok")
         ws_adatok.clear()  
         
+        # 🟢 JAVÍTÁS ÜNNEPI / ÖSSZEVONT RENDELÉSEKHEZ:
+        # Ha a merge_data legenerálta a teljes, összevont rendelési sztringet,
+        # akkor ezt használjuk a felhőbe küldéshez a sima csonka Rendelés oszlop helyett.
+        if 'Rendelés_Full' in df_napi.columns:
+            # Csak ott írjuk felül, ahol a Rendelés_Full nem üres
+            df_napi['Rendelés'] = df_napi.apply(
+                lambda row: str(row['Rendelés_Full']).strip() if str(row.get('Rendelés_Full', '')).strip() != "" else row['Rendelés'], 
+                axis=1
+            )
+        
         # Ez a hivatalos, kért 15 oszlopos séma
         export_cols = [
             'ID', 'Név', 'Cím', 'Telefon', 'Csoport', 'Sorrend', 'Lat', 'Lon', 

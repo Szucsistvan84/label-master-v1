@@ -3116,9 +3116,21 @@ def main():
                 # PDF feldolgozás
                 all_rows = []
                 for f in up_files:
+                    # 🟢 ÚJ: Megkeressük az adott fájl saját járatszámát, hogy soronként rápecsételhessük
+                    f.seek(0)
+                    egyedi_jarat_re = re.compile(r'(\d{2,4})\.\s*járat|Nyomtatta:\s*(\d{2,4})')
+                    with pdfplumber.open(f) as p_test:
+                        t_test = p_test.pages[0].extract_text() or ""
+                        m_test = egyedi_jarat_re.search(t_test)
+                        fajl_sajat_jarata = (m_test.group(1) or m_test.group(2)) if m_test else None
+
+                    # Oldalak feldolgozása a meglévő parse_interfood_pdf függvénnyel
                     f.seek(0)
                     rows, _ = parse_interfood_pdf(f, napi_kodok)
                     if rows:
+                        # 🟢 Minden kinyert sorhoz fixen hozzáírjuk a PDF-ből felismert egyedi járatot!
+                        for r in rows:
+                            r['pdf_jarat'] = fajl_sajat_jarata if fajl_sajat_jarata else ""
                         all_rows.extend(rows)
 
                 if all_rows:

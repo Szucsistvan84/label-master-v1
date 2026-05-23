@@ -460,10 +460,6 @@ def master_lista_szinkron(df_napi, sheet_id, client):
         
         save_df = df_napi[[c for c in export_cols if c in df_napi.columns]].copy()
         
-        # JAVÍTÁS AZ EXPORTNÁL: Visszaalakítjuk a string formátumra a táblázathoz
-        save_df['Lat'] = save_df['Lat'].apply(lambda x: f"'{str(x).replace('.', ',')}" if pd.notna(x) else "")
-        save_df['Lon'] = save_df['Lon'].apply(lambda x: f"'{str(x).replace('.', ',')}" if pd.notna(x) else "")
-        
         set_with_dataframe(ws_adatok, save_df)
         logger.info("🚀 A mai menetterv sikeresen kiküldve az 'Adatok' fülre!")
     except Exception as e:

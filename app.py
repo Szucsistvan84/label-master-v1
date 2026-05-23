@@ -443,7 +443,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     df_napi['Sorrend'] = range(1, len(df_napi) + 1)
 
     # --- 6. LÉPÉS: HIÁNYZÓ MOBILOS OSZLOPOK OKOS KITÖLTÉSE ---
-    # 🟢 Átnevezzük az Ügyintézőt vagy Nevet fixen 'Név'-re, a Pénzt pedig 'Fizetendő'-re
     if 'Név' not in df_napi.columns:
         if 'Ügyintéző' in df_napi.columns:
             df_napi['Név'] = df_napi['Ügyintéző']
@@ -455,17 +454,21 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     if 'Fizetendő' not in df_napi.columns and 'Pénz' in df_napi.columns:
         df_napi['Fizetendő'] = df_napi['Pénz']
 
-    # Ha kaptunk a PDF-ből járatszámot, bepecsételjük
-    if jarat_szam:
-        df_napi['Járat'] = jarat_szam
+    # 🟢 JAVÍTOTT TÖBBJÁRATOS LOGIKA: 
+    # Ha a merge_data már sikeresen beletette a soronkénti egyedi járatokat, akkor NEM bántjuk!
+    # Csak akkor használjuk a jarat_szam-ot, ha a sorban az érték üres vagy teljesen hiányzik.
+    if 'Járat' not in df_napi.columns:
+        df_napi['Járat'] = jarat_szam if jarat_szam else ""
+    else:
+        df_napi['Járat'] = df_napi['Járat'].fillna("")
+        if jarat_szam:
+            df_napi['Járat'] = df_napi['Járat'].apply(lambda x: jarat_szam if str(x).strip() == "" else x)
 
-    # Az összes többi hiányzó oszlop alapértelmezése
-    for col in ['Rendelés', 'Megjegyzés', 'Járat', 'Fizetendő', 'Fizetési Mód', 'Státusz', 'Időbélyeg', 'Telefon', 'Csoport']:
+    # Az összes többi hiányzó oszlop alapértelmezése (a Járatot és Fizetendőt kivettük a ciklusból, mert fent lekezeltük)
+    for col in ['Rendelés', 'Megjegyzés', 'Fizetési Mód', 'Státusz', 'Időbélyeg', 'Telefon', 'Csoport']:
         if col not in df_napi.columns:
             if col == 'Státusz':
                 df_napi[col] = "Kiszállítás alatt"
-            elif col == 'Fizetendő':
-                df_napi[col] = 0
             else:
                 df_napi[col] = ""
 

@@ -272,14 +272,15 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
         
     return records
 
-
 # ==============================================================================
-# 🟢 2. A JAVÍTOTT, TELJES MESTER LISTA SZINKRONIZÁLÓ FÜGGVÉNY
+# 🟢 2. A JAVÍTOTT, TELJES MESTER LISTA SZINKRONIZÁLÓ FÜGGVÉNY (GOLYÓÁLLÓ VERZIÓ)
 # ==============================================================================
-def master_lista_szinkron(df_napi, sheet_id, client):
+def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     """
     Összefésüli a napi listát a törzslistával (Ugyfelkor) szigorúan 6 jegyű ID alapján.
     Kevesebb API hívást használ, megelőzve a Google Sheets 429-es kvótahibáját.
+    1. Az 'Ugyfelkor' fület CSAK BŐVÍTI az új ügyfelekkel (nem törli!).
+    2. Az 'Adatok' fület kiüríti és feltölti a pontos aznapi 15 oszlopos menetrenddel.
     """
     import pandas as pd
     import streamlit as st
@@ -301,9 +302,18 @@ def master_lista_szinkron(df_napi, sheet_id, client):
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
 
+    # Biztonságos float konvertáló helyi szinten is
+    def biztonsagos_float(val):
+        if val is None or str(val).strip() in ["", "None", "nan", "NaN", "-", "'"]:
+            return ""
+        try:
+            val_clean = str(val).replace(",", ".").replace("'", "").strip()
+            return float(val_clean)
+        except ValueError:
+            return ""
+
     # --- 1. LÉPÉS: TÖRZSLISTA BEOLVASÁSA ÉS TISZTÍTÁSA ---
     try:
-        # Kapcsolódás a táblázathoz a külső klienssel az Adatok fül eléréséhez
         sh = client.open_by_key(sheet_id)
         ws_ugyfel = sh.worksheet("Ugyfelkor")
         
@@ -321,13 +331,12 @@ def master_lista_szinkron(df_napi, sheet_id, client):
             master_df['ID'] = master_df['ID'].astype(str).str.strip().apply(lambda x: x.split('.')[0] if x.endswith('.0') else x)
             master_df['ID'] = master_df['ID'].apply(tiszta_id_konverzio)
             
-        # Tisztítás a legtetejére kitett GLOBÁLIS függvénnyel
+        # Tisztítás a globális koordináta tisztítóval
         if 'Lat' in master_df.columns:
             master_df['Lat'] = master_df['Lat'].apply(biztonsagos_koordinata_tisztito)
         if 'Lon' in master_df.columns:
             master_df['Lon'] = master_df['Lon'].apply(biztonsagos_koordinata_tisztito)
             
-        # Elmentjük a session_state-be a térképnek
         st.session_state.ugyfelkor_df = master_df.copy()
         st.session_state.mdf = master_df.copy()
             
@@ -371,18 +380,7 @@ def master_lista_szinkron(df_napi, sheet_id, client):
             except Exception as e:
                 logger.error(f"Hiba a geocoding során ({nev}): {e}")
                 lat, lon = None, None
-
-            def biztonsagos_float(val):
-                if val is None or str(val).strip() in ["", "None", "nan", "NaN", "-"]:
-                    return ""
-                try:
-                    # Kicseréljük a tizedesvesszőt pontra, ha esetleg úgy lenne megadva
-                    val_clean = str(val).replace(",", ".").strip()
-                    return float(val_clean)
-                except ValueError:
-                    return ""
             
-            # 🟢 GOLYÓÁLLÓ JAVÍTÁS: Biztonságos float átalakítás hibakezeléssel
             lat_str = biztonsagos_float(lat)
             lon_str = biztonsagos_float(lon)
             
@@ -406,13 +404,12 @@ def master_lista_szinkron(df_napi, sheet_id, client):
             }
             uj_ugyfelek.append(uj_adat)
 
-            # A lokális master_df-hez már tiszta float-ként adjuk hozzá, hogy a térkép azonnal lássa
             elokeszitett_uj_adat = uj_adat.copy()
             elokeszitett_uj_adat['Lat'] = lat if lat else None
             elokeszitett_uj_adat['Lon'] = lon if lon else None
             master_df = pd.concat([master_df, pd.DataFrame([elokeszitett_uj_adat])], ignore_index=True)
 
-    # Új ügyfelek mentése a törzsbe (Ugyfelkor fül)
+    # Új ügyfelek mentése a törzsbe (Ugyfelkor fül) CSAK bővítéssel!
     if uj_ugyfelek:
         try:
             logger.info(f"{len(uj_ugyfelek)} új ügyfél hozzáadása a törzslistához...")
@@ -429,7 +426,6 @@ def master_lista_szinkron(df_napi, sheet_id, client):
     # --- 4. LÉPÉS: SZIGORÚ ÖSSZEFÉSÜLÉS (Koordináták áthúzása a napi listába) ---
     if not master_df.empty:
         df_napi = df_napi.drop(columns=['Lat', 'Lon'], errors='ignore')
-        
         b_cols = ['ID', 'Lat', 'Lon']
         for c in ['Csoport', 'Megjegyzés']:
             if c in master_df.columns and c not in df_napi.columns:
@@ -440,15 +436,31 @@ def master_lista_szinkron(df_napi, sheet_id, client):
         if 'Lat' not in df_napi.columns: df_napi['Lat'] = None
         if 'Lon' not in df_napi.columns: df_napi['Lon'] = None
 
-    # Biztosítjuk, hogy a napi listában is tiszta float formátumok maradjanak a térképrajzolásig
     df_napi['Lat'] = df_napi['Lat'].apply(biztonsagos_koordinata_tisztito)
     df_napi['Lon'] = df_napi['Lon'].apply(biztonsagos_koordinata_tisztito)
 
     # --- 5. LÉPÉS: DINAMIKUS NAPI SORSZÁM GENERÁLÁSA ---
     df_napi['Sorrend'] = range(1, len(df_napi) + 1)
 
-    # --- 6. LÉPÉS: HIÁNYZÓ MOBILOS OSZLOPOK DEFAULTOZÁSA ---
-    for col in ['Rendelés', 'Megjegyzés', 'Járat', 'Fizetendő', 'Fizetési Mód', 'Státusz', 'Időbélyeg']:
+    # --- 6. LÉPÉS: HIÁNYZÓ MOBILOS OSZLOPOK OKOS KITÖLTÉSE ---
+    # 🟢 Átnevezzük az Ügyintézőt vagy Nevet fixen 'Név'-re, a Pénzt pedig 'Fizetendő'-re
+    if 'Név' not in df_napi.columns:
+        if 'Ügyintéző' in df_napi.columns:
+            df_napi['Név'] = df_napi['Ügyintéző']
+        elif 'Nev' in df_napi.columns:
+            df_napi['Név'] = df_napi['Nev']
+        else:
+            df_napi['Név'] = "Ismeretlen"
+
+    if 'Fizetendő' not in df_napi.columns and 'Pénz' in df_napi.columns:
+        df_napi['Fizetendő'] = df_napi['Pénz']
+
+    # Ha kaptunk a PDF-ből járatszámot, bepecsételjük
+    if jarat_szam:
+        df_napi['Járat'] = jarat_szam
+
+    # Az összes többi hiányzó oszlop alapértelmezése
+    for col in ['Rendelés', 'Megjegyzés', 'Járat', 'Fizetendő', 'Fizetési Mód', 'Státusz', 'Időbélyeg', 'Telefon', 'Csoport']:
         if col not in df_napi.columns:
             if col == 'Státusz':
                 df_napi[col] = "Kiszállítás alatt"
@@ -457,27 +469,37 @@ def master_lista_szinkron(df_napi, sheet_id, client):
             else:
                 df_napi[col] = ""
 
-    # --- 7. LÉPÉS: FRISSÍTÉS AZ "ADATOK" FÜLRE ---
+    # --- 7. LÉPÉS: FRISSÍTÉS AZ "ADATOK" FÜLRE (SZIGORÚ HIERARCHIA) ---
     try:
         time.sleep(1.0)
         ws_adatok = sh.worksheet("Adatok")
         ws_adatok.clear()  
         
+        # Ez a hivatalos, kért 15 oszlopos séma
         export_cols = [
             'ID', 'Név', 'Cím', 'Telefon', 'Csoport', 'Sorrend', 'Lat', 'Lon', 
             'Rendelés', 'Megjegyzés', 'Járat', 'Fizetendő', 'Fizetési Mód', 'Státusz', 'Időbélyeg'
         ]
         
-        save_df = df_napi[[c for c in export_cols if c in df_napi.columns]].copy()
+        # Csak azokat pakoljuk bele, amik kellenek, és pont ebben a sorrendben
+        save_df = df_napi[export_cols].copy()
         
-        set_with_dataframe(ws_adatok, save_df)
-        logger.info("🚀 A mai menetterv sikeresen kiküldve az 'Adatok' fülre!")
+        # Tisztítjuk a koordinátákat és kényszerítjük az objektum típust a típuskonfliktusok ellen
+        save_df['Lat'] = save_df['Lat'].apply(biztonsagos_float)
+        save_df['Lon'] = save_df['Lon'].apply(biztonsagos_float)
+        save_df['ID'] = save_df['ID'].astype(str)
+        
+        for col in save_df.columns:
+            save_df[col] = save_df[col].astype(object)
+        save_df = save_df.fillna('')
+        
+        # Feltöltés fejléccel együtt
+        set_with_dataframe(ws_adatok, save_df, include_index=False, include_column_header=True)
+        logger.info("🚀 A mai menetterv sikeresen kiküldve az 'Adatok' fülre az előírt 15 oszloppal!")
     except Exception as e:
         logger.warning(f"A térkép elkészült, de az 'Adatok' fül frissítése megszakadt: {e}")
 
     logger.info("Szinkronizáció teljesen kész.")
-    
-    # 🟢 EZ AZ EGYETLEN REÁLIS RETURN A FÜGGVÉNY LEGVÉGÉN!
     return df_napi, master_df
 
 # --- VIZUALIZÁCIÓ ---

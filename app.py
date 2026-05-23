@@ -3215,13 +3215,18 @@ def main():
                     # 1. Letöltjük a Google Sheets jelenlegi teljes Ugyfelkor állapotát egy DataFrame-be (1 db API kérés)
                     sheets_df = pd.DataFrame(ws_ugyfel.get_all_records())
                     
-                    # 2. Biztosítjuk, hogy az ID-k szövegként (string) legyenek összehasonlítva a pontos egyezésért
+                    # 🟢 JAVÍTÁS: Minden üres cellát üres stringre cserélünk, és az ID-t szöveggé alakítjuk (nincs int64 konfliktus)
+                    sheets_df = sheets_df.fillna('')
                     sheets_df['ID'] = sheets_df['ID'].astype(str).str.strip()
+                    
+                    # A Streamlitből jövő szerkesztett táblázatot is megtisztítjuk a biztonság kedvéért
+                    edited_df_clean = edited_df.fillna('')
+                    edited_df_clean['ID'] = edited_df_clean['ID'].astype(str).str.strip()
                     
                     módosult_darab = 0
                     
-                    # 3. Végigmegyünk a Streamlitben éppen szerkesztett adatokon (a memóriában)
-                    for _, row in edited_df.iterrows():
+                    # 3. Végigmegyünk a Streamlitben éppen szerkesztett tiszta adatokon (a memóriában)
+                    for _, row in edited_df_clean.iterrows():
                         current_id = str(row['ID']).strip()
                         
                         # Megkeressük ezt az ID-t a Google Sheets-ből letöltött táblázatban
@@ -3246,16 +3251,16 @@ def main():
                             if 'Telefon' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Telefon'] = str(row['Telefon'])
                             if 'Csoport' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Csoport'] = str(row['Csoport'])
                             
-                            # --- MEGJEGYZÉS FRISSÍTÉSE (Itt csúszott el!) ---
+                            # --- MEGJEGYZÉS FRISSÍTÉSE ---
                             if 'Megjegyzés' in elerheto_oszlopok: 
                                 sheets_df.at[sheet_idx, 'Megjegyzés'] = str(row['Megjegyzés']).strip()
                             elif 'Megjegyzes' in elerheto_oszlopok: 
                                 sheets_df.at[sheet_idx, 'Megjegyzés'] = str(row['Megjegyzes']).strip()
                             
-                            # A koordinátákat is szinkronban tartjuk a tiszta formátumban
-                            if 'Lat' in elerheto_oszlopok and pd.notna(row['Lat']):
+                            # A koordinátákat is szinkronban tartjuk, de csak ha nem üresek
+                            if 'Lat' in elerheto_oszlopok and row['Lat'] != '':
                                 sheets_df.at[sheet_idx, 'Lat'] = row['Lat']
-                            if 'Lon' in elerheto_oszlopok and pd.notna(row['Lon']):
+                            if 'Lon' in elerheto_oszlopok and row['Lon'] != '':
                                 sheets_df.at[sheet_idx, 'Lon'] = row['Lon']
 
                     # 4. Ha volt egyezés, egyetlen csomagban ürítünk és visszatoljuk (2 db API kérés)

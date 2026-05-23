@@ -3205,22 +3205,26 @@ def main():
                 st.rerun()
 
         with gomb_col2:
-            # 2. GOMB: CÉLZOTT ADATMENTÉS A FELHŐBE (Batch update-tel, kvótakímélően)
+            # 2. GOMB: CÉLZOTT ADATMENTÉS A FELHŐBE
             if st.button("💾 Módosított adatok (Név, Megjegyzés, Telefon) mentése", use_container_width=True):
-                logger.info("Adatmódosítások mentése a felhőbe batch update-tel...")
+                logger.info("Adatmódosítások mentése a felhőbe...")
                 try:
                     sh = client.open_by_key(SHEET_ID_UGYFELKOR)
                     ws_ugyfel = sh.worksheet("Ugyfelkor")
                     
-                    # 1. Letöltjük a Google Sheets jelenlegi teljes Ugyfelkor állapotát egy DataFrame-be (1 db API kérés)
+                    # 1. Letöltjük a jelenlegi állapotot
                     sheets_df = pd.DataFrame(ws_ugyfel.get_all_records())
                     
-                    # 🕵️‍♂️ NYOMOZÁS fázis: Elmentjük a nyers, letöltött típusokat az átalakítás előtt
-                    eredeti_tipusok = sheets_df.dtypes.to_dict()
+                    # 🟢 A LEGFONTOSABB JAVÍTÁS: Mielőtt bármit módosítanánk, az összes lehetséges 
+                    # oszlopot, ami üres vagy vegyes lehet, kényszerítünk szöveges (object) típusra!
+                    # Ez megakadályozza, hogy a loopban az int64 típus kiverje a biztosítékot.
+                    for col in sheets_df.columns:
+                        sheets_df[col] = sheets_df[col].astype(object)
                     
+                    # Minden NaN értéket üres stringre cserélünk
                     sheets_df = sheets_df.fillna('')
                     
-                    # Golyóálló ID átalakító
+                    # Golyóálló ID átalakító függvény
                     def tiszta_id_szoveg(val):
                         if pd.isna(val) or val == '':
                             return ''
@@ -3231,17 +3235,19 @@ def main():
 
                     sheets_df['ID'] = sheets_df['ID'].apply(tiszta_id_szoveg)
                     
-                    edited_df_clean = edited_df.fillna('')
+                    # A Streamlitből jövő táblázatot is teljesen objektummá és tisztává alakítjuk
+                    edited_df_clean = edited_df.astype(object).fillna('')
                     edited_df_clean['ID'] = edited_df_clean['ID'].apply(tiszta_id_szoveg)
                     
                     módosult_darab = 0
                     
-                    # 3. Végigmegyünk a Streamlitben éppen szerkesztett tiszta adatokon (a memóriában)
+                    # 3. Végigmegyünk a Streamlitben éppen szerkesztett tiszta adatokon
                     for _, row in edited_df_clean.iterrows():
                         current_id = row['ID']
                         if not current_id:
                             continue
                         
+                        # Megkeressük ezt az ID-t a Google Sheets-ből letöltött táblázatban
                         idx = sheets_df[sheets_df['ID'] == current_id].index
                         if not idx.empty:
                             sheet_idx = idx[0]
@@ -3249,51 +3255,40 @@ def main():
                             
                             elerheto_oszlopok = row.index.tolist()
                             
-                            if 'Név' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Név'] = str(row['Név'])
-                            elif 'Nev' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Név'] = str(row['Nev'])
-                            elif 'Ügyintéző' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Név'] = str(row['Ügyintéző'])
+                            # --- NÉV FRISSÍTÉSE ---
+                            if 'Név' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Név'] = str(row['Név']).strip()
+                            elif 'Nev' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Név'] = str(row['Nev']).strip()
+                            elif 'Ügyintéző' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Név'] = str(row['Ügyintéző']).strip()
                             
-                            if 'Cím' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Cím'] = str(row['Cím'])
-                            elif 'Cim' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Cím'] = str(row['Cim'])
+                            # --- CÍM FRISSÍTÉSE ---
+                            if 'Cím' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Cím'] = str(row['Cím']).strip()
+                            elif 'Cim' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Cím'] = str(row['Cim']).strip()
                             
-                            if 'Telefon' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Telefon'] = str(row['Telefon'])
-                            if 'Csoport' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Csoport'] = str(row['Csoport'])
+                            # --- TELEFON ÉS CSOPORT ---
+                            if 'Telefon' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Telefon'] = str(row['Telefon']).strip()
+                            if 'Csoport' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Csoport'] = str(row['Csoport']).strip()
                             
+                            # --- MEGJEGYZÉS FRISSÍTÉSE ---
                             if 'Megjegyzés' in elerheto_oszlopok: 
                                 sheets_df.at[sheet_idx, 'Megjegyzés'] = str(row['Megjegyzés']).strip()
                             elif 'Megjegyzes' in elerheto_oszlopok: 
                                 sheets_df.at[sheet_idx, 'Megjegyzés'] = str(row['Megjegyzes']).strip()
                             
-                            if 'Lat' in elerheto_oszlopok and row['Lat'] != '':
+                            # A koordinátákat is frissítjük, ha nem üresek
+                            if 'Lat' in elerheto_oszlopok and str(row['Lat']).strip() != '':
                                 sheets_df.at[sheet_idx, 'Lat'] = row['Lat']
-                            if 'Lon' in elerheto_oszlopok and row['Lon'] != '':
+                            if 'Lon' in elerheto_oszlopok and str(row['Lon']).strip() != '':
                                 sheets_df.at[sheet_idx, 'Lon'] = row['Lon']
 
-                    # 4. Mentési kísérlet részletes hibavadászattal
+                    # 4. Mentés a felhőbe, ha történt módosítás
                     if módosult_darab > 0:
-                        try:
-                            mentes_elotti_tipusok = sheets_df.dtypes.to_dict()
-                            
-                            ws_ugyfel.clear()
-                            from gspread_dataframe import set_with_dataframe
-                            set_with_dataframe(ws_ugyfel, sheets_df, string_as_string=True)
-                            
-                            st.success(f"🎉 Siker! Összesen {módosult_darab} ügyfél adatai elmentve a Google Sheets-be!")
-                            st.balloons()
-                            st.rerun()
-                            
-                        except Exception as belső_hiba:
-                            st.error(f"💥 Mentési hiba lépett fel: {belső_hiba}")
-                            st.markdown("### 🕵️‍♂️ Nyomozati anyag a hibáról:")
-                            st.write("**1. Milyen oszloptípusokkal jött le a Google Sheets-ből a táblázat?**")
-                            st.json(str(eredeti_tipusok))
-                            st.write("**2. Milyen oszloptípusok keletkeztek a mentés pillanatára?**")
-                            st.json(str(mentes_elotti_tipusok))
-                            st.write("**3. Oszlopok részletes állapota:**")
-                            for col in sheets_df.columns:
-                                üres_darab = (sheets_df[col] == '').sum()
-                                st.write(f" - `{col}` oszlop típusa: **{sheets_df[col].dtype}**, ebből üres cellák száma: `{üres_darab}`")
-                            st.stop()
+                        ws_ugyfel.clear()
+                        from gspread_dataframe import set_with_dataframe
+                        set_with_dataframe(ws_ugyfel, sheets_df, string_as_string=True)
+                        
+                        st.success(f"🎉 Siker! Összesen {módosult_darab} ügyfél adatai (beleértve a megjegyzéseket) sikeresen elmentve a Google Sheets-be!")
+                        st.balloons()
+                        st.rerun()
                     else:
                         st.warning("Nem találtunk megegyező ID-jú ügyfelet a mentéshez.")
                         

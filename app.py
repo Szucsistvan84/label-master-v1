@@ -3194,7 +3194,8 @@ def main():
             if st.button("💾 Módosított adatok (Név, Megjegyzés, Telefon) mentése", use_container_width=True):
                 logger.info("Adatmódosítások mentése a felhőbe...")
                 try:
-                    sh = client.open_by_key(sheet_id)
+                    # 🟢 JAVÍTÁS: A nem létező sheet_id helyett a SHEET_ID_UGYFELKOR-t használjuk!
+                    sh = client.open_by_key(SHEET_ID_UGYFELKOR)
                     ws_ugyfel = sh.worksheet("Ugyfelkor")
                     
                     records = ws_ugyfel.get_all_records()

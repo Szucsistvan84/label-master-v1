@@ -823,7 +823,7 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                 biztonsagos_lat = "Nincs adat"
                 biztonsagos_lon = "Nincs adat"
             
-form_col, map_col = st.columns([1.2, 1])
+            form_col, map_col = st.columns([1.2, 1])
             
             with form_col:
                 # 🟢 DEDIKÁLT KOORDINÁTA-KARBANTARTÓ VERZIÓ (CSAK LAT/LON)

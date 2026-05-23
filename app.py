@@ -371,10 +371,20 @@ def master_lista_szinkron(df_napi, sheet_id, client):
             except Exception as e:
                 logger.error(f"Hiba a geocoding során ({nev}): {e}")
                 lat, lon = None, None
+
+            def biztonsagos_float(val):
+                if val is None or str(val).strip() in ["", "None", "nan", "NaN", "-"]:
+                    return ""
+                try:
+                    # Kicseréljük a tizedesvesszőt pontra, ha esetleg úgy lenne megadva
+                    val_clean = str(val).replace(",", ".").strip()
+                    return float(val_clean)
+                except ValueError:
+                    return ""
             
-            # 🟢 JAVÍTOTT: Tiszta float számként tároljuk szöveg helyett
-            lat_str = float(lat) if lat else ""
-            lon_str = float(lon) if lon else ""
+            # 🟢 GOLYÓÁLLÓ JAVÍTÁS: Biztonságos float átalakítás hibakezeléssel
+            lat_str = biztonsagos_float(lat)
+            lon_str = biztonsagos_float(lon)
             
             if lat:
                 st.success(f"📍 GPS megvan: {nev}")

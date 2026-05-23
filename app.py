@@ -32,24 +32,39 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 def biztonsagos_koordinata_tisztito(val):
     """
     Minden létező koordináta formátumot (sima szám, magyar vesszős, 
-    szimpla vagy dupla aposztrófos hibákat) tiszta float számmá alakít.
+    szimpla vagy dupla aposztrófos hibákat) tiszta float számmá alakít,
+    és ellenőrzi az országos kompatibilitást (Magyarország geofence).
     """
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return None
     s = str(val).strip()
-    if not s or s.lower() == "none":
+    if not s or s.lower() == "none" or s == "0" or s == "0.0":
         return None
         
-    # Letakarítjuk az összes szimpla és dupla aposztrófot
-    s = s.replace("'", "").replace('"', '')
+    # Letakarítjuk az összes szimpla és dupla aposztrófot, backticket
+    s = s.replace("'", "").replace('"', '').replace('`', '')
     # Magyar tizedesvessző kicserélése pontra
     s = s.replace(",", ".")
     
     try:
         f = float(s)
-        if abs(f) > 180:
-            return None
-        return round(f, 7)
+        
+        # 🌍 ORSZÁGOS KOMPATIBILITÁSÚ GEODEKOR (Magyarország határa)
+        # Ha a szám valamiért egybefüggő 8-9 jegyű egész számként maradt (pl. 475271541)
+        if abs(f) > 1000:
+            # Ha 47-tel vagy 46-tal kezdődik (szélesség)
+            if str(abs(int(f))).startswith(('46', '47', '48')):
+                f = f / 10000000 if len(str(int(f))) >= 9 else f / 1000000
+            # Ha 16 és 22 között kezdődik (hosszúság)
+            elif str(abs(int(f))).startswith(('16', '17', '18', '19', '20', '21', '22')):
+                f = f / 10000000 if len(str(int(f))) >= 9 else f / 1000000
+        
+        # Szigorú magyarországi kerítés ellenőrzés
+        # Lat: 45.5 - 48.8 | Lon: 16.0 - 23.0
+        if 45.5 <= f <= 48.8 or 16.0 <= f <= 23.0:
+            return round(f, 7)
+        else:
+            return None # Ha kiesik az országból, eldobjuk a hibás értéket
     except:
         return None
 

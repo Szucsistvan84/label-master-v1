@@ -823,19 +823,20 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                 biztonsagos_lat = "Nincs adat"
                 biztonsagos_lon = "Nincs adat"
             
-            form_col, map_col = st.columns([1.2, 1])
+form_col, map_col = st.columns([1.2, 1])
             
             with form_col:
-                # 🟢 JAVÍTOTT, GOLYÓÁLLÓ VERZIÓ:
-                # Biztonságosan kinyerjük a koordinátákat, megelőzve az UnboundLocalError-t
+                # 🟢 DEDIKÁLT KOORDINÁTA-KARBANTARTÓ VERZIÓ (CSAK LAT/LON)
                 biztonsagos_lat = kiv_sor.get('Lat', 'Nincs adat') if isinstance(kiv_sor, dict) or hasattr(kiv_sor, 'get') else getattr(kiv_sor, 'Lat', 'Nincs adat')
                 biztonsagos_lon = kiv_sor.get('Lon', 'Nincs adat') if isinstance(kiv_sor, dict) or hasattr(kiv_sor, 'get') else getattr(kiv_sor, 'Lon', 'Nincs adat')
                 
                 st.info(f"**Kiválasztva:** {aktualis_nev}\n* **Cím:** {aktualis_cim}\n* **Jelenlegi GPS:** Lat: `{biztonsagos_lat}`, Lon: `{biztonsagos_lon}`")
                 
-                with st.form("gps_javito_form", clear_on_submit=False):
-                    akt_lat = str(kiv_sor['Lat']).replace("'", "").strip() if pd.notna(kiv_sor['Lat']) else ""
-                    akt_lon = str(kiv_sor['Lon']).replace("'", "").strip() if pd.notna(kiv_sor['Lon']) else ""
+                with st.form("gps_javito_form_vegleges", clear_on_submit=False):
+                    # Alapértelmezett érték előkészítése a mezőbe
+                    akt_lat = str(biztonsagos_lat).replace("'", "").strip() if biztonsagos_lat != 'Nincs adat' else ""
+                    akt_lon = str(biztonsagos_lon).replace("'", "").strip() if biztonsagos_lon != 'Nincs adat' else ""
+                    
                     try:
                         valid_lat_test = float(akt_lat.replace(",", "."))
                         if valid_lat_test > 90: alap_ertek = ""
@@ -848,9 +849,9 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                     submit = st.form_submit_button("💾 Koordináták mentése és Google Sheets frissítése")
                     
                     if submit:
-                        if egyben_koordinata:
+                        if egyben_koordinata.strip():
                             try:
-                                # Kezeljük, ha vesszővel vagy szóközzel van elválasztva
+                                # Formátum ellenőrzése (vesszős vagy szóközös elválasztás)
                                 if "," in egyben_koordinata:
                                     reszek = egyben_koordinata.split(",")
                                     nyers_lat, nyers_lon = reszek[0].strip(), reszek[1].strip()
@@ -859,35 +860,34 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                                     if len(reszek) >= 2:
                                         nyers_lat, nyers_lon = reszek[0].strip(), reszek[1].strip()
                                     else:
-                                        st.error("❌ Nem felismerhető formátum!")
+                                        st.error("❌ Nem felismerhető koordináta formátum!")
                                         st.stop()
                                 
-                                # Minden létező aposztrófot, idézőjelet letakarítunk a bemenetről, tiszta számot csinálunk belőle
+                                # Tisztítás (aposztrófok, idézőjelek lekapása, tizedespontosítás)
                                 clean_lat = nyers_lat.replace("'", "").replace('"', '').replace(",", ".").strip()
                                 clean_lon = nyers_lon.replace("'", "").replace('"', '').replace(",", ".").strip()
                                 
-                                f_lat = float(clean_lat)
-                                f_lon = float(clean_lon)
-                                
-                                t_lat = round(f_lat, 7)
-                                t_lon = round(f_lon, 7)
-                                
-                                # Szigorúan egyetlen aposztróffal és magyar vesszővel építjük fel a stringet
-                                formazott_lat = f"'{str(t_lat).replace('.', ',')}"
-                                formazott_lon = f"'{str(t_lon).replace('.', ',')}"
+                                # Kerekítés és formázás (magyar vesszős string, elején vezérlő aposztróffal)
+                                formazott_lat = f"'{str(round(float(clean_lat), 7)).replace('.', ',')}"
+                                formazott_lon = f"'{str(round(float(clean_lon), 7)).replace('.', ',')}"
                                 
                                 sh = client.open_by_key(sheet_id)
                                 ws = sh.worksheet("Ugyfelkor")
+                                
+                                # Oszlopok dinamikus megkeresése név alapján
+                                fejlec = ws.row_values(1)
+                                lat_idx = fejlec.index("Lat") + 1 if "Lat" in fejlec else 4
+                                lon_idx = fejlec.index("Lon") + 1 if "Lon" in fejlec else 5
+                                
                                 cell = ws.find(str(kiv_id))
                                 if cell:
-                                    # Alapértelmezett módban küldjük be (USER_ENTERED), így a Google Sheets 
-                                    # az első aposztrófot vezérlőkarakternek tekinti, és SZÖVEGKÉNT tárolja a vesszős számot.
-                                    ws.update_cell(cell.row, 4, formazott_lat)
-                                    ws.update_cell(cell.row, 5, formazott_lon)
+                                    # Cellák frissítése a Sheets-ben
+                                    ws.update_cell(cell.row, lat_idx, formazott_lat)
+                                    ws.update_cell(cell.row, lon_idx, formazott_lon)
                                     
-                                    st.success(f"✅ Siker! {aktualis_nev} koordinátái elmentve!")
+                                    st.success(f"✅ Siker! {aktualis_nev} új koordinátái elmentve!")
                                     
-                                    # Cache ürítések
+                                    # Cache ürítések a friss adatok azonnali megjelenítéséhez
                                     if 'google_data_loaded' in st.session_state:
                                         del st.session_state['google_data_loaded']
                                     if 'master_ugyfelkor_df' in st.session_state:
@@ -897,15 +897,16 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                                         
                                     st.rerun()
                                 else:
-                                    st.error("❌ Az ügyfél nem található a törzslistában!")
+                                    st.error("❌ Hiba: Az ügyfél ID nem található a törzslistában!")
                             except ValueError:
-                                st.error("❌ Érvénytelen koordináta szám!")
+                                st.error("❌ Érvénytelen számformátum a koordinátában!")
                             except Exception as save_err:
-                                st.error(f"❌ Mentési hiba: {save_err}")
+                                st.error(f"❌ Mentési hiba lépett fel: {save_err}")
+                        else:
+                            st.warning("⚠️ Kérlek, adj meg koordinátákat a mentés előtt!")
             
             with map_col:
                 st.write("🗺️ **Beágyazott Google Maps segédablak:**")
-                # Biztonságos URL kódolás a címnek az iframe-hez
                 import urllib.parse
                 biztonsagos_cim = urllib.parse.quote(str(aktualis_cim))
                 maps_url = f"https://maps.google.com/maps?q={biztonsagos_cim}&t=&z=16&ie=UTF8&iwloc=&output=embed"

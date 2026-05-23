@@ -3113,7 +3113,11 @@ def main():
                 if all_rows:
                     df_temp = merge_data(all_rows)
                     with st.spinner("Ügyféladatok szinkronizálása..."):
-                        df_temp, m_df_friss = master_lista_szinkron(df_temp, UGYFELKOR_SHEET_ID, client)
+                        # 🟢 JAVÍTOTT: Kiszedjük az első járatszámot a PDF-ből, ha létezik
+                        aktuális_járat = all_meta['jaratok'][0] if (all_meta and all_meta.get('jaratok')) else None
+                        
+                        # 🟢 JAVÍTOTT: Átadjuk a harmadik paraméterben a járatot is
+                        df_temp, m_df_friss = master_lista_szinkron(df_temp, UGYFELKOR_SHEET_ID, client, jarat_szam=aktuális_járat)
                         st.session_state.master_df = m_df_friss
                     
                     st.session_state.mdf = df_temp

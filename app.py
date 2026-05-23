@@ -372,9 +372,9 @@ def master_lista_szinkron(df_napi, sheet_id, client):
                 logger.error(f"Hiba a geocoding során ({nev}): {e}")
                 lat, lon = None, None
             
-            # Ha az automata sikeresen talált koordinátát, elmentjük (az adatbázis kedvéért magyar formátumban)
-            lat_str = f"'{str(lat).replace('.', ',')}" if lat else ""
-            lon_str = f"'{str(lon).replace('.', ',')}" if lon else ""
+            # 🟢 JAVÍTOTT: Tiszta float számként tároljuk szöveg helyett
+            lat_str = float(lat) if lat else ""
+            lon_str = float(lon) if lon else ""
             
             if lat:
                 st.success(f"📍 GPS megvan: {nev}")

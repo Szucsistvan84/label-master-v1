@@ -1028,8 +1028,8 @@ def get_day_short(day_str):
 def extract_all_meta(pdf_files):
     all_meta = {'jaratok': [], 'ev': '', 'het': '', 'nap': ''}
     
-    # Járatszám minta: 4 számjegy + pont + járat VAGY Nyomtatta: 4 számjegy
-    jarat_re = re.compile(r'(\d{4})\.\s*járat|Nyomtatta:\s*(\d{4})')
+    # 🟢 JAVÍTOTT: 2, 3 és 4 jegyű járatszámokat is felismer (\d{2,4})
+    jarat_re = re.compile(r'(\d{2,4})\.\s*járat|Nyomtatta:\s*(\d{2,4})')
     
     for uploaded_file in pdf_files:
         uploaded_file.seek(0) 
@@ -1051,12 +1051,10 @@ def extract_all_meta(pdf_files):
                 het_m = re.search(r'Hét:\s*(\d{1,2})', text)
                 if het_m: all_meta['het'] = het_m.group(1)
 
-            # 3. A NAPOK kinyerése (Péntek, Szombat stb.)
+            # 3. A NAPOK kinyerése
             if not all_meta['nap']:
-                # Keressük a 'Nap:' utáni részt az 'InterFood' szóig
                 nap_m = re.search(r'Nap:\s*(.*?)(?=InterFood|$)', text, re.DOTALL)
                 if nap_m:
-                    # Tisztítjuk: leszedjük a felesleges vesszőket a végéről és a szóközöket
                     nap_raw = nap_m.group(1).strip()
                     all_meta['nap'] = nap_raw.rstrip(',')
     

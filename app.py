@@ -3284,7 +3284,8 @@ def main():
                     if módosult_darab > 0:
                         ws_ugyfel.clear()
                         from gspread_dataframe import set_with_dataframe
-                        set_with_dataframe(ws_ugyfel, sheets_df, string_as_string=True)
+                        # 🟢 JAVÍTÁS: Kivettük a hibát okozó paramétert, így már tisztán fut le a mentés
+                        set_with_dataframe(ws_ugyfel, sheets_df)
                         
                         st.success(f"🎉 Siker! Összesen {módosult_darab} ügyfél adatai (beleértve a megjegyzéseket) sikeresen elmentve a Google Sheets-be!")
                         st.balloons()

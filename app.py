@@ -3176,6 +3176,19 @@ def main():
                         st.session_state.master_df = m_df_friss
                     
                     st.session_state.mdf = df_temp
+                    
+                    # 🟢 AUTOMATIKUS HELYETTESÍTŐ MÓD AKTIVÁLÁSA:
+                    # Kigyűjtjük, milyen egyedi járatok jöttek ki a frissen feldolgozott PDF-ekből
+                    if 'Járat' in df_temp.columns:
+                        feltoltott_jaratok = df_temp['Járat'].dropna().astype(str).str.strip().unique().tolist()
+                        # Kiszűrjük az üres vagy hibás értékeket
+                        feltoltott_jaratok = [j for j in feltoltott_jaratok if j != "" and j.lower() != 'nan']
+                        
+                        if feltoltott_jaratok:
+                            # Elmentjük az aktív járatok listájába az összeset (pl. ['4002', '4003'])
+                            st.session_state.aktiv_jaratok = feltoltott_jaratok
+                    
+                    st.success("🎉 A menettervek feldolgozása és a felhő szinkronizáció sikeresen megtörtént!")
                     st.rerun()
 
         st.divider() 

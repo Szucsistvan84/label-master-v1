@@ -2942,55 +2942,68 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     
 # --- FŐ PROGRAMFUTÁS ---
 def main():
-    # --- 🔐 PIN KÓDOS BELÉPTETŐ RENDSZER START ---
+    # --- 🔐 BIZTONSÁGOS KÉTTÉNYEZŐS BELÉPTETŐ RENDSZER START ---
     if "bejelentkezve" not in st.session_state:
         st.session_state.bejelentkezve = False
         st.session_state.user_nev = ""
         st.session_state.user_jarat = ""
         st.session_state.user_szerep = "futar"
 
-    # Ha még nincs bejelentkezve, megállítjuk az appot és csak a bejelentkező panelt mutatjuk
+    # Ha még nincs bejelentkezve, megállítjuk az appot és csak a biztonsági panelt mutatjuk
     if not st.session_state.bejelentkezve:
         st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🎯 Label Master</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #6B7280;'>A rendszer használatához kérjük, azonosítsd magad!</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:
-            st.info("Add meg a 4 jegyű futár PIN kódodat.")
-            pin_input = st.text_input("PIN KÓD:", type="password", max_chars=4, key="login_pin_field")
+            st.warning("🔒 Kérjük, add meg a járatszámodat és az egyedi jelszavadat!")
             
-            if st.button("🔑 BELÉPÉS", use_container_width=True):
-                if not pin_input:
-                    st.error("Nem adtál meg PIN kódot!")
+            # 1. TÉNYEZŐ: Járatszám vagy Admin azonosító
+            jarat_input = st.text_input("JÁRATSZÁM (vagy Admin):", key="login_jarat_field", placeholder="Pl. 4002 vagy admin")
+            
+            # 2. TÉNYEZŐ: Biztonságos Jelszó / Hosszú kód
+            password_input = st.text_input("JELSZÓ / KÓD:", type="password", key="login_password_field", placeholder="••••••••")
+            
+            if st.button("🔑 BIZTONSÁGOS BELÉPÉS", use_container_width=True):
+                if not jarat_input or not password_input:
+                    st.error("❌ Mindkét mező kitöltése kötelező!")
                 else:
                     # Lekérjük a Google Sheets-ből a futár törzsadatokat
                     futar_adatok = _tiszta_futar_lista_letoltes("1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8")
                     
-                    # 🟢 JAVÍTOTT FUTÁR ELLENŐRZŐ CIKLUS:
                     talalt_futar = None
+                    tisztitott_input_jarat = str(jarat_input).strip().lower()
+                    tisztitott_input_pass = str(password_input).strip()
+                    
+                    # Szigorú kéttényezős ellenőrzés
                     for f in futar_adatok:
-                        # Kivesszük a PIN-t, megtisztítjuk a tripla aposztrófoktól, szóközöktől és szöveggé alakítjuk
-                        tisztitott_sheet_pin = str(f.get('PIN_Kod', '')).replace("'", "").strip()
-                        tisztitott_input_pin = str(pin_input).replace("'", "").strip()
+                        # Sheets-ből jövő adatok tisztítása (kezelve a hosszú/rövid á-t)
+                        sheet_jarat = str(f.get('Járat', f.get('Jarat', ''))).strip().lower()
+                        sheet_pass = str(f.get('PIN_Kod', '')).replace("'", "").strip()
                         
-                        if tisztitott_sheet_pin == tisztitott_input_pin:
+                        # Ha a jelszó véletlenül tizedestörtként jött át a Sheets-ből (pl. "1234.0"), levágjuk a végét
+                        if sheet_pass.endswith('.0'):
+                            sheet_pass = sheet_pass[:-2]
+                        
+                        # Csak akkor egyezik, ha a JÁRAT és a JELSZÓ is pontosan passzol!
+                        if sheet_jarat == tisztitott_input_jarat and sheet_pass == tisztitott_input_pass:
                             talalt_futar = f
                             break
                     
                     if talalt_futar:
                         st.session_state.bejelentkezve = True
-                        st.session_state.user_nev = talalt_futar.get('Név', 'Ismeretlen futár')
-                        st.session_state.user_jarat = talalt_futar.get('Jarat', '')
-                        st.session_state.user_szerep = talalt_futar.get('Szerep', 'futar')
+                        st.session_state.user_nev = talalt_futar.get('Név', 'Ismeretlen felhasználó')
+                        st.session_state.user_jarat = str(talalt_futar.get('Járat', talalt_futar.get('Jarat', ''))).strip()
+                        st.session_state.user_szerep = str(talalt_futar.get('Szerep', 'futar')).strip().lower()
                         
                         st.success(f"Sikeres belépés! Üdvözlünk, {st.session_state.user_nev}!")
                         st.rerun()
                     else:
-                        st.error("❌ Helytelen vagy érvénytelen PIN kód!")
+                        st.error("❌ Hibás járatszám vagy jelszó! A hozzáférés megtagadva.")
                         
         return # Megállítja a main()-t, így semmi más nem renderelődik ki mögé!
     
-    # Felhasználói státusz panel az oldalsáv tetejére
+    # Felhasználói státusz panel az oldalsáv tetejére (Sikeres belépés után)
     st.sidebar.markdown(f"### 👤 {st.session_state.user_nev}")
     if st.session_state.user_szerep == "admin":
         st.sidebar.success("⭐ Adminisztrátor Mód")
@@ -3000,7 +3013,7 @@ def main():
     if st.sidebar.button("🚪 Kijelentkezés"):
         st.session_state.bejelentkezve = False
         st.rerun()
-    # --- 🔐 PIN KÓDOS BELÉPTETŐ RENDSZER END ---
+    # --- 🔐 BIZTONSÁGOS KÉTTÉNYEZŐS BELÉPTETŐ RENDSZER END ---
     
     # 1. Globális elérés a gspread kliensnek
     global client  

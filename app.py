@@ -3113,10 +3113,15 @@ def main():
                 if all_rows:
                     df_temp = merge_data(all_rows)
                     with st.spinner("Ügyféladatok szinkronizálása..."):
-                        # 🟢 JAVÍTOTT: Kiszedjük az első járatszámot a PDF-ből, ha létezik
-                        aktuális_járat = all_meta['jaratok'][0] if (all_meta and all_meta.get('jaratok')) else None
+                        # 🟢 JAVÍTÁS: Nem a sima 'all_meta'-t kérdezzük, mert az gombnyomásra törlődik,
+                        # hanem a session_state-ből rántjuk elő biztonságosan!
+                        mentett_meta = st.session_state.get('all_meta', None)
+                        if mentett_meta and isinstance(mentett_meta, dict) and mentett_meta.get('jaratok'):
+                            aktuális_járat = mentett_meta['jaratok'][0]
+                        else:
+                            aktuális_járat = None
                         
-                        # 🟢 JAVÍTOTT: Átadjuk a harmadik paraméterben a járatot is
+                        # Átadjuk a harmadik paraméterben a megszerzett járatszámot
                         df_temp, m_df_friss = master_lista_szinkron(df_temp, UGYFELKOR_SHEET_ID, client, jarat_szam=aktuális_járat)
                         st.session_state.master_df = m_df_friss
                     

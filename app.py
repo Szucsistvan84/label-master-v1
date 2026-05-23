@@ -3215,13 +3215,9 @@ def main():
                     # 1. Letöltjük a jelenlegi állapotot
                     sheets_df = pd.DataFrame(ws_ugyfel.get_all_records())
                     
-                    # 🟢 A LEGFONTOSABB JAVÍTÁS: Mielőtt bármit módosítanánk, az összes lehetséges 
-                    # oszlopot, ami üres vagy vegyes lehet, kényszerítünk szöveges (object) típusra!
-                    # Ez megakadályozza, hogy a loopban az int64 típus kiverje a biztosítékot.
+                    # Minden oszlopot objektummá alakítunk a típuskonfliktusok ellen
                     for col in sheets_df.columns:
                         sheets_df[col] = sheets_df[col].astype(object)
-                    
-                    # Minden NaN értéket üres stringre cserélünk
                     sheets_df = sheets_df.fillna('')
                     
                     # Golyóálló ID átalakító függvény
@@ -3235,8 +3231,28 @@ def main():
 
                     sheets_df['ID'] = sheets_df['ID'].apply(tiszta_id_szoveg)
                     
-                    # A Streamlitből jövő táblázatot is teljesen objektummá és tisztává alakítjuk
-                    edited_df_clean = edited_df.astype(object).fillna('')
+                    # 🟢 STREAMLIT INDEX-CSAPDA JAVÍTÁSA: 
+                    # Ha a Streamlit az ID-t indexként adta vissza, átemeljük rendes oszlopnak
+                    edited_df_clean = edited_df.copy()
+                    if 'ID' not in edited_df_clean.columns and edited_df_clean.index.name == 'ID':
+                        edited_df_clean = edited_df_clean.reset_index()
+                    elif 'ID' not in edited_df_clean.columns and 'ID' in sheets_df.columns:
+                        # Ha még így sincs meg, de az indexben van a sorszám, megpróbáljuk visszanyerni
+                        edited_df_clean = edited_df_clean.reset_index()
+                        # Ha a reset_index után 'index' vagy 'level_0' lett a neve, átnevezzük ID-ra
+                        if 'index' in edited_df_clean.columns:
+                            edited_df_clean = edited_df_clean.rename(columns={'index': 'ID'})
+                        elif 'level_0' in edited_df_clean.columns:
+                            edited_df_clean = edited_df_clean.rename(columns={'level_0': 'ID'})
+
+                    # Most már biztonsággal alakítjuk objektummá és tisztítjuk
+                    edited_df_clean = edited_df_clean.astype(object).fillna('')
+                    
+                    # Végső ellenőrzés: ha még mindig nincs ID oszlop, dobjunk egy egyértelmű üzenetet ahelyett, hogy elszállna
+                    if 'ID' not in edited_df_clean.columns:
+                        st.error("⚠️ Nem található 'ID' nevű oszlop a szerkesztett adatokban! Elérhető oszlopok: " + str(edited_df_clean.columns.tolist()))
+                        st.stop()
+                        
                     edited_df_clean['ID'] = edited_df_clean['ID'].apply(tiszta_id_szoveg)
                     
                     módosult_darab = 0
@@ -3274,7 +3290,7 @@ def main():
                             elif 'Megjegyzes' in elerheto_oszlopok: 
                                 sheets_df.at[sheet_idx, 'Megjegyzés'] = str(row['Megjegyzes']).strip()
                             
-                            # A koordinátákat is frissítjük, ha nem üresek
+                            # A koordinátákat is frissítjük
                             if 'Lat' in elerheto_oszlopok and str(row['Lat']).strip() != '':
                                 sheets_df.at[sheet_idx, 'Lat'] = row['Lat']
                             if 'Lon' in elerheto_oszlopok and str(row['Lon']).strip() != '':
@@ -3284,7 +3300,6 @@ def main():
                     if módosult_darab > 0:
                         ws_ugyfel.clear()
                         from gspread_dataframe import set_with_dataframe
-                        # 🟢 JAVÍTÁS: Kivettük a hibát okozó paramétert, így már tisztán fut le a mentés
                         set_with_dataframe(ws_ugyfel, sheets_df)
                         
                         st.success(f"🎉 Siker! Összesen {módosult_darab} ügyfél adatai (beleértve a megjegyzéseket) sikeresen elmentve a Google Sheets-be!")

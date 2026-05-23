@@ -850,6 +850,7 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                     if submit:
                         if egyben_koordinata:
                             try:
+                                # Kezeljük, ha vesszővel vagy szóközzel van elválasztva
                                 if "," in egyben_koordinata:
                                     reszek = egyben_koordinata.split(",")
                                     nyers_lat, nyers_lon = reszek[0].strip(), reszek[1].strip()
@@ -904,7 +905,9 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
             
             with map_col:
                 st.write("🗺️ **Beágyazott Google Maps segédablak:**")
-                biztonsagos_cim = str(aktualis_cim).replace(' ', '+')
+                # Biztonságos URL kódolás a címnek az iframe-hez
+                import urllib.parse
+                biztonsagos_cim = urllib.parse.quote(str(aktualis_cim))
                 maps_url = f"https://maps.google.com/maps?q={biztonsagos_cim}&t=&z=16&ie=UTF8&iwloc=&output=embed"
                 st.components.v1.iframe(maps_url, height=260, scrolling=True)
                 

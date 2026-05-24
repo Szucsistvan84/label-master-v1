@@ -3284,10 +3284,27 @@ if st.session_state.nezettipus == "asztali":
     # 🖥️ A: ASZTALI MUNKAÁLLOMÁS FELÜLET (A TE MEGLÉVŐ KÓDOD)
     # -------------------------------------------------------------
     
+    # 🟢 ÚJ BIZTONSÁGI VÉDŐHÁLÓ: Csak akkor engedjük a szerkesztőt, ha van betöltve adat!
+    if "mdf" not in st.session_state or st.session_state.mdf is None or st.session_state.mdf.empty:
+        st.markdown("<div style='background-color: #EFF6FF; padding: 15px; border-radius: 8px; border-left: 5px solid #3B82F6;'>", unsafe_allow_html=True)
+        st.info("👋 Üdvözöllek a Label Masterben! Kérlek, a bal oldali menüben töltsd fel és dolgozd fel a mai PDF-eket a munkamenet elindításához.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        # Lehetőség a mobil nézet tesztelésére üres adatokkal is
+        st.markdown("---")
+        st.markdown("### 📱 Szeretnéd megnézni a mobil felületet?")
+        if st.button("📱 Átváltás Mobil Nézetre (Adatok nélkül is)", use_container_width=True):
+            st.session_state.nezettipus = "mobil"
+            st.rerun()
+        st.stop() # 🛑 ITT MEGÁLLÍTJUK A KÓDOT, így nem fut rá a hiányzó df_to_edit-re!
+
+    # --- Ha a fenti feltétel nem teljesül (vagyis VAN ADAT), akkor fut le ez a rész: ---
+    df_to_edit = st.session_state.mdf.copy()
+    
     # --- 3. MEGJELENÍTÉS (A te eredeti data_editorod) ---
     edited_df = st.data_editor(
         df_to_edit,
-        column_order=final_column_order, 
+        column_order=final_column_order,
         column_config={
             "Sorrend": st.column_config.NumberColumn(
                 "Sorrend",

@@ -3263,7 +3263,7 @@ def main():
         # FONTOS: Itt NEM szabad újra leírni a df_to_edit = st.session_state.mdf.copy() sort!
         
         edited_df = st.data_editor(
-            df_to_edit,
+            df_view,
             column_order=final_column_order, 
             column_config={
                 "Sorrend": st.column_config.NumberColumn(

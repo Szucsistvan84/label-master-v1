@@ -2863,150 +2863,203 @@ def create_manifest_pdf(df, c_n, meta):
 def create_raklista_pdf(df, jarat_info, meta_dict):
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=7 * mm, bottomMargin=12 * mm, leftMargin=8 * mm, rightMargin=8 * mm)
-    # --- ÚJ: Az étlapot a Sheets-ből betöltött adatokból vesszük ---
+    
+    # Kicsit növeljük a margókat a szép keretek miatt
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=10 * mm, bottomMargin=12 * mm, leftMargin=10 * mm, rightMargin=10 * mm)
+    
     etlap = st.session_state.get('etlap_adatok', {})
+    kategoria_adatok = st.session_state.get('kategoria_adatok', {}) # Az új táblázatunk!
 
     ev = meta_dict.get('ev', '')
     het = meta_dict.get('het', '')
     napok = meta_dict.get('nap', '') 
-    
     dates_str = f"{ev}. {het}. hét ({napok})"
 
-    # --- 1. NAPOK ÖSSZESÍTÉSE (HÁRMAS SZÓTÁR LOGIKA) ---
-    # Ez köti össze a Te rövidítéseidet az Excel prefixekkel
-    label_to_prefix = {
-        "Hé": "H",
-        "Ke": "K",
-        "Sze": "S",
-        "Csü": "C",
-        "Pé": "P",
-        "Szo": "Z"
-    }
+    label_to_prefix = {"Hé": "H", "Ke": "K", "Sze": "S", "Csü": "C", "Pé": "P", "Szo": "Z"}
+    prefix_to_nev = {"H": "Hétfő", "K": "Kedd", "S": "Szerda", "C": "Csütörtök", "P": "Péntek", "Z": "Szombat"}
+    prefix_to_num = {"H": "1", "K": "2", "S": "3", "C": "4", "P": "5", "Z": "6"}
 
-    # Ez pedig a PDF-ben való szép kiíráshoz kell
-    prefix_to_nev = {
-        "H": "Hétfő", "K": "Kedd", "S": "Szerda", 
-        "C": "Csütörtök", "P": "Péntek", "Z": "Szombat"
-    }
-
-    # Ez köti össze a PDF napjait a Google Sheets oszlop-indexeivel (1-6)
-    prefix_to_num = {
-        "H": "1", "K": "2", "S": "3", "C": "4", "P": "5", "Z": "6"
-    }
-
+    # 1. DARABSZÁMOK ÖSSZEGYŰJTÉSE
     counts = {}
     for _, r in df.iterrows():
         order_str = str(r.get('Rendelés_Full', ''))
-        # A Rendelés_Full nálad pl: "Csü: 1-A | Pé: 2-B"
         day_parts = order_str.split('|')
         for part in day_parts:
             part = part.strip()
             prefix = ""
-            
-            # Megkeressük, melyik címkéd van a szövegben
             for label, pfx in label_to_prefix.items():
-                if f"{label}:" in part: # A kettőspont fontos a pontos egyezéshez
+                if f"{label}:" in part:
                     prefix = pfx
                     break
-            
             if not prefix: continue
             
-            # Megkeressük a darabszámot és a kódot (8-A)
-            # A regex mindenféle kötőjelet felismer
             found = re.findall(ORDER_PAT, part)
             for qty, code in found:
-                # ITT A LÉNYEG: A kulcs "C_A" lesz, mert a prefixet a label_to_prefix-ből vettük!
                 full_key = f"{prefix}_{code.strip().upper()}"
                 counts[full_key] = counts.get(full_key, 0) + int(qty)
-                
-    # Stílusok
-    header_style = ParagraphStyle('H', fontName=f_bold, fontSize=8, alignment=1)
-    normal_row_style = ParagraphStyle('NR', fontName=f_reg, fontSize=6.5, leading=7.5)
-    star_row_style = ParagraphStyle('SR', fontName=f_bold, fontSize=6.5, leading=7.5)
 
-    data = [[
-        Paragraph("<b>NAP</b>", header_style),
-        Paragraph("<b>KÓD</b>", header_style),
-        Paragraph("<b>DB</b>", header_style),
-        Paragraph("<b>[ ]</b>", header_style),
-        Paragraph("<b>MEGNEVEZÉS</b>", header_style),
-        Paragraph("<b>ÁR</b>", header_style),
-        Paragraph("<b>ÖSSZES</b>", header_style)
-    ]]
+    # Stílusok definíciója
+    title_style = ParagraphStyle('T', fontName=f_bold, fontSize=12, leading=14, spaceAfter=2)
+    meta_style = ParagraphStyle('M', fontName=f_reg, fontSize=9, leading=11, spaceAfter=6)
+    
+    cat_header_style = ParagraphStyle('CH', fontName=f_bold, fontSize=8.5, leading=10, textColor=colors.HexColor('#1A1A1A'))
+    th_style = ParagraphStyle('TH', fontName=f_bold, fontSize=7.5, leading=9, alignment=1, textColor=colors.HexColor('#444444'))
+    
+    row_reg_style = ParagraphStyle('RR', fontName=f_reg, fontSize=7, leading=8.5)
+    row_bold_style = ParagraphStyle('RB', fontName=f_bold, fontSize=7, leading=8.5)
+    center_style = ParagraphStyle('C', fontName=f_reg, fontSize=7, leading=8.5, alignment=1)
+    center_bold_style = ParagraphStyle('CB', fontName=f_bold, fontSize=7.5, leading=8.5, alignment=1)
+    right_style = ParagraphStyle('R', fontName=f_reg, fontSize=7, leading=8.5, alignment=2)
+    right_bold_style = ParagraphStyle('R', fontName=f_bold, fontSize=7, leading=8.5, alignment=2)
 
+    # SZÉP VEKTOROS CHECKBOX RAJZOLÁSA (Mint a menetterven)
+    def get_checkbox():
+        d = Drawing(10, 10)
+        d.hAlign = 'CENTER'
+        d.vAlign = 'MIDDLE'
+        # Rajzolunk egy 8x8 mm-es négyzetet vékony fekete szegéllyel, fehér belsővel
+        from reportlab.graphics.shapes import Rect
+        d.add(Rect(1, 1, 8, 8, fillColor=colors.white, strokeColor=colors.HexColor('#555555'), strokeWidth=0.6))
+        return d
+
+    # 2. TÉTELEK BESOROLÁSA ÉS CSOPORTOSÍTÁSA KATEGÓRIÁK SZERINT
+    # Létrehozunk egy struktúrát: kategoria_csoportok[kategoria_neve] = [tételek listája]
+    # És elmentjük a kategóriák sorrendi számát is, hogy a végén rendezni tudjuk a kategóriákat!
+    kategoria_csoportok = {}
+    kategoria_sorrendek = {} # Megjegyzi, melyik kategóriának mi a sorszáma
+    
     total_qty = 0
     total_money = 0
 
-    # --- 2. TÁBLÁZAT FELTÖLTÉSE (JAVÍTOTT LOGIKA) ---
-    # Sorba rendezzük a kulcsokat: Hétfő (H), Kedd (K)... sorrendben
-    day_order = {"H":1, "K":2, "S":3, "C":4, "P":5, "Z":6}
-    sorted_keys = sorted(counts.keys(), key=lambda x: (day_order.get(x.split('_')[0], 9), x.split('_')[1]))
-
-    # --- TÁBLÁZAT FELTÖLTÉSE ---
-    for full_key in sorted_keys:
-        db = counts[full_key]
-        prefix = full_key.split('_')[0]    # Pl. "C"
-        code_label = full_key.split('_')[1] # Pl. "A"
-        
+    for full_key, db in counts.items():
+        prefix = full_key.split('_')[0]
+        code_label = full_key.split('_')[1]
         day_long = prefix_to_nev.get(prefix, prefix)
         
-        # --- ÚJ KERESÉSI LOGIKA (Csillag-mentesítéssel) ---
-        # 1. Levágjuk a csillagot a kódról, ha van rajta (pl. E1K* -> E1K)
-        # Ez biztosítja, hogy megtaláljuk az árat és nevet a Sheets-ben
         keresett_kod = code_label.replace('*', '').strip()
-        
-        # 2. Átalakítjuk a nap betűjelét számmá (pl. C -> 4)
         num_prefix = prefix_to_num.get(prefix, "1")
-        
-        # 3. Megalkotjuk a Sheets-ben használt kulcsot (pl. 4_E1K)
         sheets_key = f"{num_prefix}_{keresett_kod}"
         
-        # 4. Lekérjük az adatokat
         info = etlap.get(sheets_key, {})
-        
-        # Név kinyerése
         nev = info.get('nev', '---')
         
-        # Ár kinyerése és tisztítása (számmá alakítás a számoláshoz)
+        # Ár kezelése
         nyers_ar = str(info.get('ar', '0')).replace('Ft', '').replace(' ', '').strip()
-        try:
-            ar = int(nyers_ar) if nyers_ar and nyers_ar.isdigit() else 0
-        except:
-            ar = 0
-        
+        ar = int(nyers_ar) if nyers_ar and nyers_ar.isdigit() else 0
         subtotal = db * ar
         
-        # Csillagos tétel ellenőrzése a stílushoz
-        is_starred = "*" in code_label
-        current_font = f_bold if is_starred else f_reg
-        current_p_style = star_row_style if is_starred else normal_row_style
-
-        data.append([
-            Paragraph(day_long, ParagraphStyle('D', fontName=current_font, fontSize=5.5, alignment=1)),
-            Paragraph(code_label, ParagraphStyle('K', fontName=current_font, fontSize=7.5, alignment=1)),
-            Paragraph(f"{db} db", ParagraphStyle('Q', fontName=current_font, fontSize=7.5, alignment=1)),
-            Paragraph("[  ]", ParagraphStyle('CB', fontName=f_reg, fontSize=8, alignment=1)),
-            Paragraph(nev, current_p_style),
-            Paragraph(f"{ar} Ft", ParagraphStyle('A', fontName=current_font, fontSize=7, alignment=2)),
-            Paragraph(f"{subtotal} Ft", ParagraphStyle('S', fontName=current_font, fontSize=7, alignment=2))
-        ])
         total_qty += db
         total_money += subtotal
 
-    # --- INNENTŐL A TÖBBI RÉSZ (Táblázat stílus, Összesítő) MARADHAT ---
-    col_widths = [12 * mm, 15 * mm, 12 * mm, 8 * mm, 105 * mm, 18 * mm, 24 * mm]
-    t = Table(data, colWidths=col_widths, repeatRows=1)
-    t.setStyle(TableStyle([
-        ('GRID', (0, 0), (-1, -1), 0.1, colors.black),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 1),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
-        ('LEFTPADDING', (0, 0), (-1, -1), 2),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
-    ]))
+        # === KATEGÓRIA ÉS SORREND KINYERÉSE AZ ÚJ TÁBLÁZATBÓL ===
+        # Megnézzük a tiszta cikkszám alapján (pl. SP1, L1)
+        kat_info = kategoria_adatok.get(keresett_kod, {'kategoria': 'Egyéb / Zóna ételek', 'sorrend': 99})
+        kat_nev = kat_info['kategoria']
+        kat_sorszam = kat_info['sorrend']
+        
+        kategoria_sorrendek[kat_nev] = kat_sorszam
+        
+        if kat_nev not in kategoria_csoportok:
+            kategoria_csoportok[kat_nev] = []
+            
+        kategoria_csoportok[kat_nev].append({
+            'day': day_long,
+            'code': code_label,
+            'db': db,
+            'nev': nev,
+            'ar': ar,
+            'subtotal': subtotal,
+            'starred': "*" in code_label
+        })
 
+    # 3. KATEGÓRIÁK RENDEZÉSE A KONYHAI SORREND ALAPJÁN
+    rendezett_kategoriak = sorted(kategoria_csoportok.keys(), key=lambda x: kategoria_sorrendek.get(x, 99))
+
+    # Elements lista építése a PDF-hez
+    elements = [
+        Paragraph("<b>RAKLISTA ÉS ELSZÁMOLÁS (KATEGORIZÁLT)</b>", title_style),
+        Paragraph(f"Időszak: {dates_str} | Járat: {jarat_info}", meta_style),
+        Spacer(1, 2 * mm)
+    ]
+
+    # Oszlopszélességek (Összesen 190 mm, ami pontosan kitölti az A4-et 10mm-es margókkal)
+    col_widths = [15 * mm, 16 * mm, 12 * mm, 10 * mm, 95 * mm, 18 * mm, 24 * mm]
+
+    # 4. TÁBLÁZATOK GENERÁLÁSA KATEGÓRIÁNKÉNT
+    for kat in rendezett_kategoriak:
+        # Minden kategóriának saját külön táblázatot adunk, így gyönyörűen bekeretezhető
+        kat_data = []
+        
+        # A - Kategória Fejléc Sor (Egybeolvasztva az egész szélességben)
+        kat_data.append([Paragraph(f"<b>📂 {kat.upper()}</b>", cat_header_style), "", "", "", "", "", ""])
+        
+        # B - Oszlopnevek fejléc sor
+        kat_data.append([
+            Paragraph("<b>NAP</b>", th_style),
+            Paragraph("<b>KÓD</b>", th_style),
+            Paragraph("<b>DB</b>", th_style),
+            Paragraph("<b>[ ]</b>", th_style),
+            Paragraph("<b>MEGNEVEZÉS</b>", th_style),
+            Paragraph("<b>ÁR</b>", th_style),
+            Paragraph("<b>ÖSSZES</b>", th_style)
+        ])
+        
+        # C - Tételek hozzáadása (A kategórián belül nap és kód szerint rendezve)
+        tetelek = sorted(kategoria_csoportok[kat], key=lambda x: (x['day'], x['code']))
+        
+        for tétel in tetelek:
+            font = f_bold if tétel['starred'] else f_reg
+            p_style = row_bold_style if tétel['starred'] else row_reg_style
+            c_style = center_bold_style if tétel['starred'] else center_style
+            
+            kat_data.append([
+                Paragraph(tétel['day'], center_style),
+                Paragraph(tétel['code'], c_style),
+                Paragraph(f"<b>{tétel['db']} db</b>", c_style),
+                get_checkbox(), # Rajzolt négyzet!
+                Paragraph(tétel['nev'], p_style),
+                Paragraph(f"{tétel['ar']} Ft", right_style),
+                Paragraph(f"{tétel['subtotal']} Ft", right_bold_style if tétel['starred'] else right_style)
+            ])
+            
+        # Táblázat létrehozása és formázása (Bekeretezés)
+        t = Table(kat_data, colWidths=col_widths, repeatRows=2)
+        
+        t_style = [
+            # Kategória fejléc formázása (szürke háttér, vastag alsó vonal)
+            ('SPAN', (0, 0), (-1, 0)),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#EAEAEA')),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 3),
+            ('TOPPADDING', (0, 0), (-1, 0), 3),
+            ('LINEBELOW', (0, 0), (-1, 0), 1, colors.HexColor('#222222')),
+            
+            # Oszlop fejléc formázása (világosabb szürke)
+            ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#F5F5F5')),
+            ('BOTTOMPADDING', (0, 1), (-1, 1), 2),
+            ('TOPPADDING', (0, 1), (-1, 1), 2),
+            ('LINEBELOW', (0, 1), (-1, 1), 0.6, colors.HexColor('#666666')),
+            
+            # Általános sorbeállítások
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ALIGN', (3, 2), (3, -1), 'CENTER'), # Checkbox középre igazítása
+            ('TOPPADDING', (0, 2), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 2), (-1, -1), 2),
+            ('LEFTPADDING', (0, 0), (-1, -1), 3),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+            
+            # BELSŐ RÁCS: Vékony, finom szürke elválasztó vonalak a sorok között
+            ('ROWBACKGROUNDS', (0, 2), (-1, -1), [colors.white, colors.HexColor('#FAFAFA')]),
+            ('LINEBELOW', (0, 2), (-1, -1), 0.3, colors.HexColor('#E0E0E0')),
+            
+            # KÜLSŐ KERET: Vastagabb fekete keret az EGÉSZ kategória-blokk köré
+            ('BOX', (0, 0), (-1, -1), 0.8, colors.HexColor('#222222')),
+        ]
+        t.setStyle(TableStyle(t_style))
+        
+        elements.append(t)
+        elements.append(Spacer(1, 4 * mm)) # Térköz a kategória-blokkok között
+
+    # 5. PÉNZÜGYI ÖSSZESÍTŐ TÁBLÁZAT (A lap aljára)
     jutalek = int(total_money * 0.13)
     summary_data = [
         ["", "", "", "", "ÖSSZESEN:", f"{total_qty} db", f"{total_money} Ft"],
@@ -3015,31 +3068,34 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     st_table = Table(summary_data, colWidths=col_widths)
     st_table.setStyle(TableStyle([
         ('FONTNAME', (4, 0), (-1, -1), f_bold),
-        ('FONTSIZE', (4, 0), (-1, -1), 8.5),
+        ('FONTSIZE', (4, 0), (-1, -1), 9),
         ('ALIGN', (4, 0), (4, -1), 'RIGHT'),
         ('ALIGN', (5, 0), (6, -1), 'RIGHT'),
-        ('TOPPADDING', (0, 0), (-1, -1), 1),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
-        ('LINEABOVE', (4, 0), (-1, 0), 0.5, colors.black),
+        ('TOPPADDING', (0, 0), (-1, -1), 2),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ('LINEABOVE', (4, 0), (-1, 0), 0.8, colors.black),
     ]))
+    
+    elements.append(st_table)
 
+    # Oldalszámozás lábléc
     def footer(canvas, doc):
         canvas.saveState()
-        canvas.setFont(f_reg, 7)
+        canvas.setFont(f_reg, 7.5)
         canvas.drawRightString(200 * mm, 8 * mm, f"{doc.page}. oldal")
         canvas.restoreState()
 
-    elements = [
-        Paragraph(f"<b>RAKLISTA ÉS ELSZÁMOLÁS</b>", ParagraphStyle('T', fontName=f_bold, fontSize=11)),
-        Paragraph(f"Időszak: {dates_str} | Járat: {jarat_info}",
-                  ParagraphStyle('S', fontName=f_reg, fontSize=8.5, spaceAfter=3)),
-        t,
-        Spacer(1, 3 * mm),
-        st_table
-    ]
-
     doc.build(elements, onFirstPage=footer, onLaterPages=footer)
     buf.seek(0)
+    
+    # OKOSÍTÁS: Elmentjük a rendezett adatokat a mobil app részére is!
+    # Így a mobil_terminal() függvénynek már csak ki kell olvasnia ezt a struktúrát, 
+    # és gépelés/újraszámolás nélkül, azonnal a tökéletes kategóriás felületet kapja a futár!
+    st.session_state['mobil_raklista_adatok'] = {
+        'kategoriak': rendezett_kategoriak,
+        'csoportok': kategoria_csoportok
+    }
+    
     return buf
     
 # --- FŐ PROGRAMFUTÁS ---

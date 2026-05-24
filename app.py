@@ -136,9 +136,12 @@ if "google_data_loaded" not in st.session_state:
             time.sleep(1.0)
             
             # --- JAVÍTÁS: Nem töltjük le az ügyfélkört előre az indításkor, kivéve ha már sikeres a feldolgozás! ---
-            if "feldolgozas_sikeres" not in st.session_state or not st.session_state.feldolgozas_sikeres:
-                if "ugyfelkor_df" not in st.session_state or st.session_state.ugyfelkor_df is None:
-                    ures_vaz = pd.DataFrame(columns=['ID', 'Név', 'Cím', 'Lat', 'Lon', 'Telefon', 'Csoport', 'Megjegyzés'])
+            if st.session_state.get('feldolgozas_sikeres') == True:
+                # Ha már sikeresen feldolgoztuk a PDF-eket, békén hagyjuk a memóriát, nem írjuk felül!
+                pass
+            else:
+                if "ugyfelkor_df" not in st.session_state or st.session_state.ugyfelkor_df is None or st.session_state.ugyfelkor_df.empty:
+                    ures_vaz = pd.DataFrame(columns=['ID', 'Név', 'Cím', 'Lat', 'Lon', 'Telefon', 'Csoport', 'Megjegyzés', 'Járat'])
                     st.session_state.ugyfelkor_df = ures_vaz
                     st.session_state.mdf = ures_vaz
             

@@ -3034,21 +3034,27 @@ def main():
     view = query_params.get("view", None)
     url_jarat = query_params.get("jarat", "")
 
-    # 2. OKOSÍTÁS: Ha a parancsikon miatt nincs 'view' a linkben, ellenőrizzük az eszközt!
+    # 2. BIZTONSÁGOS OKOSÍTÁS: Ha a parancsikon miatt nincs 'view' a linkben
     if view is None:
-        # Lekérjük a böngésző adatait (User-Agent)
-        # Ehhez a Streamlit belső fejléc-kezelőjét használjuk
-        from streamlit.web.server.websocket_headers import _get_websocket_headers
-        headers = _get_websocket_headers()
-        user_agent = headers.get("User-Agent", "").lower()
-        
-        # Ha a látogató telefonról vagy tabletről érkezik
-        is_mobil_eszkoz = any(x in user_agent for x in ["mobile", "android", "iphone", "ipad"])
-        
-        if is_mobil_eszkoz:
-            view = "mobile"
-        else:
+        # Ha már be van töltve Excel/API adat a munkamenetben, akkor ez az asztali admin
+        if 'edited_df' in st.session_state:
             view = "desktop"
+        else:
+            # Ha nincs adat (mert a futár most nyitotta meg a parancsikont üresen)
+            st.markdown("### 📱 Interfood Futár Terminál")
+            st.info("A parancsikonról indítottad az alkalmazást. Kattints az alábbi gombra a folytatáshoz:")
+            
+            # Ez a gomb mobilnézetbe teszi az appot és frissít egyet
+            if st.button("🚀 MOBIL TERMINÁL INDÍTÁSA", use_container_width=True, type="primary"):
+                st.query_params.update(view="mobile")
+                st.rerun()
+                
+            st.write("---")
+            with st.expander("💻 Adminisztrátori belépés (Asztali nézet)"):
+                if st.button("Asztali verzió megnyitása"):
+                    st.query_params.update(view="desktop")
+                    st.rerun()
+            return # Megállítjuk a futást, hogy ne dobjon üres táblázatos hibákat alatta
 
     # 3. Beállítjuk a logikai változót a kód többi részének
     is_mobile_view = (view == "mobile")

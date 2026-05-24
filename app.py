@@ -3216,53 +3216,52 @@ def main():
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
         
-        # LÉTREHOZZUK A SZŰRT MÁSOLATOT (A fő adatbázist békén hagyjuk!)
+        # Másolat készítése a megjelenítéshez
         df_to_edit = st.session_state.mdf.copy()
 
-        # 🧬 ADATVÉDELMI SZŰRÉS (Csak a df_to_edit változón dolgozunk)
+        # 🧬 ADATVÉDELMI SZŰRÉS
         if st.session_state.user_szerep == "futar":
             if 'Járat' in df_to_edit.columns:
                 df_to_edit = df_to_edit[df_to_edit['Járat'].astype(str) == str(st.session_state.user_jarat)].copy()
-            
-            if df_to_edit.empty:
-                st.warning(f"✉️ Kedves {st.session_state.user_nev}! A mai napra nincsenek aktív címeid.")
         
         elif st.session_state.user_szerep == "admin":
             if 'Járat' in df_to_edit.columns:
                 elerheto_jaratok = [str(j) for j in df_to_edit['Járat'].dropna().unique() if str(j).strip() != '']
                 elerheto_jaratok.sort()
                 
-                friss_aktivok = st.session_state.get('aktiv_jaratok', elerheto_jaratok)
+                # Alapértelmezett választás: ami a session-ben van, vagy az összes
+                alapertelmezett = st.session_state.get('aktiv_jaratok', elerheto_jaratok)
                 
-                # Itt a választó
-                valasztott_jaratok = st.multiselect("🚚 Járatok szűrése (Adminisztrátor):", options=elerheto_jaratok, default=friss_aktivok)
+                valasztott_jaratok = st.multiselect("🚚 Járatok szűrése (Admin):", options=elerheto_jaratok, default=alapertelmezett)
                 
                 # Szűrés a másolaton
                 if valasztott_jaratok:
                     df_to_edit = df_to_edit[df_to_edit['Járat'].astype(str).isin(valasztott_jaratok)].copy()
-                elif friss_aktivok:
-                    df_to_edit = df_to_edit[df_to_edit['Járat'].astype(str).isin(friss_aktivok)].copy()
-
-        # --- TISZTÍTÁS ÉS MEGJELENÍTÉS (A df_to_edit-et használjuk mindenhol!) ---
-        if 'Sorrend' not in df_to_edit.columns:
-            df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
         
-        df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999.0).astype(float)
+        # --- TISZTÍTÁS ---
+        if not df_to_edit.empty:
+            if 'Sorrend' not in df_to_edit.columns:
+                df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
+            
+            df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999.0).astype(float)
 
-        for col in df_to_edit.columns:
-            if col != 'Sorrend':
-                df_to_edit[col] = df_to_edit[col].astype(str).replace(['nan', 'None', '<NA>', '0.0', '0'], '')
+            for col in df_to_edit.columns:
+                if col != 'Sorrend':
+                    df_to_edit[col] = df_to_edit[col].astype(str).replace(['nan', 'None', '<NA>', '0.0', '0'], '')
 
-        df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
+            df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
 
-        # OSZLOPREND
-        preferred_order = ["Sorrend", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Csoport", "Megjegyzés", "temp_id"]
-        actual_cols = df_to_edit.columns.tolist()
-        final_column_order = [c for c in preferred_order if c in actual_cols] + [c for c in actual_cols if c not in preferred_order]
-        df_to_edit = df_to_edit[final_column_order]
-    
-        st.subheader("Szállítási lista")
-        # MOST IDE JÖHET A TÁBLÁZAT MEGJELENÍTÉSE (pl. st.dataframe(df_to_edit))
+            # OSZLOPREND
+            preferred_order = ["Sorrend", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Csoport", "Megjegyzés", "temp_id"]
+            actual_cols = df_to_edit.columns.tolist()
+            final_column_order = [c for c in preferred_order if c in actual_cols] + [c for c in actual_cols if c not in preferred_order]
+            df_to_edit = df_to_edit[final_column_order]
+        
+            st.subheader("Szállítási lista")
+            # ITT VAN A MEGJELENÍTÉS! (Ezt hiányoltad a végéről)
+            st.dataframe(df_to_edit, use_container_width=True)
+        else:
+            st.warning("⚠️ A kiválasztott szűrők alapján nincs megjeleníthető cím.")
         
 # =============================================================
 # 🌐 2. LÉPÉS: JOGOSULTSÁGOK ÉS NÉZETEK BEÁLLÍTÁSA (FINOMÍTVA)

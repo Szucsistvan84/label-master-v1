@@ -3245,8 +3245,9 @@ def main():
 
         # Szűrés a nézeten
         if role == "futar":
-            if 'Járat' in df_view.columns:
-                df_view = df_view[df_view['Járat'].astype(str) == str(st.session_state.user_jarat)].copy()
+            if 'Járat' in df_view.columns and 'user_jarat_lista' in st.session_state:
+                # Ezzel a módosítással az összes olyan járatot látod, ami szerepel a listádban
+                df_view = df_view[df_view['Járat'].astype(str).isin([str(j) for j in st.session_state.user_jarat_lista])].copy()
         
         # Adminnál hagyjuk az összeset, vagy alkalmazzuk a szűrőt (ezt később bővíthetjük)
         

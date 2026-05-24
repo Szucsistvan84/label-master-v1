@@ -3255,9 +3255,6 @@ def main():
             actual_cols = df_view.columns.tolist()
             final_column_order = [c for c in preferred_order if c in actual_cols] + [c for c in actual_cols if c not in preferred_order]
             df_view = df_view[final_column_order]
-        
-            st.subheader("Szállítási lista")
-            st.dataframe(df_view, use_container_width=True)
                     
         # --- 3. MEGJELENÍTÉS ---
         # FONTOS: Itt NEM szabad újra leírni a df_to_edit = st.session_state.mdf.copy() sort!

@@ -99,18 +99,24 @@ SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
 # --- ADATBÁZIS SEGÉDFÜGGVÉNYEK ---
 def get_latest_week_from_master(sheet_id):
-    """Lekéri a Google Sheet-ből a legutolsó betöltött hetet."""
+    """Kinyeri a legnagyobb hetet a 'wXX' formátumú szövegekből."""
     try:
-        # Itt használjuk a SHEET_ID_MASTER-t
         sheet = client.open_by_key(sheet_id).worksheet("Master_Adatbazis")
+        # Feltételezzük, hogy az "Etel_Kod" oszlopban vannak ezek a szövegek
         data = sheet.get_all_records()
-        if not data: return 2026, 0
         df = pd.DataFrame(data)
-        latest_year = df['Ev'].max()
-        latest_week = df[df['Ev'] == latest_year]['Het'].max()
-        return int(latest_year), int(latest_week)
+        
+        # Kigyűjtjük az összes w-vel kezdődő számot az adott oszlopból
+        all_weeks = []
+        for cell_content in df['Etel_Kod'].astype(str):
+            weeks = re.findall(r'w(\d+)', cell_content)
+            all_weeks.extend([int(w) for w in weeks])
+            
+        if not all_weeks:
+            return 2026, 0
+            
+        return 2026, max(all_weeks)
     except Exception as e:
-        logger.error(f"Hiba a hét lekérdezésekor: {e}")
         return 2026, 0
 
 # ==============================================================================

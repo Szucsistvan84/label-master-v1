@@ -2953,28 +2953,29 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
         total_money += subtotal
 
         # === KATEGÓRIA ÉS SORREND KINYERÉSE AZ ÚJ TÁBLÁZATBÓL ===
-        # Csillag-mentesítjük és tisztítjuk a rendelésből jövő kódot a kereséshez (pl. "R3K*" -> "R3K")
-        tiszta_rendeles_kod = code_label.replace('*', '').strip().upper()
+        # A rendelés kódjából (pl. "R3K*") lefejtjük a csillagot és a szóközöket,
+        # így megkapjuk pontosan azt a tiszta 'kod'-ot, amit az Etlap_API-nál is használtunk!
+        keresett_kod = code_label.replace('*', '').strip().upper()
 
-        # Alapértelmezett beállítás (ha alkalmi / új étel jön szembe)
+        # Alapértelmezett beállítás, ha egy alkalmi étel nincs benne a Master listában
         kat_nev = 'Szezonális ételek'
         kat_sorszam = 99
 
-        # Megkeressük a tisztított kód alapján a kategóriát a Sheets-ből
+        # Karakterpontos egyezés keresése az Etlap fülről beolvasott szótár kulcsaival
+        # (A biztonság kedvéért a szótár kulcsait is tisztítva vetjük össze)
         for sheets_cikkszam, adatok in kategoria_adatok.items():
-            tiszta_sheets_kod = sheets_cikkszam.replace('*', '').strip().upper()
+            tiszta_sheets_kod = str(sheets_cikkszam).strip().upper()
             
-            if tiszta_rendeles_kod == tiszta_sheets_kod:
+            if keresett_kod == tiszta_sheets_kod:
                 kat_nev = adatok['kategoria']
                 kat_sorszam = adatok['sorrend']
-                break
-        
+                break  # Megvan a pontos egyezés, kilépünk a keresésből
+
         kategoria_sorrendek[kat_nev] = kat_sorszam
         
         if kat_nev not in kategoria_csoportok:
             kategoria_csoportok[kat_nev] = []
             
-        # Elmentjük a tétel adatait (megőrizve a csillagot a code_label-ben a kiemeléshez!)
         kategoria_csoportok[kat_nev].append({
             'day': day_long,
             'code': code_label,

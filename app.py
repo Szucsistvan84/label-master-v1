@@ -102,13 +102,19 @@ def get_latest_week_from_master(sheet_id):
     """Kinyeri a legnagyobb hetet a 'wXX' formátumú szövegekből."""
     try:
         sheet = client.open_by_key(sheet_id).worksheet("Master_Adatbazis")
-        # Feltételezzük, hogy az "Etel_Kod" oszlopban vannak ezek a szövegek
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
         
-        # Kigyűjtjük az összes w-vel kezdődő számot az adott oszlopból
+        # 🟢 EZT ÍRD ÁT A PONTOS OSZLOPNEVEDRE!
+        oszlop_nev = "Kódok és Árak" 
+        
+        if oszlop_nev not in df.columns:
+            # Ha ezt látod a képernyőn, akkor nem egyezik a név
+            st.error(f"Hiba: Az oszlop '{oszlop_nev}' nem található. Elérhetőek: {df.columns.tolist()}")
+            return 2026, 0
+
         all_weeks = []
-        for cell_content in df['Etel_Kod'].astype(str):
+        for cell_content in df[oszlop_nev].astype(str):
             weeks = re.findall(r'w(\d+)', cell_content)
             all_weeks.extend([int(w) for w in weeks])
             
@@ -117,8 +123,10 @@ def get_latest_week_from_master(sheet_id):
             
         return 2026, max(all_weeks)
     except Exception as e:
+        # 🟢 Hogy lásd a valódi hibát (pl. engedélyezési hiba), írassuk ki:
+        st.error(f"Hiba történt: {e}")
         return 2026, 0
-
+        
 # ==============================================================================
 # 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (MAXIMÁLIS KVÓTAVÉDELEMMEL)
 # ==============================================================================

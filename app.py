@@ -3111,29 +3111,45 @@ def main():
 # 2. OLDALSÁV (SIDEBAR)
     with st.sidebar:
         st.header("⚙️ Kezelés")
+        
+        # Ez mindenki számára látható
         st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
         st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
-        # --- ÚJ DÁTUMVÁLASZTÓ ---
         kivalasztott_datum = st.date_input("📅 Kiszállítás dátuma (Névnaphoz)")
         
         st.divider()
 
-        # --- ADMIN FUNKCIÓK (Master Adatbázis Építése) ---
-        with st.expander("🛠 Adminisztráció"):
-            st.write("Master Adatbázis Karbantartás")
-            target_year = st.number_input("Év", min_value=2024, max_value=2030, value=2026)
-            start_w = st.number_input("Kezdő hét", min_value=1, max_value=52, value=1)
-            end_w = st.number_input("Záró hét", min_value=1, max_value=52, value=17)
+        # 🟢 ADMINISZTRÁCIÓS SZAKASZ (Csak jogosultaknak)
+        if check_user_role() in ["admin", "superadmin"]:
+            st.subheader("🛡️ Adminisztráció")
+            
+            with st.expander("🛠 Master Adatbázis Karbantartás"):
+                target_year = st.number_input("Év", min_value=2024, max_value=2030, value=2026)
+                start_w = st.number_input("Kezdő hét", min_value=1, max_value=52, value=1)
+                end_w = st.number_input("Záró hét", min_value=1, max_value=52, value=17)
+                if st.button("🚀 Master Adatbázis Építése"):
+                    with st.spinner("Szinkronizálás..."):
+                        sync_master_database(SHEET_ID, target_year, start_w, end_w)
+                        st.success("Kész!")
 
-            if st.button("🚀 Master Adatbázis Építése"):
-                with st.spinner("Adatok gyűjtése az API-ról és rendszerezés..."):
-                    # Ez a függvény fogja feltölteni a Master_Adatbazis lapot
-                    sync_master_database(SHEET_ID, target_year, start_w, end_w)
+            with st.expander("👤 Felhasználó Kezelés"):
+                st.info("Itt tudod majd kezelni a futárokat.")
 
-        st.divider()
-        
+            with st.expander("💻 Fejlesztői eszközök"):
+                if st.button("Log fájl mutatása", use_container_width=True):
+                    if os.path.exists(LOG_FILE):
+                        with open(LOG_FILE, "r", encoding="utf-8") as f:
+                            st.text_area("Naplóbejegyzések", "".join(f.readlines()[-100:]), height=200)
+                if st.button("🗑️ Log törlése", use_container_width=True):
+                    if os.path.exists(LOG_FILE):
+                        os.remove(LOG_FILE)
+                        st.success("Napló törölve.")
+            
+            st.divider()
+
         # --- ÚJ PDF-EK FELDOLGOZÁSA ---
-        meta_auto = {} 
+        # Ezt eldöntheted: Ha csak az Admin tölthet fel PDF-et, akkor ezt is tedd az 
+        # if check_user_role() blokkon belülre!
         st.subheader("📄 Új PDF-ek")
         up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
         

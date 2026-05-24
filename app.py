@@ -2912,11 +2912,12 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     right_style = ParagraphStyle('R', fontName=f_reg, fontSize=7, leading=8.5, alignment=2)
     right_bold_style = ParagraphStyle('R', fontName=f_bold, fontSize=7, leading=8.5, alignment=2)
 
-    # SZÉP VEKTOROS CHECKBOX RAJZOLÁSA (Mint a menetterven)
+    # SZÉP VEKTOROS CHECKBOX RAJZOLÁSA (Javított verzió)
     def get_checkbox():
         d = Drawing(10, 10)
         d.hAlign = 'CENTER'
-        d.vAlign = 'MIDDLE'
+        # d.vAlign = 'MIDDLE'  <--- EZT A SORT TÖRÖLD KI VAGY KOMMENTELD KI!
+        
         # Rajzolunk egy 8x8 mm-es négyzetet vékony fekete szegéllyel, fehér belsővel
         from reportlab.graphics.shapes import Rect
         d.add(Rect(1, 1, 8, 8, fillColor=colors.white, strokeColor=colors.HexColor('#555555'), strokeWidth=0.6))

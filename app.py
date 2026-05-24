@@ -3034,13 +3034,11 @@ def main():
     view = query_params.get("view", None)
     url_jarat = query_params.get("jarat", "")
 
-    # 2. Ha a parancsikon miatt nincs megadva a 'view' a linkben
+    # 2. OKOSÍTÁS: Ha a parancsikon miatt nincs megadva a 'view' a linkben
     if view is None:
-        # Ha van betöltött adat, akkor ez az asztali admin gép
         if 'edited_df' in st.session_state:
             view = "desktop"
         else:
-            # Ha nincs adat, akkor a futár jön a parancsikonról
             st.markdown("### 📱 Interfood Futár Terminál")
             st.info("A parancsikonról indítottad az alkalmazást.")
             
@@ -3053,7 +3051,10 @@ def main():
                 if st.button("Asztali verzió megnyitása"):
                     st.query_params.update(view="desktop")
                     st.rerun()
-            return # <--- Ez leállítja a függvényt, HA a futár nézet él parancsikonból
+            return
+
+    # === EZT AZ ÚJ SORT ADD HOZZÁ KÖZVETLENÜL A WITH ST.SPINNER ELÉ: ===
+    is_mobile_view = (view == "mobile")
 
     # 🟢 ALVÓ MÓD / RENDSZERÉBRESZTÉS ELLENŐRZÉSE
     with st.spinner("⏳ A Label Master rendszer ébredezik és kapcsolódik a szerverhez... Kérjük, várjon egy pillanatot!"):

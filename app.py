@@ -3034,14 +3034,13 @@ def main():
     view = query_params.get("view", None)
     url_jarat = query_params.get("jarat", "")
 
-    # 2. OKOSÍTÁS: Ha a parancsikon miatt nincs megadva a 'view' a linkben
+    # 2. Ha a parancsikon miatt nincs megadva a 'view' a linkben
     if view is None:
-        # Ha van betöltött adat a munkamenetben, akkor ez az asztali admin gép
+        # Ha van betöltött adat, akkor ez az asztali admin gép
         if 'edited_df' in st.session_state:
             view = "desktop"
         else:
-            # Ha nincs adat, akkor a futár nyitotta meg a parancsikonról!
-            # Mutassunk neki egy tiszta, hatalmas mobil választógombot
+            # Ha nincs adat, akkor a futár jön a parancsikonról
             st.markdown("### 📱 Interfood Futár Terminál")
             st.info("A parancsikonról indítottad az alkalmazást.")
             
@@ -3050,16 +3049,11 @@ def main():
                 st.rerun()
                 
             st.write("---")
-            # Megengedjük az adminnak is, hogy belépjen, ha mégis ő lenne az
             with st.expander("💻 Adminisztrátori belépés (Asztali nézet)"):
                 if st.button("Asztali verzió megnyitása"):
                     st.query_params.update(view="desktop")
                     st.rerun()
-            return # Leállítjuk a futást, hogy ne töltsön be mögé üres asztali táblázatot
-
-    # 3. Innentől a kódod fut tovább változatlanul...
-    if view == "mobile":
-        # Ide jön a mobil terminálod (mobil_terminal(url_jarat) stb.)
+            return # <--- Ez leállítja a függvényt, HA a futár nézet él parancsikonból
 
     # 🟢 ALVÓ MÓD / RENDSZERÉBRESZTÉS ELLENŐRZÉSE
     with st.spinner("⏳ A Label Master rendszer ébredezik és kapcsolódik a szerverhez... Kérjük, várjon egy pillanatot!"):

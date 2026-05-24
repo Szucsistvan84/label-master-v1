@@ -3165,7 +3165,7 @@ def main():
                     df_temp = merge_data(all_rows)
                     with st.spinner("Ügyféladatok szinkronizálása..."):
                         
-                        mentett_meta = st.session_state.get('meta_data', None) # 🟢 JAVÍTÁS: Nálad 'meta_data' a kulcs neve a session_state-ben!
+                        mentett_meta = st.session_state.get('meta_data', None)
                         if mentett_meta and isinstance(mentett_meta, dict) and mentett_meta.get('jaratok'):
                             tartalek_jarat = mentett_meta['jaratok'][0]
                         else:
@@ -3174,13 +3174,11 @@ def main():
                         # Elindítjuk a szinkront, a háttérben már a soronkénti egyedi járatok mentődnek!
                         df_temp, m_df_friss = master_lista_szinkron(df_temp, UGYFELKOR_SHEET_ID, client, jarat_szam=tartalek_jarat)
                         
-                        # 🔥 BEÉGETJÜK A FRISS, FELDOLGOZOTT PDF ADATOT A MEGJELENÍTŐHÖZ:
-                        st.session_state.master_df = m_df_friss
-                        st.session_state.ugyfelkor_df = m_df_friss
-                        st.session_state.mdf = df_temp # Ez a konkrét napi feldolgozott táblázat!
-                        
-                        # 🚩 JELZŐ: Megmondjuk az appnak, hogy van friss adatunk, ne írja felül az indítási váz!
-                        st.session_state.feldolgozas_sikeres = True
+                    # 🏁 ITT KILÉPTÜNK A SPINNERBŐL (16 szóköz behúzás, egy vonalban a "with st.spinner"-el)
+                    st.session_state.master_df = m_df_friss
+                    st.session_state.mdf = df_temp            # A konkrét napi feldolgozott táblázat
+                    st.session_state.ugyfelkor_df = df_temp    # 🔥 EZ KELL AZ ADMIN MEGJELENÍTÉSHEZ!
+                    st.session_state.feldolgozas_sikeres = True
                     
                     # 🟢 AUTOMATIKUS HELYETTESÍTŐ MÓD AKTIVÁLÁSA:
                     if 'Járat' in df_temp.columns:

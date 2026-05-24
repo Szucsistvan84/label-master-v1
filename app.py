@@ -3174,28 +3174,25 @@ def main():
                         
                         # Elindítjuk a szinkront, a háttérben már a soronkénti egyedi járatok mentődnek!
                         df_temp, m_df_friss = master_lista_szinkron(df_temp, UGYFELKOR_SHEET_ID, client, jarat_szam=tartalek_jarat)
-                        st.session_state.master_df = m_df_friss
-                        st.session_state.ugyfelkor_df = m_df_friss  # 🔥 EZ AZ ÚJ SOR, AMI A MEGJELENÍTÉSHEZ KELL!
                         
-                        # 🚩 EXTRA BIZTONSÁGI JELZŐ: Megmondjuk az appnak, hogy most lett kész a feldolgozás
+                        # 🔥 BEÉGETJÜK A FRISS, FELDOLGOZOTT PDF ADATOT A MEGJELENÍTŐHÖZ:
+                        st.session_state.master_df = m_df_friss
+                        st.session_state.ugyfelkor_df = m_df_friss
+                        st.session_state.mdf = df_temp # Ez a konkrét napi feldolgozott táblázat!
+                        
+                        # 🚩 JELZŐ: Megmondjuk az appnak, hogy van friss adatunk, ne írja felül az indítási váz!
                         st.session_state.feldolgozas_sikeres = True
                     
-                    st.session_state.mdf = df_temp
-                    
                     # 🟢 AUTOMATIKUS HELYETTESÍTŐ MÓD AKTIVÁLÁSA:
-                    # Kigyűjtjük, milyen egyedi járatok jöttek ki a frissen feldolgozott PDF-ekből
                     if 'Járat' in df_temp.columns:
                         feltoltott_jaratok = df_temp['Járat'].dropna().astype(str).str.strip().unique().tolist()
-                        # Kiszűrjük az üres vagy hibás értékeket
                         feltoltott_jaratok = [j for j in feltoltott_jaratok if j != "" and j.lower() != 'nan']
-                        
                         if feltoltott_jaratok:
-                            # Elmentjük az aktív járatok listájába az összeset (pl. ['4002', '4003'])
                             st.session_state.aktiv_jaratok = feltoltott_jaratok
                     
                     st.success("🎉 A menettervek feldolgozása és a felhő szinkronizáció sikeresen megtörtént!")
                     import time
-                    time.sleep(0.8)  # Kicsit több idő, hogy biztosan lásd a zöld üzenetet villanni!
+                    time.sleep(0.8)
                     st.rerun()
 
         st.divider() 

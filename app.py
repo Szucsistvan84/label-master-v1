@@ -3010,13 +3010,16 @@ def main():
                     if talalt_futar:
                         st.session_state.bejelentkezve = True
                         st.session_state.user_nev = talalt_futar.get('Név', 'Ismeretlen felhasználó')
-                        st.session_state.user_jarat = str(talalt_futar.get('Járat', talalt_futar.get('Jarat', ''))).strip()
+                        
+                        # --- MÓDOSÍTÁS: Egyetlen string helyett listát inicializálunk ---
+                        alap_jarat = str(talalt_futar.get('Járat', talalt_futar.get('Jarat', ''))).strip()
+                        st.session_state.user_jarat_lista = [alap_jarat] 
+                        # ---------------------------------------------------------------
+                        
                         st.session_state.user_szerep = str(talalt_futar.get('Szerep', 'futar')).strip().lower()
                         
                         st.success(f"Sikeres belépés! Üdvözlünk, {st.session_state.user_nev}!")
                         st.rerun()
-                    else:
-                        st.error("❌ Hibás járatszám vagy jelszó! A hozzáférés megtagadva.")
                         
         return # Megállítja a main()-t, így semmi más nem renderelődik ki mögé!
     

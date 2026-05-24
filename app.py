@@ -3494,6 +3494,36 @@ def main():
             c2.download_button("📋 MENETTERV", create_manifest_pdf(edited_df, st.session_state.c_n, meta), "menetterv.pdf", use_container_width=True)
             c3.download_button("📊 RAKLISTA", create_raklista_pdf(edited_df, aktualis_jaratok, meta), "raklista.pdf", use_container_width=True)
 
-
+            # --- QR-KÓD GENERÁLÁS A MOBIL NÉZETHEZ ---
+            st.write("---")
+            st.subheader("📱 Mobil Terminál Indítása")
+            
+            # TODO: Cseréld ki a saját .streamlit.app címedre, ha élesítetted!
+            alap_url = "https://A-TE-APPD-NEVE.streamlit.app" 
+            mobil_link = f"{alap_url}/?view=mobile"
+            
+            import qrcode
+            from io import BytesIO
+            
+            qr = qrcode.QRCode(version=1, box_size=10, border=4)
+            qr.add_data(mobil_link)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            byte_im = buf.getvalue()
+            
+            qr_col1, qr_col2 = st.columns([2, 1])
+            with qr_col1:
+                st.markdown(f"""
+                💡 **Szkenneld be ezt a QR-kódot a telefonoddal**, hogy megnyisd a **Futár Terminált**!
+                * Automatikusan a mobilra optimalizált nézet fog megnyílni.
+                * A futár azonnal eléri az áruátvételt és a ládázást.
+                * Direkt link: [{mobil_link}]({mobil_link})
+                """)
+            with qr_col2:
+                st.image(byte_im, caption="Szkenneld be a mobil nézethez", width=180)
+                
 if __name__ == "__main__":
     main()

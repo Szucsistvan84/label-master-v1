@@ -3289,7 +3289,7 @@ if "mdf" in st.session_state and st.session_state.mdf is not None and not st.ses
         # 🚚 FUTÁR FELÜLET: Ők automatikusan CSAK a saját járatukat látják és rendezhetik
         futar_jarata = st.session_state.get('user_jarat', '4002')
         
-        df_to_edit = st.session_state.mdf[st.session_state.mdf['Járar'] == futar_jarata].copy()
+        df_to_edit = st.session_state.mdf[st.session_state.mdf['Járat'] == futar_jarata].copy()
         final_column_order = [col for col in df_to_edit.columns if col != 'temp_id']
         
         if df_to_edit.empty:

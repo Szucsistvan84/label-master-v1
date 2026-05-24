@@ -3169,7 +3169,7 @@ def main():
         
         st.divider()
 
-# 🟢 ADMINISZTRÁCIÓS SZAKASZ (Csak jogosultaknak)
+        # 🟢 ADMINISZTRÁCIÓS SZAKASZ (Csak jogosultaknak)
         if check_user_role() in ["admin", "superadmin"]:
             st.subheader("🛡️ Adminisztrációs Központ")
             
@@ -3202,17 +3202,29 @@ def main():
                 if 'futar_df' not in st.session_state:
                     st.session_state.futar_df = load_futar_from_sheets(SHEET_ID_UGYFELKOR)
 
-                # Interaktív táblázat
+                # Interaktív táblázat a te oszlopneveiddel
                 edited_df = st.data_editor(
                     st.session_state.futar_df,
+                    column_config={
+                        "Szerep": st.column_config.SelectboxColumn(
+                            "Szerep",
+                            help="A felhasználó jogosultsági szintje",
+                            options=["futar", "admin", "superadmin"], # Itt adhatsz hozzá superadmin-t
+                            required=True,
+                        ),
+                        "PIN_Kod": st.column_config.TextColumn(
+                            "PIN_Kod",
+                            help="Belépési kód",
+                        )
+                    },
                     use_container_width=True,
                     num_rows="dynamic"
                 )
 
                 if st.button("💾 Módosítások mentése"):
-                    with st.spinner("Mentés..."):
+                    with st.spinner("Mentés a Google Sheet-be..."):
                         if save_futar_to_sheets(edited_df, SHEET_ID_UGYFELKOR):
-                            st.session_state.futar_df = edited_df # Frissítjük a state-et is
+                            st.session_state.futar_df = edited_df
                             st.success("Sikeres mentés!")
                         else:
                             st.error("Hiba történt a mentés során.")

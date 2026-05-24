@@ -2953,16 +2953,28 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
         total_money += subtotal
 
         # === KATEGÓRIA ÉS SORREND KINYERÉSE AZ ÚJ TÁBLÁZATBÓL ===
-        # Megnézzük a tiszta cikkszám alapján (pl. SP1, L1)
-        kat_info = kategoria_adatok.get(keresett_kod, {'kategoria': 'Egyéb / Zóna ételek', 'sorrend': 99})
-        kat_nev = kat_info['kategoria']
-        kat_sorszam = kat_info['sorrend']
+        # Csillag-mentesítjük és tisztítjuk a rendelésből jövő kódot a kereséshez (pl. "R3K*" -> "R3K")
+        tiszta_rendeles_kod = code_label.replace('*', '').strip().upper()
+
+        # Alapértelmezett beállítás (ha alkalmi / új étel jön szembe)
+        kat_nev = 'Szezonális ételek'
+        kat_sorszam = 99
+
+        # Megkeressük a tisztított kód alapján a kategóriát a Sheets-ből
+        for sheets_cikkszam, adatok in kategoria_adatok.items():
+            tiszta_sheets_kod = sheets_cikkszam.replace('*', '').strip().upper()
+            
+            if tiszta_rendeles_kod == tiszta_sheets_kod:
+                kat_nev = adatok['kategoria']
+                kat_sorszam = adatok['sorrend']
+                break
         
         kategoria_sorrendek[kat_nev] = kat_sorszam
         
         if kat_nev not in kategoria_csoportok:
             kategoria_csoportok[kat_nev] = []
             
+        # Elmentjük a tétel adatait (megőrizve a csillagot a code_label-ben a kiemeléshez!)
         kategoria_csoportok[kat_nev].append({
             'day': day_long,
             'code': code_label,

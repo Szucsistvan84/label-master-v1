@@ -3202,19 +3202,21 @@ def main():
                 if 'futar_df' not in st.session_state:
                     st.session_state.futar_df = load_futar_from_sheets(SHEET_ID_UGYFELKOR)
 
-                # Interaktív táblázat a te oszlopneveiddel
+                # 🟢 KÉNYSZERÍTÉS: Minden adatot kezeljünk szövegként, hogy biztosan szerkeszthető legyen
+                df_to_edit = st.session_state.futar_df.astype(str)
+
+                # Interaktív táblázat
                 edited_df = st.data_editor(
-                    st.session_state.futar_df,
+                    df_to_edit,
                     column_config={
                         "Szerep": st.column_config.SelectboxColumn(
                             "Szerep",
-                            help="A felhasználó jogosultsági szintje",
-                            options=["futar", "admin", "superadmin"], # Itt adhatsz hozzá superadmin-t
+                            options=["futar", "admin", "superadmin"],
                             required=True,
                         ),
                         "PIN_Kod": st.column_config.TextColumn(
                             "PIN_Kod",
-                            help="Belépési kód",
+                            required=True
                         )
                     },
                     use_container_width=True,
@@ -3222,12 +3224,14 @@ def main():
                 )
 
                 if st.button("💾 Módosítások mentése"):
-                    with st.spinner("Mentés a Google Sheet-be..."):
+                    with st.spinner("Mentés..."):
+                        # A mentés előtt konvertáljuk vissza, ha szükséges
                         if save_futar_to_sheets(edited_df, SHEET_ID_UGYFELKOR):
                             st.session_state.futar_df = edited_df
                             st.success("Sikeres mentés!")
+                            st.rerun()
                         else:
-                            st.error("Hiba történt a mentés során.")
+                            st.error("Hiba történt.")
 
             # 4. Fejlesztői eszközök
             with st.expander("💻 Fejlesztői eszközök"):

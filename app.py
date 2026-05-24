@@ -3025,14 +3025,25 @@ def main():
     
     # Felhasználói státusz panel az oldalsáv tetejére (Sikeres belépés után)
     st.sidebar.markdown(f"### 👤 {st.session_state.user_nev}")
+    
     if st.session_state.user_szerep == "admin":
         st.sidebar.success("⭐ Adminisztrátor Mód")
     else:
-        st.sidebar.caption(f"🚚 Járathoz rendelve: {st.session_state.user_jarat}")
+        # --- MÓDOSÍTÁS: A lista elemeit írjuk ki szépen egymás alá ---
+        if 'user_jarat_lista' in st.session_state and st.session_state.user_jarat_lista:
+            jaratok_szoveg = ", ".join(st.session_state.user_jarat_lista)
+            st.sidebar.caption(f"🚚 Aktív járatok: {jaratok_szoveg}")
+        else:
+            st.sidebar.caption("🚚 Nincs járat hozzárendelve")
+        # -----------------------------------------------------------
         
     if st.sidebar.button("🚪 Kijelentkezés"):
         st.session_state.bejelentkezve = False
+        # Ne felejtsd el kitörölni a listát is kijelentkezéskor!
+        if 'user_jarat_lista' in st.session_state:
+            del st.session_state.user_jarat_lista
         st.rerun()
+        
     # --- 🔐 BIZTONSÁGOS KÉTTÉNYEZŐS BELÉPTETŐ RENDSZER END ---
     
     # 1. Globális elérés a gspread kliensnek

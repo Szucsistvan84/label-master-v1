@@ -94,10 +94,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- GOOGLE SHEETS KONFIGURÁCIÓ ---
-# 1. Ételek, árak, névnapok (Interfood_Master_Data)
 SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
-# 2. Ügyfélkör és rendelési adatok (Etikett_Ugyfelkor_DB)
 SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
+
+# --- ADATBÁZIS SEGÉDFÜGGVÉNYEK ---
+def get_latest_week_from_master(sheet_id):
+    """Lekéri a Google Sheet-ből a legutolsó betöltött hetet."""
+    try:
+        # Itt használjuk a SHEET_ID_MASTER-t
+        sheet = client.open_by_key(sheet_id).worksheet("Master_Adatbazis")
+        data = sheet.get_all_records()
+        if not data: return 2026, 0
+        df = pd.DataFrame(data)
+        latest_year = df['Ev'].max()
+        latest_week = df[df['Ev'] == latest_year]['Het'].max()
+        return int(latest_year), int(latest_week)
+    except Exception as e:
+        logger.error(f"Hiba a hét lekérdezésekor: {e}")
+        return 2026, 0
 
 # ==============================================================================
 # 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (MAXIMÁLIS KVÓTAVÉDELEMMEL)

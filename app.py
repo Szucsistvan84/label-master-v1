@@ -3224,46 +3224,41 @@ def main():
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
         
-        # 🧬 ADATVÉDELMI FÁL START (Ez már az IF-en belül van, ezért beljebb kezdődik!)
-        if st.session_state.user_szerep == "futar":
-            if 'Járat' in st.session_state.mdf.columns:
-                # Ez még beljebb van, mert az újabb IF-en belül helyezkedik el!
-                st.session_state.mdf = st.session_state.mdf[st.session_state.mdf['Járat'] == st.session_state.user_jarat].copy()
+        # 🟢 JOGOSULTSÁG ÉS NÉZET GENERÁLÁSA
+        # Az eredeti st.session_state.mdf érintetlen marad!
+        role = check_user_role()
+        df_view = st.session_state.mdf.copy()
+
+        # Szűrés a nézeten
+        if role == "futar":
+            if 'Járat' in df_view.columns:
+                df_view = df_view[df_view['Járat'].astype(str) == str(st.session_state.user_jarat)].copy()
+        
+        # Adminnál hagyjuk az összeset, vagy alkalmazzuk a szűrőt (ezt később bővíthetjük)
+        
+        if df_view.empty:
+            st.warning(f"✉️ Kedves {st.session_state.user_nev}! A mai napra nincsenek aktív címeid.")
+        else:
+            # 🟢 TISZTÍTÁS ÉS OSZLOPREND (df_view-n dolgozunk!)
+            if 'Sorrend' not in df_view.columns:
+                df_view['Sorrend'] = range(1, len(df_view) + 1)
             
-            if st.session_state.mdf.empty:
-                st.warning(f"✉️ Kedves {st.session_state.user_nev}! A mai napra nincsenek aktív címeid.")
-        # 🧬 ADATVÉDELMI FÁL END
+            df_view['Sorrend'] = pd.to_numeric(df_view['Sorrend'], errors='coerce').fillna(999.0).astype(float)
+
+            for col in df_view.columns:
+                if col != 'Sorrend':
+                    df_view[col] = df_view[col].astype(str).replace(['nan', 'None', '<NA>', '0.0', '0'], '')
+
+            df_view = df_view.sort_values(by='Sorrend').reset_index(drop=True)
+
+            preferred_order = ["Sorrend", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Csoport", "Megjegyzés", "temp_id"]
+            actual_cols = df_view.columns.tolist()
+            final_column_order = [c for c in preferred_order if c in actual_cols] + [c for c in actual_cols if c not in preferred_order]
+            df_view = df_view[final_column_order]
         
-        # --- 1. ADATOK ELŐKÉSZÍTÉSE ÉS TISZTÍTÁSA ---
-        # Ez a sor pontosan egy vonalba esik az Adatvédelmi fal "if st.session_state.user_szerep..." sorával!
-        df_to_edit = st.session_state.mdf.copy()
-
-        if 'Sorrend' not in df_to_edit.columns:
-            df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
-        # Biztosítjuk a Sorrend létezését és típusát
-        if 'Sorrend' not in df_to_edit.columns:
-            df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
-        
-        # Kényszerített numerikus típus (tizedesek miatt float)
-        df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999.0).astype(float)
-
-        # MINDEN OSZLOP TISZTÍTÁSA (A Streamlit hiba elkerülése érdekében)
-        # Ez a rész biztosítja, hogy ne maradjon "mixed type" vagy rejtett NaN objektum
-        for col in df_to_edit.columns:
-            if col != 'Sorrend': # A Sorrend maradjon float
-                df_to_edit[col] = df_to_edit[col].astype(str).replace(['nan', 'None', '<NA>', '0.0', '0'], '')
-
-        # Rendezés a megjelenítés előtt
-        df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
-
-        # --- 2. OSZLOPREND MEGHATÁROZÁSA ---
-        preferred_order = ["Sorrend", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Csoport", "Megjegyzés", "temp_id"]
-        actual_cols = df_to_edit.columns.tolist()
-        final_column_order = [c for c in preferred_order if c in actual_cols]
-        final_column_order += [c for c in actual_cols if c not in final_column_order]
-    
-        st.subheader("Szállítási lista")
-        
+            st.subheader("Szállítási lista")
+            st.dataframe(df_view, use_container_width=True)
+                    
         # --- 3. MEGJELENÍTÉS ---
         # FONTOS: Itt NEM szabad újra leírni a df_to_edit = st.session_state.mdf.copy() sort!
         

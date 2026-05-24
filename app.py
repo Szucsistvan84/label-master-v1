@@ -3133,22 +3133,39 @@ def main():
         
         st.divider()
 
-        # 🟢 ADMINISZTRÁCIÓS SZAKASZ (Csak jogosultaknak)
+# 🟢 ADMINISZTRÁCIÓS SZAKASZ (Csak jogosultaknak)
         if check_user_role() in ["admin", "superadmin"]:
-            st.subheader("🛡️ Adminisztráció")
+            st.subheader("🛡️ Adminisztrációs Központ")
             
+            # 1. ÉTLAP ÁLLAPOT FIGYELŐ
+            # Itt hívjuk meg a függvényt, amit a konfigurációs részben definiáltunk
+            ev_most, het_most = get_latest_week_from_master(SHEET_ID_MASTER)
+            
+            if het_most < 24: # Itt a cél hét (pl. 24)
+                st.error(f"⚠️ Étlap figyelmeztetés: Csak a **{het_most}. hétig** van feltöltve!")
+                if st.button("🔄 Master Frissítése a 24. hétig"):
+                    with st.spinner("Szinkronizálás folyamatban..."):
+                        sync_master_database(SHEET_ID_MASTER, 2026, het_most + 1, 24)
+                        st.success("Sikeres frissítés!")
+                        st.rerun()
+            else:
+                st.success(f"✅ Étlapok naprakészek ({het_most}. hétig betöltve).")
+
+            # 2. Master Adatbázis Karbantartás
             with st.expander("🛠 Master Adatbázis Karbantartás"):
                 target_year = st.number_input("Év", min_value=2024, max_value=2030, value=2026)
                 start_w = st.number_input("Kezdő hét", min_value=1, max_value=52, value=1)
                 end_w = st.number_input("Záró hét", min_value=1, max_value=52, value=17)
                 if st.button("🚀 Master Adatbázis Építése"):
                     with st.spinner("Szinkronizálás..."):
-                        sync_master_database(SHEET_ID, target_year, start_w, end_w)
+                        sync_master_database(SHEET_ID_MASTER, target_year, start_w, end_w)
                         st.success("Kész!")
 
+            # 3. Felhasználó Kezelés
             with st.expander("👤 Felhasználó Kezelés"):
                 st.info("Itt tudod majd kezelni a futárokat.")
 
+            # 4. Fejlesztői eszközök
             with st.expander("💻 Fejlesztői eszközök"):
                 if st.button("Log fájl mutatása", use_container_width=True):
                     if os.path.exists(LOG_FILE):

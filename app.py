@@ -3029,9 +3029,37 @@ def main():
     SHEET_ID_MASTER = SHEET_ID # Biztonsági másolat, ha a kódod máshol így hivatkozik rá
     SHEET_ID_UGYFELKOR = UGYFELKOR_SHEET_ID
 
-    # 3. URL Paraméterek lekérése a legtetején a QR-kódos mobil nézethez
+    # 1. Lekérjük a linkből a paramétereket
     query_params = st.query_params
-    is_mobile_view = query_params.get("view") == "mobile"
+    view = query_params.get("view", None)
+    url_jarat = query_params.get("jarat", "")
+
+    # 2. OKOSÍTÁS: Ha a parancsikon miatt nincs megadva a 'view' a linkben
+    if view is None:
+        # Ha van betöltött adat a munkamenetben, akkor ez az asztali admin gép
+        if 'edited_df' in st.session_state:
+            view = "desktop"
+        else:
+            # Ha nincs adat, akkor a futár nyitotta meg a parancsikonról!
+            # Mutassunk neki egy tiszta, hatalmas mobil választógombot
+            st.markdown("### 📱 Interfood Futár Terminál")
+            st.info("A parancsikonról indítottad az alkalmazást.")
+            
+            if st.button("🚀 TERMINÁL INDÍTÁSA", use_container_width=True, type="primary"):
+                st.query_params.update(view="mobile")
+                st.rerun()
+                
+            st.write("---")
+            # Megengedjük az adminnak is, hogy belépjen, ha mégis ő lenne az
+            with st.expander("💻 Adminisztrátori belépés (Asztali nézet)"):
+                if st.button("Asztali verzió megnyitása"):
+                    st.query_params.update(view="desktop")
+                    st.rerun()
+            return # Leállítjuk a futást, hogy ne töltsön be mögé üres asztali táblázatot
+
+    # 3. Innentől a kódod fut tovább változatlanul...
+    if view == "mobile":
+        # Ide jön a mobil terminálod (mobil_terminal(url_jarat) stb.)
 
     # 🟢 ALVÓ MÓD / RENDSZERÉBRESZTÉS ELLENŐRZÉSE
     with st.spinner("⏳ A Label Master rendszer ébredezik és kapcsolódik a szerverhez... Kérjük, várjon egy pillanatot!"):

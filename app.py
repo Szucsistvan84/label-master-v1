@@ -1334,6 +1334,28 @@ def get_gender_and_nevnap(full_name, nevnapok_df, keresztnevek_df, target_date):
             return f"{ikon} Boldog névnapot, {part}! {ikon}"
     return None
 
+def load_futar_from_sheets(sheet_id):
+    """Betölti a futárok adatait a Google Sheet 'Futárok' lapjáról."""
+    try:
+        sheet = client.open_by_key(sheet_id).worksheet("Futárok")
+        data = sheet.get_all_records()
+        return pd.DataFrame(data)
+    except Exception as e:
+        logger.error(f"Hiba a futárok betöltésekor: {e}")
+        return pd.DataFrame()
+
+def save_futar_to_sheets(df, sheet_id):
+    """Visszamenti a módosított futár adatokat a Google Sheet 'Futárok' lapjára."""
+    try:
+        sheet = client.open_by_key(sheet_id).worksheet("Futárok")
+        sheet.clear()
+        # Az adatok visszaírása
+        sheet.update([df.columns.values.tolist()] + df.values.tolist())
+        return True
+    except Exception as e:
+        logger.error(f"Hiba a futárok mentésekor: {e}")
+        return False
+
 def sync_master_database(sheet_id, ev, start_het, end_het):
     """
     Végigfut a heteken, beolvassa a meglévő Master adatokat, 

@@ -3175,6 +3175,7 @@ def main():
                         # Elindítjuk a szinkront, a háttérben már a soronkénti egyedi járatok mentődnek!
                         df_temp, m_df_friss = master_lista_szinkron(df_temp, UGYFELKOR_SHEET_ID, client, jarat_szam=tartalek_jarat)
                         st.session_state.master_df = m_df_friss
+                        st.session_state.ugyfelkor_df = m_df_friss  # 🔥 EZ AZ ÚJ SOR, AMI A MEGJELENÍTÉSHEZ KELL!
                     
                     st.session_state.mdf = df_temp
                     
@@ -3190,6 +3191,8 @@ def main():
                             st.session_state.aktiv_jaratok = feltoltott_jaratok
                     
                     st.success("🎉 A menettervek feldolgozása és a felhő szinkronizáció sikeresen megtörtént!")
+                    import time
+                    time.sleep(0.5)
                     st.rerun()
 
         st.divider() 

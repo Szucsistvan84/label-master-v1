@@ -3029,31 +3029,12 @@ def main():
     SHEET_ID_MASTER = SHEET_ID # Biztonsági másolat, ha a kódod máshol így hivatkozik rá
     SHEET_ID_UGYFELKOR = UGYFELKOR_SHEET_ID
 
-    # 1. Lekérjük a linkből a paramétereket
+    # 1. Lekérjük a linkből a paramétereket (Alapértelmezetten 'desktop', ha nincs megadva semmi)
     query_params = st.query_params
-    view = query_params.get("view", None)
+    view = query_params.get("view", "desktop")
     url_jarat = query_params.get("jarat", "")
 
-    # 2. OKOSÍTÁS: Ha a parancsikon miatt nincs megadva a 'view' a linkben
-    if view is None:
-        if 'edited_df' in st.session_state:
-            view = "desktop"
-        else:
-            st.markdown("### 📱 Interfood Futár Terminál")
-            st.info("A parancsikonról indítottad az alkalmazást.")
-            
-            if st.button("🚀 TERMINÁL INDÍTÁSA", use_container_width=True, type="primary"):
-                st.query_params.update(view="mobile")
-                st.rerun()
-                
-            st.write("---")
-            with st.expander("💻 Adminisztrátori belépés (Asztali nézet)"):
-                if st.button("Asztali verzió megnyitása"):
-                    st.query_params.update(view="desktop")
-                    st.rerun()
-            return
-
-    # === EZT AZ ÚJ SORT ADD HOZZÁ KÖZVETLENÜL A WITH ST.SPINNER ELÉ: ===
+    # 2. Beállítjuk a logikai változót a kódod többi részének
     is_mobile_view = (view == "mobile")
 
     # 🟢 ALVÓ MÓD / RENDSZERÉBRESZTÉS ELLENŐRZÉSE

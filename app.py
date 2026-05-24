@@ -3296,10 +3296,11 @@ if "mdf" in st.session_state and st.session_state.mdf is not None and not st.ses
             st.sidebar.warning(f"⚠️ A mai napon nincs rögzítve adat a(z) {futar_jarata} járathoz!")
 
 # =============================================================
-# 👁️ 3. LÉPÉS: MEGJELENÍTÉSI ÁGAK (Asztali vagy Mobil)
+# 👁️ 3. LÉPÉS: MOBIL FUTÁR FELÜLET FÜGGVÉNYE (Regisztrálva a rendszerbe)
 # =============================================================
 
-if st.button("📱 Átváltás Mobil Nézetre (Üres adatokkal)", use_container_width=True):
+def futar_mobil_felulet():
+    """A futárok 3-fázisú mobil munkafolyamata (Áruátvétel, Bepakolás, Kiszállítás)"""
     
     # Létrehozzuk a 3 nagy digitális munkafolyamat fület
     tab1, tab2, tab3 = st.tabs(["📦 1. Áruátvétel", "🧺 2. Bepakolás (Láda)", "🚀 3. Kiszállítás"])
@@ -3308,7 +3309,13 @@ if st.button("📱 Átváltás Mobil Nézetre (Üres adatokkal)", use_container_
         # Futár járat szűrése a megjelenítéshez
         df_futar = st.session_state.mdf.copy()
         df_futar['Járat_str'] = df_futar['Járat'].astype(str).str.strip()
-        elfogadott_jaratok = [str(j).strip() for j in st.session_state.aktiv_jaratok]
+        
+        # Kezeljük az egyedi járatot vagy a helyettesítős listát is biztonságosan
+        if 'aktiv_jaratok' in st.session_state:
+            elfogadott_jaratok = [str(j).strip() for j in st.session_state.aktiv_jaratok]
+        else:
+            elfogadott_jaratok = [str(st.session_state.get('user_jarat', '')).strip()]
+            
         df_futar = df_futar[df_futar['Járat_str'].isin(elfogadott_jaratok)]
         
         # -------------------------------------------------------------
@@ -3380,14 +3387,14 @@ if st.button("📱 Átváltás Mobil Nézetre (Üres adatokkal)", use_container_
                 st.warning("Nincs elérhető rendelési adat.")
                 
         # -------------------------------------------------------------
-        # TAB 2: 🧺 BEPAKOLÁS FORDÍTOTT SORRENDBEN (Ide építkezünk legközelebb)
+        # TAB 2: 🧺 BEPAKOLÁS FORDÍTOTT SORRENDBEN
         # -------------------------------------------------------------
         with tab2:
             st.markdown("### 🧺 Dobozolás és Termobox kezelés")
             st.info("Itt fogjuk fordított sorrendben pakolni a ládákat (LIFO)!")
             
         # -------------------------------------------------------------
-        # TAB 3: 🚀 KISZÁLLÍTÁS (Ide jönnek a nagy kártyák navigációval)
+        # TAB 3: 🚀 KISZÁLLÍTÁS
         # -------------------------------------------------------------
         with tab3:
             st.markdown("### 🚚 Címek Kiszállítása")
@@ -3396,5 +3403,7 @@ if st.button("📱 Átváltás Mobil Nézetre (Üres adatokkal)", use_container_
     else:
         st.warning("⚠️ Jelenleg nincsenek feldolgozott adatok a memóriában. Először tölts fel PDF-et asztali nézetben!")
 
+
+# FŐ PROGRAM INDÍTÁSA
 if __name__ == "__main__":
     main()

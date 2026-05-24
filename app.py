@@ -3177,7 +3177,25 @@ def main():
 
             # 3. Felhasználó Kezelés
             with st.expander("👤 Felhasználó Kezelés"):
-                st.info("Itt tudod majd kezelni a futárokat.")
+                # Feltételezve, hogy a futárok listája egy külön sheetben van (pl. 'Futarok')
+                # Töltsd be a futár adatokat
+                if 'futar_df' not in st.session_state:
+                    # Ide írd be a te futár lista letöltő függvényedet
+                    st.session_state.futar_df = load_futarok_from_sheets(SHEET_ID_UGYFELKOR)
+
+                # Interaktív szerkesztő
+                edited_df = st.data_editor(
+                    st.session_state.futar_df,
+                    use_container_width=True,
+                    num_rows="dynamic" # Ha szeretnél új futárt hozzáadni
+                )
+
+                if st.button("💾 Módosítások mentése"):
+                    with st.spinner("Mentés a Google Sheet-be..."):
+                        # Itt hívod a függvényt, ami visszaírja az edited_df-et a sheetbe
+                        save_futarok_to_sheets(edited_df, SHEET_ID_UGYFELKOR)
+                        st.success("Sikeres mentés!")
+                        st.rerun()
 
             # 4. Fejlesztői eszközök
             with st.expander("💻 Fejlesztői eszközök"):

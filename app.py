@@ -3498,9 +3498,11 @@ def main():
             st.write("---")
             st.subheader("📱 Mobil Terminál Indítása")
             
-            # TODO: Cseréld ki a saját .streamlit.app címedre, ha élesítetted!
-            alap_url = "https://A-TE-APPD-NEVE.streamlit.app" 
-            mobil_link = f"{alap_url}/?view=mobile"
+            # Az appod pontos címe a megfelelő paraméterekkel
+            # A meta['jarat'] segítségével a QR-kód már eleve tudni fogja, melyik járatról van szó
+            alap_url = "https://interfood-menetterv-etikett-generator.streamlit.app" 
+            jarat_id = meta.get('jarat', '')
+            mobil_link = f"{alap_url}/?view=mobile&jarat={jarat_id}"
             
             import qrcode
             from io import BytesIO
@@ -3519,7 +3521,7 @@ def main():
                 st.markdown(f"""
                 💡 **Szkenneld be ezt a QR-kódot a telefonoddal**, hogy megnyisd a **Futár Terminált**!
                 * Automatikusan a mobilra optimalizált nézet fog megnyílni.
-                * A futár azonnal eléri az áruátvételt és a ládázást.
+                * A futár azonnal eléri az áruátvételt és a ládázást a **{jarat_id}** járathoz.
                 * Direkt link: [{mobil_link}]({mobil_link})
                 """)
             with qr_col2:

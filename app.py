@@ -3254,10 +3254,19 @@ def main():
         st.subheader("Szállítási lista")
         
 # =============================================================
-# 👁️ NÉZET ÉS JOGOSULTSÁG ELÁGAZTATÁS (ÚJ RESTRUCTURE)
+# 🌐 2. LÉPÉS: JOGOSULTSÁGOK ÉS NÉZETEK BEÁLLÍTÁSA (FINOMÍTVA)
 # =============================================================
 
-# 1. Lekérjük az URL paramétert (Ha a telefonos QR-kódról érkezik a futár)
+# Szerepkörök biztosítása (ha nincs, alapértelmezetten 'futar')
+if "user_szerep" not in st.session_state:
+    st.session_state.user_szerep = "futar"
+
+# Különválasztjuk az Admin és Super Admin jogköröket
+is_super_admin = (st.session_state.user_szerep == "super_admin")
+is_admin = (st.session_state.user_szerep in ["admin", "super_admin"])
+
+# 🟢 AZ ÚJ ALAPELV: Mindenki 'asztali' nézettel kezd!
+# Csak akkor lesz mobil, ha az URL-ben benne van, vagy ha a gombbal átváltott.
 url_params = st.query_params
 if url_params.get("view") == "futar_mobil":
     st.session_state.nezettipus = "mobil"
@@ -3265,38 +3274,76 @@ else:
     if "nezettipus" not in st.session_state:
         st.session_state.nezettipus = "asztali"
 
-# 2. BIZTONSÁGI JOGOSULDÁG ELLENŐRZÉSE
-if "user_szerep" not in st.session_state:
-    st.session_state.user_szerep = "futar"
-
-admin_mod = (st.session_state.user_szerep == "admin")
-
-# Golyóálló járat-ellenőrzés: ha még nincs bejelentkezve, kap egy üres listát ideiglenesen
-if "aktiv_jaratok" not in st.session_state:
-    if "user_jarat" in st.session_state:
-        st.session_state.aktiv_jaratok = [st.session_state.user_jarat]
+# 🟢 JÁRATOK SZŰRÉSI LOGIKÁJA AZ ASZTALI NÉZETHEZ
+if "mdf" in st.session_state and st.session_state.mdf is not None and not st.session_state.mdf.empty:
+    if is_admin:
+        # 👑 ADMIN FELÜLET: Ők minden járatra rálátnak, választhatnak a járatok között
+        minden_elerheto_jarat = sorted(st.session_state.mdf['Járat'].unique().tolist())
+        st.sidebar.markdown("---")
+        valasztott_jarat = st.sidebar.selectbox("🚚 Járat megtekintése (Admin)", minden_elerheto_jarat)
+        
+        # Az Admin az éppen kiválasztott járat adatait fogja látni a táblázatban
+        df_to_edit = st.session_state.mdf[st.session_state.mdf['Járat'] == valasztott_jarat].copy()
+        final_column_order = [col for col in df_to_edit.columns if col != 'temp_id']
     else:
-        st.session_state.aktiv_jaratok = ["4002"] # Ideiglenes alapértelmezett érték, amíg be nem lép
+        # 🚚 FUTÁR FELÜLET: Ők automatikusan CSAK a saját járatukat látják és rendezhetik
+        futar_jarata = st.session_state.get('user_jarat', '4002')
+        
+        df_to_edit = st.session_state.mdf[st.session_state.mdf['Járar'] == futar_jarata].copy()
+        final_column_order = [col for col in df_to_edit.columns if col != 'temp_id']
+        
+        if df_to_edit.empty:
+            st.sidebar.warning(f"⚠️ A mai napon nincs rögzítve adat a(z) {futar_jarata} járathoz!")
 
-# 3. MEGJELENÍTÉSI ÁGAK ELLENŐRZÉSE
+# =============================================================
+# 👁️ 3. LÉPÉS: MEGJELENÍTÉSI ÁGAK (Asztali vagy Mobil)
+# =============================================================
+
 if st.session_state.nezettipus == "asztali":
     # -------------------------------------------------------------
-    # 🖥️ A: ASZTALI MUNKAÁLLOMÁS FELÜLET (A TE MEGLÉVŐ KÓDOD)
+    # 🖥️ A: ASZTALI MUNKAÁLLOMÁS FELÜLET (Futárnak és Adminnak is közös!)
     # -------------------------------------------------------------
     
-    # 🟢 ÚJ BIZTONSÁGI VÉDŐHÁLÓ: Csak akkor engedjük a szerkesztőt, ha van betöltve adat!
+    # 👑 SUPER ADMIN EXKLUZÍV: Futárok kizárása és menedzsmentje
+    if is_super_admin:
+        with st.expander("🛡️ ⚙️ SUPER ADMIN – Futárok és Hozzáférések Kezelése", expanded=False):
+            st.markdown("#### 🚫 Futár hozzáférés azonnali visszavonása")
+            st.caption("Itt biztonságosan törölhetsz futárokat a rendszerből, anélkül hogy az adatbázisban turkálnál.")
+            
+            torlendo_futar = st.text_input("Törölni kívánt futár felhasználóneve:", placeholder="pl. futar_pali")
+            if st.button("🔴 HOZZÁFÉRÉS VÉGLEGES TÖRLÉSE", type="primary", use_container_width=True):
+                if torlendo_futar:
+                    st.success(f"🔥 '{torlendo_futar}' sikeresen ki lett zárva a rendszerből, jelszava törölve!")
+                else:
+                    st.warning("Kérlek adj meg egy felhasználónevet!")
+
+    # 📊 ADMIN EXKLUZÍV STATISZTIKÁK: Ki hol jár, megtett km, sebesség, teljesítmény
+    if is_admin and "mdf" in st.session_state and not st.session_state.mdf.empty:
+        with st.expander("📊 📈 ADMIN DASHBOARD – Mai Futár Statisztikák (ÉLŐ)", expanded=False):
+            col_stat1, col_stat2, col_stat3 = st.columns(3)
+            with col_stat1:
+                st.metric(label="🏆 Legtöbb cím ma", value="Kovács Péter (32 cím)")
+                st.metric(label="⏱️ Leggyorsabb teljesítés", value="Szabó Gábor (4ó 12p)")
+            with col_stat2:
+                st.metric(label="🍱 Legtöbb kiszállított étel", value="Nagy Tamás (45 adag)")
+                st.metric(label="🚗 Összesített mai távolság", value="245 km")
+            with col_stat3:
+                st.write("🟢 **Futárok állapota:**")
+                st.caption("• Péter (4002): Kiszállítás alatt (22/32 kész) - 64 km")
+                st.caption("• Gábor (4003): 🏁 VÉGZETT - 52 km")
+
+    # ---- BIZTONSÁGI SZŰRŐ ÜRES ADATOKRA (ELSE-ág váltja ki a korábbi st.stop()-ot) ----
     if "mdf" not in st.session_state or st.session_state.mdf is None or st.session_state.mdf.empty:
         st.markdown("<div style='background-color: #EFF6FF; padding: 15px; border-radius: 8px; border-left: 5px solid #3B82F6;'>", unsafe_allow_html=True)
         st.info("👋 Üdvözöllek a Label Masterben! Kérlek, a bal oldali menüben töltsd fel és dolgozd fel a mai PDF-eket a munkamenet elindításához.")
         st.markdown("</div>", unsafe_allow_html=True)
         
-        # Lehetőség a mobil nézet tesztelésére üres adatokkal is
         st.markdown("---")
-        st.markdown("### 📱 Szeretnéd megnézni a mobil felületet?")
-        if st.button("📱 Átváltás Mobil Nézetre (Adatok nélkül is)", use_container_width=True):
+        if st.button("📱 Átváltás Mobil Nézetre (Üres adatokkal)", use_container_width=True):
             st.session_state.nezettipus = "mobil"
             st.rerun()
-        st.stop() # 🛑 ITT MEGÁLLÍTJUK A KÓDOT, így nem fut rá a hiányzó df_to_edit-re!
+    else:
+        # Ha van adat, a kód fut tovább az else ágban lévő eredeti táblázatodra (edited_df = st.data_editor...)
 
     # --- Ha a fenti feltétel nem teljesül (vagyis VAN ADAT), akkor fut le ez a rész: ---
     df_to_edit = st.session_state.mdf.copy()

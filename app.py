@@ -3169,22 +3169,32 @@ def main():
 
                 # PDF feldolgozás
                 all_rows = []
+                # 🟢 Inicializáljuk a listát, ha még nem lenne
+                if 'user_jarat_lista' not in st.session_state:
+                    st.session_state.user_jarat_lista = []
+
                 for f in up_files:
-                    # 🟢 ÚJ: Megkeressük az adott fájl saját járatszámát, hogy soronként rápecsételhessük
+                    # Megkeressük az adott fájl saját járatszámát
                     f.seek(0)
                     egyedi_jarat_re = re.compile(r'(\d{2,4})\.\s*járat|Nyomtatta:\s*(\d{2,4})')
                     with pdfplumber.open(f) as p_test:
                         t_test = p_test.pages[0].extract_text() or ""
                         m_test = egyedi_jarat_re.search(t_test)
                         fajl_sajat_jarata = (m_test.group(1) or m_test.group(2)) if m_test else None
+                    
+                    # 🟢 KIEGÉSZÍTÉS: Ha találtunk járatot, adjuk hozzá a listához
+                    if fajl_sajat_jarata and fajl_sajat_jarata not in st.session_state.user_jarat_lista:
+                        st.session_state.user_jarat_lista.append(fajl_sajat_jarata)
 
-                    # Oldalak feldolgozása a meglévő parse_interfood_pdf függvénnyel
+                    # Oldalak feldolgozása
                     f.seek(0)
                     rows, _ = parse_interfood_pdf(f, napi_kodok)
                     if rows:
-                        # 🟢 Minden kinyert sorhoz fixen hozzáírjuk a PDF-ből felismert egyedi járatot!
                         for r in rows:
-                            r['pdf_jarat'] = fajl_sajat_jarata if fajl_sajat_jarata else ""
+                            # Itt ügyelj arra, hogy a 'Járat' oszlop neve egyezzen azzal, 
+                            # amit a táblázatban szűréskor használsz (korábban 'pdf_jarat' volt, 
+                            # de a szűrésnél 'Járat'-ot írtál!)
+                            r['Járat'] = fajl_sajat_jarata if fajl_sajat_jarata else ""
                         all_rows.extend(rows)
 
                 if all_rows:

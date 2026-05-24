@@ -3029,12 +3029,28 @@ def main():
     SHEET_ID_MASTER = SHEET_ID # Biztonsági másolat, ha a kódod máshol így hivatkozik rá
     SHEET_ID_UGYFELKOR = UGYFELKOR_SHEET_ID
 
-    # 1. Lekérjük a linkből a paramétereket (Alapértelmezetten 'desktop', ha nincs megadva semmi)
+    # 1. Lekérjük a linkből a paramétereket
     query_params = st.query_params
-    view = query_params.get("view", "desktop")
+    view = query_params.get("view", None)
     url_jarat = query_params.get("jarat", "")
 
-    # 2. Beállítjuk a logikai változót a kódod többi részének
+    # 2. OKOSÍTÁS: Ha a parancsikon miatt nincs 'view' a linkben, ellenőrizzük az eszközt!
+    if view is None:
+        # Lekérjük a böngésző adatait (User-Agent)
+        # Ehhez a Streamlit belső fejléc-kezelőjét használjuk
+        from streamlit.web.server.websocket_headers import _get_websocket_headers
+        headers = _get_websocket_headers()
+        user_agent = headers.get("User-Agent", "").lower()
+        
+        # Ha a látogató telefonról vagy tabletről érkezik
+        is_mobil_eszkoz = any(x in user_agent for x in ["mobile", "android", "iphone", "ipad"])
+        
+        if is_mobil_eszkoz:
+            view = "mobile"
+        else:
+            view = "desktop"
+
+    # 3. Beállítjuk a logikai változót a kód többi részének
     is_mobile_view = (view == "mobile")
 
     # 🟢 ALVÓ MÓD / RENDSZERÉBRESZTÉS ELLENŐRZÉSE

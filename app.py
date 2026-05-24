@@ -3244,22 +3244,6 @@ def main():
                     st.rerun()
 
         st.divider() 
-        # JAVÍTÁS: Nincs extra behúzás, és mivel már st.sidebar-ban vagyunk, sima st.expander
-        with st.expander("🛠️ Fejlesztői eszközök"):
-            if st.button("Log fájl mutatása", use_container_width=True):
-                if os.path.exists(LOG_FILE):
-                    with open(LOG_FILE, "r", encoding="utf-8") as f:
-                        log_content = f.readlines()
-                        last_logs = "".join(log_content[-100:]) 
-                        st.text_area("Legutóbbi naplóbejegyzések", last_logs, height=300)
-                else:
-                    st.write("Még nincs log fájl.")
-            
-            if st.button("Log törlése", use_container_width=True):
-                if os.path.exists(LOG_FILE):
-                    os.remove(LOG_FILE)
-                    st.success("Log fájl törölve.")
-                    logger.info("A felhasználó törölte a log fájlt.")
 
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:

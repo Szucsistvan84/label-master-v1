@@ -135,13 +135,12 @@ if "google_data_loaded" not in st.session_state:
             st.session_state.keresztnevek_df = pd.DataFrame(ws_keresztnevek.get_all_records())
             time.sleep(1.0)
             
-            # --- JAVÍTÁS: Nem töltjük le az ügyfélkört előre az indításkor! ---
-            # Kezdetben csak egy üres vázat hozunk létre a session_state-ben, nehogy összeomoljon az app.
-            # Ezt a PDF feldolgozása gomb (vagy a Karbantartó panel) fogja frissíteni valódi adatokkal.
-            if "ugyfelkor_df" not in st.session_state or st.session_state.ugyfelkor_df is None:
-                ures_vaz = pd.DataFrame(columns=['ID', 'Név', 'Cím', 'Lat', 'Lon', 'Telefon', 'Csoport', 'Megjegyzés'])
-                st.session_state.ugyfelkor_df = ures_vaz
-                st.session_state.mdf = ures_vaz
+            # --- JAVÍTÁS: Nem töltjük le az ügyfélkört előre az indításkor, kivéve ha már sikeres a feldolgozás! ---
+            if "feldolgozas_sikeres" not in st.session_state or not st.session_state.feldolgozas_sikeres:
+                if "ugyfelkor_df" not in st.session_state or st.session_state.ugyfelkor_df is None:
+                    ures_vaz = pd.DataFrame(columns=['ID', 'Név', 'Cím', 'Lat', 'Lon', 'Telefon', 'Csoport', 'Megjegyzés'])
+                    st.session_state.ugyfelkor_df = ures_vaz
+                    st.session_state.mdf = ures_vaz
             
             # Megjelöljük a sikeres betöltést
             st.session_state.google_data_loaded = True

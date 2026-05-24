@@ -3176,6 +3176,9 @@ def main():
                         df_temp, m_df_friss = master_lista_szinkron(df_temp, UGYFELKOR_SHEET_ID, client, jarat_szam=tartalek_jarat)
                         st.session_state.master_df = m_df_friss
                         st.session_state.ugyfelkor_df = m_df_friss  # 🔥 EZ AZ ÚJ SOR, AMI A MEGJELENÍTÉSHEZ KELL!
+                        
+                        # 🚩 EXTRA BIZTONSÁGI JELZŐ: Megmondjuk az appnak, hogy most lett kész a feldolgozás
+                        st.session_state.feldolgozas_sikeres = True
                     
                     st.session_state.mdf = df_temp
                     
@@ -3192,7 +3195,7 @@ def main():
                     
                     st.success("🎉 A menettervek feldolgozása és a felhő szinkronizáció sikeresen megtörtént!")
                     import time
-                    time.sleep(0.5)
+                    time.sleep(0.8)  # Kicsit több idő, hogy biztosan lásd a zöld üzenetet villanni!
                     st.rerun()
 
         st.divider() 

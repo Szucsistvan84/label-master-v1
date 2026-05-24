@@ -1227,8 +1227,9 @@ def sync_interfood_etlap(year, week, sheet_id):
 
 def load_etlap_from_sheets(sheet_id):
     """
-    Beolvassa a Google Sheets 'Etlap_API' fülét és egy könnyen kereshető 
-    szótárat (indexet) készít belőle.
+    Beolvassa a Google Sheets 'Etlap_API' fülét (árak és nevek)
+    valamint az új 'Etlap' fülét (fix kategóriák és konyhai sorrend),
+    majd mindkettőt elmenti a munkamenetbe.
     """
     try:
         # 1. Kapcsolódás a Sheets-hez
@@ -1242,34 +1243,57 @@ def load_etlap_from_sheets(sheet_id):
         creds = service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
         client = gspread.authorize(creds)
         sheet = client.open_by_key(sheet_id)
-        worksheet = sheet.worksheet("Etlap_API")
         
-        # 2. Minden adat beolvasása egy DataFrame-be
+        # =========================================================================
+        # VADÚJ RÉSZ: Az 'Etlap' fül beolvasása (Kategóriák és Konyhai Sorrend)
+        # =========================================================================
+        kategoria_index = {}
+        try:
+            kat_worksheet = sheet.worksheet("Etlap")
+            # Beolvassuk az összes sort szótárként (figyelembe veszi az oszlopneveket!)
+            kat_data = kat_worksheet.get_all_records()
+            
+            for row in kat_data:
+                # Tisztítjuk a cikkszámot (pl. "SP1")
+                cikkszam = str(row.get('Cikkszam', '')).strip().upper()
+                if cikkszam:
+                    # Kinyerjük a sorrendet számmá alakítva
+                    sorrend_nyers = str(row.get('Konyha_Sorrend', '99')).strip()
+                    sorrend_szam = int(sorrend_nyers) if sorrend_nyers.isdigit() else 99
+                    
+                    kategoria_index[cikkszam] = {
+                        "kategoria": row.get('Kategoria', 'Egyéb / Zóna ételek'),
+                        "sorrend": sorrend_szam
+                    }
+            # Elmentjük a globális memóriába, hogy a raklista PDF és a Mobil app is elérje
+            st.session_state['kategoria_adatok'] = kategoria_index
+        except Exception as kat_err:
+            st.warning(f"Az 'Etlap' munkalap (kategóriák) beolvasása sikertelen, de az árakat betöltöm. Hiba: {kat_err}")
+            st.session_state['kategoria_adatok'] = {}
+
+        # =========================================================================
+        # EREDETI RÉSZ: Az 'Etlap_API' fül beolvasása (Napok szerinti Étlap és Árak)
+        # =========================================================================
+        worksheet = sheet.worksheet("Etlap_API")
         data = worksheet.get_all_values()
         df = pd.DataFrame(data)
         
         etlap_index = {}
         
-        # 3. Végigmegyünk a sorokon (keressük a kódokat az A oszlopban)
         for i in range(len(df)):
             elso_cella = str(df.iloc[i, 0]).strip()
             
-            # Ha megtaláljuk a "KÓD - Kategória" formátumot
             if " - " in elso_cella:
                 kod = elso_cella.split(" - ")[0].strip()
                 
-                # Végigmegyünk a napokon (B-től G oszlopig, azaz 1-6 index)
                 for nap_idx in range(1, 7):
                     nev = str(df.iloc[i, nap_idx]).strip()
                     
-                    # Az ár a név alatti sorban van (i + 1)
                     ar = ""
                     if i + 1 < len(df):
                         ar = str(df.iloc[i + 1, nap_idx]).strip()
                     
                     if nev and nev.lower() != "nan" and nev != "":
-                        # Egy egyedi kulcsot hozunk létre: nap_index + kód (pl: "1_L1")
-                        # 1: Hétfő, 2: Kedd...
                         kulcs = f"{nap_idx}_{kod}"
                         etlap_index[kulcs] = {
                             "nev": nev,

@@ -3216,14 +3216,28 @@ def main():
     # 3. FŐABLAK MEGJELENÍTÉSE
     if st.session_state.mdf is not None and not st.session_state.mdf.empty:
         
-        # 🧬 ADATVÉDELMI FÁL START (Ez már az IF-en belül van, ezért beljebb kezdődik!)
+        # 🧬 ADATVÉDELMI FÁL START (Módosított verzió Admin támogatással)
         if st.session_state.user_szerep == "futar":
             if 'Járat' in st.session_state.mdf.columns:
-                # Ez még beljebb van, mert az újabb IF-en belül helyezkedik el!
                 st.session_state.mdf = st.session_state.mdf[st.session_state.mdf['Járat'] == st.session_state.user_jarat].copy()
             
             if st.session_state.mdf.empty:
                 st.warning(f"✉️ Kedves {st.session_state.user_nev}! A mai napra nincsenek aktív címeid.")
+        
+        elif st.session_state.user_szerep == "admin":
+            # 🚚 ADMINISZTRÁTOR PANEL: Ha admin van bent, engedjük neki, hogy válasszon a járatok között!
+            if 'Járat' in st.session_state.mdf.columns:
+                elerheto_jaratok = [str(j) for j in st.session_state.mdf['Járat'].dropna().unique() if str(j).strip() != '']
+                elerheto_jaratok.sort()
+                
+                friss_aktivok = st.session_state.get('aktiv_jaratok', elerheto_jaratok)
+                
+                valasztott_jaratok = st.multiselect("🚚 Járatok szűrése (Adminisztrátor):", options=elerheto_jaratok, default=friss_aktivok)
+                
+                if valasztott_jaratok:
+                    st.session_state.mdf = st.session_state.mdf[st.session_state.mdf['Járat'].astype(str).isin(valasztott_jaratok)].copy()
+                elif friss_aktivok:
+                    st.session_state.mdf = st.session_state.mdf[st.session_state.mdf['Járat'].astype(str).isin(friss_aktivok)].copy()
         # 🧬 ADATVÉDELMI FÁL END
         
         # --- 1. ADATOK ELŐKÉSZÍTÉSE ÉS TISZTÍTÁSA ---

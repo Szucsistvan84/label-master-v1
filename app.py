@@ -29,6 +29,18 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame, Flowable
 
+def check_user_role():
+    """Visszaadja a felhasználó szerepkörét."""
+    # Ha nincs bejelentkezve, alapértelmezett a 'futar'
+    role = st.session_state.get('user_szerep', 'futar')
+    
+    # Itt ellenőrizzük, hogy a te neved szerepel-e a "Szuper Admin" listán
+    # Írd be a saját felhasználói nevedet ide (ami a rendszerben van):
+    if st.session_state.get('user_nev') == "SajátNeved": 
+        return "superadmin"
+        
+    return role
+
 def biztonsagos_koordinata_tisztito(val):
     """
     Minden létező koordináta formátumot (sima szám, magyar vesszős, 

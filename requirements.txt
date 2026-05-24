@@ -12,3 +12,5 @@ google-auth
 gspread
 folium
 streamlit-folium
+qrcode
+pillow

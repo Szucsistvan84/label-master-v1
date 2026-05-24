@@ -3238,28 +3238,28 @@ def main():
                 if valasztott_jaratok:
                     df_to_edit = df_to_edit[df_to_edit['Járat'].astype(str).isin(valasztott_jaratok)].copy()
         
-        # --- TISZTÍTÁS ---
+        # --- TISZTÍTÁS ÉS MEGJELENÍTÉS ---
         if not df_to_edit.empty:
-            if 'Sorrend' not in df_to_edit.columns:
-                df_to_edit['Sorrend'] = range(1, len(df_to_edit) + 1)
+            # ... (itt a tisztításod marad az, amit írtál) ...
             
-            df_to_edit['Sorrend'] = pd.to_numeric(df_to_edit['Sorrend'], errors='coerce').fillna(999.0).astype(float)
-
-            for col in df_to_edit.columns:
-                if col != 'Sorrend':
-                    df_to_edit[col] = df_to_edit[col].astype(str).replace(['nan', 'None', '<NA>', '0.0', '0'], '')
-
-            df_to_edit = df_to_edit.sort_values(by='Sorrend').reset_index(drop=True)
-
-            # OSZLOPREND
-            preferred_order = ["Sorrend", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Csoport", "Megjegyzés", "temp_id"]
-            actual_cols = df_to_edit.columns.tolist()
-            final_column_order = [c for c in preferred_order if c in actual_cols] + [c for c in actual_cols if c not in preferred_order]
-            df_to_edit = df_to_edit[final_column_order]
-        
             st.subheader("Szállítási lista")
-            # ITT VAN A MEGJELENÍTÉS! (Ezt hiányoltad a végéről)
             st.dataframe(df_to_edit, use_container_width=True)
+            
+            # --- ITT KELL KEZDŐDNIÜK A GOMBOKNAK ---
+            st.markdown("---")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("🖨️ Etikettek"): st.session_state.action = "etikett"
+            with col2:
+                if st.button("🗺️ Menetterv"): st.session_state.action = "terkep"
+            with col3:
+                if st.button("📋 Raklista"): st.session_state.action = "raklista"
+            
+            # Térkép logika (ez is maradjon ebben a blokkban)
+            if st.session_state.get('action') == "terkep":
+                st.markdown("### 📍 Térképes nézet")
+                # ... (ide jön a térkép kódod)
+                
         else:
             st.warning("⚠️ A kiválasztott szűrők alapján nincs megjeleníthető cím.")
         

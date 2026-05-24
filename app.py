@@ -3266,7 +3266,9 @@ else:
         st.session_state.nezettipus = "asztali"
 
 # 2. BIZTONSÁGI JOGOSULTSÁG ELLENŐRZÉSE
-# Elrejtjük a bizalmas vezetői funkciókat a futár elől, ha szükséges
+if "user_szerep" not in st.session_state:
+    st.session_state.user_szerep = "futar" # Biztonsági védőháló alapesetben
+
 admin_mod = (st.session_state.user_szerep == "admin")
 
 # Biztosítjuk, hogy az aktív járatok listája létezzen

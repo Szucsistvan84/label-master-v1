@@ -2645,7 +2645,10 @@ def create_manifest_pdf(df, c_n, meta):
         'Small': ParagraphStyle('Small', fontName=f_reg, fontSize=7, leading=8),
         'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=11, alignment=1),
         'NameBold': ParagraphStyle('NameBold', fontName=f_bold, fontSize=8.5, leading=9),
-        'IDStyle': ParagraphStyle('IDStyle', fontName=f_reg, fontSize=7.5, leading=9, alignment=2, textColor=colors.gray)
+        'IDStyle': ParagraphStyle('IDStyle', fontName=f_reg, fontSize=7.5, leading=9, alignment=2, textColor=colors.gray),
+        # Új stílusok a QR kód oldalához
+        'QRTitle': ParagraphStyle('QRTitle', fontName=f_bold, fontSize=14, leading=16, alignment=1, spaceAfter=15),
+        'QRText': ParagraphStyle('QRText', fontName=f_reg, fontSize=10, leading=14, alignment=1)
     }
 
     # --- ÚJ: Bázis nap meghatározása ---
@@ -2676,25 +2679,18 @@ def create_manifest_pdf(df, c_n, meta):
     ]
 
     if 'Csoport' in df.columns:
-        # Minden értéket szöveggé alakítunk a biztonság kedvéért
         groups = df['Csoport'].astype(str).values
         start_idx = None
         for i in range(len(groups)):
-            # Tisztítjuk az aktuális értéket az összehasonlításhoz
             curr_val = str(groups[i]).strip().lower()
-            
-            # Érvényes csoport-e? (Nem üres, nem nulla, nem nan)
             is_valid_group = curr_val and curr_val not in ['0', '0.0', 'nan', 'none', '']
             
             if is_valid_group:
                 if start_idx is None: start_idx = i
-                
-                # Megnézzük a következő elemet a keret lezárásához
                 next_val = ""
                 if i + 1 < len(groups):
                     next_val = str(groups[i+1]).strip().lower()
 
-                # Keret lezárása: ha ez az utolsó sor, vagy a következő már más
                 if i == len(groups) - 1 or next_val != curr_val:
                     r_s, r_e = start_idx + 1, i + 1
                     table_styles.append(('BOX', (0, r_s), (-1, r_e), 1.3, colors.black))
@@ -2713,32 +2709,19 @@ def create_manifest_pdf(df, c_n, meta):
             if n_tag in r_full:
                 if n != bazis_nap_rovid:
                     kulonleges = True
-                    # Félkövérré tesszük a nem bázis napot
                     formazott_rendeles = formazott_rendeles.replace(n_tag, f"<b>{n_tag}</b>")
 
-        # Az adatokba már a formázott rendelést tesszük vissza (ez valószínűleg már megvan a kódodban)
-        # ...
-
-        # --- AZ ÚJ FORMÁZÁSI LOGIKA ---
         if kulonleges:
-            # 1. HÁTTÉRSZÍN: Most a (2, i+1) cellára tesszük, ami a RENDELÉS oszlop (0-tól számolva a 3. oszlop)
-            # Megjegyzés: A menettervben az oszlopok: 0:#, 1:NÉV, 2:RENDELÉS...
-            special_bg = colors.Color(0.85, 0.85, 0.85) # Kicsit sötétebb szürke
+            special_bg = colors.Color(0.85, 0.85, 0.85)
             table_styles.append(('BACKGROUND', (2, i+1), (2, i+1), special_bg))
-            
-            # 2. KERET: Vastag, szaggatott vonal a rendelés cella köré
-            # 'ROUNDED' sarkokat a ReportLab nem tud cellánként, de a szaggatott vonalat igen:
-            # (típus, honnan, meddig, vastagság, szín, szaggatás_hossza, szóköz_hossza)
             table_styles.append(('BOX', (2, i+1), (2, i+1), 1.5, colors.black, None, (2, 2)))
 
         # --- CSOPORTJELZŐ HÁROMSZÖG ÉS HIBAJAVÍTÁS ---
         curr_grp = str(row.get('Csoport', '')).strip().lower()
         prev_grp = str(df.iloc[i-1].get('Csoport', '')).strip().lower() if i > 0 else ""
 
-        # Érvényes-e a csoport (nem üres és nem nulla)
         is_valid = curr_grp and curr_grp not in ['0', '0.0', 'nan', 'none', '']
 
-        # Ha ugyanaz a csoport, mint az előzőnél, jöhet a háromszög
         prefix = "▲ " if (is_valid and i > 0 and curr_grp == prev_grp) else ""
         u_name = str(row.get('Ügyintéző', ''))[:45]
         u_id = str(row.get('temp_id', ''))
@@ -2756,17 +2739,14 @@ def create_manifest_pdf(df, c_n, meta):
         digits_only = "".join(re.findall(r'\d+', p_raw))
         penz_val = p_raw if (digits_only and int(digits_only) > 0) else "" 
         
-        # --- EZT A BLOKKOT FRISSÍTSD ---
         sorszam_nyers = row.get('Sorrend', i+1)
         try:
-            # Ha float (10.0), akkor int-té alakítjuk, hogy ne legyen tizedesjegy
             sorszam_vegleges = str(int(float(sorszam_nyers)))
         except:
-            # Ha bármi hiba van az átalakításnál, marad az eredeti i+1
             sorszam_vegleges = str(i+1)
 
         table_data.append([
-            sorszam_vegleges,                                    # 0: # (Sorszám javítva)
+            sorszam_vegleges,                                    # 0: #
             info_flow,                                           # 1: Név/Cím
             Paragraph(formazott_rendeles, styles['Small']),      # 2: Rendelés
             Checkbox(10),                                        # 3: ☐
@@ -2779,6 +2759,45 @@ def create_manifest_pdf(df, c_n, meta):
     t.setStyle(TableStyle(table_styles))
     elements.append(t)
     
+    # =========================================================================
+    # --- UTOLSÓ OLDAL: QR-KÓD GENERÁLÁS A MOBIL TERMINÁLHOZ ---
+    # =========================================================================
+    from reportlab.platypus import PageBreak
+    from reportlab.graphics.barcode.qr import QrCodeWidget
+    from reportlab.graphics.shapes import Drawing
+
+    elements.append(PageBreak()) # Kényszerített új oldal az utolsó lapra
+    elements.append(Spacer(1, 40*mm)) # Egy kis fenti térköz, hogy középtájt legyen
+    
+    elements.append(Paragraph("📱 DIGITÁLIS FUTÁR TERMINÁL INDÍTÁSA", styles['QRTitle']))
+    
+    # Dinamikus link generálása a járatazonosítóval
+    alap_url = "https://interfood-menetterv-etikett-generator.streamlit.app"
+    jarat_id = meta.get('jarat', '')
+    mobil_link = f"{alap_url}/?view=mobile&jarat={jarat_id}"
+    
+    # QR kód widget létrehozása (140x140 pont méretben)
+    qr_code = QrCodeWidget(mobil_link)
+    qr_code.barWidth = 140
+    qr_code.barHeight = 140
+    qr_code.qrVersion = 1
+    
+    # Beletesszük egy Drawing rajzfelületbe, hogy középre rendezhessük
+    d = Drawing(140, 140)
+    d.add(qr_code)
+    d.hAlign = 'CENTER'
+    
+    elements.append(d)
+    elements.append(Spacer(1, 10*mm))
+    
+    magyarázat = f"""
+    Szkenneld be a fenti QR-kódot a telefonoddal a mobilra optimalizált nézet megnyitásához!<br/><br/>
+    <b>Aktuális járat:</b> {jarat_id if jarat_id else j_str}<br/>
+    <i>A rendszer automatikusan bejelentkeztet és betölti a hozzá tartozó adatokat.</i>
+    """
+    elements.append(Paragraph(magyarázat, styles['QRText']))
+    # =========================================================================
+    
     # --- SPECIÁLIS CANVAS AZ OLDALSZÁMOZÁSHOZ ÉS LÁBLÉCHEZ ---
     class FinalCanvas(canvas.Canvas):
         def __init__(self, *args, **kwargs):
@@ -2786,7 +2805,6 @@ def create_manifest_pdf(df, c_n, meta):
             self.pages = []
 
         def showPage(self):
-            # Elmentjük az oldal állapotát a későbbi számozáshoz
             self.pages.append(dict(self.__dict__))
             self._startPage()
 
@@ -2802,19 +2820,15 @@ def create_manifest_pdf(df, c_n, meta):
             self.saveState()
             self.setFont(f_reg, 7)
             
-            # 1. BAL OLDAL: Járat menetterve + Meta adatok
             j_str = ", ".join(meta.get('jaratok', []))
             footer_left = f"{j_str}. járat menetterve | {meta.get('ev', '')}. év, {meta.get('het', '')}. hét | {meta.get('nap', '')}"
             self.drawString(15*mm, 10*mm, footer_left)
             
-            # 2. JOBB OLDAL: X / Y oldal formátum
             footer_right = f"{self._pageNumber} / {page_count}. oldal"
             self.drawRightString(A4[0] - 15*mm, 10*mm, footer_right)
             
             self.restoreState()
 
-    # --- PDF ÉPÍTÉSE ---
-    # Ez az egy sor váltja ki a korábbi doc.build-et és a footer hívásokat
     doc.build(elements, canvasmaker=FinalCanvas)
     
     buffer.seek(0)

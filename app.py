@@ -3265,15 +3265,18 @@ else:
     if "nezettipus" not in st.session_state:
         st.session_state.nezettipus = "asztali"
 
-# 2. BIZTONSÁGI JOGOSULTSÁG ELLENŐRZÉSE
+# 2. BIZTONSÁGI JOGOSULDÁG ELLENŐRZÉSE
 if "user_szerep" not in st.session_state:
-    st.session_state.user_szerep = "futar" # Biztonsági védőháló alapesetben
+    st.session_state.user_szerep = "futar"
 
 admin_mod = (st.session_state.user_szerep == "admin")
 
-# Biztosítjuk, hogy az aktív járatok listája létezzen
+# Golyóálló járat-ellenőrzés: ha még nincs bejelentkezve, kap egy üres listát ideiglenesen
 if "aktiv_jaratok" not in st.session_state:
-    st.session_state.aktiv_jaratok = [st.session_state.user_jarat]
+    if "user_jarat" in st.session_state:
+        st.session_state.aktiv_jaratok = [st.session_state.user_jarat]
+    else:
+        st.session_state.aktiv_jaratok = ["4002"] # Ideiglenes alapértelmezett érték, amíg be nem lép
 
 # 3. MEGJELENÍTÉSI ÁGAK ELLENŐRZÉSE
 if st.session_state.nezettipus == "asztali":

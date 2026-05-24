@@ -3289,7 +3289,6 @@ if st.session_state.nezettipus == "asztali":
                 help="Írj be tizedest (pl. 88.5) a beszúráshoz!",
                 format="%.1f",
                 step=0.1,
-                step=0.1,
             ),
             "Csoport": st.column_config.TextColumn("Csoport"),
             "Pénz": st.column_config.TextColumn("Pénz"),

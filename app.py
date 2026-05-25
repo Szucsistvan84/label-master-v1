@@ -3531,16 +3531,57 @@ def main():
             # így a mobil modul eléri mind a két szükséges Google Sheet-et!
             render_mobil_aruatvetel(client)
             
-        # --- 2. TAB: CÍMEKRE SZEDÉS (Egyelőre változatlanul hagytuk a vázadat) ---
+        # --- 2. TAB: CÍMEKRE SZEDÉS (A VALÓDI, FORDÍTOTT CÍMLISTA) ---
         with tab2:
-            st.subheader("📥 Bepakolás Thermoládákba")
-            st.warning("A lista FORDÍTOTT sorrendben jelenik meg a bepakoláshoz!")
-            if 'aktualis_lada_szam' not in st.session_state:
-                st.session_state.aktualis_lada_szam = 1
-            st.metric("Aktuális Thermoláda:", f"{st.session_state.aktualis_lada_szam}. láda")
-            if st.button("📦 Láda lezárása (Megtelt)", key="mob_lada_btn", use_container_width=True):
-                st.session_state.aktualis_lada_szam += 1
-                st.rerun()
+            st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
+            st.caption("💡 Pakolás fordított sorrendben: ami itt legfelül van, az kerüljön a kocsiban leghátulra/legbelülre!")
+            
+            try:
+                # Ellenőrizzük, hogy a futár kiválasztott-e már járatot az 1. Tab-on
+                # A kiválasztott járatokat a 'mob_jarat_select' kulcson menti el a multiselect
+                valasztott_jaratok = st.session_state.get("mob_jarat_select", [])
+                
+                if valasztott_jaratok:
+                    # Megnyitjuk az Adatok munkalapot
+                    sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
+                    adatok_sheet = sh_ugyfelkor.worksheet("Adatok")
+                    df_adatok = pd.DataFrame(adatok_sheet.get_all_records())
+                    
+                    if not df_adatok.empty:
+                        # Oszlopnevek tisztítása a biztonság kedvéért
+                        df_adatok.columns = [c.strip() for c in df_adatok.columns]
+                        
+                        # Szűrés a futár által az 1. Tab-on kiválasztott járat(ok)ra
+                        df_jarat_adatok = df_adatok[df_adatok['Jásat'].astype(str).isin(map(str, valasztott_jaratok))] if 'Jásat' in df_adatok.columns else df_adatok[df_adatok['Járat'].astype(str).isin(map(str, valasztott_jaratok))]
+                        
+                        if not df_jarat_adatok.empty:
+                            # 🔄 EZ A LÉNYEG: Fordított sorrend generálása (alulról felfelé)
+                            df_forditott_cimek = df_jarat_adatok.iloc[::-1]
+                            
+                            # Oszlopok dinamikus azonosítása (ha eltérne a kis/nagybetű)
+                            cim_oszlop = 'Cím' if 'Cím' in df_forditott_cimek.columns else df_forditott_cimek.columns[3]
+                            nev_oszlop = 'Név' if 'Név' in df_forditott_cimek.columns else df_forditott_cimek.columns[1]
+                            
+                            # Checkboxok kirajzolása a futárnak
+                            counter = 1
+                            for idx, row in df_forditott_cimek.iterrows():
+                                st.checkbox(
+                                    f"📦 **{counter}.** {row[nev_oszlop]} — *{row[cim_oszlop]}*",
+                                    key=f"tab2_pack_{idx}"
+                                )
+                                counter += 1
+                                
+                            st.write("---")
+                            st.info("ℹ️ Ha mindent bepakoltál a kocsiba a fenti sorrendben, készen állsz az indulásra! A kiszállítást a 3. fülön követheted.")
+                        else:
+                            st.warning("Nem található cím a kiválasztott járatokhoz a mai napon.")
+                    else:
+                        st.error("Az Adatok munkalap üres a Google Sheetben!")
+                else:
+                    st.info("ℹ️ Első lépésként válaszd ki a járatodat az **1. fülön (Áruátvétel)**, és indítsd el a napot!")
+                    
+            except Exception as e:
+                st.error(f"Hiba a címek betöltésekor: {e}")
 
         # --- 3. TAB: KISZÁLLÍTÁS (Egyelőre változatlanul hagytuk a vázadat) ---
         with tab3:

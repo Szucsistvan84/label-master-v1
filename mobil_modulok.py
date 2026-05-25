@@ -298,7 +298,32 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "":
                                     st.markdown(f"📋 **Rendelés:**\n```\n{row[rendeles_oszlop]}\n```")
                                 
-                                st.checkbox(f"Bepakolva: {st.session_state.mobil_lada_szam}. láda", key=f"bepak_chk_{idx}")
+                                # --- RÖGZÍTETT LÁDA-KEZELÉS ---
+                                bepakolt_kulcs = f"bepak_allapot_{idx}"
+                                lada_ertek_kulcs = f"lada_szam_ertek_{idx}"
+                                
+                                # Inicializálás, ha még nem létezik
+                                if bepakolt_kulcs not in st.session_state:
+                                    st.session_state[bepakolt_kulcs] = False
+                                    st.session_state[lada_ertek_kulcs] = None
+                                
+                                # Checkbox megjelenítése
+                                is_checked = st.checkbox(
+                                    f"Bepakolva: {st.session_state[lada_ertek_kulcs] if st.session_state[bepakolt_kulcs] else 'nincs'}", 
+                                    value=st.session_state[bepakolt_kulcs],
+                                    key=f"chk_{idx}"
+                                )
+                                
+                                # Állapot rögzítése
+                                if is_checked and not st.session_state[bepakolt_kulcs]:
+                                    st.session_state[bepakolt_kulcs] = True
+                                    st.session_state[lada_ertek_kulcs] = f"{st.session_state.mobil_lada_szam}. láda"
+                                    st.rerun() 
+                                elif not is_checked and st.session_state[bepakolt_kulcs]:
+                                    st.session_state[bepakolt_kulcs] = False
+                                    st.session_state[lada_ertek_kulcs] = None
+                                    st.rerun()
+
                                 if len(df_csoport) > 1:
                                     st.write("---")
                             

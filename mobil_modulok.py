@@ -14,36 +14,61 @@ def render_mobil_aruatvetel(client):
     SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
     SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
     
-    # 1. JÁRAT ÉS FUTÁR AZONOSÍTÁS (Az Ügyfélkör DB 'Adatok' munkalapjából)
+    # 1. JÁRAT ÉS FUTÁR AZONOSÍTÁS (Most már közvetlenül a friss Mobil_Raklista fülből)
+    futar_neve = st.session_state.get('user_nev', 'Te (Teszt Üzemmód)')
+    jaratok = []
+    df_sajat_raklista_init = pd.DataFrame()
+
     try:
-        # Megnyitjuk az Ügyfélkör táblázatot az ID alapján a klienssel
         sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
-        adatok_sheet = sh_ugyfelkor.worksheet("Adatok")
+        raklista_sheet = sh_ugyfelkor.worksheet("Mobil_Raklista")
+        df_raklista_init = pd.DataFrame(raklista_sheet.get_all_records())
         
-        adatok_data = adatok_sheet.get_all_records()
-        df_adatok = pd.DataFrame(adatok_data)
-        
-        if not df_adatok.empty:
-            df_adatok.columns = [c.strip() for c in df_adatok.columns]
+        if not df_raklista_init.empty:
+            df_raklista_init.columns = [c.strip() for c in df_raklista_init.columns]
             
-            # 🔒 BIZTONSÁGI SZŰRÉS: Ki a telefonon bejelentkezett futár?
-            aktualis_futar = st.session_state.get('user_nev', '')
+            # 🔒 Szűrés a bejelentkezett futárra
+            df_sajat_raklista_init = df_raklista_init[df_raklista_init['Jarat_ID / Futar'] == futar_neve]
             
-            # Megnézzük, hogy létezik-e már a P oszlop (Feldolgozó Futár)
-            if 'Feldolgozó Futár' in df_adatok.columns:
-                # Csak azokat a sorokat hagyjuk meg, amiket EZ a futár töltött fel az asztali gépen!
-                df_szurt_adatok = df_adatok[df_adatok['Feldolgozó Futár'] == aktualis_futar]
-                jaratok = [j for j in df_szurt_adatok['Járat'].unique() if str(j).strip() != ""]
+            if not df_sajat_raklista_init.empty:
+                # Kigyűjtjük a napokat vagy az elérhető egyedi azonosítókat, ha szükséges.
+                # Mivel az asztali PDF-ből jövünk, a járatválasztót fixen kitölthetjük vagy 
+                # alapértelmezetté tehetjük, hogy ne kelljen a futárnak keresgélnie.
+                jaratok = ["Mai Raklista"]
             else:
-                # Biztonsági tartalék: ha még a régi struktúrájú adatok vannak fent,
-                # akkor átmenetileg minden járatot megmutatunk, nehogy megálljon a munka
-                jaratok = [j for j in df_adatok['Járat'].unique() if str(j).strip() != ""]
-                
+                # Ha nincs még saját raklistája generálva, megnézzük a nyers Adatok fület tartaléknak
+                try:
+                    adatok_sheet = sh_ugyfelkor.worksheet("Adatok")
+                    df_adatok = pd.DataFrame(adatok_sheet.get_all_records())
+                    if not df_adatok.empty:
+                        df_adatok.columns = [c.strip() for c in df_adatok.columns]
+                        if 'Feldolgozó Futár' in df_adatok.columns:
+                            df_szurt = df_adatok[df_adatok['Feldolgozó Futár'] == futar_neve]
+                            jaratok = [str(j) for j in df_szurt['Járat'].unique() if str(j).strip() != ""]
+                        else:
+                            jaratok = [str(j) for j in df_adatok['Járat'].unique() if str(j).strip() != ""]
+                except:
+                    jaratok = ["Alapértelmezett Járat"]
         else:
-            st.error("Az Adatok munkalap üres az Ügyfélkör DB-ben!")
+            st.error("A Mobil_Raklista munkalap teljesen üres a Google Sheetben!")
             return
     except Exception as e:
-        st.error(f"❌ Nem sikerült beolvasni az Adatok munkalapot az Ügyfélkör DB-ből: {e}")
+        st.error(f"❌ Nem sikerült elérni a Google Sheets-et: {e}")
+        return
+
+    # 🔄 TÖBBJÁRATOS JAVÍTÁS: Dinamikus multiselect
+    if not jaratok:
+        jaratok = ["Nincs elérhető járat"]
+        
+    valasztott_jaratok = st.multiselect(
+        "Válaszd ki a mai járataidat:", 
+        options=jaratok,
+        default=[jaratok[0]],
+        key="mob_jarat_select"
+    )
+    
+    if not valasztott_jaratok:
+        st.warning("⚠️ Kérlek, válassz ki legalább egy járatot a folytatáshoz!")
         return
 
     # Futár neve a munkamenetből
@@ -97,37 +122,29 @@ def render_mobil_aruatvetel(client):
                 st.error(f"Hiba a Mobil_Idobelyegek írásakor az Ügyfélkör Sheetbe: {e}")
 
     # =========================================================================
-    # ÁLLAPOT 2: AZ ÁRUÁTVÉTEL FOLYAMATBAN VAN (ÚJ, RAKLISTA ALAPÚ MODUL)
+    # ÁLLAPOT 2: AZ ÁRUÁTVÉTEL FOLYAMATBAN VAN (ÚJ, OPTIMALIZÁLT VERZIÓ)
     # =========================================================================
     else:
         jaratok_szoveg = ", ".join(map(str, valasztott_jaratok))
-        st.warning(f"🔄 Áruátvétel folyamatban... (Összevont járatok: {jaratok_szoveg})")
+        st.warning(f"🔄 Áruátvétel folyamatban... ({jaratok_szoveg})")
         
-        try:
-            # 1. Beolvassuk a tiszta Raklista fület az Ügyfélkör DB-ből
-            sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
-            raklista_sheet = sh_ugyfelkor.worksheet("Mobil_Raklista")
-            df_raklista = pd.DataFrame(raklista_sheet.get_all_records())
+        # A modul tetején már beolvasott adatot használjuk fel újra
+        if 'df_sajat_raklista_init' in locals() and not df_sajat_raklista_init.empty:
+            st.markdown("### 📦 Összesített, beemelendő ételek listája:")
+            st.caption(f"Üdv, {futar_neve}! A konyhai raklistád alapján cikkszámozva:")
             
-            if not df_raklista.empty:
-                df_raklista.columns = [c.strip() for c in df_raklista.columns]
-                
-                # 🔒 Biztonsági szűrés: Csak a saját nevemre szűrök
-                df_sajat_raklista = df_raklista[df_raklista['Jarat_ID / Futar'] == futar_neve]
-                
-                if not df_sajat_raklista.empty:
-                    st.markdown("### 📦 Összesített, beemelendő ételek listája:")
-                    st.caption("A konyhai raklista alapján pontosítva, cikkszám szerint csoportosítva.")
-                    
-                    # Kilistázzuk a tiszta adatokat a checkboxokhoz
-                    for idx, row in df_sajat_raklista.iterrows():
-                        cikkszam_szoveg = f" [{row['Cikkszam']}]" if str(row['Cikkszam']).strip() != "" else ""
-                        st.checkbox(
-                            f"**{int(row['Terv_Darabszam'])} db** - {row['Etel Neve']}{cikkszam_szoveg}", 
-                            key=f"check_raklista_{idx}"
-                        )
-                else:
-                    st.info("Nem található hozzárendelt raklista ehhez a futárhoz a mai napon.")
+            # Kilistázzuk a tiszta adatokat checkbox formájában
+            for idx, row in df_sajat_raklista_init.iterrows():
+                cikkszam_szoveg = f" [{row['Cikkszam']}]" if str(row['Cikkszam']).strip() != "" else ""
+                st.checkbox(
+                    f"**{int(row['Terv_Darabszam'])} db** - {row['Etel Neve']}{cikkszam_szoveg} — *({row['Nap']})*", 
+                    key=f"check_raklista_{idx}"
+                )
+            
+            # Elmentjük lokális változóba a hibabejelentő listájához
+            df_sajat_raklista = df_sajat_raklista_init
+        else:
+            st.info(f"ℹ️ Nem található hozzárendelt raklista '{futar_neve}' névre a mai napon. Kérlek, generáld le a PDF-et az asztali gépen!")
             else:
                 st.error("A Mobil_Raklista munkalap üres a Google Sheetben!")
                 

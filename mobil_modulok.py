@@ -130,11 +130,27 @@ def render_mobil_aruatvetel(client):
         with st.expander("🚨 HIÁNYZIK / SÉRÜLT VALAMI? (Hiba bejelentése)"):
             st.write("Ha a konyha kevesebbet adott le, vagy sérült az étel, itt jelentsd be azonnal:")
             
-            all_etelek = [""]
+            # 🔄 JAVÍTÁS: Cikkszámos és nap szerinti legördülő lista a futároknak
+            all_etelek_display = [""]
+            all_etelek_mapping = {}
+            
             if 'df_sajat_raklista' in locals() and not df_sajat_raklista.empty:
-                all_etelek = [""] + list(df_sajat_raklista['Etel Neve'].unique())
+                for idx, row in df_sajat_raklista.iterrows():
+                    cikkszam = str(row['Cikkszam']).strip()
+                    etel_neve = str(row['Etel Neve']).strip()
+                    nap_nev = str(row['Nap']).strip()
+                    
+                    display_szoveg = f"[{cikkszam}] - {etel_neve} ({nap_nev})"
+                    
+                    if display_szoveg not in all_etelek_display:
+                        all_etelek_display.append(display_szoveg)
+                        all_etelek_mapping[display_szoveg] = etel_neve
                 
-            hiba_etel = st.selectbox("Melyik étellel van gond?", all_etelek, key="mob_hiba_etel")
+            hiba_etel_display = st.selectbox("Melyik étellel van gond? (Cikkszám szerint)", all_etelek_display, key="mob_hiba_etel_display")
+            
+            # Az adminnak is elküldjük a teljes "[KÓD] - Étely Neve" szöveget (a nap nélkül)
+            # Ha a futár nem választott semmit (""), akkor üres marad
+            hiba_etel = hiba_etel_display.split(" (")[0] if hiba_etel_display != "" else ""
             hiba_db = st.number_input("Hány darab érintett?", min_value=1, value=1, key="mob_hiba_db")
             hiba_melyik_jarat = st.selectbox("Melyik járathoz tartozó doboz?", valasztott_jaratok, key="mob_hiba_jarat")
             hiba_tipus = st.selectbox("Hiba jellege:", ["Konyha nem adta ki (Hiány)", "Sérült csomagolás", "Megfolyt / Romlott", "Egyéb"], key="mob_hiba_tipus")

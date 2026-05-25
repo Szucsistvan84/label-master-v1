@@ -298,31 +298,32 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "":
                                     st.markdown(f"📋 **Rendelés:**\n```\n{row[rendeles_oszlop]}\n```")
                                 
-                                # --- RÖGZÍTETT LÁDA-KEZELÉS ---
+                                # Kulcsok az állapothoz
                                 bepakolt_kulcs = f"bepak_allapot_{idx}"
-                                lada_ertek_kulcs = f"lada_szam_ertek_{idx}"
+                                lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
                                 
-                                # Inicializálás, ha még nem létezik
+                                # Inicializálás
                                 if bepakolt_kulcs not in st.session_state:
                                     st.session_state[bepakolt_kulcs] = False
-                                    st.session_state[lada_ertek_kulcs] = None
+                                    st.session_state[lada_tarolt_kulcs] = None
                                 
-                                # Checkbox megjelenítése
-                                is_checked = st.checkbox(
-                                    f"Bepakolva: {st.session_state[lada_ertek_kulcs] if st.session_state[bepakolt_kulcs] else 'nincs'}", 
-                                    value=st.session_state[bepakolt_kulcs],
-                                    key=f"chk_{idx}"
-                                )
+                                # A címke dinamikus előállítása: 
+                                # Ha be van pipálva, a tárolt értéket mutatja, különben az "nincs" szöveget
+                                aktualis_cimke = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[bepakolt_kulcs] else "Bepakolva: még nincs"
                                 
-                                # Állapot rögzítése
-                                if is_checked and not st.session_state[bepakolt_kulcs]:
-                                    st.session_state[bepakolt_kulcs] = True
-                                    st.session_state[lada_ertek_kulcs] = f"{st.session_state.mobil_lada_szam}. láda"
-                                    st.rerun() 
-                                elif not is_checked and st.session_state[bepakolt_kulcs]:
-                                    st.session_state[bepakolt_kulcs] = False
-                                    st.session_state[lada_ertek_kulcs] = None
-                                    st.rerun()
+                                # Checkbox
+                                if st.checkbox(aktualis_cimke, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}"):
+                                    if not st.session_state[bepakolt_kulcs]:
+                                        # RÖGZÍTÉS: Csak az első pipáláskor írjuk be a ládaszámot
+                                        st.session_state[bepakolt_kulcs] = True
+                                        st.session_state[lada_tarolt_kulcs] = f"{st.session_state.mobil_lada_szam}. láda"
+                                        st.rerun()
+                                else:
+                                    if st.session_state[bepakolt_kulcs]:
+                                        # TÖRLÉS: Ha kivesszük a pipát
+                                        st.session_state[bepakolt_kulcs] = False
+                                        st.session_state[lada_tarolt_kulcs] = None
+                                        st.rerun()
 
                                 if len(df_csoport) > 1:
                                     st.write("---")

@@ -3531,38 +3531,50 @@ def main():
             # így a mobil modul eléri mind a két szükséges Google Sheet-et!
             render_mobil_aruatvetel(client)
             
-        # --- 2. TAB: CÍMEKRE SZEDÉS (A VALÓDI, FORDÍTOTT CÍMLISTA) ---
+        # --- 2. TAB: CÍMEKRE SZEDÉS (A JAVÍTOTT, GOLYÓÁLLÓ VERZIÓ) ---
         with tab2:
             st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
             st.caption("💡 Pakolás fordított sorrendben: ami itt legfelül van, az kerüljön a kocsiban leghátulra/legbelülre!")
             
             try:
-                # Ellenőrizzük, hogy a futár kiválasztott-e már járatot az 1. Tab-on
-                # A kiválasztott járatokat a 'mob_jarat_select' kulcson menti el a multiselect
-                valasztott_jaratok = st.session_state.get("mob_jarat_select", [])
+                # Kiszedjük a kiválasztott járatokat, és biztos ami biztos, mindet SZÖVEGGÉ alakítjuk
+                valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
                 
+                # Ha a Mobil_Raklista miatt a választott járat csak az a fix szöveg, hogy "Mai Raklista", 
+                # akkor az összes létező járatot beolvassuk, amit a konyha generált a futárnak
+                if valasztott_jaratok == ["Mai Raklista"]:
+                    # Ekkor a Mobil_Raklista alapján szűrünk később, vagy átengedjük a futár összes címét
+                    pass
+
                 if valasztott_jaratok:
-                    # Megnyitjuk az Adatok munkalapot
                     sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
                     adatok_sheet = sh_ugyfelkor.worksheet("Adatok")
                     df_adatok = pd.DataFrame(adatok_sheet.get_all_records())
                     
                     if not df_adatok.empty:
-                        # Oszlopnevek tisztítása a biztonság kedvéért
                         df_adatok.columns = [c.strip() for c in df_adatok.columns]
                         
-                        # Szűrés a futár által az 1. Tab-on kiválasztott járat(ok)ra
-                        df_jarat_adatok = df_adatok[df_adatok['Jásat'].astype(str).isin(map(str, valasztott_jaratok))] if 'Jásat' in df_adatok.columns else df_adatok[df_adatok['Járat'].astype(str).isin(map(str, valasztott_jaratok))]
+                        # MEGOLDÁS 1 & 2: Megkeressük a Járat oszlopot, és a tartalmát is szöveggé alakítjuk az összehasonlításhoz
+                        jarat_oszlop_neve = 'Járat' if 'Járat' in df_adatok.columns else df_adatok.columns[0] # ha nem találja, az 1. oszlopot veszi
+                        
+                        # Ha "Mai Raklista" a kiválasztott opció, akkor a futár nevét nézzük az Adatok fülön
+                        if "Mai Raklista" in valasztott_jaratok:
+                            futar_oszlop = 'Feldolgozó Futár' if 'Feldolgozó Futár' in df_adatok.columns else 'Futár'
+                            if futar_oszlop in df_adatok.columns:
+                                df_jarat_adatok = df_adatok[df_adatok[futar_oszlop].astype(str).str.strip() == st.session_state.get('user_nev', '').strip()]
+                            else:
+                                df_jarat_adatok = df_adatok # tartalék, ha nincs futár oszlop
+                        else:
+                            # Normál számos járat szűrés (szövegként összehasonlítva)
+                            df_jarat_adatok = df_adatok[df_adatok[jarat_oszlop_neve].astype(str).str.strip().isin(valasztott_jaratok)]
                         
                         if not df_jarat_adatok.empty:
-                            # 🔄 EZ A LÉNYEG: Fordított sorrend generálása (alulról felfelé)
+                            # 🔄 Fordított sorrend generálása
                             df_forditott_cimek = df_jarat_adatok.iloc[::-1]
                             
-                            # Oszlopok dinamikus azonosítása (ha eltérne a kis/nagybetű)
                             cim_oszlop = 'Cím' if 'Cím' in df_forditott_cimek.columns else df_forditott_cimek.columns[3]
                             nev_oszlop = 'Név' if 'Név' in df_forditott_cimek.columns else df_forditott_cimek.columns[1]
                             
-                            # Checkboxok kirajzolása a futárnak
                             counter = 1
                             for idx, row in df_forditott_cimek.iterrows():
                                 st.checkbox(
@@ -3574,7 +3586,7 @@ def main():
                             st.write("---")
                             st.info("ℹ️ Ha mindent bepakoltál a kocsiba a fenti sorrendben, készen állsz az indulásra! A kiszállítást a 3. fülön követheted.")
                         else:
-                            st.warning("Nem található cím a kiválasztott járatokhoz a mai napon.")
+                            st.warning(f"Nem található cím a kiválasztott járatokhoz ({valasztott_jaratok}) a mai napon az Adatok fülön.")
                     else:
                         st.error("Az Adatok munkalap üres a Google Sheetben!")
                 else:
@@ -3582,7 +3594,7 @@ def main():
                     
             except Exception as e:
                 st.error(f"Hiba a címek betöltésekor: {e}")
-
+                
         # --- 3. TAB: KISZÁLLÍTÁS (Egyelőre változatlanul hagytuk a vázadat) ---
         with tab3:
             st.subheader("🚚 Kiszállítási útvonal")

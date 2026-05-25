@@ -3472,14 +3472,13 @@ def main():
         
         tab1, tab2, tab3 = st.tabs(["1. Áruátvétel 📦", "2. Címekre szedés 📥", "3. Kiszállítás 🚚"])
         
+        # --- 1. TAB: ÁRUÁTVÉTEL (Bekötve a tiszta, különálló mobil_modulok.py-ból) ---
         with tab1:
-            st.subheader("📦 Ömlesztett áruátvétel")
-            st.info("Ellenőrizd a rekeszek tartalmát a konyha sorrendje szerint!")
-            st.markdown("### Ellenőrző lista:")
-            st.checkbox("Minta étel - Sport menü (Teszt darabszám)")
-            if st.button("Áruátvétel kész ✅", key="mob_atvetel_btn", use_container_width=True):
-                st.success("Áruátvétel rögzítve!")
-
+            # Itt hívjuk meg az új, éles funkciót. Átadjuk neki a 'sheet' objektumot.
+            # (Győződj meg róla, hogy az app.py-ban 'sheet' a változóneve a Google Sheet-nek!)
+            render_mobil_aruatvetel(sheet)
+            
+        # --- 2. TAB: CÍMEKRE SZEDÉS (Egyelőre változatlanul hagytuk a vázadat) ---
         with tab2:
             st.subheader("📥 Bepakolás Thermoládákba")
             st.warning("A lista FORDÍTOTT sorrendben jelenik meg a bepakoláshoz!")
@@ -3490,6 +3489,7 @@ def main():
                 st.session_state.aktualis_lada_szam += 1
                 st.rerun()
 
+        # --- 3. TAB: KISZÁLLÍTÁS (Egyelőre változatlanul hagytuk a vázadat) ---
         with tab3:
             st.subheader("🚚 Kiszállítási útvonal")
             with st.container(border=True):

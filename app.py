@@ -3244,6 +3244,9 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     # Oszlopszélességek (Összesen 190 mm, ami pontosan kitölti az A4-et 10mm-es margókkal)
     col_widths = [15 * mm, 16 * mm, 12 * mm, 10 * mm, 95 * mm, 18 * mm, 24 * mm]
 
+# 🟢 MODOSÍTÁS: Nyitunk egy üres listát a felhőbe küldendő adatoknak a kategória ciklus ELŐTT
+    mobil_raklista_rows = []
+
     # 4. TÁBLÁZATOK GENERÁLÁSA KATEGÓRIÁNKÉNT
     for kat in rendezett_kategoriak:
         # Minden kategóriának saját külön táblázatot adunk, így gyönyörűen bekeretezhető
@@ -3280,7 +3283,18 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
                 Paragraph(f"{tétel['ar']} Ft", right_style),
                 Paragraph(f"{tétel['subtotal']} Ft", right_bold_style if tétel['starred'] else right_style)
             ])
-            
+
+            # 🟢 MODOSÍTÁS: Itt halásszuk ki az adatot a mobilhoz!
+            # Elmentjük egy tiszta szótárba a telefon számára szükséges oszlopokat
+            mobil_raklista_rows.append({
+                'Nap': str(tétel['day']).strip(),
+                'Cikkszam': str(tétel['code']).strip(),
+                'Terv_Darabszam': int(tétel['db']),
+                'Etel Neve': str(tétel['nev']).strip(),
+                'Teny_Darabszam': "",  # A futár tölti majd a mobilon
+                'Hiba_Tipusa': ""      # A futár tölti majd a mobilon
+            })
+           
         # Táblázat létrehozása és formázása (Bekeretezés)
         t = Table(kat_data, colWidths=col_widths, repeatRows=2)
         
@@ -3354,6 +3368,62 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
         'kategoriak': rendezett_kategoriak,
         'csoportok': kategoria_csoportok
     }
+
+    # =========================================================================
+    # 🚀 5. LÉPÉS: A KIHALÁSZOTT ADATOK FELKÜLDÉSE A "Mobil_Raklista" FÜLRE
+    # =========================================================================
+    try:
+        if mobil_raklista_rows:
+            import pandas as pd
+            from gspread_dataframe import set_with_dataframe
+            
+            # Megnyitjuk a táblázatot (feltételezzük, hogy az 'sh' változó a megnyitott Etikett_Ugyfelkor_DB)
+            ws_mobil_raklista = sh.worksheet("Mobil_Raklista")
+            
+            # 1. Beolvassuk a már bent lévő adatokat a többfelhasználós biztonság miatt
+            existing_raklista = ws_mobil_raklista.get_all_records()
+            if existing_raklista:
+                df_ex_raklista = pd.DataFrame(existing_raklista)
+                df_ex_raklista.columns = [c.strip() for c in df_ex_raklista.columns]
+            else:
+                df_ex_raklista = pd.DataFrame()
+                
+            # 2. Új DataFrame építése a kihalászott sorokból
+            df_uj_raklista = pd.DataFrame(mobil_raklista_rows)
+            aktualis_futar_nev = st.session_state.get('user_nev', 'Ismeretlen_Futár')
+            df_uj_raklista['Jarat_ID / Futar'] = aktualis_futar_nev
+            
+            # Szigorú oszlopsorrend kikényszerítése
+            raklista_cols = ['Nap', 'Cikkszam', 'Terv_Darabszam', 'Etel Neve', 'Teny_Darabszam', 'Hiba_Tipusa', 'Jarat_ID / Futar']
+            df_uj_raklista = df_uj_raklista[raklista_cols]
+            
+            # 3. Összefésülési logika (Anti-adatvesztés védelem a többi kolléga miatt)
+            if not df_ex_raklista.empty and 'Jarat_ID / Futar' in df_ex_raklista.columns:
+                # Mások adatait megtartjuk, a saját korábbi (még át nem vett) sorainkat felülírjuk
+                df_masok_raklistaja = df_ex_raklista[df_ex_raklista['Jarat_ID / Futar'] != aktualis_futar_nev]
+                
+                # Ha már elkezdtük az átvételt (van benne Tény adat), azt is megtartjuk
+                df_sajat_mar_atvett = df_ex_raklista[
+                    (df_ex_raklista['Jarat_ID / Futar'] == aktualis_futar_nev) & 
+                    (df_ex_raklista['Teny_Darabszam'].astype(str).str.strip() != "")
+                ]
+                
+                save_raklista_df = pd.concat([df_masok_raklistaja, df_sajat_mar_atvett, df_uj_raklista], ignore_index=True)
+            else:
+                save_raklista_df = df_uj_raklista
+                
+            # Biztonsági típuskonverziók a Google Sheets típuskonfliktusok ellen
+            for col in save_raklista_df.columns:
+                save_raklista_df[col] = save_raklista_df[col].astype(object)
+            save_raklista_df = save_raklista_df.fillna('')
+            
+            # 4. Tiszta felülírás az összefésült adattal
+            ws_mobil_raklista.clear()
+            set_with_dataframe(ws_mobil_raklista, save_raklista_df, include_index=False, include_column_header=True)
+            logger.info("🚀 A tiszta konyhai Raklista sikeresen szinkronizálva a 'Mobil_Raklista' fülre!")
+            
+    except Exception as e:
+        logger.warning(f"A PDF sikeresen legenerálódott, de a Mobil_Raklista fül frissítése megszakadt: {e}")
     
     return buf
     

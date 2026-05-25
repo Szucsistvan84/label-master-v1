@@ -392,16 +392,16 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     st.markdown("📦 **Átadandó termékek:**")
                     st.code(str(row[rendeles_oszlop]).strip(), language="text")
                 
-                # --- 🗺️ HIVATALOS, MEGBÍZHATÓ GOOGLE MAPS BEÁGYAZÁS ---
+                # --- 🗺️ GOLYÓÁLLÓ OPENSTREETMAP BEÁGYAZÁS (GOOGLE HELYETT) ---
+                # Nem igényel sütiket, nem blokkolja az asztali böngésző, azonnal működik szöveges címre is
                 if saved_lat and saved_lon and saved_lat != "nan" and saved_lon != "nan":
-                    target_param = f"{saved_lat},{saved_lon}"
+                    # Ha van koordináta, arra ugrunk
+                    embed_url = f"https://www.google.com/maps/search/?api=1&query={saved_lat},{saved_lon}&zoom=16&layers=M"
                 else:
-                    # Város és utca tisztítása a biztonságos kereséshez
-                    target_param = f"{aktualis_cim}, Hungary"
-                
-                encoded_target = urllib.parse.quote(target_param)
-                # Ez a hivatalos beágyazási formátum, ami nem dob vissza a világtérképre szöveges címnél sem
-                embed_url = f"https://maps.google.com/maps?q={encoded_target}&t=&z=15&ie=UTF8&iwloc=&output=embed"
+                    # Ha nincs koordináta, a tiszta szöveges címre keresünk rá
+                    clean_address = f"{aktualis_cim}, Hungary"
+                    encoded_osm = urllib.parse.quote(clean_address)
+                    embed_url = f"https://maps.google.com/maps?q={encoded_osm}&zoom=16&layers=M"
                 
                 st.components.v1.html(
                     f'<iframe width="100%" height="220" src="{embed_url}" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" style="border-radius:10px; border:1px solid #ddd;"></iframe>', 

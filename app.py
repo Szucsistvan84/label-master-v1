@@ -3535,13 +3535,9 @@ def main():
         with tab2:
             render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR)
                 
-        # --- 3. TAB: KISZÁLLÍTÁS (Egyelőre változatlanul hagytuk a vázadat) ---
+        # --- 3. TAB: KISZÁLLÍTÁS (Most már az éles, térképes modul fut) ---
         with tab3:
-            st.subheader("🚚 Kiszállítási útvonal")
-            with st.container(border=True):
-                st.markdown("### 1. Cím: Minta Ügyfél")
-                st.markdown("📍 1000 Budapest, Próba utca 1.")
-                st.button("Kiszállítva ✅", key="mob_kiszall_btn", type="primary", use_container_width=True)
+            render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)
                 
         if st.button("🚪 Kijelentkezés", key="mob_logout"):
             st.session_state.bejelentkezve = False

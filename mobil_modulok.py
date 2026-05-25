@@ -329,7 +329,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             st.info("ℹ️ Válaszd ki a járatodat az 1. fülön!")
             return
 
-        # Adatok betöltése a bepakolásnál már megírt gyorsítótárból
         df_adatok = get_mobil_adatok_cached(client, SHEET_ID_UGYFELKOR)
         
         if df_adatok.empty:
@@ -342,14 +341,11 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         tel_oszlop = 'Telefon' if 'Telefon' in df_adatok.columns else 'Tel'
         rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_adatok.columns else ('Kosár' if 'Kosár' in df_adatok.columns else None)
         
-        # Koordináta oszlopnevek meghatározása
         lat_oszlop = 'Latitude' if 'Latitude' in df_adatok.columns else 'Lat'
         lon_oszlop = 'Longitude' if 'Longitude' in df_adatok.columns else 'Lon'
 
-        # Kiszállításnál NORMÁL sorrend van (1. címtől haladunk előre)
         df_kiszallitas = df_adatok.copy()
 
-        # 🔍 Szűrés: Csak azokat a sorokat gyűjtjük ki, amikhez RENDELTÜNK ládát a 2. lépésben
         bepakolt_sorok = []
         for idx, row in df_kiszallitas.iterrows():
             lada_kulcs = f"lada_szam_tarolt_{idx}"
@@ -360,7 +356,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             st.warning("⚠️ Nincs még bepakolt cím a rendszerben! Előbb a 2. fülön pakolj be a ládákba.")
             return
 
-        # --- OLDALSÁV STATISZTIKA (Napi haladás követése) ---
         osszes_bepakolt = len(bepakolt_sorok)
         kesz_cimek = sum(1 for idx, _ in bepakolt_sorok if st.session_state.get(f"kiszallitva_{idx}", False))
         
@@ -371,10 +366,8 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             st.metric("Kézbesítve:", f"{kesz_cimek} / {osszes_bepakolt} megálló")
             st.write("---")
 
-        # --- AZ AKTUÁLIS CÍM MEGJELENÍTÉSE ---
         for sorszam, (idx, row) in enumerate(bepakolt_sorok, 1):
             
-            # Ha ezt a címet már lezárta a futár, egyszerűen átugorjuk (így tűnik el a listából)
             if st.session_state.get(f"kiszallitva_{idx}", False):
                 continue 
 
@@ -384,24 +377,31 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             vevo_tel = str(row.get(tel_oszlop, '')).strip()
             aktualis_megj = str(row.get('Megjegyzés', '')).strip()
             
-            # Tárolt koordináták kiolvasása a Sheets-ből (ha vannak)
-            saved_lat = row.get(lat_oszlop, "")
-            saved_lon = row.get(lon_oszlop, "")
+            saved_lat = str(row.get(lat_oszlop, "")).strip()
+            saved_lon = str(row.get(lon_oszlop, "")).strip()
 
             with st.container(border=True):
-                # Kártya fejléc
                 st.markdown(f"### 📍 {sorszam}. Cím — `{melyik_lada}`")
                 st.subheader(f"👤 {vevo_neve}")
                 st.markdown(f"🏠 **Cím:** {aktualis_cim}")
                 if aktualis_megj: st.warning(f"📝 **Megjegyzés:** {aktualis_megj}")
                 
-                # --- VILLÁMGYORS GOOGLE MINI TÉRKÉP ---
-                if saved_lat and saved_lon:
-                    map_query = f"{saved_lat},{saved_lon}"
-                else:
-                    map_query = urllib.parse.quote(aktualis_cim)
+                # --- 🛒 KOSÁR TARTALMA (EZ HIÁNYZOTT!) ---
+                if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "" and str(row[rendeles_oszlop]).strip() != "nan":
+                    st.markdown("📦 **Átadandó termékek:**")
+                    st.code(str(row[rendeles_oszlop]).strip(), language="text")
                 
-                embed_url = f"https://maps.google.com/maps?q={map_query}&t=&z=16&ie=UTF8&iwloc=&output=embed"
+                # --- GOLYÓÁLLÓ GOOGLE MINI TÉRKÉP URLEK ---
+                # Ha van koordináta, azt adjuk át, különben a tiszta szöveges címet, országgal megerősítve
+                if saved_lat and saved_lon and saved_lat != "nan" and saved_lon != "nan":
+                    q_param = f"{saved_lat},{saved_lon}"
+                else:
+                    q_param = f"{aktualis_cim}, Hungary"
+                
+                encoded_q = urllib.parse.quote(q_param)
+                # Ez az alternatív beágyazási URL sokkal toleránsabb a magyar címekkel szemben
+                embed_url = f"https://maps.google.com/maps?q={encoded_q}&t=&z=16&ie=UTF8&iwloc=&output=embed"
+                
                 st.components.v1.html(
                     f'<iframe width="100%" height="220" src="{embed_url}" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" style="border-radius:10px; border:1px solid #ddd;"></iframe>', 
                     height=230
@@ -422,7 +422,8 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                         st.button("📞 Nincs telefonszám", disabled=True, use_container_width=True)
                         
                 with col_gps:
-                    nav_target = f"{saved_lat},{saved_lon}" if (saved_lat and saved_lon) else aktualis_cim
+                    # Navigációs gomb (külső megnyitáshoz)
+                    nav_target = f"{saved_lat},{saved_lon}" if (saved_lat and saved_lon and saved_lat != "nan") else aktualis_cim
                     encoded_nav = urllib.parse.quote(nav_target)
                     maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_nav}"
                     
@@ -439,7 +440,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 with st.expander("🎯 Pontatlan a pozíció? Kapu rögzítése"):
                     st.write("Állj meg a kapu előtt a kocsival, és mentsd el a pontos koordinátákat a jövőre nézve.")
                     
-                    # Böngésző/telefon GPS lekérése
                     loc = get_geolocation()
                     
                     if loc:
@@ -453,7 +453,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                                 ws = sh.worksheet("Adatok")
                                 headers = ws.row_values(1)
                                 
-                                # Ha még nincs Lat/Lon oszlop a táblázatban, létrehozzuk a végén
                                 if lat_oszlop not in headers:
                                     ws.update_cell(1, len(headers) + 1, 'Latitude')
                                     ws.update_cell(1, len(headers) + 2, 'Longitude')
@@ -462,18 +461,17 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                                 lat_col_idx = headers.index(lat_oszlop) + 1
                                 lon_col_idx = headers.index(lon_oszlop) + 1
                                 
-                                sheet_row = int(idx) + 2 # Fejléc + Dataframe index korrekció
+                                sheet_row = int(idx) + 2
                                 ws.update_cell(sheet_row, lat_col_idx, curr_lat)
                                 ws.update_cell(sheet_row, lon_col_idx, curr_lon)
                                 
-                                # Gyorsítótár ürítése, hogy azonnal frissüljön a térkép
                                 st.cache_data.clear()
                                 st.success("🎯 Pozíció sikeresen elmentve!")
                                 st.rerun()
                             except Exception as geo_err:
                                 st.error(f"Sheets írási hiba: {geo_err}")
                     else:
-                        st.caption("Engedélyezd a helymeghatározást a böngésződben a funkció használatához.")
+                        st.caption("Engedélyezd a helymeghatározást a böngészőben (vagy teszteld telefonon gombnyomásra) a funkció használatához.")
 
                 st.write("---")
                 
@@ -483,11 +481,9 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     st.toast(f"🎉 {vevo_neve} sikeresen kézbesítve!")
                     st.rerun()
             
-            # CRITICAL BREAK: Csak és kizárólag az ELSŐ befejezetlen címet mutatjuk meg!
             break
             
         else:
-            # Ha a 'for' ciklus egyszer sem futott el a break-ig (mert minden cím kész)
             st.balloons()
             st.success("🏆 Szép munka! Minden mára tervezett címet sikeresen kézbesítettél!")
             

@@ -3474,9 +3474,9 @@ def main():
         
         # --- 1. TAB: ÁRUÁTVÉTEL (Bekötve a tiszta, különálló mobil_modulok.py-ból) ---
         with tab1:
-            # Itt hívjuk meg az új, éles funkciót. Átadjuk neki a 'sheet' objektumot.
-            # (Győződj meg róla, hogy az app.py-ban 'sheet' a változóneve a Google Sheet-nek!)
-            render_mobil_aruatvetel(sheet)
+            # Most már a hitelesített 'client' objektumot adjuk át, 
+            # így a mobil modul eléri mind a két szükséges Google Sheet-et!
+            render_mobil_aruatvetel(client)
             
         # --- 2. TAB: CÍMEKRE SZEDÉS (Egyelőre változatlanul hagytuk a vázadat) ---
         with tab2:

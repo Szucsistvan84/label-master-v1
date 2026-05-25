@@ -218,10 +218,21 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
     SHEET_ID_UGYFELKOR: Az ügyfélkör Google Sheet ID-ja
     """
     st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
-    st.caption("💡 Pakolás fordított sorrendben: ami itt legfelül van, az kerüljön a kocsiban leghátulra/legbelülre!")
+    st.caption("💡 Pakolás fordított sorrendben! A csoportosított címeket szedd egy szatyorba a gyorsabb leadásért.")
     
+    # --- Thermoláda számláló inicializálása ---
+    if 'mobil_lada_szam' not in st.session_state:
+        st.session_state.mobil_lada_szam = 1
+        
+    col_lada1, col_lada2 = st.columns([2, 1])
+    with col_lada1:
+        st.metric("📦 Aktuális Thermoláda:", f"{st.session_state.mobil_lada_szam}. láda")
+    with col_lada2:
+        if st.button("➕ Következő láda", key="mob_next_lada_btn", use_container_width=True):
+            st.session_state.mobil_lada_szam += 1
+            st.rerun()
+
     try:
-        # Kiszedjük a kiválasztott járatokat a session_state-ből
         valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
         
         if valasztott_jaratok:
@@ -232,10 +243,10 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             if not df_adatok.empty:
                 df_adatok.columns = [c.strip() for c in df_adatok.columns]
                 
-                # Biztonságos Járat oszlop keresés (elírások nélkül!)
+                # Járat oszlop azonosítása
                 jarat_oszlop_neve = 'Járat' if 'Járat' in df_adatok.columns else df_adatok.columns[0]
                 
-                # Ha "Mai Raklista" a kiválasztott opció, a futár neve alapján szűrünk
+                # Szűrés járat/futár alapján
                 if "Mai Raklista" in valasztott_jaratok:
                     futar_oszlop = 'Feldolgozó Futár' if 'Feldolgozó Futár' in df_adatok.columns else 'Futár'
                     if futar_oszlop in df_adatok.columns:
@@ -246,24 +257,65 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                     df_jarat_adatok = df_adatok[df_adatok[jarat_oszlop_neve].astype(str).str.strip().isin(valasztott_jaratok)]
                 
                 if not df_jarat_adatok.empty:
-                    # 🔄 Fordított sorrend generálása
-                    df_forditott_cimek = df_jarat_adatok.iloc[::-1]
+                    # 🔄 FORDÍTOTT SORREND (A pakolás alapja)
+                    df_forditott = df_jarat_adatok.iloc[::-1].copy()
                     
-                    cim_oszlop = 'Cím' if 'Cím' in df_forditott_cimek.columns else df_forditott_cimek.columns[3]
-                    nev_oszlop = 'Név' if 'Név' in df_forditott_cimek.columns else df_forditott_cimek.columns[1]
+                    # Szükséges oszlopok keresése dinamikusan
+                    cim_oszlop = 'Cím' if 'Cím' in df_forditott.columns else df_forditott.columns[3]
+                    nev_oszlop = 'Név' if 'Név' in df_forditott.columns else df_forditott.columns[1]
+                    rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_forditott.columns else ('Kosár' if 'Kosár' in df_forditott.columns else None)
+                    
+                    # 👥 CSOPORTOSÍTÁS CÍM ALAPJÁN (Megtartva a fordított sorrendű blokkokat)
+                    # Kigyűjtjük a címeket olyan sorrendben, ahogy a fordított listában először szerepelnek
+                    egyedi_cimek_sorrendben = []
+                    for c in df_forditott[cim_oszlop].astype(str).str.strip():
+                        if c not in egyedi_cimek_sorrendben:
+                            egyedi_cimek_sorrendben.append(c)
                     
                     counter = 1
-                    for idx, row in df_forditott_cimek.iterrows():
-                        st.checkbox(
-                            f"📦 **{counter}.** {row[nev_oszlop]} — *{row[cim_oszlop]}*",
-                            key=f"tab2_pack_{idx}"
-                        )
-                        counter += 1
-                        
                     st.write("---")
-                    st.info("ℹ️ Ha mindent bepakoltál a kocsiba a fenti sorrendben, készen állsz az indulásra! A kiszállítást a 3. fülön követheted.")
+                    
+                    # Végigmegyünk az egyedi címcsoportokon
+                    for aktualis_cim in egyedi_cimek_sorrendben:
+                        # Kiválasztjuk az összes rendelést, ami erre a címre megy
+                        df_csoport = df_forditott[df_forditott[cim_oszlop].astype(str).str.strip() == aktualis_cim]
+                        
+                        # Kártya (vizuális konténer) létrehozása
+                        with st.container(border=True):
+                            # Ha egynél több tétel van ugyanoda -> jelezzük, hogy ez egy csoportos szatyor!
+                            if len(df_csoport) > 1:
+                                st.markdown(f"### 🛍️ {counter}. Megálló (Csoportos cím!)")
+                                st.caption(f"📍 **Cím:** {aktualis_cim}")
+                                st.info(f"💡 **Logisztikai tipp:** Erre a címre {len(df_csoport)} db rendelés megy. Érdemes eleve egy közös szatyorba szedni!")
+                            else:
+                                row_szolo = df_csoport.iloc[0]
+                                st.markdown(f"### 📦 {counter}. Megálló")
+                                st.markdown(f"📍 **Cím:** {aktualis_cim}")
+                            
+                            # Kilistázzuk a címhez tartozó összes személyt és az ő pontos rendelésüket
+                            for idx, row in df_csoport.iterrows():
+                                st.write(f"👤 **Név:** {row[nev_oszlop]}")
+                                
+                                # Rendelés oszlop tartalmának teljes megjelenítése
+                                if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "":
+                                    st.markdown(f"📋 **Rendelés részletei:**\n```\n{row[rendeles_oszlop]}\n```")
+                                else:
+                                    st.caption("⚠️ Nincs részletes rendelési adat megadva.")
+                                
+                                # Minden külön tételhez egy egyedi belső pipa (ha több ember van egy címen, külön lehessen pipálni)
+                                st.checkbox(
+                                    f"Bepakolva a(z) {st.session_state.mobil_lada_szam}. ládába", 
+                                    key=f"bepak_chk_{idx}"
+                                )
+                                if len(df_csoport) > 1:
+                                    st.write("---") # Kis elválasztó a csoporton belüli nevek között
+                                    
+                            counter += 1
+                            
+                    st.write("---")
+                    st.success("🎉 Minden kártyát átnéztél? Ha a bepakolás kész, válthatsz a 3. fülre (Kiszállítás)!")
                 else:
-                    st.warning(f"Nem található cím a kiválasztott járatokhoz ({valasztott_jaratok}) a mai napon az Adatok fülön.")
+                    st.warning(f"Nem található cím a kiválasztott járatokhoz a mai napon az Adatok fülön.")
             else:
                 st.error("Az Adatok munkalap üres a Google Sheetben!")
         else:

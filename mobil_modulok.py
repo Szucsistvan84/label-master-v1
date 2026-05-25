@@ -16,7 +16,7 @@ def render_mobil_aruatvetel(client):
     
     # 1. JÁRAT ÉS FUTÁR AZONOSÍTÁS (Az Ügyfélkör DB 'Adatok' munkalapjából)
     try:
-        # Megnyitjuk az Ügyfélkör táblázatot az ID alapján a te klienseddel
+        # Megnyitjuk az Ügyfélkör táblázatot az ID alapján a klienssel
         sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
         adatok_sheet = sh_ugyfelkor.worksheet("Adatok")
         
@@ -25,7 +25,20 @@ def render_mobil_aruatvetel(client):
         
         if not df_adatok.empty:
             df_adatok.columns = [c.strip() for c in df_adatok.columns]
-            jaratok = [j for j in df_adatok['Járat'].unique() if str(j).strip() != ""]
+            
+            # 🔒 BIZTONSÁGI SZŰRÉS: Ki a telefonon bejelentkezett futár?
+            aktualis_futar = st.session_state.get('user_nev', '')
+            
+            # Megnézzük, hogy létezik-e már a P oszlop (Feldolgozó Futár)
+            if 'Feldolgozó Futár' in df_adatok.columns:
+                # Csak azokat a sorokat hagyjuk meg, amiket EZ a futár töltött fel az asztali gépen!
+                df_szurt_adatok = df_adatok[df_adatok['Feldolgozó Futár'] == aktualis_futar]
+                jaratok = [j for j in df_szurt_adatok['Járat'].unique() if str(j).strip() != ""]
+            else:
+                # Biztonsági tartalék: ha még a régi struktúrájú adatok vannak fent,
+                # akkor átmenetileg minden járatot megmutatunk, nehogy megálljon a munka
+                jaratok = [j for j in df_adatok['Járat'].unique() if str(j).strip() != ""]
+                
         else:
             st.error("Az Adatok munkalap üres az Ügyfélkör DB-ben!")
             return

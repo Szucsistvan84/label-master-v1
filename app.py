@@ -3889,7 +3889,7 @@ def main():
                     "etikettek.pdf", use_container_width=True
                 )
                 c2.download_button("📋 MENETTERV", create_manifest_pdf(edited_df, st.session_state.c_n, meta), "menetterv.pdf", use_container_width=True)
-                c3.download_button("📊 RAKLISTA", create_raklista_pdf(edited_df, aktualis_jaratok, meta), "raklista.pdf", use_container_width=True)
+                c3.download_button("📊 RAKLISTA", create_raklista_pdf(edited_df, aktualis_jaratok, meta, sh), "raklista.pdf", use_container_width=True)
 
                 # --- QR-KÓD GENERÁLÁS A MOBIL NÉZETHEZ ---
                 st.write("---")

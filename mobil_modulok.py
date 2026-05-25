@@ -213,129 +213,93 @@ def render_mobil_aruatvetel(client):
                 st.rerun()
 
 def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
-    """
-    client: Hitelesített gspread kliens
-    SHEET_ID_UGYFELKOR: Az ügyfélkör Google Sheet ID-ja
-    """
     st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
-    st.caption("💡 Pakolás fordított sorrendben! A csoportosított címeket szedd egy szatyorba a gyorsabb leadásért.")
     
-    # --- Thermoláda számláló ---
-    if 'mobil_lada_szam' not in st.session_state:
-        st.session_state.mobil_lada_szam = 1
-        
-    col_lada1, col_lada2 = st.columns([2, 1])
-    with col_lada1:
-        st.metric("📦 Aktuális Thermoláda:", f"{st.session_state.mobil_lada_szam}. láda")
-    with col_lada2:
-        if st.button("➕ Következő láda", key="mob_next_lada_btn", use_container_width=True):
+    # --- RÖGZÍTETT FEJLÉC ÉS VEZÉRLÉS ---
+    if 'mobil_lada_szam' not in st.session_state: st.session_state.mobil_lada_szam = 1
+    if "mutasd_bepakoltat" not in st.session_state: st.session_state.mutasd_bepakoltat = False
+
+    col_a, col_b, col_c = st.columns([2, 1.5, 1.5])
+    with col_a:
+        st.metric("📦 Aktuális:", f"{st.session_state.mobil_lada_szam}. láda")
+    with col_b:
+        if st.button("➕ Következő", use_container_width=True):
             st.session_state.mobil_lada_szam += 1
             st.rerun()
+    with col_c:
+        gomb_szoveg = "🔍 Rejtsd a kész" if st.session_state.mutasd_bepakoltat else "🔍 Mutasd a kész"
+        if st.button(gomb_szoveg, use_container_width=True):
+            st.session_state.mutasd_bepakoltat = not st.session_state.mutasd_bepakoltat
+            st.rerun()
+    st.write("---")
 
     try:
         valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
-        
         if valasztott_jaratok:
             sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
-            adatok_sheet = sh_ugyfelkor.worksheet("Adatok")
-            df_adatok = pd.DataFrame(adatok_sheet.get_all_records())
+            df_adatok = pd.DataFrame(sh_ugyfelkor.worksheet("Adatok").get_all_records())
             
             if not df_adatok.empty:
                 df_adatok.columns = [c.strip() for c in df_adatok.columns]
+                cim_oszlop = 'Cím' if 'Cím' in df_adatok.columns else df_adatok.columns[3]
+                nev_oszlop = 'Név' if 'Név' in df_adatok.columns else df_adatok.columns[1]
+                rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_adatok.columns else ('Kosár' if 'Kosár' in df_adatok.columns else None)
                 
-                jarat_oszlop_neve = 'Járat' if 'Járat' in df_adatok.columns else df_adatok.columns[0]
+                # Szűrés és Fordított sorrend
+                df_forditott = df_adatok.iloc[::-1].copy()
                 
-                # Szűrés
-                if "Mai Raklista" in valasztott_jaratok:
-                    futar_oszlop = 'Feldolgozó Futár' if 'Feldolgozó Futár' in df_adatok.columns else 'Futár'
-                    df_jarat_adatok = df_adatok[df_adatok[futar_oszlop].astype(str).str.strip() == st.session_state.get('user_nev', '').strip()] if futar_oszlop in df_adatok.columns else df_adatok
-                else:
-                    df_jarat_adatok = df_adatok[df_adatok[jarat_oszlop_neve].astype(str).str.strip().isin(valasztott_jaratok)]
+                # 👥 CSOPORTOSÍTÁS
+                egyedi_csoportok = []
+                for _, row in df_forditott.iterrows():
+                    azonosito = (str(row[cim_oszlop]).strip(), str(row.get('Megjegyzés', '')).strip())
+                    if azonosito not in egyedi_csoportok: egyedi_csoportok.append(azonosito)
                 
-                if not df_jarat_adatok.empty:
-                    df_forditott = df_jarat_adatok.iloc[::-1].copy()
+                osszes_megallo = len(egyedi_csoportok)
+                
+                for i, (aktualis_cim, aktualis_megj) in enumerate(egyedi_csoportok):
+                    megallo_sorszam = osszes_megallo - i
+                    df_csoport = df_forditott[
+                        (df_forditott[cim_oszlop].astype(str).str.strip() == aktualis_cim) & 
+                        (df_forditott.get('Megjegyzés', '').astype(str).str.strip() == aktualis_megj)
+                    ]
                     
-                    cim_oszlop = 'Cím' if 'Cím' in df_forditott.columns else df_forditott.columns[3]
-                    nev_oszlop = 'Név' if 'Név' in df_forditott.columns else df_forditott.columns[1]
-                    rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_forditott.columns else ('Kosár' if 'Kosár' in df_forditott.columns else None)
-                    
-                    # 👥 CSOPORTOSÍTÁS: Teljes Cím + Teljes Megjegyzés kulcsként
-                    egyedi_csoportok = []
-                    # Segédtérkép, amiben eltároljuk a cím-megjegyzés párosokat a későbbi szűréshez
-                    for _, row in df_forditott.iterrows():
-                        cim = str(row[cim_oszlop]).strip()
-                        megj = str(row.get('Megjegyzés', '')).strip()
-                        # A kulcsot úgy képezzük, hogy egyedi legyen, de nem splitteljük
-                        azonosito = (cim, megj)
-                        
-                        if azonosito not in egyedi_csoportok:
-                            egyedi_csoportok.append(azonosito)
-                    
-                    st.write("---")
-                    osszes_megallo = len(egyedi_csoportok)
-                    
-                    # Ciklus: Visszafelé számozással
-                    for i, (aktualis_cim, aktualis_megj) in enumerate(egyedi_csoportok):
-                        megallo_sorszam = osszes_megallo - i
-                        
-                        # Szűrés a pontos párra
-                        df_csoport = df_forditott[
-                            (df_forditott[cim_oszlop].astype(str).str.strip() == aktualis_cim) & 
-                            (df_forditott.get('Megjegyzés', '').astype(str).str.strip() == aktualis_megj)
-                        ]
-                        
-                        with st.container(border=True):
-                            st.markdown(f"### 📦 {megallo_sorszam}. Megálló")
-                            st.markdown(f"📍 **Cím:** {aktualis_cim}")
-                            if aktualis_megj:
-                                st.warning(f"📝 **Megjegyzés:** {aktualis_megj}")
-                            
-                            if len(df_csoport) > 1:
-                                st.info(f"💡 Ide {len(df_csoport)} rendelés megy egy szatyorba!")
-                            
-                            for idx, row in df_csoport.iterrows():
-                                st.write(f"👤 **Név:** {row[nev_oszlop]}")
-                                if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "":
-                                    st.markdown(f"📋 **Rendelés:**\n```\n{row[rendeles_oszlop]}\n```")
-                                
-                                # Kulcsok az állapothoz
-                                bepakolt_kulcs = f"bepak_allapot_{idx}"
-                                lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
-                                
-                                # Inicializálás
-                                if bepakolt_kulcs not in st.session_state:
-                                    st.session_state[bepakolt_kulcs] = False
-                                    st.session_state[lada_tarolt_kulcs] = None
-                                
-                                # Ha már be van pakolva, a rögzített értéket írjuk ki, különben csak "Bepakolva"
-                                label_text = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[bepakolt_kulcs] else "Bepakolás a ládába"
-                                
-                                # A checkbox "on_change" eseményt használunk a st.rerun() helyett
-                                def log_lada(i=idx):
-                                    if st.session_state[f"chk_{i}"]:
-                                        st.session_state[f"bepak_allapot_{i}"] = True
-                                        st.session_state[f"lada_szam_tarolt_{i}"] = f"{st.session_state.mobil_lada_szam}. láda"
-                                    else:
-                                        st.session_state[f"bepak_allapot_{i}"] = False
-                                        st.session_state[f"lada_szam_tarolt_{i}"] = None
+                    # Logika a kész csoport elrejtéséhez
+                    csoport_indexek = df_csoport.index.tolist()
+                    csoport_kesz = all(st.session_state.get(f"bepak_allapot_{idx}", False) for idx in csoport_indexek)
+                    if csoport_kesz and not st.session_state.mutasd_bepakoltat:
+                        continue
 
-                                st.checkbox(
-                                    label_text, 
-                                    value=st.session_state[bepakolt_kulcs], 
-                                    key=f"chk_{idx}",
-                                    on_change=log_lada # Ez a kulcs: nem kell rerun, csak frissíti az értéket!
-                                )
-
-                                if len(df_csoport) > 1:
-                                    st.write("---")
+                    with st.container(border=True):
+                        st.markdown(f"### 📦 {megallo_sorszam}. Megálló")
+                        st.markdown(f"📍 **Cím:** {aktualis_cim}")
+                        if aktualis_megj: st.warning(f"📝 **Megjegyzés:** {aktualis_megj}")
+                        
+                        for idx, row in df_csoport.iterrows():
+                            st.write(f"👤 **Név:** {row[nev_oszlop]}")
+                            if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "":
+                                st.markdown(f"📋 **Rendelés:**\n```\n{row[rendeles_oszlop]}\n```")
                             
-                    st.success("🎉 Minden kártyát átnéztél? Irány a 3. fül!")
-                else:
-                    st.warning("Nem található cím a kiválasztott járatokhoz.")
+                            # Állapotkezelés
+                            bepakolt_kulcs = f"bepak_allapot_{idx}"
+                            lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
+                            if bepakolt_kulcs not in st.session_state:
+                                st.session_state[bepakolt_kulcs] = False
+                                st.session_state[lada_tarolt_kulcs] = None
+                            
+                            def log_lada(i=idx):
+                                if st.session_state[f"chk_{i}"]:
+                                    st.session_state[f"bepak_allapot_{i}"] = True
+                                    st.session_state[f"lada_szam_tarolt_{i}"] = f"{st.session_state.mobil_lada_szam}. láda"
+                                else:
+                                    st.session_state[f"bepak_allapot_{i}"] = False
+                                    st.session_state[f"lada_szam_tarolt_{i}"] = None
+
+                            label = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[bepakolt_kulcs] else "Bepakolás a ládába"
+                            st.checkbox(label, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}", on_change=log_lada)
+                            if len(df_csoport) > 1: st.write("---")
             else:
                 st.error("Az Adatok munkalap üres!")
         else:
-            st.info("ℹ️ Első lépésként válaszd ki a járatodat az 1. fülön!")
-            
+            st.info("ℹ️ Válaszd ki a járatodat az 1. fülön!")
     except Exception as e:
-        st.error(f"Hiba a címek betöltésekor: {e}")
+        st.error(f"Hiba a betöltéskor: {e}")

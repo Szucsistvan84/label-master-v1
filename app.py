@@ -522,19 +522,21 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         ws_adatok.clear()  
         
         # 🟢 JAVÍTÁS ÜNNEPI / ÖSSZEVONT RENDELÉSEKHEZ:
-        # Ha a merge_data legenerálta a teljes, összevont rendelési sztringet,
-        # akkor ezt használjuk a felhőbe küldéshez a sima csonka Rendelés oszlop helyett.
         if 'Rendelés_Full' in df_napi.columns:
-            # Csak ott írjuk felül, ahol a Rendelés_Full nem üres
             df_napi['Rendelés'] = df_napi.apply(
                 lambda row: str(row['Rendelés_Full']).strip() if str(row.get('Rendelés_Full', '')).strip() != "" else row['Rendelés'], 
                 axis=1
             )
         
-        # Ez a hivatalos, kért 15 oszlopos séma
+        # 🔒 AUTOMATIKUS FUTÁR PECSÉT GENERÁLÁSA
+        # Beírjuk a DataFrame-be, hogy ki az aktuálisan bejelentkezett felhasználó, aki a PDF-et feltöltötte
+        df_napi['Feldolgozó Futár'] = st.session_state.get('user_nev', 'Ismeretlen_Feltölto')
+        
+        # Ez a hivatalos, kért 16 oszlopos séma (Bővítve a P oszloppal a végén!)
         export_cols = [
             'ID', 'Név', 'Cím', 'Telefon', 'Csoport', 'Sorrend', 'Lat', 'Lon', 
-            'Rendelés', 'Megjegyzés', 'Járat', 'Fizetendő', 'Fizetési Mód', 'Státusz', 'Időbélyeg'
+            'Rendelés', 'Megjegyzés', 'Járat', 'Fizetendő', 'Fizetési Mód', 'Státusz', 'Időbélyeg',
+            'Feldolgozó Futár'  # <--- EZ AZ ÚJ P OSZLOP!
         ]
         
         # Csak azokat pakoljuk bele, amik kellenek, és pont ebben a sorrendben
@@ -551,7 +553,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         
         # Feltöltés fejléccel együtt
         set_with_dataframe(ws_adatok, save_df, include_index=False, include_column_header=True)
-        logger.info("🚀 A mai menetterv sikeresen kiküldve az 'Adatok' fülre az előírt 15 oszloppal!")
+        logger.info("🚀 A mai menetterv sikeresen kiküldve az 'Adatok' fülre a biztonsági P oszloppal együtt!")
     except Exception as e:
         logger.warning(f"A térkép elkészült, de az 'Adatok' fül frissítése megszakadt: {e}")
 

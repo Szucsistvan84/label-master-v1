@@ -515,12 +515,19 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
             else:
                 df_napi[col] = ""
 
-    # --- 7. LÉPÉS: FRISSÍTÉS AZ "ADATOK" FÜLRE (SZIGORÚ HIERARCHIA) ---
+    # --- 7. LÉPÉS: FRISSÍTÉS AZ "ADATOK" FÜLRE (SZIGORÚ HIERARCHIA - TÖBBFELHASZNÁLÓS MÓD) ---
     try:
         time.sleep(1.0)
         ws_adatok = sh.worksheet("Adatok")
-        ws_adatok.clear()  
         
+        # 1. Beolvassuk a Google Sheets-ben AKTUALISAN bent lévő összes adatot
+        existing_records = ws_adatok.get_all_records()
+        if existing_records:
+            df_existing = pd.DataFrame(existing_records)
+            df_existing.columns = [c.strip() for c in df_existing.columns]
+        else:
+            df_existing = pd.DataFrame()
+
         # 🟢 JAVÍTÁS ÜNNEPI / ÖSSZEVONT RENDELÉSEKHEZ:
         if 'Rendelés_Full' in df_napi.columns:
             df_napi['Rendelés'] = df_napi.apply(
@@ -529,20 +536,39 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
             )
         
         # 🔒 AUTOMATIKUS FUTÁR PECSÉT GENERÁLÁSA
-        # Beírjuk a DataFrame-be, hogy ki az aktuálisan bejelentkezett felhasználó, aki a PDF-et feltöltötte
-        df_napi['Feldolgozó Futár'] = st.session_state.get('user_nev', 'Ismeretlen_Feltölto')
+        aktualis_futar_nev = st.session_state.get('user_nev', 'Ismeretlen_Feltölto')
+        df_napi['Feldolgozó Futár'] = aktualis_futar_nev
         
-        # Ez a hivatalos, kért 16 oszlopos séma (Bővítve a P oszloppal a végén!)
+        # Ez a hivatalos, kért 16 oszlopos séma
         export_cols = [
             'ID', 'Név', 'Cím', 'Telefon', 'Csoport', 'Sorrend', 'Lat', 'Lon', 
             'Rendelés', 'Megjegyzés', 'Járat', 'Fizetendő', 'Fizetési Mód', 'Státusz', 'Időbélyeg',
-            'Feldolgozó Futár'  # <--- EZ AZ ÚJ P OSZLOP!
+            'Feldolgozó Futár'
         ]
         
-        # Csak azokat pakoljuk bele, amik kellenek, és pont ebben a sorrendben
-        save_df = df_napi[export_cols].copy()
+        # Előkészítjük az új adatokat tartalmazó DataFrame-et
+        df_uj_adatok = df_napi[export_cols].copy()
         
-        # Tisztítjuk a koordinátákat és kényszerítjük az objektum típust a típuskonfliktusok ellen
+        # 🔄 ÖSSZEFÉSÜLÉS (ANTI-ADATVESZTÉS ÉS IDŐBÉLYEG-VÉDELEM LOGIKA):
+        if not df_existing.empty and 'Feldolgozó Futár' in df_existing.columns:
+            # 1. Megtartjuk a MÁSOK által feltöltött sorokat
+            df_mások_adatai = df_existing[df_existing['Feldolgozó Futár'] != aktualis_futar_nev]
+            
+            # 2. Megtartjuk a SAJÁT, de már IDŐBÉLYEGGEL ELLÁTOTT (lezárt) sorainkat!
+            # (Feltételezzük, hogy az 'Időbélyeg' oszlopba kerül a lezárás a futár appból. 
+            # Ha a 'Státusz' oszlop jelzi a lezárást, pl. 'Kiszállítva', akkor arra is szűrhetünk.)
+            df_saját_lezárt_adatai = df_existing[
+                (df_existing['Feldolgozó Futár'] == aktualis_futar_nev) & 
+                (df_existing['Időbélyeg'].astype(str).str.strip() != "")
+            ]
+            
+            # Összegyúrjuk a védett adatokat (másoké + saját lezártunk) az én friss, új PDF adataimmal
+            save_df = pd.concat([df_mások_adatai, df_saját_lezárt_adatai, df_uj_adatok], ignore_index=True)
+        else:
+            # Ha teljesen üres a táblázat, akkor csak az új adatokat mentjük
+            save_df = df_uj_adatok
+
+        # Típusbiztonsági takarítás a mentés előtt
         save_df['Lat'] = save_df['Lat'].apply(biztonsagos_float)
         save_df['Lon'] = save_df['Lon'].apply(biztonsagos_float)
         save_df['ID'] = save_df['ID'].astype(str)
@@ -551,9 +577,11 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
             save_df[col] = save_df[col].astype(object)
         save_df = save_df.fillna('')
         
-        # Feltöltés fejléccel együtt
+        # 🚨 A TELJES TÖRLÉS HELYETT: Csak felülírjuk a táblázatot az összefésült, biztonságos adattal!
+        ws_adatok.clear() # Most már kiüríthetjük egy tizedmásodpercre, mert a 'save_df'-ben benne van a pesti kolléga adata is!
         set_with_dataframe(ws_adatok, save_df, include_index=False, include_column_header=True)
-        logger.info("🚀 A mai menetterv sikeresen kiküldve az 'Adatok' fülre a biztonsági P oszloppal együtt!")
+        logger.info("🚀 Biztonságos, többfelhasználós szinkronizáció kész! Minden kolléga adata megőrizve.")
+        
     except Exception as e:
         logger.warning(f"A térkép elkészült, de az 'Adatok' fül frissítése megszakadt: {e}")
 

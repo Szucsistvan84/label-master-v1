@@ -384,23 +384,24 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 st.markdown(f"### 📍 {sorszam}. Cím — `{melyik_lada}`")
                 st.subheader(f"👤 {vevo_neve}")
                 st.markdown(f"🏠 **Cím:** {aktualis_cim}")
-                if aktualis_megj: st.warning(f"📝 **Megjegyzés:** {aktualis_megj}")
+                if aktualis_megj and aktualis_megj != "nan": 
+                    st.warning(f"📝 **Megjegyzés:** {aktualis_megj}")
                 
-                # --- 🛒 KOSÁR TARTALMA (EZ HIÁNYZOTT!) ---
+                # --- 🛒 KOSÁR TARTALMA ---
                 if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "" and str(row[rendeles_oszlop]).strip() != "nan":
                     st.markdown("📦 **Átadandó termékek:**")
                     st.code(str(row[rendeles_oszlop]).strip(), language="text")
                 
-                # --- GOLYÓÁLLÓ GOOGLE MINI TÉRKÉP URLEK ---
-                # Ha van koordináta, azt adjuk át, különben a tiszta szöveges címet, országgal megerősítve
+                # --- 🗺️ HIVATALOS, MEGBÍZHATÓ GOOGLE MAPS BEÁGYAZÁS ---
                 if saved_lat and saved_lon and saved_lat != "nan" and saved_lon != "nan":
-                    q_param = f"{saved_lat},{saved_lon}"
+                    target_param = f"{saved_lat},{saved_lon}"
                 else:
-                    q_param = f"{aktualis_cim}, Hungary"
+                    # Város és utca tisztítása a biztonságos kereséshez
+                    target_param = f"{aktualis_cim}, Hungary"
                 
-                encoded_q = urllib.parse.quote(q_param)
-                # Ez az alternatív beágyazási URL sokkal toleránsabb a magyar címekkel szemben
-                embed_url = f"https://maps.google.com/maps?q={encoded_q}&t=&z=16&ie=UTF8&iwloc=&output=embed"
+                encoded_target = urllib.parse.quote(target_param)
+                # Ez a hivatalos beágyazási formátum, ami nem dob vissza a világtérképre szöveges címnél sem
+                embed_url = f"https://maps.google.com/maps?q={encoded_target}&t=&z=15&ie=UTF8&iwloc=&output=embed"
                 
                 st.components.v1.html(
                     f'<iframe width="100%" height="220" src="{embed_url}" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" style="border-radius:10px; border:1px solid #ddd;"></iframe>', 
@@ -422,7 +423,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                         st.button("📞 Nincs telefonszám", disabled=True, use_container_width=True)
                         
                 with col_gps:
-                    # Navigációs gomb (külső megnyitáshoz)
+                    # Külső navigáció indítása (Google Maps alkalmazás)
                     nav_target = f"{saved_lat},{saved_lon}" if (saved_lat and saved_lon and saved_lat != "nan") else aktualis_cim
                     encoded_nav = urllib.parse.quote(nav_target)
                     maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_nav}"
@@ -436,13 +437,14 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
                 st.write("")
                 
-                # --- 🎯 KOORDINÁTA JAVÍTÁS / MENTÉS ---
+                # --- 🎯 KOORDINÁTA JAVÍTÁS / MENTÉS (BIZTONSÁGOS GPS LEKÉRÉSSEL) ---
                 with st.expander("🎯 Pontatlan a pozíció? Kapu rögzítése"):
                     st.write("Állj meg a kapu előtt a kocsival, és mentsd el a pontos koordinátákat a jövőre nézve.")
                     
                     loc = get_geolocation()
                     
-                    if loc:
+                    # 🔐 BIZTONSÁGI ELLENŐRZÉS: Csak akkor olvassuk be a 'coords'-ot, ha kaptunk adatot a böngészőtől
+                    if loc and 'coords' in loc:
                         curr_lat = loc['coords']['latitude']
                         curr_lon = loc['coords']['longitude']
                         st.info(f"Észlelt GPS koordináta: `{curr_lat}, {curr_lon}`")
@@ -471,7 +473,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                             except Exception as geo_err:
                                 st.error(f"Sheets írási hiba: {geo_err}")
                     else:
-                        st.caption("Engedélyezd a helymeghatározást a böngészőben (vagy teszteld telefonon gombnyomásra) a funkció használatához.")
+                        st.warning("⏳ Várakozás valós GPS jelre... (Mobilon, térerő mellett fog azonnal megjelenni, asztali gépen nem elérhető).")
 
                 st.write("---")
                 

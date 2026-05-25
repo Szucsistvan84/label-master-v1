@@ -296,7 +296,8 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
 
                         label = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[bepakolt_kulcs] else "Bepakolás a ládába"
                         st.checkbox(label, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}", on_change=log_lada)
-                            if len(df_csoport) > 1: st.write("---")
+                        # Ha minden kártya után akarsz vonalat, használd ezt:
+                        st.write("---")
             else:
                 st.error("Az Adatok munkalap üres!")
         else:

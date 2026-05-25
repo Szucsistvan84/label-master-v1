@@ -3230,57 +3230,79 @@ def create_raklista_pdf(df, jarat_info, meta_dict, sh): # 👈 JAVÍTÁS: beker�
     # Adatgyűjtő lista indítása
     mobil_raklista_rows = []
 
-    # 4. TÁBLÁZATOK GENERÁLÁSA KATEGÓRIÁNKÉNT
-    for kat in rendezett_kategoriak:
-        kat_data = []
-        kat_data.append([Paragraph(f"<b>📂 {kat.upper()}</b>", cat_header_style), "", "", "", "", "", ""])
-        kat_data.append([
-            Paragraph("<b>NAP</b>", th_style), Paragraph("<b>KÓD</b>", th_style), Paragraph("<b>DB</b>", th_style),
-            Paragraph("<b>[ ]</b>", th_style), Paragraph("<b>MEGNEVEZÉS</b>", th_style), Paragraph("<b>ÁR</b>", th_style), Paragraph("<b>ÖSSZES</b>", th_style)
-        ])
-        
-        # C - Tételek hozzáadása (A kategórián belül a hét napjainak valódi sorrendje, majd kód szerint)
-        # Létrehozunk egy gyors sorrend-leképezést a teljes napnevekhez
-        nap_sorrend = {"Hétfő": 1, "Kedd": 2, "Szerda": 3, "Csütörtök": 4, "Péntek": 5, "Szombat": 6}
-        
-        tetelek = sorted(
-            kategoria_csoportok[kat], 
-            key=lambda x: (nap_sorrend.get(x['day'], 99), x['code'])
-        )
-        
+    # 4. TÁBLÁZATOK GENERÁLÁSA NAPOK SZERINT (Először Péntek, utána Szombat)
+    # Létrehozzuk a napok szigorú sorrendjét
+    nap_sorrend = ["Hétfő", "Kedd", "Szerda", "Csütörtök", "Péntek", "Szombat"]
+    
+    # Kigyűjtjük, hogy milyen napok szerepelnek egyáltalán az adatokban, és berendezzük a fenti sorrendbe
+    elerheto_napok = set()
+    for kat, tetelek in kategoria_csoportok.items():
         for tétel in tetelek:
-            p_style = row_bold_style if tétel['starred'] else row_reg_style
-            c_style = center_bold_style if tétel['starred'] else center_style
-            
-            kat_data.append([
-                Paragraph(tétel['day'], center_style), Paragraph(tétel['code'], c_style), Paragraph(f"<b>{tétel['db']} db</b>", c_style),
-                get_checkbox(), Paragraph(tétel['nev'], p_style), Paragraph(f"{tétel['ar']} Ft", right_style),
-                Paragraph(f"{tétel['subtotal']} Ft", right_bold_style if tétel['starred'] else right_style)
-            ])
+            elerheto_napok.add(tétel['day'])
+    rendezett_napok = sorted(list(elerheto_napok), key=lambda x: nap_sorrend.index(x) if x in nap_sorrend else 99)
 
-            # 🚀 ADAT KIMENTÉSE A MOBILHOZ
-            mobil_raklista_rows.append({
-                'Nap': str(tétel['day']).strip(),
-                'Cikkszam': str(tétel['code']).strip(),
-                'Terv_Darabszam': int(tétel['db']),
-                'Etel Neve': str(tétel['nev']).strip(),
-                'Teny_Darabszam': "",  
-                'Hiba_Tipusa': ""      
-            })
-           
-        t = Table(kat_data, colWidths=col_widths, repeatRows=2)
-        t_style = [
-            ('SPAN', (0, 0), (-1, 0)), ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#EAEAEA')),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 3), ('TOPPADDING', (0, 0), (-1, 0), 3), ('LINEBELOW', (0, 0), (-1, 0), 1, colors.HexColor('#222222')),
-            ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#F5F5F5')), ('BOTTOMPADDING', (0, 1), (-1, 1), 2), ('TOPPADDING', (0, 1), (-1, 1), 2),
-            ('LINEBELOW', (0, 1), (-1, 1), 0.6, colors.HexColor('#666666')), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('ALIGN', (3, 2), (3, -1), 'CENTER'),
-            ('TOPPADDING', (0, 2), (-1, -1), 2), ('BOTTOMPADDING', (0, 2), (-1, -1), 2), ('LEFTPADDING', (0, 0), (-1, -1), 3), ('RIGHTPADDING', (0, 0), (-1, -1), 3),
-            ('ROWBACKGROUNDS', (0, 2), (-1, -1), [colors.white, colors.HexColor('#FAFAFA')]), ('LINEBELOW', (0, 2), (-1, -1), 0.3, colors.HexColor('#E0E0E0')),
-            ('BOX', (0, 0), (-1, -1), 0.8, colors.HexColor('#222222')),
-        ]
-        t.setStyle(TableStyle(t_style))
-        elements.append(t)
-        elements.append(Spacer(1, 4 * mm))
+    # Végigmegyünk a napokon (így a Péntek és a Szombat teljesen külön blokk lesz)
+    for aktualis_nap in rendezett_napok:
+        
+        # Az adott napon belül végigmegyünk a konyhai kategória-sorrenden
+        for kat in rendezett_kategoriak:
+            
+            # Kiszűrjük azokat a tételeket, amik az adott naphoz ÉS az adott kategóriához tartoznak
+            tetelek = [t for t in kategoria_csoportok[kat] if t['day'] == aktualis_nap]
+            
+            # Ha ezen a napon ebből a kategóriából nincs étel, ugrunk a következőre
+            if not tetelek:
+                continue
+                
+            kat_data = []
+            
+            # A - Kategória Fejléc Sor (Most már a nap nevét is kiírjuk a📂 ikon mellé, hogy egyértelmű legyen!)
+            kat_data.append([Paragraph(f"<b>📂 {aktualis_nap.upper()} - {kat.upper()}</b>", cat_header_style), "", "", "", "", "", ""])
+            
+            # B - Oszlopnevek fejléc sor
+            kat_data.append([
+                Paragraph("<b>NAP</b>", th_style), Paragraph("<b>KÓD</b>", th_style), Paragraph("<b>DB</b>", th_style),
+                Paragraph("<b>[ ]</b>", th_style), Paragraph("<b>MEGNEVEZÉS</b>", th_style), Paragraph("<b>ÁR</b>", th_style), Paragraph("<b>ÖSSZES</b>", th_style)
+            ])
+            
+            # C - Tételek rendezése kód szerint a kategórián belül
+            tetelek_rendezve = sorted(tetelek, key=lambda x: x['code'])
+            
+            for tétel in tetelek_rendezve:
+                p_style = row_bold_style if tétel['starred'] else row_reg_style
+                c_style = center_bold_style if tétel['starred'] else center_style
+                
+                kat_data.append([
+                    Paragraph(tétel['day'], center_style), Paragraph(tétel['code'], c_style), Paragraph(f"<b>{tétel['db']} db</b>", c_style),
+                    get_checkbox(), Paragraph(tétel['nev'], p_style), Paragraph(f"{tétel['ar']} Ft", right_style),
+                    Paragraph(f"{tétel['subtotal']} Ft", right_bold_style if tétel['starred'] else right_style)
+                ])
+
+                # 🚀 ADAT KIMENTÉSE A MOBILHOZ (Így a mobilra is ebben a tökéletes sorrendben fut be!)
+                mobil_raklista_rows.append({
+                    'Nap': str(tétel['day']).strip(),
+                    'Cikkszam': str(tétel['code']).strip(),
+                    'Terv_Darabszam': int(tétel['db']),
+                    'Etel Neve': str(tétel['nev']).strip(),
+                    'Teny_Darabszam': "",  
+                    'Hiba_Tipusa': ""      
+                })
+               
+            # Táblázat létrehozása és formázása
+            t = Table(kat_data, colWidths=col_widths, repeatRows=2)
+            t_style = [
+                ('SPAN', (0, 0), (-1, 0)), ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#EAEAEA')),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 3), ('TOPPADDING', (0, 0), (-1, 0), 3), ('LINEBELOW', (0, 0), (-1, 0), 1, colors.HexColor('#222222')),
+                ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#F5F5F5')), ('BOTTOMPADDING', (0, 1), (-1, 1), 2), ('TOPPADDING', (0, 1), (-1, 1), 2),
+                ('LINEBELOW', (0, 1), (-1, 1), 0.6, colors.HexColor('#666666')), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('ALIGN', (3, 2), (3, -1), 'CENTER'),
+                ('TOPPADDING', (0, 2), (-1, -1), 2), ('BOTTOMPADDING', (0, 2), (-1, -1), 2), ('LEFTPADDING', (0, 0), (-1, -1), 3), ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+                ('ROWBACKGROUNDS', (0, 2), (-1, -1), [colors.white, colors.HexColor('#FAFAFA')]), ('LINEBELOW', (0, 2), (-1, -1), 0.3, colors.HexColor('#E0E0E0')),
+                ('BOX', (0, 0), (-1, -1), 0.8, colors.HexColor('#222222')),
+            ]
+            t.setStyle(TableStyle(t_style))
+            
+            elements.append(t)
+            elements.append(Spacer(1, 4 * mm)) # Térköz a blokkok között
 
     # 5. PÉNZÜGYI ÖSSZESÍTŐ TÁBLÁZAT
     jutalek = int(total_money * 0.13)

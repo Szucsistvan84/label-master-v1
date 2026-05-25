@@ -213,25 +213,28 @@ def render_mobil_aruatvetel(client):
                 st.rerun()
 
 def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
-    st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
-    
-    # --- RÖGZÍTETT FEJLÉC ÉS VEZÉRLÉS ---
-    if 'mobil_lada_szam' not in st.session_state: st.session_state.mobil_lada_szam = 1
-    if "mutasd_bepakoltat" not in st.session_state: st.session_state.mutasd_bepakoltat = False
-
-    col_a, col_b, col_c = st.columns([2, 1.5, 1.5])
-    with col_a:
-        st.metric("📦 Aktuális:", f"{st.session_state.mobil_lada_szam}. láda")
-    with col_b:
-        if st.button("➕ Következő", use_container_width=True):
+    # --- VEZÉRLÉS AZ OLDALSÁVBAN (FIXEN RÖGZÍTVE) ---
+    with st.sidebar:
+        st.markdown("### 📦 Pakolás vezérlés")
+        
+        if 'mobil_lada_szam' not in st.session_state: st.session_state.mobil_lada_szam = 1
+        if "mutasd_bepakoltat" not in st.session_state: st.session_state.mutasd_bepakoltat = False
+        
+        st.metric("📦 Aktuális láda:", f"{st.session_state.mobil_lada_szam}. láda")
+        
+        if st.button("➕ Következő láda", use_container_width=True):
             st.session_state.mobil_lada_szam += 1
             st.rerun()
-    with col_c:
+            
         gomb_szoveg = "🔍 Rejtsd a kész" if st.session_state.mutasd_bepakoltat else "🔍 Mutasd a kész"
         if st.button(gomb_szoveg, use_container_width=True):
             st.session_state.mutasd_bepakoltat = not st.session_state.mutasd_bepakoltat
             st.rerun()
-    st.write("---")
+        st.write("---")
+
+    # --- FŐ TARTALOM ---
+    st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
+    st.caption("💡 Pakolás fordított sorrendben! A csoportosított címeket szedd egy szatyorba.")
 
     try:
         valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]

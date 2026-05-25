@@ -259,21 +259,26 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                     nev_oszlop = 'Név' if 'Név' in df_forditott.columns else df_forditott.columns[1]
                     rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_forditott.columns else ('Kosár' if 'Kosár' in df_forditott.columns else None)
                     
-                    # 👥 CSOPORTOSÍTÁS: Cím + Megjegyzés együtt
+                    # 👥 CSOPORTOSÍTÁS: Teljes Cím + Teljes Megjegyzés kulcsként
                     egyedi_csoportok = []
+                    # Segédtérkép, amiben eltároljuk a cím-megjegyzés párosokat a későbbi szűréshez
                     for _, row in df_forditott.iterrows():
-                        azonosito = f"{str(row[cim_oszlop]).strip()} | {str(row.get('Megjegyzés', '')).strip()}"
+                        cim = str(row[cim_oszlop]).strip()
+                        megj = str(row.get('Megjegyzés', '')).strip()
+                        # A kulcsot úgy képezzük, hogy egyedi legyen, de nem splitteljük
+                        azonosito = (cim, megj)
+                        
                         if azonosito not in egyedi_csoportok:
                             egyedi_csoportok.append(azonosito)
                     
                     st.write("---")
                     osszes_megallo = len(egyedi_csoportok)
                     
-                    # Ciklus: Visszafelé számozással (osszes_megallo -> 1)
-                    for i, azonosito in enumerate(egyedi_csoportok):
+                    # Ciklus: Visszafelé számozással
+                    for i, (aktualis_cim, aktualis_megj) in enumerate(egyedi_csoportok):
                         megallo_sorszam = osszes_megallo - i
-                        aktualis_cim, aktualis_megj = azonosito.split(" | ")
                         
+                        # Szűrés a pontos párra
                         df_csoport = df_forditott[
                             (df_forditott[cim_oszlop].astype(str).str.strip() == aktualis_cim) & 
                             (df_forditott.get('Megjegyzés', '').astype(str).str.strip() == aktualis_megj)
@@ -282,11 +287,11 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         with st.container(border=True):
                             st.markdown(f"### 📦 {megallo_sorszam}. Megálló")
                             st.markdown(f"📍 **Cím:** {aktualis_cim}")
-                            if aktualis_megj and aktualis_megj != "":
+                            if aktualis_megj:
                                 st.warning(f"📝 **Megjegyzés:** {aktualis_megj}")
                             
                             if len(df_csoport) > 1:
-                                st.info(f"💡 Ide {len(df_csoport)} rendelés megy, szedd egy szatyorba!")
+                                st.info(f"💡 Ide {len(df_csoport)} rendelés megy egy szatyorba!")
                             
                             for idx, row in df_csoport.iterrows():
                                 st.write(f"👤 **Név:** {row[nev_oszlop]}")

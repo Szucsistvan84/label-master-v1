@@ -97,41 +97,55 @@ def render_mobil_aruatvetel(client):
                 st.error(f"Hiba a Mobil_Idobelyegek írásakor az Ügyfélkör Sheetbe: {e}")
 
     # =========================================================================
-    # ÁLLAPOT 2: AZ ÁRUÁTVÉTEL FOLYAMATBAN VAN
+    # ÁLLAPOT 2: AZ ÁRUÁTVÉTEL FOLYAMATBAN VAN (ÚJ, RAKLISTA ALAPÚ MODUL)
     # =========================================================================
     else:
         jaratok_szoveg = ", ".join(map(str, valasztott_jaratok))
         st.warning(f"🔄 Áruátvétel folyamatban... (Összevont járatok: {jaratok_szoveg})")
         
-        # 🟢 JAVÍTÁS: .isin() függvényt használunk, így az ÖSSZES kijelölt járat cikkét lekérjük egyszerre!
-        df_jarat_cikkek = df_adatok[df_adatok['Járat'].isin(valasztott_jaratok)]
-        
-        if not df_jarat_cikkek.empty and 'Étel Neve' in df_jarat_cikkek.columns:
-            if 'Mennyiség' in df_jarat_cikkek.columns:
-                df_jarat_cikkek['Mennyiség'] = pd.to_numeric(df_jarat_cikkek['Mennyiség'], errors='coerce').fillna(1)
-                df_osszesitett = df_jarat_cikkek.groupby('Étel Neve')['Mennyiség'].sum().reset_index(name='Szükséges DB')
+        try:
+            # 1. Beolvassuk a tiszta Raklista fület az Ügyfélkör DB-ből
+            sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
+            raklista_sheet = sh_ugyfelkor.worksheet("Mobil_Raklista")
+            df_raklista = pd.DataFrame(raklista_sheet.get_all_records())
+            
+            if not df_raklista.empty:
+                df_raklista.columns = [c.strip() for c in df_raklista.columns]
+                
+                # 🔒 Biztonsági szűrés: Csak a saját nevemre szűrök
+                df_sajat_raklista = df_raklista[df_raklista['Jarat_ID / Futar'] == futar_neve]
+                
+                if not df_sajat_raklista.empty:
+                    st.markdown("### 📦 Összesített, beemelendő ételek listája:")
+                    st.caption("A konyhai raklista alapján pontosítva, cikkszám szerint csoportosítva.")
+                    
+                    # Kilistázzuk a tiszta adatokat a checkboxokhoz
+                    for idx, row in df_sajat_raklista.iterrows():
+                        cikkszam_szoveg = f" [{row['Cikkszam']}]" if str(row['Cikkszam']).strip() != "" else ""
+                        st.checkbox(
+                            f"**{int(row['Terv_Darabszam'])} db** - {row['Etel Neve']}{cikkszam_szoveg}", 
+                            key=f"check_raklista_{idx}"
+                        )
+                else:
+                    st.info("Nem található hozzárendelt raklista ehhez a futárhoz a mai napon.")
             else:
-                df_osszesitett = df_jarat_cikkek.groupby('Étel Neve').size().reset_index(name='Szükséges DB')
-            
-            st.markdown("### 📦 Összevont, beemelendő ételek listája:")
-            st.caption("A rendszer automatikusan összeadta a járatok darabszámait!")
-            
-            for idx, row in df_osszesitett.iterrows():
-                st.checkbox(f"**{int(row['Szükséges DB'])} db** - {row['Étel Neve']}", key=f"check_cikk_{idx}")
-        else:
-            st.info("Nem találhatók ételek a kiválasztott járatokhoz a mai napon.")
+                st.error("A Mobil_Raklista munkalap üres a Google Sheetben!")
+                
+        except Exception as e:
+            st.error(f"Hiba a Mobil_Raklista beolvasásakor: {e}")
 
         st.write("---")
         
-        # HIBABEJELENTÉS (A Master Sheet 'Logisztikai_Hibak' munkalapjára)
+        # HIBABEJELENTÉS (A saját, tiszta ételeink alapján listázva)
         with st.expander("🚨 HIÁNYZIK / SÉRÜLT VALAMI? (Hiba bejelentése)"):
             st.write("Ha a konyha kevesebbet adott le, vagy sérült az étel, itt jelentsd be azonnal:")
             
-            all_etelek = [""] + list(df_jarat_cikkek['Étel Neve'].unique()) if not df_jarat_cikkek.empty else [""]
+            all_etelek = [""]
+            if 'df_sajat_raklista' in locals() and not df_sajat_raklista.empty:
+                all_etelek = [""] + list(df_sajat_raklista['Etel Neve'].unique())
+                
             hiba_etel = st.selectbox("Melyik étellel van gond?", all_etelek, key="mob_hiba_etel")
             hiba_db = st.number_input("Hány darab érintett?", min_value=1, value=1, key="mob_hiba_db")
-            
-            # Megadjuk, melyik konkrét járatból hiányzik, ha fontos az adminnak
             hiba_melyik_jarat = st.selectbox("Melyik járathoz tartozó doboz?", valasztott_jaratok, key="mob_hiba_jarat")
             hiba_tipus = st.selectbox("Hiba jellege:", ["Konyha nem adta ki (Hiány)", "Sérült csomagolás", "Megfolyt / Romlott", "Egyéb"], key="mob_hiba_tipus")
             hiba_megj = st.text_input("Rövid megjegyzés:", key="mob_hiba_megj")
@@ -139,17 +153,16 @@ def render_mobil_aruatvetel(client):
             if st.button("⚠️ HIBA BEKÜLDÉSE AZ ADMINNAK", use_container_width=True, key="mob_hiba_submit"):
                 if hiba_etel != "":
                     try:
-                        sh_master = client.open_by_key(SHEET_ID_MASTER)
-                        hibak_sheet = sh_master.worksheet("Logisztikai_Hibak")
+                        hibak_sheet = sh_ugyfelkor.worksheet("Logisztikai_Hibak")
                         most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         
                         hibak_sheet.append_row([
                             most_hiba, hiba_melyik_jarat, "ÁRUÁTVÉTELI HIÁNY", "N/A", hiba_etel, 
                             int(hiba_db), 0, hiba_tipus, hiba_megj, futar_neve, "Feldolgozatlan"
                         ])
-                        st.success("Hiba sikeresen rögzítve! Az admin már látja a központban. ✅")
+                        st.success("Hiba sikeresen rögzítve! ✅")
                     except Exception as e:
-                        st.error(f"Nem sikerült menteni a hibát a Master Sheetbe: {e}")
+                        st.error(f"Nem sikerült menteni a hibát: {e}")
                 else:
                     st.warning("Kérlek válaszd ki az ételt!")
 

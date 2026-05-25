@@ -216,8 +216,8 @@ def render_mobil_aruatvetel(client):
 # Ez gondoskodik róla, hogy ne töltsön másodpercekig a Google Sheets minden kattintásnál.
 # ttl=600 azt jelenti, hogy 10 percig a memóriából dolgozik, utána frissít automatikusan.
 @st.cache_data(ttl=600)
-def get_mobil_adatok_cached(client, sheet_id):
-    sh = client.open_by_key(sheet_id)
+def get_mobil_adatok_cached(_client, sheet_id):  # <- Ide került az alsó vonal!
+    sh = _client.open_by_key(sheet_id)
     return pd.DataFrame(sh.worksheet("Adatok").get_all_records())
 
 # --- 2. A GYORSÍTOTT MOBIL FÜGGVÉNY ---

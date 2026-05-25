@@ -250,8 +250,8 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
         valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
         if valasztott_jaratok:
             
-            # --- ITT HASZNÁLJUK A GYORSÍTÓTÁRAT A Google Sheets API HELYETT ---
-            df_adatok = get_mobil_adatok_cached(client, SHEET_ID_UGYFELKOR)
+            # --- ITT MEGHÍVJUK A JAVÍTOTT FÜGGVÉNYT ---
+            df_adatok = get_mobil_adatok_cached(client, SHEET_ID_UGYFELKOR) 
             
             if not df_adatok.empty:
                 df_adatok.columns = [c.strip() for c in df_adatok.columns]

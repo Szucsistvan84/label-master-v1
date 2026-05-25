@@ -83,7 +83,8 @@ def render_mobil_aruatvetel(client):
             jaratok_szoveg = ", ".join(map(str, valasztott_jaratok))
             
             try:
-                sh_master = client.open_by_key(SHEET_ID_MASTER)
+                # 🔄 JAVÍTÁS: SHEET_ID_MASTER helyett SHEET_ID_UGYFELKOR-t nyitunk meg
+                sh_master = client.open_by_key(SHEET_ID_UGYFELKOR)
                 idok_sheet = sh_master.worksheet("Mobil_Idobelyegek")
                 idok_sheet.append_row([mai_datum, jaratok_szoveg, futar_neve, start_ido, ""])
                 
@@ -93,7 +94,7 @@ def render_mobil_aruatvetel(client):
                 time.sleep(1.0)
                 st.rerun()
             except Exception as e:
-                st.error(f"Hiba a Mobil_Idobelyegek írásakor a Master Sheetbe: {e}")
+                st.error(f"Hiba a Mobil_Idobelyegek írásakor az Ügyfélkör Sheetbe: {e}")
 
     # =========================================================================
     # ÁLLAPOT 2: AZ ÁRUÁTVÉTEL FOLYAMATBAN VAN
@@ -160,7 +161,8 @@ def render_mobil_aruatvetel(client):
             end_ido = most.strftime("%H:%M:%S")
             
             try:
-                sh_master = client.open_by_key(SHEET_ID_MASTER)
+                # 🔄 JAVÍTÁS: SHEET_ID_MASTER helyett SHEET_ID_UGYFELKOR-t nyitunk meg
+                sh_master = client.open_by_key(SHEET_ID_UGYFELKOR)
                 idok_sheet = sh_master.worksheet("Mobil_Idobelyegek")
                 sor_szam = st.session_state.idobelyeg_sor_index
                 

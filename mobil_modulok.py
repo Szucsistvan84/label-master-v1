@@ -153,7 +153,13 @@ def render_mobil_aruatvetel(client):
             hiba_etel = hiba_etel_display.split(" (")[0] if hiba_etel_display != "" else ""
             hiba_db = st.number_input("Hány darab érintett?", min_value=1, value=1, key="mob_hiba_db")
             hiba_melyik_jarat = st.selectbox("Melyik járathoz tartozó doboz?", valasztott_jaratok, key="mob_hiba_jarat")
-            hiba_tipus = st.selectbox("Hiba jellege:", ["Konyha nem adta ki (Hiány)", "Sérült csomagolás", "Megfolyt / Romlott", "Egyéb"], key="mob_hiba_tipus")
+            # ✨ ÚJ, OKOS TÖBBLET/HIÁNY KEZELŐ BLOKK (EZT MÁSOLD BE)
+            # 1. Kibővítjük az opciókat a Többlettel
+            hiba_tipus = st.selectbox(
+                "Hiba jellege:", 
+                ["Konyha nem adta ki (Hiány)", "Többlet (Többet kaptunk)", "Sérült csomagolás", "Megfolyt / Romlott", "Egyéb"], 
+                key="mob_hiba_tipus"
+            )
             hiba_megj = st.text_input("Rövid megjegyzés:", key="mob_hiba_megj")
             
             if st.button("⚠️ HIBA BEKÜLDÉSE AZ ADMINNAK", use_container_width=True, key="mob_hiba_submit"):
@@ -162,11 +168,31 @@ def render_mobil_aruatvetel(client):
                         hibak_sheet = sh_ugyfelkor.worksheet("Logisztikai_Hibak")
                         most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         
+                        # 2. OKOS SZÉTVÁLASZTÁS: Ha többlet, megcseréljük a 0 és a darabszám helyét
+                        if hiba_tipus == "Többlet (Többet kaptunk)":
+                            fokategoria = "ÁRUÁTVÉTELI TÖBBLET"
+                            hiany_db = 0
+                            tobblet_db = int(hiba_db)
+                        else:
+                            fokategoria = "ÁRUÁTVÉTELI HIÁNY"
+                            hiany_db = int(hiba_db)
+                            tobblet_db = 0
+                        
+                        # 3. Mentés a megfelelő oszlopokba (Hiány, Többlet szétválasztva)
                         hibak_sheet.append_row([
-                            most_hiba, hiba_melyik_jarat, "ÁRUÁTVÉTELI HIÁNY", "N/A", hiba_etel, 
-                            int(hiba_db), 0, hiba_tipus, hiba_megj, futar_neve, "Feldolgozatlan"
+                            most_hiba, 
+                            hiba_melyik_jarat, 
+                            fokategoria, 
+                            "N/A", 
+                            hiba_etel, 
+                            hiany_db, 
+                            tobblet_db, 
+                            hiba_tipus, 
+                            hiba_megj, 
+                            futar_neve, 
+                            "Feldolgozatlan"
                         ])
-                        st.success("Hiba sikeresen rögzítve! ✅")
+                        st.success("Többlet/Hiány sikeresen rögzítve! ✅")
                     except Exception as e:
                         st.error(f"Nem sikerült menteni a hibát: {e}")
                 else:

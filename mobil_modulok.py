@@ -220,7 +220,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
     st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
     st.caption("💡 Pakolás fordított sorrendben! A csoportosított címeket szedd egy szatyorba a gyorsabb leadásért.")
     
-    # --- Thermoláda számláló inicializálása ---
+    # --- Thermoláda számláló ---
     if 'mobil_lada_szam' not in st.session_state:
         st.session_state.mobil_lada_szam = 1
         
@@ -243,86 +243,67 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             if not df_adatok.empty:
                 df_adatok.columns = [c.strip() for c in df_adatok.columns]
                 
-                # Járat oszlop azonosítása
                 jarat_oszlop_neve = 'Járat' if 'Járat' in df_adatok.columns else df_adatok.columns[0]
                 
-                # Szűrés járat/futár alapján
+                # Szűrés
                 if "Mai Raklista" in valasztott_jaratok:
                     futar_oszlop = 'Feldolgozó Futár' if 'Feldolgozó Futár' in df_adatok.columns else 'Futár'
-                    if futar_oszlop in df_adatok.columns:
-                        df_jarat_adatok = df_adatok[df_adatok[futar_oszlop].astype(str).str.strip() == st.session_state.get('user_nev', '').strip()]
-                    else:
-                        df_jarat_adatok = df_adatok
+                    df_jarat_adatok = df_adatok[df_adatok[futar_oszlop].astype(str).str.strip() == st.session_state.get('user_nev', '').strip()] if futar_oszlop in df_adatok.columns else df_adatok
                 else:
                     df_jarat_adatok = df_adatok[df_adatok[jarat_oszlop_neve].astype(str).str.strip().isin(valasztott_jaratok)]
                 
                 if not df_jarat_adatok.empty:
-                    # 🔄 FORDÍTOTT SORREND (A pakolás alapja)
                     df_forditott = df_jarat_adatok.iloc[::-1].copy()
                     
-                    # Szükséges oszlopok keresése dinamikusan
                     cim_oszlop = 'Cím' if 'Cím' in df_forditott.columns else df_forditott.columns[3]
                     nev_oszlop = 'Név' if 'Név' in df_forditott.columns else df_forditott.columns[1]
                     rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_forditott.columns else ('Kosár' if 'Kosár' in df_forditott.columns else None)
                     
-                    # 👥 CSOPORTOSÍTÁS CÍM ALAPJÁN
-                    egyedi_cimek_sorrendben = []
-                    for c in df_forditott[cim_oszlop].astype(str).str.strip():
-                        if c not in egyedi_cimek_sorrendben:
-                            egyedi_cimek_sorrendben.append(c)
+                    # 👥 CSOPORTOSÍTÁS: Cím + Megjegyzés együtt
+                    egyedi_csoportok = []
+                    for _, row in df_forditott.iterrows():
+                        azonosito = f"{str(row[cim_oszlop]).strip()} | {str(row.get('Megjegyzés', '')).strip()}"
+                        if azonosito not in egyedi_csoportok:
+                            egyedi_csoportok.append(azonosito)
                     
                     st.write("---")
+                    osszes_megallo = len(egyedi_csoportok)
                     
-                    # MEGOLDÁS: A teljes lista hosszából indulunk visszafelé
-                    osszes_megallo = len(egyedi_cimek_sorrendben)
-                    
-                    # Végigmegyünk az egyedi címcsoportokon
-                    for i, aktualis_cim in enumerate(egyedi_cimek_sorrendben):
-                        # A számláló a teljes darabszámtól indul és csökken 1-ig
+                    # Ciklus: Visszafelé számozással (osszes_megallo -> 1)
+                    for i, azonosito in enumerate(egyedi_csoportok):
                         megallo_sorszam = osszes_megallo - i
+                        aktualis_cim, aktualis_megj = azonosito.split(" | ")
                         
-                        # Kiválasztjuk az összes rendelést, ami erre a címre megy
-                        df_csoport = df_forditott[df_forditott[cim_oszlop].astype(str).str.strip() == aktualis_cim]
+                        df_csoport = df_forditott[
+                            (df_forditott[cim_oszlop].astype(str).str.strip() == aktualis_cim) & 
+                            (df_forditott.get('Megjegyzés', '').astype(str).str.strip() == aktualis_megj)
+                        ]
                         
-                        # Kártya (vizuális konténer) létrehozása
                         with st.container(border=True):
-                            # Ha egynél több tétel van ugyanoda -> jelezzük, hogy ez egy csoportos szatyor!
-                            if len(df_csoport) > 1:
-                                st.markdown(f"### 🛍️ {megallo_sorszam}. Megálló (Csoportos cím!)")
-                                st.caption(f"📍 **Cím:** {aktualis_cim}")
-                                st.info(f"💡 **Logisztikai tipp:** Erre a címre {len(df_csoport)} db rendelés megy. Érdemes eleve egy közös szatyorba szedni!")
-                            else:
-                                st.markdown(f"### 📦 {megallo_sorszam}. Megálló")
-                                st.markdown(f"📍 **Cím:** {aktualis_cim}")
+                            st.markdown(f"### 📦 {megallo_sorszam}. Megálló")
+                            st.markdown(f"📍 **Cím:** {aktualis_cim}")
+                            if aktualis_megj and aktualis_megj != "":
+                                st.warning(f"📝 **Megjegyzés:** {aktualis_megj}")
                             
-                            # Kilistázzuk a címhez tartozó összes személyt és az ő pontos rendelésüket
+                            if len(df_csoport) > 1:
+                                st.info(f"💡 Ide {len(df_csoport)} rendelés megy, szedd egy szatyorba!")
+                            
                             for idx, row in df_csoport.iterrows():
                                 st.write(f"👤 **Név:** {row[nev_oszlop]}")
-                                
-                                # Rendelés oszlop tartalmának teljes megjelenítése
                                 if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "":
-                                    st.markdown(f"📋 **Rendelés részletei:**\n```\n{row[rendeles_oszlop]}\n```")
-                                else:
-                                    st.caption("⚠️ Nincs részletes rendelési adat megadva.")
+                                    st.markdown(f"📋 **Rendelés:**\n```\n{row[rendeles_oszlop]}\n```")
                                 
-                                # Minden külön tételhez egy egyedi belső pipa (ha több ember van egy címen, külön lehessen pipálni)
-                                st.checkbox(
-                                    f"Bepakolva a(z) {st.session_state.mobil_lada_szam}. ládába", 
-                                    key=f"bepak_chk_{idx}"
-                                )
+                                st.checkbox(f"Bepakolva: {st.session_state.mobil_lada_szam}. láda", key=f"bepak_chk_{idx}")
                                 if len(df_csoport) > 1:
-                                    st.write("---") # Kis elválasztó a csoporton belüli nevek között
-                                    
-                            counter += 1
+                                    st.write("---")
                             
-                    st.write("---")
-                    st.success("🎉 Minden kártyát átnéztél? Ha a bepakolás kész, válthatsz a 3. fülre (Kiszállítás)!")
+                    st.success("🎉 Minden kártyát átnéztél? Irány a 3. fül!")
                 else:
-                    st.warning(f"Nem található cím a kiválasztott járatokhoz a mai napon az Adatok fülön.")
+                    st.warning("Nem található cím a kiválasztott járatokhoz.")
             else:
-                st.error("Az Adatok munkalap üres a Google Sheetben!")
+                st.error("Az Adatok munkalap üres!")
         else:
-            st.info("ℹ️ Első lépésként válaszd ki a járatodat az **1. fülön (Áruátvétel)**, és indítsd el a napot!")
+            st.info("ℹ️ Első lépésként válaszd ki a járatodat az 1. fülön!")
             
     except Exception as e:
         st.error(f"Hiba a címek betöltésekor: {e}")

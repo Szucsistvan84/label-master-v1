@@ -265,18 +265,23 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                     nev_oszlop = 'Név' if 'Név' in df_forditott.columns else df_forditott.columns[1]
                     rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_forditott.columns else ('Kosár' if 'Kosár' in df_forditott.columns else None)
                     
-                    # 👥 CSOPORTOSÍTÁS CÍM ALAPJÁN (Megtartva a fordított sorrendű blokkokat)
-                    # Kigyűjtjük a címeket olyan sorrendben, ahogy a fordított listában először szerepelnek
+                    # 👥 CSOPORTOSÍTÁS CÍM ALAPJÁN
                     egyedi_cimek_sorrendben = []
                     for c in df_forditott[cim_oszlop].astype(str).str.strip():
                         if c not in egyedi_cimek_sorrendben:
                             egyedi_cimek_sorrendben.append(c)
                     
-                    counter = 1
                     st.write("---")
                     
+                    # MEGOLDÁS: A lista teljes hossza alapján számolunk vissza, 
+                    # így az első bepakolt cím lesz az 1. a listán.
+                    osszes_megallo = len(egyedi_cimek_sorrendben)
+                    
                     # Végigmegyünk az egyedi címcsoportokon
-                    for aktualis_cim in egyedi_cimek_sorrendben:
+                    for i, aktualis_cim in enumerate(egyedi_cimek_sorrendben):
+                        # A counter helyett kiszámoljuk a sorszámot: 1, 2, 3...
+                        megallo_sorszam = i + 1
+                        
                         # Kiválasztjuk az összes rendelést, ami erre a címre megy
                         df_csoport = df_forditott[df_forditott[cim_oszlop].astype(str).str.strip() == aktualis_cim]
                         
@@ -284,12 +289,11 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         with st.container(border=True):
                             # Ha egynél több tétel van ugyanoda -> jelezzük, hogy ez egy csoportos szatyor!
                             if len(df_csoport) > 1:
-                                st.markdown(f"### 🛍️ {counter}. Megálló (Csoportos cím!)")
+                                st.markdown(f"### 🛍️ {megallo_sorszam}. Megálló (Csoportos cím!)")
                                 st.caption(f"📍 **Cím:** {aktualis_cim}")
                                 st.info(f"💡 **Logisztikai tipp:** Erre a címre {len(df_csoport)} db rendelés megy. Érdemes eleve egy közös szatyorba szedni!")
                             else:
-                                row_szolo = df_csoport.iloc[0]
-                                st.markdown(f"### 📦 {counter}. Megálló")
+                                st.markdown(f"### 📦 {megallo_sorszam}. Megálló")
                                 st.markdown(f"📍 **Cím:** {aktualis_cim}")
                             
                             # Kilistázzuk a címhez tartozó összes személyt és az ő pontos rendelésüket

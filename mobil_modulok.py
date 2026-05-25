@@ -2,20 +2,24 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import time
 
-# mobil_modulok.py frissített verzió
-
-def render_mobil_aruatvetel(main_sheet, ugyfelkor_sheet):
+def render_mobil_aruatvetel(client):
     """
-    main_sheet: A SHEET_ID_MASTER (Ide megy a Mobil_Idobelyegek és Logisztikai_Hibak)
-    ugyfelkor_sheet: A Etikett_Ugyfelkor_DB (Innen jön az 'Adatok' munkalap a járatokkal és ételekkel)
+    client: Az app.py-ból átadott, már hitelesített gspread kliens
     """
     st.subheader("📦 Ömlesztett áruátvétel")
     
+    # Pontos Google Sheet ID-k a konfigurációdból
+    SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
+    SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
+    
     # 1. JÁRAT ÉS FUTÁR AZONOSÍTÁS (Az Ügyfélkör DB 'Adatok' munkalapjából)
     try:
-        # 🟢 Az ADATOK-at az ugyfelkor_sheet-ből olvassuk!
-        adatok_sheet = ugyfelkor_sheet.worksheet("Adatok")
+        # Megnyitjuk az Ügyfélkör táblázatot az ID alapján a te klienseddel
+        sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
+        adatok_sheet = sh_ugyfelkor.worksheet("Adatok")
+        
         adatok_data = adatok_sheet.get_all_records()
         df_adatok = pd.DataFrame(adatok_data)
         
@@ -52,13 +56,15 @@ def render_mobil_aruatvetel(main_sheet, ugyfelkor_sheet):
             mai_datum = most.strftime("%Y-%m-%d")
             
             try:
-                # 🔵 Az IDŐBÉLYEGET a main_sheet-be (Master) írjuk!
-                idok_sheet = main_sheet.worksheet("Mobil_Idobelyegek")
+                # Az IDŐBÉLYEGET a Master Sheetbe írjuk
+                sh_master = client.open_by_key(SHEET_ID_MASTER)
+                idok_sheet = sh_master.worksheet("Mobil_Idobelyegek")
                 idok_sheet.append_row([mai_datum, valasztott_jarat, futar_neve, start_ido, ""])
                 
                 st.session_state.idobelyeg_sor_index = len(idok_sheet.get_all_values())
                 st.session_state.aruatvetel_folyamatban = True
                 st.success(f"Áruátvétel elindítva: {start_ido}")
+                time.sleep(1.0)
                 st.rerun()
             except Exception as e:
                 st.error(f"Hiba a Mobil_Idobelyegek írásakor a Master Sheetbe: {e}")
@@ -101,8 +107,8 @@ def render_mobil_aruatvetel(main_sheet, ugyfelkor_sheet):
             if st.button("⚠️ HIBA BEKÜLDÉSE AZ ADMINNAK", use_container_width=True, key="mob_hiba_submit"):
                 if hiba_etel != "":
                     try:
-                        # 🔵 A HIBÁT a main_sheet-be (Master) írjuk, hogy az admin lássa!
-                        hibak_sheet = main_sheet.worksheet("Logisztikai_Hibak")
+                        sh_master = client.open_by_key(SHEET_ID_MASTER)
+                        hibak_sheet = sh_master.worksheet("Logisztikai_Hibak")
                         most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         
                         hibak_sheet.append_row([
@@ -123,8 +129,8 @@ def render_mobil_aruatvetel(main_sheet, ugyfelkor_sheet):
             end_ido = most.strftime("%H:%M:%S")
             
             try:
-                # 🔵 A LEZÁRÁST a main_sheet-be (Master) írjuk!
-                idok_sheet = main_sheet.worksheet("Mobil_Idobelyegek")
+                sh_master = client.open_by_key(SHEET_ID_MASTER)
+                idok_sheet = sh_master.worksheet("Mobil_Idobelyegek")
                 sor_szam = st.session_state.idobelyeg_sor_index
                 
                 if sor_szam:
@@ -133,6 +139,7 @@ def render_mobil_aruatvetel(main_sheet, ugyfelkor_sheet):
                 st.session_state.aruatvetel_folyamatban = False
                 st.session_state.idobelyeg_sor_index = None
                 st.success(f"Áruátvétel sikeresen lezárva: {end_ido}. Jó utat! 🚗💨")
+                time.sleep(1.0)
                 st.rerun()
             except Exception as e:
                 st.error(f"Hiba az áruátvétel lezárásakor: {e}")

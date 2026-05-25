@@ -35,8 +35,19 @@ def render_mobil_aruatvetel(client):
 
     # Futár neve a munkamenetből
     futar_neve = st.session_state.get('user_nev', 'Te (Teszt Üzemmód)')
-    valasztott_jarat = st.selectbox("Válaszd ki a mai járatodat:", jaratok, key="mob_jarat_select")
     
+    # 🔄 TÖBBJÁRATOS JAVÍTÁS: Selectbox helyett Multiselect az összevont járatokhoz
+    valasztott_jaratok = st.multiselect(
+        "Válaszd ki a mai járataidat (többet is választhatsz összevonás esetén):", 
+        options=jaratok,
+        default=[jaratok[0]] if jaratok else [],
+        key="mob_jarat_select"
+    )
+    
+    if not valasztott_jaratok:
+        st.warning("⚠️ Kérlek, válassz ki legalább egy járatot a folytatáshoz!")
+        return
+
     st.write("---")
 
     # Session State állapotok inicializálása
@@ -55,15 +66,17 @@ def render_mobil_aruatvetel(client):
             start_ido = most.strftime("%H:%M:%S")
             mai_datum = most.strftime("%Y-%m-%d")
             
+            # Járatok összefűzése egy szöveggé a Google Sheet-be (pl: "4002, 4003")
+            jaratok_szoveg = ", ".join(map(str, valasztott_jaratok))
+            
             try:
-                # Az IDŐBÉLYEGET a Master Sheetbe írjuk
                 sh_master = client.open_by_key(SHEET_ID_MASTER)
                 idok_sheet = sh_master.worksheet("Mobil_Idobelyegek")
-                idok_sheet.append_row([mai_datum, valasztott_jarat, futar_neve, start_ido, ""])
+                idok_sheet.append_row([mai_datum, jaratok_szoveg, futar_neve, start_ido, ""])
                 
                 st.session_state.idobelyeg_sor_index = len(idok_sheet.get_all_values())
                 st.session_state.aruatvetel_folyamatban = True
-                st.success(f"Áruátvétel elindítva: {start_ido}")
+                st.success(f"Áruátvétel elindítva a következő járatokhoz: {jaratok_szoveg} ({start_ido})")
                 time.sleep(1.0)
                 st.rerun()
             except Exception as e:
@@ -73,9 +86,11 @@ def render_mobil_aruatvetel(client):
     # ÁLLAPOT 2: AZ ÁRUÁTVÉTEL FOLYAMATBAN VAN
     # =========================================================================
     else:
-        st.warning(f"🔄 Áruátvétel folyamatban... (Járat: {valasztott_jarat})")
+        jaratok_szoveg = ", ".join(map(str, valasztott_jaratok))
+        st.warning(f"🔄 Áruátvétel folyamatban... (Összevont járatok: {jaratok_szoveg})")
         
-        df_jarat_cikkek = df_adatok[df_adatok['Járat'] == valasztott_jarat]
+        # 🟢 JAVÍTÁS: .isin() függvényt használunk, így az ÖSSZES kijelölt járat cikkét lekérjük egyszerre!
+        df_jarat_cikkek = df_adatok[df_adatok['Járat'].isin(valasztott_jaratok)]
         
         if not df_jarat_cikkek.empty and 'Étel Neve' in df_jarat_cikkek.columns:
             if 'Mennyiség' in df_jarat_cikkek.columns:
@@ -84,13 +99,13 @@ def render_mobil_aruatvetel(client):
             else:
                 df_osszesitett = df_jarat_cikkek.groupby('Étel Neve').size().reset_index(name='Szükséges DB')
             
-            st.markdown("### 📦 Összesített beemelendő ételek:")
-            st.caption("Számold át a dobozokat, mielőtt bepakolsz a kocsiba!")
+            st.markdown("### 📦 Összevont, beemelendő ételek listája:")
+            st.caption("A rendszer automatikusan összeadta a járatok darabszámait!")
             
             for idx, row in df_osszesitett.iterrows():
                 st.checkbox(f"**{int(row['Szükséges DB'])} db** - {row['Étel Neve']}", key=f"check_cikk_{idx}")
         else:
-            st.info("Nem találhatók ételek ehhez a járathoz a mai napon.")
+            st.info("Nem találhatók ételek a kiválasztott járatokhoz a mai napon.")
 
         st.write("---")
         
@@ -101,6 +116,9 @@ def render_mobil_aruatvetel(client):
             all_etelek = [""] + list(df_jarat_cikkek['Étel Neve'].unique()) if not df_jarat_cikkek.empty else [""]
             hiba_etel = st.selectbox("Melyik étellel van gond?", all_etelek, key="mob_hiba_etel")
             hiba_db = st.number_input("Hány darab érintett?", min_value=1, value=1, key="mob_hiba_db")
+            
+            # Megadjuk, melyik konkrét járatból hiányzik, ha fontos az adminnak
+            hiba_melyik_jarat = st.selectbox("Melyik járathoz tartozó doboz?", valasztott_jaratok, key="mob_hiba_jarat")
             hiba_tipus = st.selectbox("Hiba jellege:", ["Konyha nem adta ki (Hiány)", "Sérült csomagolás", "Megfolyt / Romlott", "Egyéb"], key="mob_hiba_tipus")
             hiba_megj = st.text_input("Rövid megjegyzés:", key="mob_hiba_megj")
             
@@ -112,7 +130,7 @@ def render_mobil_aruatvetel(client):
                         most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         
                         hibak_sheet.append_row([
-                            most_hiba, valasztott_jarat, "ÁRUÁTVÉTELI HIÁNY", "N/A", hiba_etel, 
+                            most_hiba, hiba_melyik_jarat, "ÁRUÁTVÉTELI HIÁNY", "N/A", hiba_etel, 
                             int(hiba_db), 0, hiba_tipus, hiba_megj, futar_neve, "Feldolgozatlan"
                         ])
                         st.success("Hiba sikeresen rögzítve! Az admin már látja a központban. ✅")

@@ -101,122 +101,157 @@ def render_mobil_aruatvetel(client):
             except Exception as e:
                 st.error(f"Hiba a Mobil_Idobelyegek írásakor az Ügyfélkör Sheetbe: {e}")
 
-    # =========================================================================
-    # ÁLLAPOT 2: AZ ÁRUÁTVÉTEL FOLYAMATBAN VAN
+# =========================================================================
+    # ÁLLAPOT 2: DEPOZÁS (1. LÉPÉS: ÁRUÁTVÉTEL & 2. LÉPÉS: CÍMEKRE SZEDÉS)
     # =========================================================================
     else:
         jaratok_szoveg = ", ".join(map(str, valasztott_jaratok))
-        st.warning(f"🔄 Áruátvétel folyamatban... ({jaratok_szoveg})")
         
-        if 'df_sajat_raklista_init' in locals() and not df_sajat_raklista_init.empty:
-            st.markdown("### 📦 Összesített, beemelendő ételek listája:")
-            st.caption(f"Üdv, {futar_neve}! A konyhai raklistád alapján cikkszámozva:")
+        # Ha még nem zárták le a depót, akkor a Bepakolás fázis fut
+        if not st.session_state.get("kiszallitas_folyamatban", False):
+            st.warning(f"🔄 Depózás és bepakolás folyamatban... ({jaratok_szoveg})")
             
-            # Kilistázzuk a tiszta adatokat checkbox formájában
-            for idx, row in df_sajat_raklista_init.iterrows():
-                cikkszam_szoveg = f" [{row['Cikkszam']}]" if str(row['Cikkszam']).strip() != "" else ""
-                st.checkbox(
-                    f"**{int(row['Terv_Darabszam'])} db** - {row['Etel Neve']}{cikkszam_szoveg} — *({row['Nap']})*", 
-                    key=f"check_raklista_{idx}"
-                )
-            
-            df_sajat_raklista = df_sajat_raklista_init
-        else:
-            st.info(f"ℹ️ Nem található hozzárendelt raklista '{futar_neve}' névre a mai napon. Kérlek, generáld le a PDF-et az asztali gépen!")
-
-        st.write("---")
-        
-        # HIBABEJELENTÉS
-        with st.expander("🚨 HIÁNYZIK / SÉRÜLT VALAMI? (Hiba bejelentése)"):
-            st.write("Ha a konyha kevesebbet adott le, vagy sérült az étel, itt jelentsd be azonnal:")
-            
-            # 🔄 JAVÍTÁS: Cikkszámos és nap szerinti legördülő lista a futároknak
-            all_etelek_display = [""]
-            all_etelek_mapping = {}
-            
-            if 'df_sajat_raklista' in locals() and not df_sajat_raklista.empty:
-                for idx, row in df_sajat_raklista.iterrows():
-                    cikkszam = str(row['Cikkszam']).strip()
-                    etel_neve = str(row['Etel Neve']).strip()
-                    nap_nev = str(row['Nap']).strip()
-                    
-                    display_szoveg = f"[{cikkszam}] - {etel_neve} ({nap_nev})"
-                    
-                    if display_szoveg not in all_etelek_display:
-                        all_etelek_display.append(display_szoveg)
-                        all_etelek_mapping[display_szoveg] = etel_neve
+            # -----------------------------------------------------------------
+            # 1. LÉPÉS: ÖMLESZTETT ÁRUÁTVÉTEL CHK-LISTA
+            # -----------------------------------------------------------------
+            st.markdown("## 1. lépés: Ömlesztett áruátvétel")
+            if 'df_sajat_raklista_init' in locals() and not df_sajat_raklista_init.empty:
+                st.caption(f"Üdv, {futar_neve}! Ellenőrizd a darabszámokat a konyhai sorrend alapján:")
                 
-            hiba_etel_display = st.selectbox("Melyik étellel van gond? (Cikkszám szerint)", all_etelek_display, key="mob_hiba_etel_display")
-            
-            # Az adminnak is elküldjük a teljes "[KÓD] - Étely Neve" szöveget (a nap nélkül)
-            # Ha a futár nem választott semmit (""), akkor üres marad
-            hiba_etel = hiba_etel_display.split(" (")[0] if hiba_etel_display != "" else ""
-            hiba_db = st.number_input("Hány darab érintett?", min_value=1, value=1, key="mob_hiba_db")
-            hiba_melyik_jarat = st.selectbox("Melyik járathoz tartozó doboz?", valasztott_jaratok, key="mob_hiba_jarat")
-            # ✨ ÚJ, OKOS TÖBBLET/HIÁNY KEZELŐ BLOKK (EZT MÁSOLD BE)
-            # 1. Kibővítjük az opciókat a Többlettel
-            hiba_tipus = st.selectbox(
-                "Hiba jellege:", 
-                ["Konyha nem adta ki (Hiány)", "Többlet (Többet kaptunk)", "Sérült csomagolás", "Megfolyt / Romlott", "Egyéb"], 
-                key="mob_hiba_tipus"
-            )
-            hiba_megj = st.text_input("Rövid megjegyzés:", key="mob_hiba_megj")
-            
-            if st.button("⚠️ HIBA BEKÜLDÉSE AZ ADMINNAK", use_container_width=True, key="mob_hiba_submit"):
-                if hiba_etel != "":
-                    try:
-                        hibak_sheet = sh_ugyfelkor.worksheet("Logisztikai_Hibak")
-                        most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        
-                        # 2. OKOS SZÉTVÁLASZTÁS: Ha többlet, megcseréljük a 0 és a darabszám helyét
-                        if hiba_tipus == "Többlet (Többet kaptunk)":
-                            fokategoria = "ÁRUÁTVÉTELI TÖBBLET"
-                            hiany_db = 0
-                            tobblet_db = int(hiba_db)
-                        else:
-                            fokategoria = "ÁRUÁTVÉTELI HIÁNY"
-                            hiany_db = int(hiba_db)
-                            tobblet_db = 0
-                        
-                        # 3. Mentés a megfelelő oszlopokba (Hiány, Többlet szétválasztva)
-                        hibak_sheet.append_row([
-                            most_hiba, 
-                            hiba_melyik_jarat, 
-                            fokategoria, 
-                            "N/A", 
-                            hiba_etel, 
-                            hiany_db, 
-                            tobblet_db, 
-                            hiba_tipus, 
-                            hiba_megj, 
-                            futar_neve, 
-                            "Feldolgozatlan"
-                        ])
-                        st.success("Többlet/Hiány sikeresen rögzítve! ✅")
-                    except Exception as e:
-                        st.error(f"Nem sikerült menteni a hibát: {e}")
-                else:
-                    st.warning("Kérlek válaszd ki az ételt!")
+                for idx, row in df_sajat_raklista_init.iterrows():
+                    cikkszam_szoveg = f" [{row['Cikkszam']}]" if str(row['Cikkszam']).strip() != "" else ""
+                    st.checkbox(
+                        f"**{int(row['Terv_Darabszam'])} db** - {row['Etel Neve']}{cikkszam_szoveg} — *({row['Nap']})*", 
+                        key=f"check_raklista_{idx}"
+                    )
+                df_sajat_raklista = df_sajat_raklista_init
+            else:
+                st.info(f"ℹ️ Nem található raklista '{futar_neve}' névre. Generáld le az asztali gépen!")
 
-        st.write("---")
+            st.write("---")
+            
+            # HIBABEJELENTÉS (Marad az áruátvételnél, ha valami hiányzik/többlet)
+            with st.expander("🚨 HIÁNYZIK / SÉRÜLT / TÖBBLET VAN? (Bejelentés)"):
+                all_etelek_display = [""]
+                all_etelek_mapping = {}
+                if 'df_sajat_raklista' in locals() and not df_sajat_raklista.empty:
+                    for idx, row in df_sajat_raklista.iterrows():
+                        display_szoveg = f"[{str(row['Cikkszam']).strip()}] - {str(row['Etel Neve']).strip()} ({str(row['Nap']).strip()})"
+                        if display_szoveg not in all_etelek_display:
+                            all_etelek_display.append(display_szoveg)
+                            all_etelek_mapping[display_szoveg] = str(row['Etel Neve']).strip()
+                    
+                hiba_etel_display = st.selectbox("Melyik étellel van gond?", all_etelek_display, key="mob_hiba_etel_display")
+                hiba_etel = hiba_etel_display.split(" (")[0] if hiba_etel_display != "" else ""
+                
+                hiba_db = st.number_input("Hány darab érintett?", min_value=1, value=1, key="mob_hiba_db")
+                hiba_melyik_jarat = st.selectbox("Melyik járathoz tartozó doboz?", valasztott_jaratok, key="mob_hiba_jarat")
+                
+                hiba_tipus = st.selectbox(
+                    "Hiba jellege:", 
+                    ["Konyha nem adta ki (Hiány)", "Többlet (Többet kaptunk)", "Sérült csomagolás", "Megfolyt / Romlott", "Egyéb"], 
+                    key="mob_hiba_tipus"
+                )
+                hiba_megj = st.text_input("Rövid megjegyzés:", key="mob_hiba_megj")
+                
+                if st.button("⚠️ HIBA BEKÜLDÉSE AZ ADMINNAK", use_container_width=True, key="mob_hiba_submit"):
+                    if hiba_etel != "":
+                        try:
+                            hibak_sheet = sh_ugyfelkor.worksheet("Logisztikai_Hibak")
+                            most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            if hiba_tipus == "Többlet (Többet kaptunk)":
+                                fokategoria = "ÁRUÁTVÉTELI TÖBBLET"
+                                hiany_db, tobblet_db = 0, int(hiba_db)
+                            else:
+                                fokategoria = "ÁRUÁTVÉTELI HIÁNY"
+                                hiany_db, tobblet_db = int(hiba_db), 0
+                            
+                            hibak_sheet.append_row([
+                                most_hiba, hiba_melyik_jarat, fokategoria, "N/A", hiba_etel, 
+                                hiany_db, tobblet_db, hiba_tipus, hiba_megj, futar_neve, "Feldolgozatlan"
+                            ])
+                            st.success("Sikeresen rögzítve! ✅")
+                        except Exception as e:
+                            st.error(f"Hiba a mentésnél: {e}")
+                    else:
+                        st.warning("Kérlek válaszd ki az ételt!")
 
-        # ÁRUÁTVÉTEL LEZÁRÁSA
-        if st.button("🏁 ÁRUÁTVÉTEL LEZÁRÁSA & INDULÁS", use_container_width=True, type="secondary", key="futar_end_btn"):
-            most = datetime.now()
-            end_ido = most.strftime("%H:%M:%S")
+            st.write("---")
+
+            # -----------------------------------------------------------------
+            # 2. LÉPÉS: CÍMEKRE SZEDÉS FORDÍTOTT SORRENDBEN
+            # -----------------------------------------------------------------
+            st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
+            st.caption("💡 Pakolás fordított sorrendben: ami itt legfelül van, az kerüljön a kocsiban leghátulra/legbelülre!")
             
             try:
-                sh_master = client.open_by_key(SHEET_ID_UGYFELKOR)
-                idok_sheet = sh_master.worksheet("Mobil_Idobelyegek")
-                sor_szam = st.session_state.idobelyeg_sor_index
+                adatok_sheet = sh_ugyfelkor.worksheet("Adatok")
+                df_adatok = pd.DataFrame(adatok_sheet.get_all_records())
                 
-                if sor_szam:
-                    idok_sheet.update_cell(sor_szam, 5, end_ido)
-                
-                st.session_state.aruatvetel_folyamatban = False
-                st.session_state.idobelyeg_sor_index = None
-                st.success(f"Áruátvétel sikeresen lezárva: {end_ido}. Jó utat! 🚗💨")
-                time.sleep(1.0)
-                st.rerun()
+                if not df_adatok.empty:
+                    df_adatok.columns = [c.strip() for c in df_adatok.columns]
+                    df_jarat_adatok = df_adatok[df_adatok['Járat'].astype(str).isin(map(str, valasztott_jaratok))]
+                    
+                    if not df_jarat_adatok.empty:
+                        # Fordított sorrend generálása az Adatok táblázatból
+                        df_forditott_cimek = df_jarat_adatok.iloc[::-1]
+                        
+                        cim_oszlop = 'Cím' if 'Cím' in df_forditott_cimek.columns else df_forditott_cimek.columns[3]
+                        nev_oszlop = 'Név' if 'Név' in df_forditott_cimek.columns else df_forditott_cimek.columns[1]
+                        
+                        counter = 1
+                        for idx, row in df_forditott_cimek.iterrows():
+                            st.checkbox(
+                                f"📦 **{counter}.** {row[nev_oszlop]} — *{row[cim_oszlop]}*",
+                                key=f"check_pack_{idx}"
+                            )
+                            counter += 1
+                    else:
+                        st.warning("Nem található cím a kiválasztott járatokhoz.")
+                else:
+                    st.error("Az Adatok munkalap üres!")
             except Exception as e:
-                st.error(f"Hiba az áruátvétel lezárásakor: {e}")
+                st.error(f"Hiba a címek betöltésekor: {e}")
+
+            st.write("---")
+
+            # INDULÁS: Itt zárul le a depózási idő és váltunk a Kiszállításra
+            if st.button("🏁 ÁRUÁTVÉTEL LEZÁRÁSA & INDULÁS", use_container_width=True, type="primary", key="futar_end_btn"):
+                most = datetime.now()
+                end_ido = most.strftime("%H:%M:%S")
+                
+                try:
+                    sh_master = client.open_by_key(SHEET_ID_UGYFELKOR)
+                    idok_sheet = sh_master.worksheet("Mobil_Idobelyegek")
+                    sor_szam = st.session_state.idobelyeg_sor_index
+                    
+                    if sor_szam:
+                        idok_sheet.update_cell(sor_szam, 5, end_ido)
+                    
+                    # Átváltunk a 3. lépésre (Kiszállítás)
+                    st.session_state.kiszallitas_folyamatban = True
+                    st.success(f"Depóidő lezárva ({end_ido}). Irány a kiszállítás!")
+                    time.sleep(1.2)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Hiba a lezáráskor: {e}")
+
+        # -----------------------------------------------------------------
+        # 3. LÉPÉS: KISZÁLLÍTÁS (A tényleges munka az utakon)
+        # -----------------------------------------------------------------
+        else:
+            st.markdown("## 3. lépés: Kiszállítás folyamatban... 🚗💨")
+            st.info(f"Sikeresen elindultál a következő járatokkal: {jaratok_szoveg}")
+            
+            # Ide jöhet majd a normál menetrend szerinti címlista, térkép vagy ami a kiszállításhoz kell
+            st.success("Minden cím bepakolva, az áruátvétel és depózás sikeresen rögzítve lett a rendszerben.")
+            
+            st.write("---")
+            if st.button("🏁 JÁRATOK VÉGSŐ LEZÁRÁSA (Műszak vége)", use_container_width=True, type="secondary", key="futar_final_close_btn"):
+                st.session_state.aruatvetel_folyamatban = False
+                st.session_state.kiszallitas_folyamatban = False
+                st.session_state.idobelyeg_sor_index = None
+                st.balloons()
+                st.success("Műszak sikeresen lezárva! Pihenj egyet! 😊")
+                time.sleep(2.0)
+                st.rerun()

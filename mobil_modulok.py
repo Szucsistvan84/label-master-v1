@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 import time
+import urllib.parse
+from datetime import datetime
+from streamlit_js_eval import get_geolocation
 
 def render_mobil_aruatvetel(client):
     """
@@ -315,3 +317,185 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             st.info("ℹ️ Válaszd ki a járatodat az 1. fülön!")
     except Exception as e:
         st.error(f"Hiba a betöltéskor: {e}")
+
+# --- 3. LÉPÉS: KISZÁLLÍTÁS MODUL ---
+def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
+    st.markdown("## 🚚 3. lépés: Kiszállítás és Elszámolás")
+    st.caption("💡 Mindig a soron következő legfrissebb címet látod. Használd a gyorsgombokat!")
+
+    try:
+        valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
+        if not valasztott_jaratok:
+            st.info("ℹ️ Válaszd ki a járatodat az 1. fülön!")
+            return
+
+        # Adatok betöltése a bepakolásnál már megírt gyorsítótárból
+        df_adatok = get_mobil_adatok_cached(client, SHEET_ID_UGYFELKOR)
+        
+        if df_adatok.empty:
+            st.error("Az Adatok munkalap üres!")
+            return
+
+        df_adatok.columns = [c.strip() for c in df_adatok.columns]
+        cim_oszlop = 'Cím' if 'Cím' in df_adatok.columns else df_adatok.columns[3]
+        nev_oszlop = 'Név' if 'Név' in df_adatok.columns else df_adatok.columns[1]
+        tel_oszlop = 'Telefon' if 'Telefon' in df_adatok.columns else 'Tel'
+        rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_adatok.columns else ('Kosár' if 'Kosár' in df_adatok.columns else None)
+        
+        # Koordináta oszlopnevek meghatározása
+        lat_oszlop = 'Latitude' if 'Latitude' in df_adatok.columns else 'Lat'
+        lon_oszlop = 'Longitude' if 'Longitude' in df_adatok.columns else 'Lon'
+
+        # Kiszállításnál NORMÁL sorrend van (1. címtől haladunk előre)
+        df_kiszallitas = df_adatok.copy()
+
+        # 🔍 Szűrés: Csak azokat a sorokat gyűjtjük ki, amikhez RENDELTÜNK ládát a 2. lépésben
+        bepakolt_sorok = []
+        for idx, row in df_kiszallitas.iterrows():
+            lada_kulcs = f"lada_szam_tarolt_{idx}"
+            if st.session_state.get(lada_kulcs) is not None:
+                bepakolt_sorok.append((idx, row))
+
+        if not bepakolt_sorok:
+            st.warning("⚠️ Nincs még bepakolt cím a rendszerben! Előbb a 2. fülön pakolj be a ládákba.")
+            return
+
+        # --- OLDALSÁV STATISZTIKA (Napi haladás követése) ---
+        osszes_bepakolt = len(bepakolt_sorok)
+        kesz_cimek = sum(1 for idx, _ in bepakolt_sorok if st.session_state.get(f"kiszallitva_{idx}", False))
+        
+        with st.sidebar:
+            st.markdown("### 📊 Mai folyamat")
+            haladas_szazalek = kesz_cimek / osszes_bepakolt if osszes_bepakolt > 0 else 0
+            st.progress(haladas_szazalek)
+            st.metric("Kézbesítve:", f"{kesz_cimek} / {osszes_bepakolt} megálló")
+            st.write("---")
+
+        # --- AZ AKTUÁLIS CÍM MEGJELENÍTÉSE ---
+        for sorszam, (idx, row) in enumerate(bepakolt_sorok, 1):
+            
+            # Ha ezt a címet már lezárta a futár, egyszerűen átugorjuk (így tűnik el a listából)
+            if st.session_state.get(f"kiszallitva_{idx}", False):
+                continue 
+
+            melyik_lada = st.session_state.get(f"lada_szam_tarolt_{idx}")
+            aktualis_cim = str(row[cim_oszlop]).strip()
+            vevo_neve = str(row[nev_oszlop]).strip()
+            vevo_tel = str(row.get(tel_oszlop, '')).strip()
+            aktualis_megj = str(row.get('Megjegyzés', '')).strip()
+            
+            # Tárolt koordináták kiolvasása a Sheets-ből (ha vannak)
+            saved_lat = row.get(lat_oszlop, "")
+            saved_lon = row.get(lon_oszlop, "")
+
+            with st.container(border=True):
+                # Kártya fejléc
+                st.markdown(f"### 📍 {sorszam}. Cím — `{melyik_lada}`")
+                st.subheader(f"👤 {vevo_neve}")
+                st.markdown(f"🏠 **Cím:** {aktualis_cim}")
+                if aktualis_megj: st.warning(f"📝 **Megjegyzés:** {aktualis_megj}")
+                
+                # --- VILLÁMGYORS GOOGLE MINI TÉRKÉP ---
+                if saved_lat and saved_lon:
+                    map_query = f"{saved_lat},{saved_lon}"
+                else:
+                    map_query = urllib.parse.quote(aktualis_cim)
+                
+                embed_url = f"https://maps.google.com/maps?q={map_query}&t=&z=16&ie=UTF8&iwloc=&output=embed"
+                st.components.v1.html(
+                    f'<iframe width="100%" height="220" src="{embed_url}" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" style="border-radius:10px; border:1px solid #ddd;"></iframe>', 
+                    height=230
+                )
+
+                # --- AKCIÓGOMBOK SORJA ---
+                col_tel, col_gps = st.columns(2)
+                
+                with col_tel:
+                    if vevo_tel and vevo_tel != "nan":
+                        st.markdown(
+                            f'<a href="tel:{vevo_tel}" target="_blank">'
+                            f'<button style="width:100%; height:45px; background-color:#25D366; color:white; border:none; border-radius:8px; font-weight:bold; font-size:16px; cursor:pointer;">'
+                            f'📞 Hívás'
+                            f'</button></a>', unsafe_allow_html=True
+                        )
+                    else:
+                        st.button("📞 Nincs telefonszám", disabled=True, use_container_width=True)
+                        
+                with col_gps:
+                    nav_target = f"{saved_lat},{saved_lon}" if (saved_lat and saved_lon) else aktualis_cim
+                    encoded_nav = urllib.parse.quote(nav_target)
+                    maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_nav}"
+                    
+                    st.markdown(
+                        f'<a href="{maps_url}" target="_blank">'
+                        f'<button style="width:100%; height:45px; background-color:#4285F4; color:white; border:none; border-radius:8px; font-weight:bold; font-size:16px; cursor:pointer;">'
+                        f'🗺️ GPS Navigáció'
+                        f'</button></a>', unsafe_allow_html=True
+                    )
+
+                st.write("")
+                
+                # --- 🎯 KOORDINÁTA JAVÍTÁS / MENTÉS ---
+                with st.expander("🎯 Pontatlan a pozíció? Kapu rögzítése"):
+                    st.write("Állj meg a kapu előtt a kocsival, és mentsd el a pontos koordinátákat a jövőre nézve.")
+                    
+                    # Böngésző/telefon GPS lekérése
+                    loc = get_geolocation()
+                    
+                    if loc:
+                        curr_lat = loc['coords']['latitude']
+                        curr_lon = loc['coords']['longitude']
+                        st.info(f"Észlelt GPS koordináta: `{curr_lat}, {curr_lon}`")
+                        
+                        if st.button("💾 Mentés a vevőhöz a Sheets-be", key=f"save_geo_{idx}", use_container_width=True):
+                            try:
+                                sh = client.open_by_key(SHEET_ID_UGYFELKOR)
+                                ws = sh.worksheet("Adatok")
+                                headers = ws.row_values(1)
+                                
+                                # Ha még nincs Lat/Lon oszlop a táblázatban, létrehozzuk a végén
+                                if lat_oszlop not in headers:
+                                    ws.update_cell(1, len(headers) + 1, 'Latitude')
+                                    ws.update_cell(1, len(headers) + 2, 'Longitude')
+                                    headers = ws.row_values(1)
+                                
+                                lat_col_idx = headers.index(lat_oszlop) + 1
+                                lon_col_idx = headers.index(lon_oszlop) + 1
+                                
+                                sheet_row = int(idx) + 2 # Fejléc + Dataframe index korrekció
+                                ws.update_cell(sheet_row, lat_col_idx, curr_lat)
+                                ws.update_cell(sheet_row, lon_col_idx, curr_lon)
+                                
+                                # Gyorsítótár ürítése, hogy azonnal frissüljön a térkép
+                                st.cache_data.clear()
+                                st.success("🎯 Pozíció sikeresen elmentve!")
+                                st.rerun()
+                            except Exception as geo_err:
+                                st.error(f"Sheets írási hiba: {geo_err}")
+                    else:
+                        st.caption("Engedélyezd a helymeghatározást a böngésződben a funkció használatához.")
+
+                st.write("---")
+                
+                # --- LEZÁRÁS ---
+                if st.button("✅ Cím sikeresen átadva", key=f"siker_{idx}", use_container_width=True, type="primary"):
+                    st.session_state[f"kiszallitva_{idx}"] = True
+                    st.toast(f"🎉 {vevo_neve} sikeresen kézbesítve!")
+                    st.rerun()
+            
+            # CRITICAL BREAK: Csak és kizárólag az ELSŐ befejezetlen címet mutatjuk meg!
+            break
+            
+        else:
+            # Ha a 'for' ciklus egyszer sem futott el a break-ig (mert minden cím kész)
+            st.balloons()
+            st.success("🏆 Szép munka! Minden mára tervezett címet sikeresen kézbesítettél!")
+            
+            if st.button("🔄 Teszt adatok törlése (Újraindítás)", use_container_width=True):
+                for k in list(st.session_state.keys()):
+                    if "kiszallitva_" in k or "lada_szam_tarolt_" in k:
+                        del st.session_state[k]
+                st.rerun()
+
+    except Exception as e:
+        st.error(f"Hiba a kiszállítás futtatásakor: {e}")

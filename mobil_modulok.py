@@ -3,13 +3,19 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-def render_mobil_aruatvetel(sheet):
+# mobil_modulok.py frissített verzió
+
+def render_mobil_aruatvetel(main_sheet, ugyfelkor_sheet):
+    """
+    main_sheet: A SHEET_ID_MASTER (Ide megy a Mobil_Idobelyegek és Logisztikai_Hibak)
+    ugyfelkor_sheet: A Etikett_Ugyfelkor_DB (Innen jön az 'Adatok' munkalap a járatokkal és ételekkel)
+    """
     st.subheader("📦 Ömlesztett áruátvétel")
     
-    # 1. JÁRAT ÉS FUTÁR AZONOSÍTÁS
-    # Megpróbáljuk kinyerni az adatokat az Adatok munkalapból
+    # 1. JÁRAT ÉS FUTÁR AZONOSÍTÁS (Az Ügyfélkör DB 'Adatok' munkalapjából)
     try:
-        adatok_sheet = sheet.worksheet("Adatok")
+        # 🟢 Az ADATOK-at az ugyfelkor_sheet-ből olvassuk!
+        adatok_sheet = ugyfelkor_sheet.worksheet("Adatok")
         adatok_data = adatok_sheet.get_all_records()
         df_adatok = pd.DataFrame(adatok_data)
         
@@ -17,16 +23,14 @@ def render_mobil_aruatvetel(sheet):
             df_adatok.columns = [c.strip() for c in df_adatok.columns]
             jaratok = [j for j in df_adatok['Járat'].unique() if str(j).strip() != ""]
         else:
-            st.error("Az Adatok munkalap üres!")
+            st.error("Az Adatok munkalap üres az Ügyfélkör DB-ben!")
             return
     except Exception as e:
-        st.error(f"Nem sikerült beolvasni az Adatok munkalapot: {e}")
+        st.error(f"❌ Nem sikerült beolvasni az Adatok munkalapot az Ügyfélkör DB-ből: {e}")
         return
 
-    # Futár neve ( session_state-ből, ha van, különben teszt )
+    # Futár neve a munkamenetből
     futar_neve = st.session_state.get('user_nev', 'Te (Teszt Üzemmód)')
-    
-    # Járat választó a mobilra (nagy, könnyen nyomható legördülő)
     valasztott_jarat = st.selectbox("Válaszd ki a mai járatodat:", jaratok, key="mob_jarat_select")
     
     st.write("---")
@@ -48,30 +52,26 @@ def render_mobil_aruatvetel(sheet):
             mai_datum = most.strftime("%Y-%m-%d")
             
             try:
-                idok_sheet = sheet.worksheet("Mobil_Idobelyegek")
-                # Sor beszúrása: Dátum, Járat_ID, Futár, Áruátvétel_Start, Áruátvétel_End
+                # 🔵 Az IDŐBÉLYEGET a main_sheet-be (Master) írjuk!
+                idok_sheet = main_sheet.worksheet("Mobil_Idobelyegek")
                 idok_sheet.append_row([mai_datum, valasztott_jarat, futar_neve, start_ido, ""])
                 
-                # Elmentjük a sor indexét a lezáráshoz
                 st.session_state.idobelyeg_sor_index = len(idok_sheet.get_all_values())
                 st.session_state.aruatvetel_folyamatban = True
                 st.success(f"Áruátvétel elindítva: {start_ido}")
                 st.rerun()
             except Exception as e:
-                st.error(f"Hiba a Mobil_Idobelyegek írásakor: {e}")
+                st.error(f"Hiba a Mobil_Idobelyegek írásakor a Master Sheetbe: {e}")
 
     # =========================================================================
-    # ÁLLAPOT 2: AZ ÁRUÁTVÉTEL FOLYAMATBAN VAN (MUTATJUK A RAKLISTÁT)
+    # ÁLLAPOT 2: AZ ÁRUÁTVÉTEL FOLYAMATBAN VAN
     # =========================================================================
     else:
         st.warning(f"🔄 Áruátvétel folyamatban... (Járat: {valasztott_jarat})")
         
-        # Szűrés a választott járatra
         df_jarat_cikkek = df_adatok[df_adatok['Járat'] == valasztott_jarat]
         
         if not df_jarat_cikkek.empty and 'Étel Neve' in df_jarat_cikkek.columns:
-            # Összesítjük az ételeket darabszámra a járaton belüli darabszám (vagy sorok száma) alapján
-            # Ha van konkrét 'Mennyiség' oszlopod, cseréld .size()-t .sum()-ra
             if 'Mennyiség' in df_jarat_cikkek.columns:
                 df_jarat_cikkek['Mennyiség'] = pd.to_numeric(df_jarat_cikkek['Mennyiség'], errors='coerce').fillna(1)
                 df_osszesitett = df_jarat_cikkek.groupby('Étel Neve')['Mennyiség'].sum().reset_index(name='Szükséges DB')
@@ -81,7 +81,6 @@ def render_mobil_aruatvetel(sheet):
             st.markdown("### 📦 Összesített beemelendő ételek:")
             st.caption("Számold át a dobozokat, mielőtt bepakolsz a kocsiba!")
             
-            # Nagy, jól olvasható mobil listanézet checkboxokkal, hogy ki tudja pipálni magának pakolás közben
             for idx, row in df_osszesitett.iterrows():
                 st.checkbox(f"**{int(row['Szükséges DB'])} db** - {row['Étel Neve']}", key=f"check_cikk_{idx}")
         else:
@@ -89,7 +88,7 @@ def render_mobil_aruatvetel(sheet):
 
         st.write("---")
         
-        # HIBABEJELENTÉS ÁRUÁTVÉTEL KÖZBEN
+        # HIBABEJELENTÉS (A Master Sheet 'Logisztikai_Hibak' munkalapjára)
         with st.expander("🚨 HIÁNYZIK / SÉRÜLT VALAMI? (Hiba bejelentése)"):
             st.write("Ha a konyha kevesebbet adott le, vagy sérült az étel, itt jelentsd be azonnal:")
             
@@ -102,17 +101,17 @@ def render_mobil_aruatvetel(sheet):
             if st.button("⚠️ HIBA BEKÜLDÉSE AZ ADMINNAK", use_container_width=True, key="mob_hiba_submit"):
                 if hiba_etel != "":
                     try:
-                        hibak_sheet = sheet.worksheet("Logisztikai_Hibak")
+                        # 🔵 A HIBÁT a main_sheet-be (Master) írjuk, hogy az admin lássa!
+                        hibak_sheet = main_sheet.worksheet("Logisztikai_Hibak")
                         most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         
-                        # Sorrend: Időbélyeg, Járat_ID, Ügyfél Neve, Cikkszám, Étel Neve, Mennyiség, Összérték, Hiba Típusa, Megjegyzés, Futár, Admin_Státusz
                         hibak_sheet.append_row([
                             most_hiba, valasztott_jarat, "ÁRUÁTVÉTELI HIÁNY", "N/A", hiba_etel, 
                             int(hiba_db), 0, hiba_tipus, hiba_megj, futar_neve, "Feldolgozatlan"
                         ])
                         st.success("Hiba sikeresen rögzítve! Az admin már látja a központban. ✅")
                     except Exception as e:
-                        st.error(f"Nem sikerült menteni a hibát: {e}")
+                        st.error(f"Nem sikerült menteni a hibát a Master Sheetbe: {e}")
                 else:
                     st.warning("Kérlek válaszd ki az ételt!")
 
@@ -124,11 +123,11 @@ def render_mobil_aruatvetel(sheet):
             end_ido = most.strftime("%H:%M:%S")
             
             try:
-                idok_sheet = sheet.worksheet("Mobil_Idobelyegek")
+                # 🔵 A LEZÁRÁST a main_sheet-be (Master) írjuk!
+                idok_sheet = main_sheet.worksheet("Mobil_Idobelyegek")
                 sor_szam = st.session_state.idobelyeg_sor_index
                 
                 if sor_szam:
-                    # Feltételezzük, hogy az End_Time az 5. oszlop (E oszlop) a táblázatban
                     idok_sheet.update_cell(sor_szam, 5, end_ido)
                 
                 st.session_state.aruatvetel_folyamatban = False

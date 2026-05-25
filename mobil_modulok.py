@@ -257,48 +257,45 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                     azonosito = (str(row[cim_oszlop]).strip(), str(row.get('Megjegyzés', '')).strip())
                     if azonosito not in egyedi_csoportok: egyedi_csoportok.append(azonosito)
                 
-                osszes_megallo = len(egyedi_csoportok)
+                # --- AZ ÖSSZES SOR FELDOLGOZÁSA EGYENKÉNT ---
+                osszes_megallo = len(df_forditott)
                 
-                for i, (aktualis_cim, aktualis_megj) in enumerate(egyedi_csoportok):
+                for i, (idx, row) in enumerate(df_forditott.iterrows()):
                     megallo_sorszam = osszes_megallo - i
-                    df_csoport = df_forditott[
-                        (df_forditott[cim_oszlop].astype(str).str.strip() == aktualis_cim) & 
-                        (df_forditott.get('Megjegyzés', '').astype(str).str.strip() == aktualis_megj)
-                    ]
+                    aktualis_cim = str(row[cim_oszlop]).strip()
+                    aktualis_megj = str(row.get('Megjegyzés', '')).strip()
+
+                    # Állapotkezelés (egyetlen sorhoz)
+                    bepakolt_kulcs = f"bepak_allapot_{idx}"
+                    lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
+                    if bepakolt_kulcs not in st.session_state:
+                        st.session_state[bepakolt_kulcs] = False
+                        st.session_state[lada_tarolt_kulcs] = None
                     
-                    # Logika a kész csoport elrejtéséhez
-                    csoport_indexek = df_csoport.index.tolist()
-                    csoport_kesz = all(st.session_state.get(f"bepak_allapot_{idx}", False) for idx in csoport_indexek)
-                    if csoport_kesz and not st.session_state.mutasd_bepakoltat:
+                    # Ha el van rejtve, folytatás (skip)
+                    if st.session_state[bepakolt_kulcs] and not st.session_state.mutasd_bepakoltat:
                         continue
 
                     with st.container(border=True):
-                        st.markdown(f"### 📦 {megallo_sorszam}. Megálló")
+                        st.markdown(f"### 📦 {megallo_sorszam}. Címke")
                         st.markdown(f"📍 **Cím:** {aktualis_cim}")
                         if aktualis_megj: st.warning(f"📝 **Megjegyzés:** {aktualis_megj}")
                         
-                        for idx, row in df_csoport.iterrows():
-                            st.write(f"👤 **Név:** {row[nev_oszlop]}")
-                            if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "":
-                                st.markdown(f"📋 **Rendelés:**\n```\n{row[rendeles_oszlop]}\n```")
-                            
-                            # Állapotkezelés
-                            bepakolt_kulcs = f"bepak_allapot_{idx}"
-                            lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
-                            if bepakolt_kulcs not in st.session_state:
-                                st.session_state[bepakolt_kulcs] = False
-                                st.session_state[lada_tarolt_kulcs] = None
-                            
-                            def log_lada(i=idx):
-                                if st.session_state[f"chk_{i}"]:
-                                    st.session_state[f"bepak_allapot_{i}"] = True
-                                    st.session_state[f"lada_szam_tarolt_{i}"] = f"{st.session_state.mobil_lada_szam}. láda"
-                                else:
-                                    st.session_state[f"bepak_allapot_{i}"] = False
-                                    st.session_state[f"lada_szam_tarolt_{i}"] = None
+                        st.write(f"👤 **Név:** {row[nev_oszlop]}")
+                        if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "":
+                            st.markdown(f"📋 **Rendelés:**\n```\n{row[rendeles_oszlop]}\n```")
+                        
+                        # Checkbox logika
+                        def log_lada(i=idx):
+                            if st.session_state[f"chk_{i}"]:
+                                st.session_state[f"bepak_allapot_{i}"] = True
+                                st.session_state[f"lada_szam_tarolt_{i}"] = f"{st.session_state.mobil_lada_szam}. láda"
+                            else:
+                                st.session_state[f"bepak_allapot_{i}"] = False
+                                st.session_state[f"lada_szam_tarolt_{i}"] = None
 
-                            label = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[bepakolt_kulcs] else "Bepakolás a ládába"
-                            st.checkbox(label, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}", on_change=log_lada)
+                        label = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[bepakolt_kulcs] else "Bepakolás a ládába"
+                        st.checkbox(label, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}", on_change=log_lada)
                             if len(df_csoport) > 1: st.write("---")
             else:
                 st.error("Az Adatok munkalap üres!")

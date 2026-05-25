@@ -30,6 +30,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame, Flowable, PageBreak
 from reportlab.graphics.shapes import Drawing
 from reportlab.graphics.barcode.qr import QrCodeWidget
+from mobil_modulok import render_mobil_aruatvetel
 
 def check_user_role():
     """Visszaadja a felhasználó szerepkörét."""

@@ -307,23 +307,24 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     st.session_state[bepakolt_kulcs] = False
                                     st.session_state[lada_tarolt_kulcs] = None
                                 
-                                # A címke dinamikus előállítása: 
-                                # Ha be van pipálva, a tárolt értéket mutatja, különben az "nincs" szöveget
-                                aktualis_cimke = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[bepakolt_kulcs] else "Bepakolva: még nincs"
+                                # Ha már be van pakolva, a rögzített értéket írjuk ki, különben csak "Bepakolva"
+                                label_text = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[bepakolt_kulcs] else "Bepakolás a ládába"
                                 
-                                # Checkbox
-                                if st.checkbox(aktualis_cimke, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}"):
-                                    if not st.session_state[bepakolt_kulcs]:
-                                        # RÖGZÍTÉS: Csak az első pipáláskor írjuk be a ládaszámot
-                                        st.session_state[bepakolt_kulcs] = True
-                                        st.session_state[lada_tarolt_kulcs] = f"{st.session_state.mobil_lada_szam}. láda"
-                                        st.rerun()
-                                else:
-                                    if st.session_state[bepakolt_kulcs]:
-                                        # TÖRLÉS: Ha kivesszük a pipát
-                                        st.session_state[bepakolt_kulcs] = False
-                                        st.session_state[lada_tarolt_kulcs] = None
-                                        st.rerun()
+                                # A checkbox "on_change" eseményt használunk a st.rerun() helyett
+                                def log_lada(i=idx):
+                                    if st.session_state[f"chk_{i}"]:
+                                        st.session_state[f"bepak_allapot_{i}"] = True
+                                        st.session_state[f"lada_szam_tarolt_{i}"] = f"{st.session_state.mobil_lada_szam}. láda"
+                                    else:
+                                        st.session_state[f"bepak_allapot_{i}"] = False
+                                        st.session_state[f"lada_szam_tarolt_{i}"] = None
+
+                                st.checkbox(
+                                    label_text, 
+                                    value=st.session_state[bepakolt_kulcs], 
+                                    key=f"chk_{idx}",
+                                    on_change=log_lada # Ez a kulcs: nem kell rerun, csak frissíti az értéket!
+                                )
 
                                 if len(df_csoport) > 1:
                                     st.write("---")

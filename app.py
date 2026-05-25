@@ -3239,7 +3239,14 @@ def create_raklista_pdf(df, jarat_info, meta_dict, sh): # 👈 JAVÍTÁS: beker�
             Paragraph("<b>[ ]</b>", th_style), Paragraph("<b>MEGNEVEZÉS</b>", th_style), Paragraph("<b>ÁR</b>", th_style), Paragraph("<b>ÖSSZES</b>", th_style)
         ])
         
-        tetelek = sorted(kategoria_csoportok[kat], key=lambda x: (x['day'], x['code']))
+        # C - Tételek hozzáadása (A kategórián belül a hét napjainak valódi sorrendje, majd kód szerint)
+        # Létrehozunk egy gyors sorrend-leképezést a teljes napnevekhez
+        nap_sorrend = {"Hétfő": 1, "Kedd": 2, "Szerda": 3, "Csütörtök": 4, "Péntek": 5, "Szombat": 6}
+        
+        tetelek = sorted(
+            kategoria_csoportok[kat], 
+            key=lambda x: (nap_sorrend.get(x['day'], 99), x['code'])
+        )
         
         for tétel in tetelek:
             p_style = row_bold_style if tétel['starred'] else row_reg_style

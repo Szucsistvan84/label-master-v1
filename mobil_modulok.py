@@ -1,4 +1,3 @@
-# mobil_modulok.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -14,7 +13,7 @@ def render_mobil_aruatvetel(client):
     SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
     SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
     
-    # 1. JÁRAT ÉS FUTÁR AZONOSÍTÁS (Most már közvetlenül a friss Mobil_Raklista fülből)
+    # 1. JÁRAT ÉS FUTÁR AZONOSÍTÁS
     futar_neve = st.session_state.get('user_nev', 'Te (Teszt Üzemmód)')
     jaratok = []
     df_sajat_raklista_init = pd.DataFrame()
@@ -101,15 +100,15 @@ def render_mobil_aruatvetel(client):
             except Exception as e:
                 st.error(f"Hiba a Mobil_Idobelyegek írásakor az Ügyfélkör Sheetbe: {e}")
 
-# =========================================================================
-    # ÁLLAPOT 2: DEPOZÁS (1. LÉPÉS: ÁRUÁTVÉTEL & 2. LÉPÉS: CÍMEKRE SZEDÉS)
+    # =========================================================================
+    # ÁLLAPOT 2: DEPOZÁS (CSAK AZ ÖMLESZTETT ÁRUÁTVÉTEL ÉS HIBÁK)
     # =========================================================================
     else:
         jaratok_szoveg = ", ".join(map(str, valasztott_jaratok))
         
-        # Ha még nem zárták le a depót, akkor a Bepakolás fázis fut
+        # Ha még nem zárták le a depót, akkor az Áruátvétel fázis fut
         if not st.session_state.get("kiszallitas_folyamatban", False):
-            st.warning(f"🔄 Depózás és bepakolás folyamatban... ({jaratok_szoveg})")
+            st.warning(f"🔄 Áruátvétel és depózás folyamatban... ({jaratok_szoveg})")
             
             # -----------------------------------------------------------------
             # 1. LÉPÉS: ÖMLESZTETT ÁRUÁTVÉTEL CHK-LISTA
@@ -130,7 +129,7 @@ def render_mobil_aruatvetel(client):
 
             st.write("---")
             
-            # HIBABEJELENTÉS (Marad az áruátvételnél, ha valami hiányzik/többlet)
+            # HIBABEJELENTÉS
             with st.expander("🚨 HIÁNYZIK / SÉRÜLT / TÖBBLET VAN? (Bejelentés)"):
                 all_etelek_display = [""]
                 all_etelek_mapping = {}
@@ -178,44 +177,7 @@ def render_mobil_aruatvetel(client):
 
             st.write("---")
 
-            # -----------------------------------------------------------------
-            # 2. LÉPÉS: CÍMEKRE SZEDÉS FORDÍTOTT SORRENDBEN
-            # -----------------------------------------------------------------
-            st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
-            st.caption("💡 Pakolás fordított sorrendben: ami itt legfelül van, az kerüljön a kocsiban leghátulra/legbelülre!")
-            
-            try:
-                adatok_sheet = sh_ugyfelkor.worksheet("Adatok")
-                df_adatok = pd.DataFrame(adatok_sheet.get_all_records())
-                
-                if not df_adatok.empty:
-                    df_adatok.columns = [c.strip() for c in df_adatok.columns]
-                    df_jarat_adatok = df_adatok[df_adatok['Járat'].astype(str).isin(map(str, valasztott_jaratok))]
-                    
-                    if not df_jarat_adatok.empty:
-                        # Fordított sorrend generálása az Adatok táblázatból
-                        df_forditott_cimek = df_jarat_adatok.iloc[::-1]
-                        
-                        cim_oszlop = 'Cím' if 'Cím' in df_forditott_cimek.columns else df_forditott_cimek.columns[3]
-                        nev_oszlop = 'Név' if 'Név' in df_forditott_cimek.columns else df_forditott_cimek.columns[1]
-                        
-                        counter = 1
-                        for idx, row in df_forditott_cimek.iterrows():
-                            st.checkbox(
-                                f"📦 **{counter}.** {row[nev_oszlop]} — *{row[cim_oszlop]}*",
-                                key=f"check_pack_{idx}"
-                            )
-                            counter += 1
-                    else:
-                        st.warning("Nem található cím a kiválasztott járatokhoz.")
-                else:
-                    st.error("Az Adatok munkalap üres!")
-            except Exception as e:
-                st.error(f"Hiba a címek betöltésekor: {e}")
-
-            st.write("---")
-
-            # ⏱️ ÁRUÁTVÉTEL RÖGZÍTÉSE (Csak az időt menti el, nem kényszerít képernyőváltást)
+            # ⏱️ ÁRUÁTVÉTEL RÖGZÍTÉSE (Csak elmenti az időt, nem kényszerít Tab-váltásra)
             if st.button("⏱️ ÁRUÁTVÉTEL VÉGE (Idő rögzítése)", use_container_width=True, type="secondary", key="futar_end_btn"):
                 most = datetime.now()
                 end_ido = most.strftime("%H:%M:%S")
@@ -228,19 +190,16 @@ def render_mobil_aruatvetel(client):
                     if sor_szam:
                         idok_sheet.update_cell(sor_szam, 5, end_ido)
                     
-                    # Sikerüzenet: megkérjük a futárt, hogy váltson át a következő Tab-ra magától
                     st.success(f"✅ Áruátvétel sikeresen lezárva: {end_ido}. Most már átválthatsz a Címekre szedés fülre!")
                 except Exception as e:
                     st.error(f"Hiba az áruátvétel lezárásakor: {e}")
 
         # -----------------------------------------------------------------
-        # 3. LÉPÉS: KISZÁLLÍTÁS (A tényleges munka az utakon)
+        # 3. LÉPÉS: KISZÁLLÍTÁS
         # -----------------------------------------------------------------
         else:
             st.markdown("## 3. lépés: Kiszállítás folyamatban... 🚗💨")
             st.info(f"Sikeresen elindultál a következő járatokkal: {jaratok_szoveg}")
-            
-            # Ide jöhet majd a normál menetrend szerinti címlista, térkép vagy ami a kiszállításhoz kell
             st.success("Minden cím bepakolva, az áruátvétel és depózás sikeresen rögzítve lett a rendszerben.")
             
             st.write("---")

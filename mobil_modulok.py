@@ -215,8 +215,8 @@ def render_mobil_aruatvetel(client):
 
             st.write("---")
 
-            # INDULÁS: Itt zárul le a depózási idő és váltunk a Kiszállításra
-            if st.button("🏁 ÁRUÁTVÉTEL LEZÁRÁSA & INDULÁS", use_container_width=True, type="primary", key="futar_end_btn"):
+            # ⏱️ ÁRUÁTVÉTEL RÖGZÍTÉSE (Csak az időt menti el, nem kényszerít képernyőváltást)
+            if st.button("⏱️ ÁRUÁTVÉTEL VÉGE (Idő rögzítése)", use_container_width=True, type="secondary", key="futar_end_btn"):
                 most = datetime.now()
                 end_ido = most.strftime("%H:%M:%S")
                 
@@ -228,13 +228,10 @@ def render_mobil_aruatvetel(client):
                     if sor_szam:
                         idok_sheet.update_cell(sor_szam, 5, end_ido)
                     
-                    # Átváltunk a 3. lépésre (Kiszállítás)
-                    st.session_state.kiszallitas_folyamatban = True
-                    st.success(f"Depóidő lezárva ({end_ido}). Irány a kiszállítás!")
-                    time.sleep(1.2)
-                    st.rerun()
+                    # Sikerüzenet: megkérjük a futárt, hogy váltson át a következő Tab-ra magától
+                    st.success(f"✅ Áruátvétel sikeresen lezárva: {end_ido}. Most már átválthatsz a Címekre szedés fülre!")
                 except Exception as e:
-                    st.error(f"Hiba a lezáráskor: {e}")
+                    st.error(f"Hiba az áruátvétel lezárásakor: {e}")
 
         # -----------------------------------------------------------------
         # 3. LÉPÉS: KISZÁLLÍTÁS (A tényleges munka az utakon)

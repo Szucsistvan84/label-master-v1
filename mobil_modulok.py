@@ -211,3 +211,63 @@ def render_mobil_aruatvetel(client):
                 st.success("Műszak sikeresen lezárva! Pihenj egyet! 😊")
                 time.sleep(2.0)
                 st.rerun()
+
+def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
+    """
+    client: Hitelesített gspread kliens
+    SHEET_ID_UGYFELKOR: Az ügyfélkör Google Sheet ID-ja
+    """
+    st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
+    st.caption("💡 Pakolás fordított sorrendben: ami itt legfelül van, az kerüljön a kocsiban leghátulra/legbelülre!")
+    
+    try:
+        # Kiszedjük a kiválasztott járatokat a session_state-ből
+        valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
+        
+        if valasztott_jaratok:
+            sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
+            adatok_sheet = sh_ugyfelkor.worksheet("Adatok")
+            df_adatok = pd.DataFrame(adatok_sheet.get_all_records())
+            
+            if not df_adatok.empty:
+                df_adatok.columns = [c.strip() for c in df_adatok.columns]
+                
+                # Biztonságos Járat oszlop keresés (elírások nélkül!)
+                jarat_oszlop_neve = 'Járat' if 'Járat' in df_adatok.columns else df_adatok.columns[0]
+                
+                # Ha "Mai Raklista" a kiválasztott opció, a futár neve alapján szűrünk
+                if "Mai Raklista" in valasztott_jaratok:
+                    futar_oszlop = 'Feldolgozó Futár' if 'Feldolgozó Futár' in df_adatok.columns else 'Futár'
+                    if futar_oszlop in df_adatok.columns:
+                        df_jarat_adatok = df_adatok[df_adatok[futar_oszlop].astype(str).str.strip() == st.session_state.get('user_nev', '').strip()]
+                    else:
+                        df_jarat_adatok = df_adatok
+                else:
+                    df_jarat_adatok = df_adatok[df_adatok[jarat_oszlop_neve].astype(str).str.strip().isin(valasztott_jaratok)]
+                
+                if not df_jarat_adatok.empty:
+                    # 🔄 Fordított sorrend generálása
+                    df_forditott_cimek = df_jarat_adatok.iloc[::-1]
+                    
+                    cim_oszlop = 'Cím' if 'Cím' in df_forditott_cimek.columns else df_forditott_cimek.columns[3]
+                    nev_oszlop = 'Név' if 'Név' in df_forditott_cimek.columns else df_forditott_cimek.columns[1]
+                    
+                    counter = 1
+                    for idx, row in df_forditott_cimek.iterrows():
+                        st.checkbox(
+                            f"📦 **{counter}.** {row[nev_oszlop]} — *{row[cim_oszlop]}*",
+                            key=f"tab2_pack_{idx}"
+                        )
+                        counter += 1
+                        
+                    st.write("---")
+                    st.info("ℹ️ Ha mindent bepakoltál a kocsiba a fenti sorrendben, készen állsz az indulásra! A kiszállítást a 3. fülön követheted.")
+                else:
+                    st.warning(f"Nem található cím a kiválasztott járatokhoz ({valasztott_jaratok}) a mai napon az Adatok fülön.")
+            else:
+                st.error("Az Adatok munkalap üres a Google Sheetben!")
+        else:
+            st.info("ℹ️ Első lépésként válaszd ki a járatodat az **1. fülön (Áruátvétel)**, és indítsd el a napot!")
+            
+    except Exception as e:
+        st.error(f"Hiba a címek betöltésekor: {e}")

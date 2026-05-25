@@ -3105,7 +3105,7 @@ def create_manifest_pdf(df, c_n, meta):
     buffer.seek(0)
     return buffer
     
-def create_raklista_pdf(df, jarat_info, meta_dict):
+def create_raklista_pdf(df, jarat_info, meta_dict, sh): # 👈 JAVÍTÁS: bekerült az 'sh' a végére!
     f_reg, f_bold = register_fonts()
     buf = BytesIO()
     
@@ -3157,22 +3157,17 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     right_style = ParagraphStyle('R', fontName=f_reg, fontSize=7, leading=8.5, alignment=2)
     right_bold_style = ParagraphStyle('R', fontName=f_bold, fontSize=7, leading=8.5, alignment=2)
 
-    # SZÉP VEKTOROS CHECKBOX RAJZOLÁSA (Javított verzió)
+    # SZÉP VEKTOROS CHECKBOX RAJZOLÁSA
     def get_checkbox():
         d = Drawing(10, 10)
         d.hAlign = 'CENTER'
-        # d.vAlign = 'MIDDLE'  <--- EZT A SORT TÖRÖLD KI VAGY KOMMENTELD KI!
-        
-        # Rajzolunk egy 8x8 mm-es négyzetet vékony fekete szegéllyel, fehér belsővel
         from reportlab.graphics.shapes import Rect
         d.add(Rect(1, 1, 8, 8, fillColor=colors.white, strokeColor=colors.HexColor('#555555'), strokeWidth=0.6))
         return d
 
     # 2. TÉTELEK BESOROLÁSA ÉS CSOPORTOSÍTÁSA KATEGÓRIÁK SZERINT
-    # Létrehozunk egy struktúrát: kategoria_csoportok[kategoria_neve] = [tételek listája]
-    # És elmentjük a kategóriák sorrendi számát is, hogy a végén rendezni tudjuk a kategóriákat!
     kategoria_csoportok = {}
-    kategoria_sorrendek = {} # Megjegyzi, melyik kategóriának mi a sorszáma
+    kategoria_sorrendek = {}
     
     total_qty = 0
     total_money = 0
@@ -3189,7 +3184,6 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
         info = etlap.get(sheets_key, {})
         nev = info.get('nev', '---')
         
-        # Ár kezelése
         nyers_ar = str(info.get('ar', '0')).replace('Ft', '').replace(' ', '').strip()
         ar = int(nyers_ar) if nyers_ar and nyers_ar.isdigit() else 0
         subtotal = db * ar
@@ -3197,27 +3191,18 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
         total_qty += db
         total_money += subtotal
 
-        # === KATEGÓRIA ÉS SORREND KINYERÉSE AZ ÚJ TÁBLÁZATBÓL ===
-        # A rendelés kódjából (pl. "R3K*") lefejtjük a csillagot és a szóközöket,
-        # így megkapjuk pontosan azt a tiszta 'kod'-ot, amit az Etlap_API-nál is használtunk!
         keresett_kod = code_label.replace('*', '').strip().upper()
-
-        # Alapértelmezett beállítás, ha egy alkalmi étel nincs benne a Master listában
         kat_nev = 'Szezonális ételek'
         kat_sorszam = 99
 
-        # Karakterpontos egyezés keresése az Etlap fülről beolvasott szótár kulcsaival
-        # (A biztonság kedvéért a szótár kulcsait is tisztítva vetjük össze)
         for sheets_cikkszam, adatok in kategoria_adatok.items():
             tiszta_sheets_kod = str(sheets_cikkszam).strip().upper()
-            
             if keresett_kod == tiszta_sheets_kod:
                 kat_nev = adatok['kategoria']
                 kat_sorszam = adatok['sorrend']
-                break  # Megvan a pontos egyezés, kilépünk a keresésből
+                break
 
         kategoria_sorrendek[kat_nev] = kat_sorszam
-        
         if kat_nev not in kategoria_csoportok:
             kategoria_csoportok[kat_nev] = []
             
@@ -3231,108 +3216,66 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
             'starred': "*" in code_label
         })
 
-    # 3. KATEGÓRIÁK RENDEZÉSE A KONYHAI SORREND ALAPJÁN
+    # 3. KATEGÓRIÁK RENDEZÉSE
     rendezett_kategoriak = sorted(kategoria_csoportok.keys(), key=lambda x: kategoria_sorrendek.get(x, 99))
 
-    # Elements lista építése a PDF-hez
     elements = [
         Paragraph("<b>RAKLISTA ÉS ELSZÁMOLÁS (KATEGORIZÁLT)</b>", title_style),
         Paragraph(f"Időszak: {dates_str} | Járat: {jarat_info}", meta_style),
         Spacer(1, 2 * mm)
     ]
 
-    # Oszlopszélességek (Összesen 190 mm, ami pontosan kitölti az A4-et 10mm-es margókkal)
     col_widths = [15 * mm, 16 * mm, 12 * mm, 10 * mm, 95 * mm, 18 * mm, 24 * mm]
 
-# 🟢 MODOSÍTÁS: Nyitunk egy üres listát a felhőbe küldendő adatoknak a kategória ciklus ELŐTT
+    # Adatgyűjtő lista indítása
     mobil_raklista_rows = []
 
     # 4. TÁBLÁZATOK GENERÁLÁSA KATEGÓRIÁNKÉNT
     for kat in rendezett_kategoriak:
-        # Minden kategóriának saját külön táblázatot adunk, így gyönyörűen bekeretezhető
         kat_data = []
-        
-        # A - Kategória Fejléc Sor (Egybeolvasztva az egész szélességben)
         kat_data.append([Paragraph(f"<b>📂 {kat.upper()}</b>", cat_header_style), "", "", "", "", "", ""])
-        
-        # B - Oszlopnevek fejléc sor
         kat_data.append([
-            Paragraph("<b>NAP</b>", th_style),
-            Paragraph("<b>KÓD</b>", th_style),
-            Paragraph("<b>DB</b>", th_style),
-            Paragraph("<b>[ ]</b>", th_style),
-            Paragraph("<b>MEGNEVEZÉS</b>", th_style),
-            Paragraph("<b>ÁR</b>", th_style),
-            Paragraph("<b>ÖSSZES</b>", th_style)
+            Paragraph("<b>NAP</b>", th_style), Paragraph("<b>KÓD</b>", th_style), Paragraph("<b>DB</b>", th_style),
+            Paragraph("<b>[ ]</b>", th_style), Paragraph("<b>MEGNEVEZÉS</b>", th_style), Paragraph("<b>ÁR</b>", th_style), Paragraph("<b>ÖSSZES</b>", th_style)
         ])
         
-        # C - Tételek hozzáadása (A kategórián belül nap és kód szerint rendezve)
         tetelek = sorted(kategoria_csoportok[kat], key=lambda x: (x['day'], x['code']))
         
         for tétel in tetelek:
-            font = f_bold if tétel['starred'] else f_reg
             p_style = row_bold_style if tétel['starred'] else row_reg_style
             c_style = center_bold_style if tétel['starred'] else center_style
             
             kat_data.append([
-                Paragraph(tétel['day'], center_style),
-                Paragraph(tétel['code'], c_style),
-                Paragraph(f"<b>{tétel['db']} db</b>", c_style),
-                get_checkbox(), # Rajzolt négyzet!
-                Paragraph(tétel['nev'], p_style),
-                Paragraph(f"{tétel['ar']} Ft", right_style),
+                Paragraph(tétel['day'], center_style), Paragraph(tétel['code'], c_style), Paragraph(f"<b>{tétel['db']} db</b>", c_style),
+                get_checkbox(), Paragraph(tétel['nev'], p_style), Paragraph(f"{tétel['ar']} Ft", right_style),
                 Paragraph(f"{tétel['subtotal']} Ft", right_bold_style if tétel['starred'] else right_style)
             ])
 
-            # 🟢 MODOSÍTÁS: Itt halásszuk ki az adatot a mobilhoz!
-            # Elmentjük egy tiszta szótárba a telefon számára szükséges oszlopokat
+            # 🚀 ADAT KIMENTÉSE A MOBILHOZ
             mobil_raklista_rows.append({
                 'Nap': str(tétel['day']).strip(),
                 'Cikkszam': str(tétel['code']).strip(),
                 'Terv_Darabszam': int(tétel['db']),
                 'Etel Neve': str(tétel['nev']).strip(),
-                'Teny_Darabszam': "",  # A futár tölti majd a mobilon
-                'Hiba_Tipusa': ""      # A futár tölti majd a mobilon
+                'Teny_Darabszam': "",  
+                'Hiba_Tipusa': ""      
             })
            
-        # Táblázat létrehozása és formázása (Bekeretezés)
         t = Table(kat_data, colWidths=col_widths, repeatRows=2)
-        
         t_style = [
-            # Kategória fejléc formázása (szürke háttér, vastag alsó vonal)
-            ('SPAN', (0, 0), (-1, 0)),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#EAEAEA')),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 3),
-            ('TOPPADDING', (0, 0), (-1, 0), 3),
-            ('LINEBELOW', (0, 0), (-1, 0), 1, colors.HexColor('#222222')),
-            
-            # Oszlop fejléc formázása (világosabb szürke)
-            ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#F5F5F5')),
-            ('BOTTOMPADDING', (0, 1), (-1, 1), 2),
-            ('TOPPADDING', (0, 1), (-1, 1), 2),
-            ('LINEBELOW', (0, 1), (-1, 1), 0.6, colors.HexColor('#666666')),
-            
-            # Általános sorbeállítások
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('ALIGN', (3, 2), (3, -1), 'CENTER'), # Checkbox középre igazítása
-            ('TOPPADDING', (0, 2), (-1, -1), 2),
-            ('BOTTOMPADDING', (0, 2), (-1, -1), 2),
-            ('LEFTPADDING', (0, 0), (-1, -1), 3),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 3),
-            
-            # BELSŐ RÁCS: Vékony, finom szürke elválasztó vonalak a sorok között
-            ('ROWBACKGROUNDS', (0, 2), (-1, -1), [colors.white, colors.HexColor('#FAFAFA')]),
-            ('LINEBELOW', (0, 2), (-1, -1), 0.3, colors.HexColor('#E0E0E0')),
-            
-            # KÜLSŐ KERET: Vastagabb fekete keret az EGÉSZ kategória-blokk köré
+            ('SPAN', (0, 0), (-1, 0)), ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#EAEAEA')),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 3), ('TOPPADDING', (0, 0), (-1, 0), 3), ('LINEBELOW', (0, 0), (-1, 0), 1, colors.HexColor('#222222')),
+            ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#F5F5F5')), ('BOTTOMPADDING', (0, 1), (-1, 1), 2), ('TOPPADDING', (0, 1), (-1, 1), 2),
+            ('LINEBELOW', (0, 1), (-1, 1), 0.6, colors.HexColor('#666666')), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('ALIGN', (3, 2), (3, -1), 'CENTER'),
+            ('TOPPADDING', (0, 2), (-1, -1), 2), ('BOTTOMPADDING', (0, 2), (-1, -1), 2), ('LEFTPADDING', (0, 0), (-1, -1), 3), ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+            ('ROWBACKGROUNDS', (0, 2), (-1, -1), [colors.white, colors.HexColor('#FAFAFA')]), ('LINEBELOW', (0, 2), (-1, -1), 0.3, colors.HexColor('#E0E0E0')),
             ('BOX', (0, 0), (-1, -1), 0.8, colors.HexColor('#222222')),
         ]
         t.setStyle(TableStyle(t_style))
-        
         elements.append(t)
-        elements.append(Spacer(1, 4 * mm)) # Térköz a kategória-blokkok között
+        elements.append(Spacer(1, 4 * mm))
 
-    # 5. PÉNZÜGYI ÖSSZESÍTŐ TÁBLÁZAT (A lap aljára)
+    # 5. PÉNZÜGYI ÖSSZESÍTŐ TÁBLÁZAT
     jutalek = int(total_money * 0.13)
     summary_data = [
         ["", "", "", "", "ÖSSZESEN:", f"{total_qty} db", f"{total_money} Ft"],
@@ -3340,18 +3283,12 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     ]
     st_table = Table(summary_data, colWidths=col_widths)
     st_table.setStyle(TableStyle([
-        ('FONTNAME', (4, 0), (-1, -1), f_bold),
-        ('FONTSIZE', (4, 0), (-1, -1), 9),
-        ('ALIGN', (4, 0), (4, -1), 'RIGHT'),
-        ('ALIGN', (5, 0), (6, -1), 'RIGHT'),
-        ('TOPPADDING', (0, 0), (-1, -1), 2),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-        ('LINEABOVE', (4, 0), (-1, 0), 0.8, colors.black),
+        ('FONTNAME', (4, 0), (-1, -1), f_bold), ('FONTSIZE', (4, 0), (-1, -1), 9),
+        ('ALIGN', (4, 0), (4, -1), 'RIGHT'), ('ALIGN', (5, 0), (6, -1), 'RIGHT'),
+        ('TOPPADDING', (0, 0), (-1, -1), 2), ('BOTTOMPADDING', (0, 0), (-1, -1), 2), ('LINEABOVE', (4, 0), (-1, 0), 0.8, colors.black),
     ]))
-    
     elements.append(st_table)
 
-    # Oldalszámozás lábléc
     def footer(canvas, doc):
         canvas.saveState()
         canvas.setFont(f_reg, 7.5)
@@ -3361,9 +3298,6 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
     doc.build(elements, onFirstPage=footer, onLaterPages=footer)
     buf.seek(0)
     
-    # OKOSÍTÁS: Elmentjük a rendezett adatokat a mobil app részére is!
-    # Így a mobil_terminal() függvénynek már csak ki kell olvasnia ezt a struktúrát, 
-    # és gépelés/újraszámolás nélkül, azonnal a tökéletes kategóriás felületet kapja a futár!
     st.session_state['mobil_raklista_adatok'] = {
         'kategoriak': rendezett_kategoriak,
         'csoportok': kategoria_csoportok
@@ -3377,10 +3311,9 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
             import pandas as pd
             from gspread_dataframe import set_with_dataframe
             
-            # Megnyitjuk a táblázatot (feltételezzük, hogy az 'sh' változó a megnyitott Etikett_Ugyfelkor_DB)
+            # Megnyitjuk a táblázatot (most már az átadott 'sh' változót használva)
             ws_mobil_raklista = sh.worksheet("Mobil_Raklista")
             
-            # 1. Beolvassuk a már bent lévő adatokat a többfelhasználós biztonság miatt
             existing_raklista = ws_mobil_raklista.get_all_records()
             if existing_raklista:
                 df_ex_raklista = pd.DataFrame(existing_raklista)
@@ -3388,42 +3321,33 @@ def create_raklista_pdf(df, jarat_info, meta_dict):
             else:
                 df_ex_raklista = pd.DataFrame()
                 
-            # 2. Új DataFrame építése a kihalászott sorokból
             df_uj_raklista = pd.DataFrame(mobil_raklista_rows)
             aktualis_futar_nev = st.session_state.get('user_nev', 'Ismeretlen_Futár')
             df_uj_raklista['Jarat_ID / Futar'] = aktualis_futar_nev
             
-            # Szigorú oszlopsorrend kikényszerítése
             raklista_cols = ['Nap', 'Cikkszam', 'Terv_Darabszam', 'Etel Neve', 'Teny_Darabszam', 'Hiba_Tipusa', 'Jarat_ID / Futar']
             df_uj_raklista = df_uj_raklista[raklista_cols]
             
-            # 3. Összefésülési logika (Anti-adatvesztés védelem a többi kolléga miatt)
             if not df_ex_raklista.empty and 'Jarat_ID / Futar' in df_ex_raklista.columns:
-                # Mások adatait megtartjuk, a saját korábbi (még át nem vett) sorainkat felülírjuk
                 df_masok_raklistaja = df_ex_raklista[df_ex_raklista['Jarat_ID / Futar'] != aktualis_futar_nev]
-                
-                # Ha már elkezdtük az átvételt (van benne Tény adat), azt is megtartjuk
                 df_sajat_mar_atvett = df_ex_raklista[
                     (df_ex_raklista['Jarat_ID / Futar'] == aktualis_futar_nev) & 
                     (df_ex_raklista['Teny_Darabszam'].astype(str).str.strip() != "")
                 ]
-                
                 save_raklista_df = pd.concat([df_masok_raklistaja, df_sajat_mar_atvett, df_uj_raklista], ignore_index=True)
             else:
                 save_raklista_df = df_uj_raklista
                 
-            # Biztonsági típuskonverziók a Google Sheets típuskonfliktusok ellen
             for col in save_raklista_df.columns:
                 save_raklista_df[col] = save_raklista_df[col].astype(object)
             save_raklista_df = save_raklista_df.fillna('')
             
-            # 4. Tiszta felülírás az összefésült adattal
             ws_mobil_raklista.clear()
             set_with_dataframe(ws_mobil_raklista, save_raklista_df, include_index=False, include_column_header=True)
-            logger.info("🚀 A tiszta konyhai Raklista sikeresen szinkronizálva a 'Mobil_Raklista' fülre!")
+            st.toast("🚀 Mobil Raklista sikeresen frissítve a Google Sheets-ben!") # 👈 Kis felugró ablak az asztalon!
             
     except Exception as e:
-        logger.warning(f"A PDF sikeresen legenerálódott, de a Mobil_Raklista fül frissítése megszakadt: {e}")
+        st.warning(f"⚠️ A PDF kész, de a Mobil_Raklista fül frissítése megszakadt: {e}")
     
     return buf
     

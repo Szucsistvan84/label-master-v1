@@ -3866,11 +3866,17 @@ def main():
                         try:
                             sh = client.open_by_key(UGYFELKOR_SHEET_ID)
                             ws_ugyfel = sh.worksheet("Ugyfelkor")
-                            sheets_df = pd.DataFrame(ws_ugyfel.get_all_records())
                             
-                            for col in sheets_df.columns:
-                                sheets_df[col] = sheets_df[col].astype(object)
-                            sheets_df = sheets_df.fillna('')
+                            # Letöltjük a fejlécet és az ID oszlopot a pontos sorindexekhez
+                            fejlec = ws_ugyfel.row_values(1)
+                            sheets_id_list = [str(x).strip() for x in ws_ugyfel.col_values(1)]
+                            
+                            # Oszlopindexek meghatározása (1-alapú indexelés gspread-hez)
+                            nev_idx = (fejlec.index("Név") + 1) if "Név" in fejlec else 2
+                            cim_idx = (fejlec.index("Cím") + 1) if "Cím" in fejlec else 3
+                            tel_idx = (fejlec.index("Telefon") + 1) if "Telefon" in fejlec else 6
+                            csop_idx = (fejlec.index("Csoport") + 1) if "Csoport" in fejlec else 7
+                            megj_idx = (fejlec.index("Megjegyzés") + 1) if "Megjegyzés" in fejlec else 8
                             
                             def tiszta_id_szoveg(val):
                                 if pd.isna(val) or val == '': return ''
@@ -3878,18 +3884,14 @@ def main():
                                 if val_str.endswith('.0'): val_str = val_str[:-2]
                                 return val_str
 
-                            sheets_df['ID'] = sheets_df['ID'].apply(tiszta_id_szoveg)
                             edited_df_clean = edited_df.copy()
                             
-                            if 'ID' not in edited_df_clean.columns and edited_df_clean.index.name == 'ID':
-                                edited_df_clean = edited_df_clean.reset_index()
-                            elif 'ID' not in edited_df_clean.columns and 'ID' in sheets_df.columns:
+                            # ID oszlop helyreállítása, ha indexbe csúszott volna
+                            if 'ID' not in edited_df_clean.columns:
                                 edited_df_clean = edited_df_clean.reset_index()
                                 if 'index' in edited_df_clean.columns: edited_df_clean = edited_df_clean.rename(columns={'index': 'ID'})
                                 elif 'level_0' in edited_df_clean.columns: edited_df_clean = edited_df_clean.rename(columns={'level_0': 'ID'})
 
-                            edited_df_clean = edited_df_clean.astype(object).fillna('')
-                            
                             if 'ID' not in edited_df_clean.columns:
                                 st.error("⚠️ Nem található 'ID' nevű oszlop a szerkesztett adatokban!")
                                 st.stop()
@@ -3897,40 +3899,65 @@ def main():
                             edited_df_clean['ID'] = edited_df_clean['ID'].apply(tiszta_id_szoveg)
                             módosult_darab = 0
                             
+                            # Célzott frissítés: csak a módosított cellákat küldjük be
                             for _, row in edited_df_clean.iterrows():
                                 current_id = row['ID']
                                 if not current_id: continue
-                                idx = sheets_df[sheets_df['ID'] == current_id].index
-                                if not idx.empty:
-                                    sheet_idx = idx[0]
-                                    módosult_darab += 1
+                                
+                                if current_id in sheets_id_list:
+                                    sor_szama = sheets_id_list.index(current_id) + 1
                                     elerheto_oszlopok = row.index.tolist()
                                     
-                                    if 'Név' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Név'] = str(row['Név']).strip()
-                                    elif 'Nev' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Név'] = str(row['Nev']).strip()
-                                    elif 'Ügyintéző' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Név'] = str(row['Ügyintéző']).strip()
+                                    # Kifejezetten CSAK a szöveges törzsadatokat frissítjük, ha benne vannak a szerkesztőben
+                                    if 'Név' in elerheto_oszlopok:
+                                        ws_ugyfel.update_cell(sor_szama, nev_idx, str(row['Név']).strip())
+                                    elif 'Nev' in elerheto_oszlopok:
+                                        ws_ugyfel.update_cell(sor_szama, nev_idx, str(row['Nev']).strip())
+                                    elif 'Ügyintéző' in elerheto_oszlopok:
+                                        ws_ugyfel.update_cell(sor_szama, nev_idx, str(row['Ügyintéző']).strip())
+                                        
+                                    if 'Cím' in elerheto_oszlopok:
+                                        ws_ugyfel.update_cell(sor_szama, cim_idx, str(row['Cím']).strip())
+                                    elif 'Cim' in elerheto_oszlopok:
+                                        ws_ugyfel.update_cell(sor_szama, cim_idx, str(row['Cim']).strip())
+                                        
+                                    if 'Telefon' in elerheto_oszlopok:
+                                        ws_ugyfel.update_cell(sor_szama, tel_idx, str(row['Telefon']).strip())
+                                        
+                                    if 'Csoport' in elerheto_oszlopok:
+                                        ws_ugyfel.update_cell(sor_szama, csop_idx, str(row['Csoport']).strip())
+                                        
+                                    if 'Megjegyzés' in elerheto_oszlopok:
+                                        ws_ugyfel.update_cell(sor_szama, megj_idx, str(row['Megjegyzés']).strip())
+                                    elif 'Megjegyzes' in elerheto_oszlopok:
+                                        ws_ugyfel.update_cell(sor_szama, megj_idx, str(row['Megjegyzes']).strip())
+                                        
+                                    módosult_darab += 1
                                     
-                                    if 'Cím' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Cím'] = str(row['Cím']).strip()
-                                    elif 'Cim' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Cím'] = str(row['Cim']).strip()
-                                    
-                                    if 'Telefon' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Telefon'] = str(row['Telefon']).strip()
-                                    if 'Csoport' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Csoport'] = str(row['Csoport']).strip()
-                                    
-                                    if 'Megjegyzés' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Megjegyzés'] = str(row['Megjegyzés']).strip()
-                                    elif 'Megjegyzes' in elerheto_oszlopok: sheets_df.at[sheet_idx, 'Megjegyzés'] = str(row['Megjegyzes']).strip()
-                                    
-                                    if 'Lat' in elerheto_oszlopok and str(row['Lat']).strip() != '': sheets_df.at[sheet_idx, 'Lat'] = row['Lat']
-                                    if 'Lon' in elerheto_oszlopok and str(row['Lon']).strip() != '': sheets_df.at[sheet_idx, 'Lon'] = row['Lon']
+                                    # 🔥 LOKÁLIS MEMÓRIA FRISSÍTÉSE (Streamlit session_state)
+                                    for session_key in ['ugyfelkor_df', 'mdf', 'master_ugyfelkor_df']:
+                                        if session_key in st.session_state and st.session_state[session_key] is not None:
+                                            try:
+                                                df = st.session_state[session_key]
+                                                if not df.empty and 'ID' in df.columns:
+                                                    mask = df['ID'].astype(str) == str(current_id)
+                                                    if 'Név' in elerheto_oszlopok: df.loc[mask, 'Név'] = str(row['Név']).strip()
+                                                    if 'Cím' in elerheto_oszlopok: df.loc[mask, 'Cím'] = str(row['Cím']).strip()
+                                                    if 'Telefon' in elerheto_oszlopok: df.loc[mask, 'Telefon'] = str(row['Telefon']).strip()
+                                                    if 'Megjegyzés' in elerheto_oszlopok: df.loc[mask, 'Megjegyzés'] = str(row['Megjegyzés']).strip()
+                                            except:
+                                                pass
 
                             if módosult_darab > 0:
-                                ws_ugyfel.clear()
-                                from gspread_dataframe import set_with_dataframe
-                                set_with_dataframe(ws_ugyfel, sheets_df)
-                                st.success(f"🎉 Siker! Összesen {módosult_darab} ügyfél adatai elmentve!")
+                                # Töröljük a betöltési cache-t, hogy kényszerítsük a tiszta adatok beolvasását
+                                if 'google_data_loaded' in st.session_state:
+                                    del st.session_state['google_data_loaded']
+                                    
+                                st.success(f"🎉 Siker! Összesen {módosult_darab} ügyfél adatai biztonságosan frissítve a felhőben!")
                                 st.balloons()
                                 st.rerun()
                             else:
-                                st.warning("Letöltött ID-k nem egyeznek.")
+                                st.warning("A szerkesztett adatok ID-jai nem találhatók meg a törzslistában.")
                         except Exception as e:
                             st.error(f"Hiba történt a mentés során: {e}")
 

@@ -1021,13 +1021,13 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                                         st.error("❌ Nem felismerhető koordináta formátum!")
                                         st.stop()
                                 
-                                # Tisztítás (aposztrófok, idézőjelek lekapása, tizedespontosítás)
+                                # Tisztítás és tiszta FLOAT-tá alakítás
                                 clean_lat = nyers_lat.replace("'", "").replace('"', '').replace(",", ".").strip()
                                 clean_lon = nyers_lon.replace("'", "").replace('"', '').replace(",", ".").strip()
                                 
-                                # Kerekítés és formázás (magyar vesszős string, elején vezérlő aposztróffal)
-                                formazott_lat = f"'{str(round(float(clean_lat), 7)).replace('.', ',')}"
-                                formazott_lon = f"'{str(round(float(clean_lon), 7)).replace('.', ',')}"
+                                # 🎯 Tiszta szám formátum, 6 tizedesjegyre kerekítve (NINCS APOSZTRÓF, NINCS VESSZŐ!)
+                                f_lat = round(float(clean_lat), 6)
+                                f_lon = round(float(clean_lon), 6)
                                 
                                 sh = client.open_by_key(sheet_id)
                                 ws = sh.worksheet("Ugyfelkor")
@@ -1039,20 +1039,33 @@ def utvonal_terkep(df_napi, sheet_id=None, client=None):
                                 
                                 cell = ws.find(str(kiv_id))
                                 if cell:
-                                    # Cellák frissítése a Sheets-ben
-                                    ws.update_cell(cell.row, lat_idx, formazott_lat)
-                                    ws.update_cell(cell.row, lon_idx, formazott_lon)
+                                    # Cellák frissítése tiszta számként a Sheets-ben
+                                    ws.update_cell(cell.row, lat_idx, f_lat)
+                                    ws.update_cell(cell.row, lon_idx, f_lon)
                                     
-                                    st.success(f"✅ Siker! {aktualis_nev} új koordinátái elmentve!")
+                                    # Ha van Utolsó_Rendelés oszlop, frissítjük a dátumot is
+                                    if "Utolso_Rendeles" in fejlec:
+                                        utolso_idx = fejlec.index("Utolso_Rendeles") + 1
+                                        from datetime import datetime
+                                        ws.update_cell(cell.row, utolso_idx, datetime.now().strftime('%Y.%m.%d'))
                                     
-                                    # Cache ürítések a friss adatok azonnali megjelenítéséhez
+                                    # 🔥 LOKÁLIS MEMÓRIA AZONNALI UPGRADE-ELÉSE
+                                    # Így a térkép azonnal átugrik a jó helyre, nem kell megvárni a cache lejártát
+                                    for session_key in ['ugyfelkor_df', 'mdf', 'master_ugyfelkor_df']:
+                                        if session_key in st.session_state and st.session_state[session_key] is not None:
+                                            try:
+                                                df = st.session_state[session_key]
+                                                if not df.empty and 'ID' in df.columns:
+                                                    df.loc[df['ID'].astype(str) == str(kiv_id), 'Lat'] = f_lat
+                                                    df.loc[df['ID'].astype(str) == str(kiv_id), 'Lon'] = f_lon
+                                            except Exception as mem_err:
+                                                pass
+
+                                    # Biztonsági cache takarítás
                                     if 'google_data_loaded' in st.session_state:
                                         del st.session_state['google_data_loaded']
-                                    if 'master_ugyfelkor_df' in st.session_state:
-                                        st.session_state['master_ugyfelkor_df'] = None
-                                    if 'ugyfelkor_df' in st.session_state:
-                                        st.session_state['ugyfelkor_df'] = None
                                         
+                                    st.success(f"✅ Siker! {aktualis_nev} új koordinátái elmentve és a rendszer azonnal frissítve!")
                                     st.rerun()
                                 else:
                                     st.error("❌ Hiba: Az ügyfél ID nem található a törzslistában!")

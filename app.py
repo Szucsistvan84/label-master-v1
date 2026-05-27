@@ -400,12 +400,30 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
 
     # --- 3. LÉPÉS: ÚJ ÜGYFELEK ÉSZLELÉSE ÉS AUTOMATIKUS GEOMAPOLÁSA ---
     uj_ugyfelek = []
+    
+    # Letöltjük az Ugyfelkor munkalap aktuális ID-it, hogy lássuk, ki van már bent a Sheets-ben
+    try:
+        sheets_id_list = [str(x).strip() for x in ws_ugyfel.col_values(1)]
+    except Exception as e_id_get:
+        logger.warning(f"Nem sikerült közvetlenül lekérni a Sheets ID listát: {e_id_get}")
+        sheets_id_list = master_df['ID'].astype(str).tolist() if not master_df.empty else []
+
     for _, row in df_napi.iterrows():
         u_id = str(row['ID'])
         if not u_id: 
             continue
             
-        if master_df.empty or u_id not in master_df['ID'].values:
+        # Ellenőrizzük, hogy benne van-e a master listában ÉS van-e már hozzá érvényes koordináta
+        van_koordinata = False
+        if not master_df.empty and u_id in master_df['ID'].values:
+            talalat = master_df[master_df['ID'] == u_id]
+            lat_val = talalat.iloc[0].get('Lat')
+            lon_val = talalat.iloc[0].get('Lon')
+            if pd.notna(lat_val) and pd.notna(lon_val) and str(lat_val).strip() not in ["", "None", "nan", "NaN", "0", 0]:
+                van_koordinata = True
+
+        # Ha az ügyfél még nincs bent, VAGY bent van de hiányzik a koordinátája, megpróbáljuk lekérni/pótolni
+        if not van_koordinata:
             nev = row.get('Ügyintéző', row.get('Név', row.get('Nev', 'Ismeretlen név')))
             eredeti_cim = str(row.get('Cím', row.get('Cim', '')))
             
@@ -414,8 +432,8 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
             except NameError:
                 keresesi_cim = eredeti_cim
             
-            logger.info(f"✨ Új ügyfél észleléve: {nev} ({u_id}). Koordináták lekérése...")
-            st.info(f"Új ügyfél fedezve fel: {nev} - GPS lekérés...")
+            logger.info(f"✨ Koordináta keresése/pótlása: {nev} ({u_id})...")
+            st.info(f"📍 Koordináta keresése/pótlása: {nev}...")
             
             try:
                 lat, lon = get_coordinates(keresesi_cim)
@@ -424,44 +442,66 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                 logger.error(f"Hiba a geocoding során ({nev}): {e}")
                 lat, lon = None, None
             
-            lat_str = biztonsagos_float(lat)
-            lon_str = biztonsagos_float(lon)
+            lat_clean = biztonsagos_float(lat)
+            lon_clean = biztonsagos_float(lon)
             
-            if lat:
-                st.success(f"📍 GPS megvan: {nev}")
+            if lat_clean != "":
+                st.success(f"🎯 GPS sikeresen megvan: {nev}")
+                kerek_lat = round(float(lat_clean), 6)
+                kerek_lon = round(float(lon_clean), 6)
+                
+                # --- INTELLIGENS PÓTLÁS VS ÚJ HOZZÁADÁS ---
+                if u_id in sheets_id_list:
+                    # AZ ÜGYFÉL MÁR LÉTEZIK A SHEETS-BEN -> CSAK FRISSÍTJÜK (PÓTOLJUK) A KOORDINÁTÁKAT
+                    try:
+                        sor_index = sheets_id_list.index(u_id) + 1
+                        ws_ugyfel.update_cell(sor_index, 4, kerek_lat) # Lat a 4. oszlop
+                        ws_ugyfel.update_cell(sor_index, 5, kerek_lon) # Lon az 5. oszlop
+                        ws_ugyfel.update_cell(sor_index, 9, pd.Timestamp.now().strftime('%Y.%m.%d')) # Utolsó rendelés
+                        logger.info(f"🔄 Koordináta sikeresen pótolva a meglévő sorban ({sor_index}): {nev}")
+                    except Exception as e_update:
+                        logger.error(f"Hiba a meglévő koordináta frissítésekor ({nev}): {e_update}")
+                else:
+                    # TELJESEN ÚJ ÜGYFÉL -> Gyűjtőbe tesszük, hogy a ciklus végén egyben appendeljük
+                    uj_adat = {
+                        'ID': u_id,
+                        'Név': nev,
+                        'Cím': eredeti_cim,
+                        'Lat': kerek_lat,
+                        'Lon': kerek_lon,
+                        'Telefon': str(row.get('Telefon', '')),
+                        'Csoport': str(row.get('Csoport', '')),
+                        'Megjegyzés': str(row.get('Megjegyzés', row.get('Megjegyzes', ''))),
+                        'Utolso_Rendeles': pd.Timestamp.now().strftime('%Y.%m.%d'),
+                        'Osszertek': '0Ft',
+                        'Rendeles_Szam': 1
+                    }
+                    uj_ugyfelek.append(uj_adat)
+                    
+                # A helyi memóriában lévő master_df-et is frissítjük a későbbi napi merge érdekében
+                if not master_df.empty and u_id in master_df['ID'].values:
+                    master_df.loc[master_df['ID'] == u_id, 'Lat'] = kerek_lat
+                    master_df.loc[master_df['ID'] == u_id, 'Lon'] = kerek_lon
+                else:
+                    uj_lokalis = pd.DataFrame([{
+                        'ID': u_id, 'Név': nev, 'Cím': eredeti_cim, 
+                        'Lat': kerek_lat, 'Lon': kerek_lon,
+                        'Telefon': str(row.get('Telefon', '')), 'Csoport': str(row.get('Csoport', '')),
+                        'Megjegyzés': str(row.get('Megjegyzés', '')), 'Utolso_Rendeles': pd.Timestamp.now().strftime('%Y.%m.%d'),
+                        'Osszertek': '0Ft', 'Rendeles_Szam': 1
+                    }])
+                    master_df = pd.concat([master_df, uj_lokalis], ignore_index=True)
             else:
                 st.warning(f"⚠️ Nem találtam koordinátát: {nev}")
 
-            uj_adat = {
-                'ID': u_id,
-                'Név': nev,
-                'Cím': eredeti_cim,
-                'Lat': lat_str,
-                'Lon': lon_str,
-                'Telefon': str(row.get('Telefon', '')),
-                'Csoport': str(row.get('Csoport', '')),
-                'Megjegyzés': str(row.get('Megjegyzés', row.get('Megjegyzes', ''))),
-                'Utolso_Rendeles': pd.Timestamp.now().strftime('%Y.%m.%d'),
-                'Osszertek': '0Ft',
-                'Rendeles_Szam': 1
-            }
-            uj_ugyfelek.append(uj_adat)
-
-            elokeszitett_uj_adat = uj_adat.copy()
-            elokeszitett_uj_adat['Lat'] = lat if lat else None
-            elokeszitett_uj_adat['Lon'] = lon if lon else None
-            master_df = pd.concat([master_df, pd.DataFrame([elokeszitett_uj_adat])], ignore_index=True)
-
-    # Új ügyfelek mentése a törzsbe (Ugyfelkor fül) CSAK bővítéssel!
+    # Csak a valóban TELJESEN ÚJ ügyfeleket fűzzük hozzá a táblázat végéhez
     if uj_ugyfelek:
         try:
-            logger.info(f"{len(uj_ugyfelek)} új ügyfél hozzáadása a törzslistához...")
+            logger.info(f"{len(uj_ugyfelek)} teljesen új ügyfél hozzáadása a törzslistához...")
             new_rows_df = pd.DataFrame(uj_ugyfelek).fillna("")
-            
             time.sleep(1.0)
             ws_ugyfel.append_rows(new_rows_df.values.tolist(), value_input_option='RAW')
-            logger.info("Lokális master_df frissítve az új ügyfelekkel, API hívás megspórolva.")
-            
+            logger.info("Lokális master_df és Google Sheets sikeresen frissítve az új ügyfelekkel.")
         except Exception as e:
             logger.error(f"Hiba az új ügyfelek mentésekor: {e}")
             st.error("Az új ügyfeleket nem sikerült elmenteni a törzslistába!")

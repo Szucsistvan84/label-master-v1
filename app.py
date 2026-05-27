@@ -501,7 +501,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
             logger.info(f"{len(uj_ugyfelek)} teljesen új ügyfél hozzáadása a törzslistához...")
             new_rows_df = pd.DataFrame(uj_ugyfelek).fillna("")
             time.sleep(1.0)
-            ws_ugyfel.append_rows(new_rows_df.values.tolist(), value_input_option='RAW')
+            ws_ugyfel.append_rows(new_rows_df.values.tolist(), value_input_option='USER_ENTERED')
             logger.info("Lokális master_df és Google Sheets sikeresen frissítve az új ügyfelekkel.")
         except Exception as e:
             logger.error(f"Hiba az új ügyfelek mentésekor: {e}")

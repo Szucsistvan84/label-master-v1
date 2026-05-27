@@ -3862,21 +3862,30 @@ def main():
 
                 with gomb_col2:
                     if st.button("💾 Módosított adatok (Név, Megjegyzés, Telefon) mentése", use_container_width=True):
-                        logger.info("Adatmódosítások mentése a felhőbe...")
+                        logger.info("Adatmódosítások mentése a felhőbe tömeges frissítéssel...")
                         try:
                             sh = client.open_by_key(UGYFELKOR_SHEET_ID)
                             ws_ugyfel = sh.worksheet("Ugyfelkor")
                             
-                            # Letöltjük a fejlécet és az ID oszlopot a pontos sorindexekhez
-                            fejlec = ws_ugyfel.row_values(1)
-                            sheets_id_list = [str(x).strip() for x in ws_ugyfel.col_values(1)]
+                            # Letöltjük a teljes aktuális táblázatot matricaként
+                            teljes_adat = ws_ugyfel.get_all_values()
+                            if not teljes_adat:
+                                st.error("❌ A Google Sheets táblázat üres vagy nem olvasható!")
+                                st.stop()
+                                
+                            fejlec = teljes_adat[0]
                             
-                            # Oszlopindexek meghatározása (1-alapú indexelés gspread-hez)
-                            nev_idx = (fejlec.index("Név") + 1) if "Név" in fejlec else 2
-                            cim_idx = (fejlec.index("Cím") + 1) if "Cím" in fejlec else 3
-                            tel_idx = (fejlec.index("Telefon") + 1) if "Telefon" in fejlec else 6
-                            csop_idx = (fejlec.index("Csoport") + 1) if "Csoport" in fejlec else 7
-                            megj_idx = (fejlec.index("Megjegyzés") + 1) if "Megjegyzés" in fejlec else 8
+                            # Oszlopindexek meghatározása (0-alapú indexelés a mátrixhoz)
+                            id_idx = fejlec.index("ID") if "ID" in fejlec else 0
+                            nev_idx = fejlec.index("Név") if "Név" in fejlec else (fejlec.index("Nev") if "Nev" in fejlec else 1)
+                            cim_idx = fejlec.index("Cím") if "Cím" in fejlec else (fejlec.index("Cim") if "Cim" in fejlec else 2)
+                            tel_idx = fejlec.index("Telefon") if "Telefon" in fejlec else 5
+                            csop_idx = fejlec.index("Csoport") if "Csoport" in fejlec else 6
+                            megj_idx = fejlec.index("Megjegyzés") if "Megjegyzés" in fejlec else (fejlec.index("Megjegyzes") if "Megjegyzes" in fejlec else 7)
+                            utolso_idx = fejlec.index("Utolso_Rendeles") if "Utolso_Rendeles" in fejlec else None
+                            
+                            # Kigyűjtjük a Sheets-ben lévő ID-kat és a soraik indexét a mátrixban
+                            sheets_id_map = {str(teljes_adat[i][id_idx]).strip(): i for i in range(1, len(teljes_adat))}
                             
                             def tiszta_id_szoveg(val):
                                 if pd.isna(val) or val == '': return ''
@@ -3885,8 +3894,6 @@ def main():
                                 return val_str
 
                             edited_df_clean = edited_df.copy()
-                            
-                            # ID oszlop helyreállítása, ha indexbe csúszott volna
                             if 'ID' not in edited_df_clean.columns:
                                 edited_df_clean = edited_df_clean.reset_index()
                                 if 'index' in edited_df_clean.columns: edited_df_clean = edited_df_clean.rename(columns={'index': 'ID'})
@@ -3899,61 +3906,56 @@ def main():
                             edited_df_clean['ID'] = edited_df_clean['ID'].apply(tiszta_id_szoveg)
                             módosult_darab = 0
                             
-                            # Célzott frissítés: csak a módosított cellákat küldjük be
+                            # A letöltött mátrixban módosítjuk a cellákat a memóriában (NINCS API hívás a ciklusban!)
                             for _, row in edited_df_clean.iterrows():
                                 current_id = row['ID']
-                                if not current_id: continue
+                                if not current_id or current_id not in sheets_id_map: continue
                                 
-                                if current_id in sheets_id_list:
-                                    sor_szama = sheets_id_list.index(current_id) + 1
-                                    elerheto_oszlopok = row.index.tolist()
+                                sor_mátrix_idx = sheets_id_map[current_id]
+                                elerheto_oszlopok = row.index.tolist()
+                                
+                                if 'Név' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][nev_idx] = str(row['Név']).strip()
+                                elif 'Nev' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][nev_idx] = str(row['Nev']).strip()
+                                
+                                if 'Cím' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][cim_idx] = str(row['Cím']).strip()
+                                elif 'Cim' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][cim_idx] = str(row['Cim']).strip()
+                                
+                                if 'Telefon' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][tel_idx] = str(row['Telefon']).strip()
+                                if 'Csoport' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][csop_idx] = str(row['Csoport']).strip()
+                                
+                                if 'Megjegyzés' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][megj_idx] = str(row['Megjegyzés']).strip()
+                                elif 'Megjegyzes' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][megj_idx] = str(row['Megjegyzes']).strip()
+                                
+                                if utolso_idx is not None:
+                                    from datetime import datetime
+                                    teljes_adat[sor_mátrix_idx][utolso_idx] = datetime.now().strftime('%Y.%m.%d')
                                     
-                                    # Kifejezetten CSAK a szöveges törzsadatokat frissítjük, ha benne vannak a szerkesztőben
-                                    if 'Név' in elerheto_oszlopok:
-                                        ws_ugyfel.update_cell(sor_szama, nev_idx, str(row['Név']).strip())
-                                    elif 'Nev' in elerheto_oszlopok:
-                                        ws_ugyfel.update_cell(sor_szama, nev_idx, str(row['Nev']).strip())
-                                    elif 'Ügyintéző' in elerheto_oszlopok:
-                                        ws_ugyfel.update_cell(sor_szama, nev_idx, str(row['Ügyintéző']).strip())
-                                        
-                                    if 'Cím' in elerheto_oszlopok:
-                                        ws_ugyfel.update_cell(sor_szama, cim_idx, str(row['Cím']).strip())
-                                    elif 'Cim' in elerheto_oszlopok:
-                                        ws_ugyfel.update_cell(sor_szama, cim_idx, str(row['Cim']).strip())
-                                        
-                                    if 'Telefon' in elerheto_oszlopok:
-                                        ws_ugyfel.update_cell(sor_szama, tel_idx, str(row['Telefon']).strip())
-                                        
-                                    if 'Csoport' in elerheto_oszlopok:
-                                        ws_ugyfel.update_cell(sor_szama, csop_idx, str(row['Csoport']).strip())
-                                        
-                                    if 'Megjegyzés' in elerheto_oszlopok:
-                                        ws_ugyfel.update_cell(sor_szama, megj_idx, str(row['Megjegyzés']).strip())
-                                    elif 'Megjegyzes' in elerheto_oszlopok:
-                                        ws_ugyfel.update_cell(sor_szama, megj_idx, str(row['Megjegyzes']).strip())
-                                        
-                                    módosult_darab += 1
-                                    
-                                    # 🔥 LOKÁLIS MEMÓRIA FRISSÍTÉSE (Streamlit session_state)
-                                    for session_key in ['ugyfelkor_df', 'mdf', 'master_ugyfelkor_df']:
-                                        if session_key in st.session_state and st.session_state[session_key] is not None:
-                                            try:
-                                                df = st.session_state[session_key]
-                                                if not df.empty and 'ID' in df.columns:
-                                                    mask = df['ID'].astype(str) == str(current_id)
-                                                    if 'Név' in elerheto_oszlopok: df.loc[mask, 'Név'] = str(row['Név']).strip()
-                                                    if 'Cím' in elerheto_oszlopok: df.loc[mask, 'Cím'] = str(row['Cím']).strip()
-                                                    if 'Telefon' in elerheto_oszlopok: df.loc[mask, 'Telefon'] = str(row['Telefon']).strip()
-                                                    if 'Megjegyzés' in elerheto_oszlopok: df.loc[mask, 'Megjegyzés'] = str(row['Megjegyzés']).strip()
-                                            except:
-                                                pass
+                                módosult_darab += 1
+                                
+                                # Lokális Streamlit session_state frissítése
+                                for session_key in ['ugyfelkor_df', 'mdf', 'master_ugyfelkor_df']:
+                                    if session_key in st.session_state and st.session_state[session_key] is not None:
+                                        try:
+                                            df = st.session_state[session_key]
+                                            if not df.empty and 'ID' in df.columns:
+                                                mask = df['ID'].astype(str) == str(current_id)
+                                                if 'Név' in elerheto_oszlopok: df.loc[mask, 'Név'] = str(row['Név']).strip()
+                                                if 'Cím' in elerheto_oszlopok: df.loc[mask, 'Cím'] = str(row['Cím']).strip()
+                                                if 'Telefon' in elerheto_oszlopok: df.loc[mask, 'Telefon'] = str(row['Telefon']).strip()
+                                                if 'Megjegyzés' in elerheto_oszlopok: df.loc[mask, 'Megjegyzés'] = str(row['Megjegyzés']).strip()
+                                        except:
+                                            pass
 
                             if módosult_darab > 0:
-                                # Töröljük a betöltési cache-t, hogy kényszerítsük a tiszta adatok beolvasását
+                                # 🔥 EGYETLEN API HÍVÁSSAL FRISSÍTJÜK A TELJES TÁBLÁZATOT!
+                                # Nem töröljük le a lapot, csak felülírjuk a teljes tartományt a frissített mátrixszal.
+                                # Ez megőrzi a számformátumokat és a koordinátákat is!
+                                ws_ugyfel.update('A1', teljes_adat, value_input_option='RAW')
+                                
                                 if 'google_data_loaded' in st.session_state:
                                     del st.session_state['google_data_loaded']
                                     
-                                st.success(f"🎉 Siker! Összesen {módosult_darab} ügyfél adatai biztonságosan frissítve a felhőben!")
+                                st.success(f"🎉 Siker! Összesen {módosult_darab} ügyfél adatai elmentve a felhőbe, mindössze 1 API hívással!")
                                 st.balloons()
                                 st.rerun()
                             else:

@@ -455,8 +455,9 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                     # AZ ÜGYFÉL MÁR LÉTEZIK A SHEETS-BEN -> CSAK FRISSÍTJÜK (PÓTOLJUK) A KOORDINÁTÁKAT
                     try:
                         sor_index = sheets_id_list.index(u_id) + 1
-                        ws_ugyfel.update_cell(sor_index, 4, kerek_lat) # Lat a 4. oszlop
-                        ws_ugyfel.update_cell(sor_index, 5, kerek_lon) # Lon az 5. oszlop
+                        # Az append_row-hoz hasonlóan szöveges formátumban küldjük, hogy a Sheets ne tudja elrontani
+                        ws_ugyfel.update_cell(sor_index, 4, str(kerek_lat)) 
+                        ws_ugyfel.update_cell(sor_index, 5, str(kerek_lon))
                         ws_ugyfel.update_cell(sor_index, 9, pd.Timestamp.now().strftime('%Y.%m.%d')) # Utolsó rendelés
                         logger.info(f"🔄 Koordináta sikeresen pótolva a meglévő sorban ({sor_index}): {nev}")
                     except Exception as e_update:

@@ -2764,17 +2764,29 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     tiszta_szoveg = re.sub(r'<[^>]*>', '', formazott_rendeles)
                     csillagosok = re.findall(r'([A-Z0-9\-]+)\*', tiszta_szoveg.upper())
                     talalt_kellekek = []
+                    
                     for nyers_kod in csillagosok:
                         tiszta_kod = nyers_kod.split('-')[-1].strip()
                         etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(rf"\b{tiszta_kod}\b", na=False)]
+                        
                         if not etel_sor.empty:
                             keresett_nev_tiszta = re.sub(r'[^a-z0-9]', '', str(etel_sor.iloc[0][napi_oszlop]).lower())
+                            
                             if master_df is not None:
                                 for _, m_row in master_df.iterrows():
-                                    if re.sub(r'[^a-z0-9]', '', str(m_row.get('Eredeti Név', '')).lower()) == keresett_nev_tiszta:
+                                    # --- VÁLTOZTATÁS: Mostantól a garantáltan tiszta oszlopot vetjük össze ---
+                                    master_tiszta_nev = str(m_row.get('Tisztított Név', '')).strip().lower()
+                                    
+                                    if master_tiszta_nev == keresett_nev_tiszta:
                                         kell = str(m_row.get('Kellék', '')).strip()
+                                        
                                         if kell and kell.lower() != 'nan':
-                                            talalt_kellekek.append(f"{tiszta_kod}: {kell}")
+                                            # Csillagos kellék esetén lefejtjük a csillagot a szép kiíráshoz (pl. *Tzatziki -> TZATZIKI)
+                                            if kell.startswith('*'):
+                                                tiszta_kellek = kell.replace('*', '').strip().upper()
+                                                talalt_kellekek.append(f"{tiszta_kod}: {tiszta_kellek}")
+                                            else:
+                                                talalt_kellekek.append(f"{tiszta_kod}: {kell.upper()}")
                                         break
                     if talalt_kellekek:
                         # 1. CSOPORTOSÍTÁS: Össze gyűjtjük, melyik kellékhez melyik kódok tartoznak

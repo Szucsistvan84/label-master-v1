@@ -1842,35 +1842,6 @@ def save_to_master(current_df):
     updated_master = updated_master.drop_duplicates(subset=['Ügyfélkód'], keep='last')
     updated_master.to_csv("master_data.csv", index=False)
 
-def format_kellek_alert(pdf_kod, pdf_nev, master_df):
-    """
-    Meghatározza, hogy kell-e kellék riasztás az adott tételhez.
-    Visszatérési érték: "⚠ + TZATZIKI" formátum vagy üres string.
-    """
-    tiszta_nev = clean_text(pdf_nev)
-    # Megkeressük az ételt a Master táblában a tisztított név alapján
-    match = master_df[master_df['Tisztított Név'] == tiszta_nev]
-    
-    if not match.empty:
-        kellek = str(match.iloc[0]['Kellék']).strip()
-        
-        # Ha nincs kitöltve kellék, nem csinálunk semmit
-        if not kellek or kellek.lower() == "nan" or kellek == "":
-            return ""
-        
-        # --- A CSILLAGOS SZABÁLY ---
-        if kellek.startswith('*'):
-            # Csak akkor riasztunk, ha a PDF-ből jövő kód is csillagos
-            if '*' in pdf_kod:
-                tiszta_kellek = kellek.replace('*', '').strip().upper()
-                return f"⚠ + {tiszta_kellek}"
-            else:
-                return "" # Belül van a csomagban, nem kell külön adni
-        else:
-            # Sima kellék (mindenki kapja)
-            return f"⚠ + {kellek.upper()}"
-            
-    return ""
 
 # --- 1. FUNKCIÓ: ADATOK FELKÜLDÉSE (UPSERT) ---
 def sync_ugyfelkor_fel(df_napi, sheet_id, client):

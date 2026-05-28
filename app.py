@@ -2803,6 +2803,16 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                                     kellek_szotar[nev].append(kod)
                             except:
                                 continue
+                        
+                        # --- INNENTŐL JÖN AZ ÚJ RÉSZ, AMI HIÁNYZOTT: ---
+                        # A kész szótárból felépítjük a végső stringet (pl: "TZATZIKI (VG1), ZSEMLEKOCKÁK (L2)")
+                        ideiglenes_lista = []
+                        for nev, kodok in kellek_szotar.items():
+                            kodok_szoveg = "+".join(kodok) # Ha több kódhoz is ugyanaz kell, pl: VG1+R1
+                            ideiglenes_lista.append(f"{nev} ({kodok_szoveg})")
+                        
+                        # Átadjuk az eredményt a globális változónak, amit a felület kiír
+                        kellek_kiiras = ", ".join(ideiglenes_lista)
 
                         # 2. SZÖVEG ÖSSZEÁLLÍTÁSA: "Kód1, Kód2: Kelléknév" formátum
                         osszevont_elemek = []

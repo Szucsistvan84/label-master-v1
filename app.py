@@ -2790,28 +2790,25 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                                                 talalt_kellekek.append(f"{tiszta_kod}: {kell.upper()}")
                                         break
                     if talalt_kellekek:
-                        # 1. CSOPORTOSÍTÁS: Össze gyűjtjük, melyik kellékhez melyik kódok tartoznak
+                        # 1. CSOPORTOSÍTÁS: Összegyűjtjük, melyik kellékhez melyik kódok tartoznak
                         kellek_szotar = {}
                         for item in talalt_kellekek:
                             try:
-                                # Szétválasztjuk a kódot és a nevet (pl. "L2: Zsemlekockák")
                                 kod, nev = item.split(": ", 1)
                                 if nev not in kellek_szotar:
                                     kellek_szotar[nev] = []
-                                # Csak akkor adjuk hozzá a kódot, ha még nincs benne (duplikáció szűrés)
                                 if kod not in kellek_szotar[nev]:
                                     kellek_szotar[nev].append(kod)
                             except:
                                 continue
                         
-                        # --- INNENTŐL JÖN AZ ÚJ RÉSZ, AMI HIÁNYZOTT: ---
-                        # A kész szótárból felépítjük a végső stringet (pl: "TZATZIKI (VG1), ZSEMLEKOCKÁK (L2)")
+                        # 2. SZÖVEG ÖSSZEÁLLÍTÁSA: "Kelléknév (KÓD)" formátum
                         ideiglenes_lista = []
                         for nev, kodok in kellek_szotar.items():
-                            kodok_szoveg = "+".join(kodok) # Ha több kódhoz is ugyanaz kell, pl: VG1+R1
+                            kodok_szoveg = "+".join(sorted(kodok))
                             ideiglenes_lista.append(f"{nev} ({kodok_szoveg})")
                         
-                        # Átadjuk az eredményt a globális változónak, amit a felület kiír
+                        # Végső string elkészítése tiszta formában
                         kellek_kiiras = ", ".join(ideiglenes_lista)
 
                         # 2. SZÖVEG ÖSSZEÁLLÍTÁSA: "Kód1, Kód2: Kelléknév" formátum

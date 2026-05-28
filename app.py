@@ -198,6 +198,7 @@ if "google_data_loaded" not in st.session_state:
 # Globális változók biztonságos átadása default értékekkel (ha még üresek lennének)
 etlap_api_df = st.session_state.get('etlap_api_df', pd.DataFrame())
 etelek_master_df = st.session_state.get('etelek_master_df', pd.DataFrame())
+master_df = etelek_master_df
 nevnapok_df = st.session_state.get('nevnapok_df', pd.DataFrame())
 keresztnevek_df = st.session_state.get('keresztnevek_df', pd.DataFrame())
 ugyfelkor_df = st.session_state.get('ugyfelkor_df', pd.DataFrame())

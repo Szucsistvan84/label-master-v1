@@ -1615,7 +1615,10 @@ def clean_text(text):
     return text
 
 def format_kellek_alert(pdf_kod, pdf_nev, master_df):
-    """Meghatározza a kellék riasztást a csillagos szabály szerint."""
+    """
+    Meghatározza a kellék riasztást a csillagos szabály szerint.
+    Ha a kellék csillagos (*Tzatziki), akkor csak a kis adagokhoz (kód végén 'K' vagy '*') rakja be.
+    """
     if master_df is None or master_df.empty: return ""
     
     tiszta_nev = clean_text(pdf_nev)
@@ -1625,14 +1628,22 @@ def format_kellek_alert(pdf_kod, pdf_nev, master_df):
         kellek = str(match.iloc[0]['Kellék']).strip()
         if not kellek or kellek.lower() == "nan" or kellek == "": return ""
         
-        # Csillagos szabály: Ha a kellék * jellegű (pl. *Tzatziki)
+        tiszta_kellek = kellek.replace('*', '').strip().upper()
+        str_pdf_kod = str(pdf_kod).strip().upper()
+        
+        # --- INTELLIGENS CSILLAGOS SZABÁLY ---
         if kellek.startswith('*'):
-            if '*' in str(pdf_kod): # Csak ha a PDF kódjában is van csillag
-                return f"⚠ + {kellek.replace('*', '').strip().upper()}"
+            # Ha a PDF kód tartalmaz csillagot (pl. E1K*) VAGY 'K' betűre végződik (pl. E1K, UK)
+            # Akkor ez egy kis adag, tehát JÁR hozzá a plusz öntet!
+            if '*' in str_pdf_kod or str_pdf_kod.endswith('K') or 'K*' in str_pdf_kod:
+                return f"⚠ + {tiszta_kellek}"
+            
+            # Ha nagy adag (pl. E1 vagy U -> nincs benne 'K' és nincs csillag), akkor nem írjuk ki
             return ""
         else:
-            # Sima kellék (mindenki kapja)
-            return f"⚠ + {kellek.upper()}"
+            # Sima kellék (mindenki kapja, pl. savanyúság)
+            return f"⚠ + {tiszta_kellek}"
+            
     return ""
 
 def get_gender_and_nevnap(full_name, nevnapok_df, keresztnevek_df, target_date):

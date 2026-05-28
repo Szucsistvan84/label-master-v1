@@ -2886,9 +2886,9 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             # --- KELLÉK SOR (Fentebb tolva: 12.5 mm) ---
             if kellek_kiiras:
                 p.saveState()
-                p.setFont(f_bold, 6)
-                t_kellek = kellek_kiiras.replace("Kellék:", "").strip()
-                p.drawCentredString(x + lw / 2, y_eff + 12.5 * mm, f"⚠+ {t_kellek} +⚠")
+                p.setFont(f_bold, 7) # Kicsit nagyobb betűméret (6-ról 7-re), hogy jobban látszódjon
+                p.setFillColor(colors.HexColor('#111111')) # Határozott, sötét betűszín
+                p.drawCentredString(x + lw / 2, y_eff + 12.5 * mm, f"⚠️ {kellek_kiiras} ⚠️")
                 p.restoreState()
 
             # --- LEGALJA (Névnap vagy Futár) ---

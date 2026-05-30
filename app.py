@@ -2758,39 +2758,63 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
 
             kellek_kiiras = ""
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None:
+                # Keressük meg a nap oszlopát az API táblában
                 keresett_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
                 napi_oszlop = next((col for col in etlap_api_df.columns if keresett_nap_szamokkal in "".join(filter(str.isdigit, str(col)))), None)
                 
                 if napi_oszlop:
-                    tiszta_szoveg = re.sub(r'<[^>]*>', '', formazott_rendeles)
-                    csillagosok = re.findall(r'([A-Z0-9\-]+)\*', tiszta_szoveg.upper())
                     talalt_kellekek = []
                     
-                    for nyers_kod in csillagosok:
-                        tiszta_kod = nyers_kod.split('-')[-1].strip()
-                        etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.contains(rf"\b{tiszta_kod}\b", na=False)]
+                    # A 'Rendelés_Full' oszlopból kinyerjük a napi blokkokat (pl: "Hé: 1-UK*, 2-A")
+                    napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
+                    
+                    for blokk in napi_blokkok:
+                        # Kigyűjtjük az összes rendelési kódot (darabszám-KÓD formátum, pl. 1-L2*)
+                        found_orders = re.findall(r'(\d+)-([A-Z0-9\*]+)', blokk.upper())
                         
-                        if not etel_sor.empty:
-                            keresett_nev_tiszta = re.sub(r'[^a-z0-9]', '', str(etel_sor.iloc[0][napi_oszlop]).lower())
+                        for qty, code in found_orders:
+                            nyers_kod = code.strip()          # Pl: "UK*" vagy "L2*" vagy "R1*"
+                            tiszta_kod = nyers_kod.replace('*', '').strip()  # Pl: "UK", "L2", "R1"
                             
-                            if master_df is not None:
-                                for _, m_row in master_df.iterrows():
-                                    # --- VÁLTOZTATÁS: Mostantól a garantáltan tiszta oszlopot vetjük össze ---
-                                    master_tiszta_nev = str(m_row.get('Tisztított Név', '')).strip().lower()
+                            # --- 1. SZABÁLY: FIX KIS ADAGOS TZATZIKI KIVÉTELEK (Csillag a végén!) ---
+                            if nyers_kod in ["UK*", "E1K*"]:
+                                talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
+                            
+                            # --- 2. SZABÁLY: MINDEN MÁS NORMÁL CIKKSZÁM ELLENŐRZÉSE ---
+                            else:
+                                # Megkeressük az étel sorát az API táblázatban az első oszlop alapján
+                                etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
+                                
+                                if not etel_sor.empty:
+                                    etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
+                                    keresett_nev_tiszta = re.sub(r'[^a-z0-9]', '', etel_nev.lower())
                                     
-                                    if master_tiszta_nev == keresett_nev_tiszta:
-                                        kell = str(m_row.get('Kellék', '')).strip()
-                                        
-                                        if kell and kell.lower() != 'nan':
-                                            # Csillagos kellék esetén lefejtjük a csillagot a szép kiíráshoz (pl. *Tzatziki -> TZATZIKI)
-                                            if kell.startswith('*'):
-                                                tiszta_kellek = kell.replace('*', '').strip().upper()
-                                                talalt_kellekek.append(f"{tiszta_kod}: {tiszta_kellek}")
-                                            else:
-                                                talalt_kellekek.append(f"{tiszta_kod}: {kell.upper()}")
-                                        break
+                                    if master_df is not None:
+                                        for _, m_row in master_df.iterrows():
+                                            master_tiszta_nev = str(m_row.get('Tisztított Név', '')).strip().lower()
+                                            
+                                            if master_tiszta_nev == keresett_nev_tiszta:
+                                                kell = str(m_row.get('Kellék', '')).strip()
+                                                
+                                                if kell and kell.lower() != 'nan':
+                                                    kellek_tiszta = kell.replace('*', '').strip().upper()
+                                                    
+                                                    # Ha a törzsadatban lévő kellék csillagos (*Tzatziki), vagy a kód végén csillag volt
+                                                    if kell.startswith('*') or nyers_kod.endswith('*'):
+                                                        # Célzott ellenőrzés a Souvlaki / Pulyka kis adagokra
+                                                        if tiszta_kod == "UK" or tiszta_kod == "E1K":
+                                                            talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
+                                                    else:
+                                                        # Minden más normál kellék (pl. TARTÁRMÁRTÁS, ZSEMLEKOCKA)
+                                                        talalt_kellekek.append(f"{tiszta_kod}: {kellek_tiszta}")
+                                                break
+
+                    # --- DIAGNOSZTIKAI KIÍRÁS A HÁTTÉRBEN (Terminálban látszik) ---
                     if talalt_kellekek:
-                        # 1. CSOPORTOSÍTÁS: Összegyűjtjük, melyik kellékhez melyik kódok tartoznak
+                        print(f"[DEBUG ETIKETT] Név: {r.get('Név')}, Nyers találatok: {talalt_kellekek}")
+                    
+                    # --- INTELIGENS ÖSSZEVONÁS ÉS CSOPORTOSÍTÁS ---
+                    if talalt_kellekek:
                         kellek_szotar = {}
                         for item in talalt_kellekek:
                             try:
@@ -2802,23 +2826,14 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                             except:
                                 continue
                         
-                        # 2. SZÖVEG ÖSSZEÁLLÍTÁSA: "Kelléknév (KÓD)" formátum
-                        ideiglenes_lista = []
-                        for nev, kodok in kellek_szotar.items():
-                            kodok_szoveg = "+".join(sorted(kodok))
-                            ideiglenes_lista.append(f"{nev} ({kodok_szoveg})")
-                        
-                        # Végső string elkészítése tiszta formában
-                        kellek_kiiras = ", ".join(ideiglenes_lista)
-
-                        # 2. SZÖVEG ÖSSZEÁLLÍTÁSA: "Kód1, Kód2: Kelléknév" formátum
+                        # Összeállítás a kért formátumban: "Kód1, Kód2: Kelléknév"
                         osszevont_elemek = []
                         for nev, kodok in kellek_szotar.items():
-                            # Sorrendbe rakjuk a kódokat (pl. KM, L2) és összefűzzük a névvel
+                            # ABC sorrendbe rakjuk a kódokat (pl. L2, L2K) és összefűzzük vesszővel
                             kodok_szoveg = ", ".join(sorted(kodok))
                             osszevont_elemek.append(f"{kodok_szoveg}: {nev}")
                         
-                        # 3. VÉGLEGES KIÍRÁS: Pontosvesszővel elválasztva a különböző kellékcsoportokat
+                        # Pontosvesszővel elválasztjuk a különböző kellékeket, ha több is van (pl. Zsemlekocka és Tartár)
                         kellek_kiiras = "; ".join(osszevont_elemek)
 
             # --- DINAMIKUS ELTOLÁS A LAP ALJÁN (ISMÉTELT FINOMÍTÁS) ---

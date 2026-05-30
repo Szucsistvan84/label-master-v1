@@ -182,18 +182,31 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
         return []
 
 # ==============================================================================
-# 🔥 IDE MÁSOLD BE AZ ÚJ, OKOSÍTOTT ÉTLAP FIGYELŐT:
+# 🔥 EZ LEGYEN AZ ÚJ, OKOSÍTOTT ÉTLAP FIGYELŐ (GOOGLE SHEETS VERZIÓ):
 # ==============================================================================
-@st.cache_data(show_spinner="Étlap API frissítése...")
-def load_etlap_api_smart(file_path, columns_trigger=None):
+@st.cache_data(show_spinner="Étlap API frissítése a felhőből...")
+def load_etlap_api_smart(sheet_id, columns_trigger=None):
     """
-    Beolvassa az Etlap_API-t. Ha a 'columns_trigger' (az oszlopnevek összeragasztva)
-    megváltozik egy időutazás miatt, a Streamlit magától törli a régi cache-t!
+    Letölti az Etlap_API munkalapot a Google Sheets-ből. 
+    Ha a 'columns_trigger' (a felhőben lévő oszlopnevek összeragasztva) megváltozik 
+    egy időutazás miatt, a Streamlit azonnal törli a régi cache-t és újra letölti!
     """
-    import os
-    if os.path.exists(file_path):
-        return pd.read_csv(file_path)
-    return None
+    try:
+        import gspread
+        # Hitelesítés és a táblázat megnyitása
+        local_client = gspread.authorize(get_google_sheets_creds())
+        sh = local_client.open_by_key(sheet_id)
+        ws_api = sh.worksheet("Etlap_API")
+        
+        # Teljes adattábla letöltése DataFrame-be
+        df = pd.DataFrame(ws_api.get_all_records())
+        
+        # Megtisztítjuk az oszlopneveket a felesleges szóközöktől (a \n karaktereket meghagyjuk!)
+        df.columns = [str(col).strip().replace('\ufeff', '') for col in df.columns]
+        return df
+    except Exception as e:
+        st.error(f"❌ Smart Cache hiba az Etlap_API letöltésekor: {e}")
+        return None
         
 # ==============================================================================
 # 🟢 2. A JAVÍTOTT, TELJES MESTER LISTA SZINKRONIZÁLÓ FÜGGVÉNY (GOLYÓÁLLÓ VERZIÓ)

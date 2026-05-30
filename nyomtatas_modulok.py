@@ -423,7 +423,7 @@ def create_manifest_pdf(df, c_n, meta):
         prev_grp = str(df.iloc[i-1].get('Csoport', '')).strip().lower() if i > 0 else ""
         is_valid = curr_grp and curr_grp not in ['0', '0.0', 'nan', 'none', '']
 
-        prefix = "▲ " if (is_valid aud i > 0 and curr_grp == prev_grp) else ""
+        prefix = "▲ " if (is_valid and i > 0 and curr_grp == prev_grp) else ""
         u_name = str(row.get('Ügyintéző', ''))[:45]
         u_id = str(row.get('temp_id', ''))
         

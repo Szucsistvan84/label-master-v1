@@ -97,6 +97,47 @@ def get_checkbox_drawing():
     d.add(Rect(1, 1, 8, 8, fillColor=colors.white, strokeColor=colors.HexColor('#555555'), strokeWidth=0.6))
     return d
 
+# =========================================================================
+# 🔴 SEGÉDFÜGGVÉNYEK AZ ETIKETTHEZ (nyomtatas_modulok.py)
+# =========================================================================
+
+def get_gender_and_nevnap(full_name, nevnapok_df, keresztnevek_df, target_date):
+    """Meghatározza, hogy az ügyfélnek névnapja van-e, és a neme alapján ikont rendel hozzá."""
+    if nevnapok_df is None or nevnapok_df.empty or not target_date:
+        return None
+        
+    # Biztosítjuk a dátum formátum egyezőségét (pl. 04-24)
+    # Ha a táblázatban csak MM-DD van, vagy YYYY-MM-DD, ahhoz igazítjuk
+    target_clean = str(target_date)[-5:].replace('.', '-') # pl: "04-24"
+    
+    # Megkeressük a mai napot a táblázatban (kezelve, ha a 'Datum' oszlop máshogy tartalmazza)
+    mai_sor = nevnapok_df[nevnapok_df['Datum'].astype(str).str.contains(target_clean)]
+    if mai_sor.empty: 
+        return None
+    
+    mai_nevek = [n.strip().lower() for n in str(mai_sor.iloc[0]['Nevek']).split(',')]
+    
+    # Tisztítjuk az ügyfél nevét a megszólításoktól az összehasonlításhoz
+    t_nev = str(full_name).strip()
+    for t in ["Dr.", "dr.", "id.", "ifj.", "özv.", "Özv."]:
+        t_nev = t_nev.replace(t, "")
+        
+    name_parts = [s.strip() for s in t_nev.split() if s.strip()]
+    
+    for part in name_parts:
+        clean_part = part.lower()
+        if clean_part in mai_nevek:
+            # Megvan a névnapos! Nem meghatározása a keresztnevek alapján
+            ikon = "✨" # Alapértelmezett (Férfi vagy ismeretlen)
+            if keresztnevek_df is not None and not keresztnevek_df.empty:
+                gender_match = keresztnevek_df[keresztnevek_df['Keresztnév'].astype(str).str.lower() == clean_part]
+                if not gender_match.empty:
+                    nem = str(gender_match.iloc[0]['Nem']).lower()
+                    if 'nő' in nem:
+                        ikon = "✿"
+            
+            return f"{ikon} Boldog Névnapot, {part}! {ikon}"
+    return None
 
 # =========================================================================
 # 🔴 1. MODUL: ETIKETT GENERÁLÓ (create_label_pdf)

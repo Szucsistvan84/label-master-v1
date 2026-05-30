@@ -2768,7 +2768,6 @@ def main():
                                 st.session_state.aktiv_jaratok = feltoltott_jaratok
                         
                         st.success("🎉 A menettervek feldolgozása és a felhő szinkronizáció sikeresen megtörtént!")
-                        # ❌ ST.RERUN() ELTÁVOLÍTVA A BIZTONSÁG ÉRDEKÉBEN!
 
             st.divider() 
 
@@ -2846,7 +2845,6 @@ def main():
                             sh = client.open_by_key(UGYFELKOR_SHEET_ID)
                             ws_ugyfel = sh.worksheet("Ugyfelkor")
                             
-                            # Letöltjük a teljes aktuális táblázatot matricaként
                             teljes_adat = ws_ugyfel.get_all_values()
                             if not teljes_adat:
                                 st.error("❌ A Google Sheets táblázat üres vagy nem olvasható!")
@@ -2854,7 +2852,6 @@ def main():
                                 
                             fejlec = teljes_adat[0]
                             
-                            # Oszlopindexek meghatározása (0-alapú indexelés a mátrixhoz)
                             id_idx = fejlec.index("ID") if "ID" in fejlec else 0
                             nev_idx = fejlec.index("Név") if "Név" in fejlec else (fejlec.index("Nev") if "Nev" in fejlec else 1)
                             cim_idx = fejlec.index("Cím") if "Cím" in fejlec else (fejlec.index("Cim") if "Cim" in fejlec else 2)
@@ -2863,7 +2860,6 @@ def main():
                             megj_idx = fejlec.index("Megjegyzés") if "Megjegyzés" in fejlec else (fejlec.index("Megjegyzes") if "Megjegyzes" in fejlec else 7)
                             utolso_idx = fejlec.index("Utolso_Rendeles") if "Utolso_Rendeles" in fejlec else None
                             
-                            # Kigyűjtjük a Sheets-ben lévő ID-kat és a soraik indexét a mátrixban
                             sheets_id_map = {str(teljes_adat[i][id_idx]).strip(): i for i in range(1, len(teljes_adat))}
                             
                             def tiszta_id_szoveg(val):
@@ -2885,7 +2881,6 @@ def main():
                             edited_df_clean['ID'] = edited_df_clean['ID'].apply(tiszta_id_szoveg)
                             módosult_darab = 0
                             
-                            # A letöltött mátrixban módosítjuk a cellákat a memóriában (NINCS API hívás a ciklusban!)
                             for _, row in edited_df_clean.iterrows():
                                 current_id = row['ID']
                                 if not current_id or current_id not in sheets_id_map: continue
@@ -2911,7 +2906,6 @@ def main():
                                     
                                 módosult_darab += 1
                                 
-                                # Lokális Streamlit session_state frissítése
                                 for session_key in ['ugyfelkor_df', 'mdf', 'master_ugyfelkor_df']:
                                     if session_key in st.session_state and st.session_state[session_key] is not None:
                                         try:
@@ -2926,11 +2920,7 @@ def main():
                                             pass
 
                             if módosult_darab > 0:
-                                # 🔥 EGYETLEN API HÍVÁSSAL FRISSÍTJÜK A TELJES TÁBLÁZATOT!
-                                # Nem töröljük le a lapot, csak felülírjuk a teljes tartományt a frissített mátrixszal.
-                                # Ez megőrzi a számformátumokat és a koordinátákat is!
                                 ws_ugyfel.update('A1', teljes_adat, value_input_option='RAW')
-                                
                                 if 'google_data_loaded' in st.session_state:
                                     del st.session_state['google_data_loaded']
                                     
@@ -2961,17 +2951,15 @@ def main():
                 elif meta.get('ev') and meta.get('het'):
                     st.caption("💡 Az étlap kódok automatikusan frissülnek a '🚀 FELDOLGOZÁS' gomb megnyomásakor.")
 
-                c1, c2, c3 = st.columns(3)
                 # --- DEBUG PANEL AZ ETIKETTEKHEZ ---
                 with st.expander("🔍 Kellék Kereső Debug Panel (Teszteléshez)", expanded=True):
                     st.write(f"Kiválasztott API dátum kulcs: `{meta.get('api_datum_kulcs', 'NINCS')}`")
                     
                     teszt_talalatok = []
-                    # Megnézzük az első 10 olyan sort a táblázatban, ahol van rendelés
                     for idx, r in edited_df.dropna(subset=['Rendelés_Full']).head(10).iterrows():
                         napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
                         for b in napi_blokkok:
-                            if '*' in b or 'R1' in b: # Ha van benne csillag vagy rántott étel
+                            if '*' in b or 'R1' in b:
                                 teszt_talalatok.append(f"Sor {idx} ({r.get('Név', 'Névtelen')}): `{b.strip()}`")
                                 
                     if teszt_talalatok:
@@ -2986,14 +2974,10 @@ def main():
                 st.write("")
                 if st.button("🚀 DOKUMENTUMOK ÉS RAKLISTA GENERÁLÁSA", type="primary", use_container_width=True):
                     with st.spinner("⏳ PDF-ek generálása és adatok szinkronizálása folyamatban..."):
-                        
-                        # 🎁 ON-DEMAND NÉVNAP BETÖLTÉS (Ideiglenesen kikapcsolva a kvótavédelem miatt)
                         if 'nevnapok_df' not in st.session_state or st.session_state.nevnapok_df.empty:
-                            # Csendben üres DataFrame-ként inicializáljuk, hogy a PDF modulok ne kapjanak hibát
                             st.session_state.nevnapok_df = pd.DataFrame()
                             st.session_state.keresztnevek_df = pd.DataFrame()
 
-                        # PDF-ek legenerálása memóriába (így csak egyszer futnak le!)
                         try:
                             label_pdf_buf = create_label_pdf(
                                 edited_df, st.session_state.c_n, st.session_state.c_p, meta, 

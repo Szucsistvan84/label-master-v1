@@ -2985,33 +2985,78 @@ def main():
                 elif meta.get('ev') and meta.get('het'):
                     st.caption("💡 Az étlap kódok automatikusan frissülnek a '🚀 FELDOLGOZÁS' gomb megnyomásakor.")
 
-                # --- EGYSZERŰSÍTETT DEBUG PANEL (ÜGYFÉL KERESŐ) ---
-                with st.expander("🔍 Kellék Kereső Debug Panel (Teszteléshez)", expanded=True):
-                    api_kulcs = meta.get('api_datum_kulcs', 'NINCS')
+                # --- SORTÖRÉS-BIZTOS ÉTEL- ÉS KELLÉKKERESŐ DEBUGGER (FÁZIS 3) ---
+                with st.expander("🔍 Kellék Kereső Debug Panel (Fázis 3)", expanded=True):
+                    api_kulcs = meta.get('api_datum_kulcs', 'NINCS') # Pl: "2026.05.29."
                     st.write(f"Kiválasztott API dátum kulcs: `{api_kulcs}`")
                     
-                    # Kilistázzuk az összes oszlopot az API-ból, hogy lássuk, megvan-e a péntek
                     if etlap_api_df is not None:
-                        st.write("API táblázat oszlopai:")
-                        st.write(list(etlap_api_df.columns))
+                        # Tisztított számjegyek a keresett dátumból (pl: "20260529")
+                        keresett_nap_szamokkal = "".join(filter(str.isdigit, api_kulcs))
+                        
+                        # Megkeressük az oszlopot úgy, hogy a cellán belüli sortöréseket szóközre cseréljük és kiszedjük a számokat
+                        napi_oszlop = None
+                        for col in etlap_api_df.columns:
+                            clean_col_name = str(col).replace('\r', '').replace('\n', ' ').strip()
+                            col_szamok = "".join(filter(str.isdigit, clean_col_name))
+                            
+                            if keresett_nap_szamokkal and keresett_nap_szamokkal in col_szamok:
+                                napi_oszlop = col
+                                break
+                        
+                        if napi_oszlop:
+                            st.success(f"✔ Megtalált napi oszlop (sortöréssel együtt): `{napi_oszlop.replace('\n', ' ')}`")
+                        else:
+                            st.error(f"❌ Nem található oszlop a(z) `{keresett_nap_szamokkal}` számokkal!")
+                            st.write("Rendelkezésre álló oszlopok nyers számai:")
+                            st.write({str(c).replace('\n', ' '): "".join(filter(str.isdigit, str(c))) for c in etlap_api_df.columns})
                     else:
                         st.error("Az Etlap_API táblázat nincs betöltve!")
 
                     st.write("---")
-                    st.write("📌 **Minden ügyfél, akinek a rendelésében csillag (*) található:**")
+                    st.write("📌 **Ügyfelek ellenőrzése a megtisztított oszlop alapján:**")
                     
-                    talalt_csillagos = 0
                     for idx, r in edited_df.dropna(subset=['Rendelés_Full']).iterrows():
                         rendeles_szoveg = str(r.get('Rendelés_Full', ''))
                         
-                        # Ha van csillag a teljes szövegben (péntek vagy szombat, mindegy)
                         if '*' in rendeles_szoveg:
-                            talalt_csillagos += 1
-                            st.write(f"**{talalt_csillagos}. Ügyfél:** {r.get('Név', 'Névtelen')} (Sor: {idx})")
-                            st.write(f"➔ Teljes rendelés: `{rendeles_szoveg}`")
+                            st.write(f"**Ügyfél:** {r.get('Név', 'Névtelen')} (Sor: {idx}) ➔ Rendelés: `{rendeles_szoveg}`")
                             
-                    if talalt_csillagos == 0:
-                        st.warning("⚠ Egyetlen ügyfelet sem találtunk a táblázatban, akinek csillag (*) lenne a rendelésében!")
+                            # Rendelések szétszedése (Ünnepi üzemmód miatt mindent nézünk, ami a stringben van)
+                            tisztitott_szoveg = rendeles_szoveg.replace('|', ',').replace('Pé:', '').replace('Szo:', '')
+                            reszek = [x.strip() for x in tisztitott_szoveg.split(',') if x.strip()]
+                            
+                            for resz in reszek:
+                                if '*' in resz:
+                                    # Kód kinyerése (pl: 1-E1K* -> E1K)
+                                    kod_match = re.search(r'-([A-Z0-9]+)\*', resz.upper())
+                                    if not kod_match:
+                                        kod_match = re.search(r'([A-Z0-9]+)\*', resz.upper())
+                                        
+                                    if kod_match:
+                                        t_kod = kod_match.group(1).strip()
+                                        st.write(f"  • Észlelt csillagos kód: `{t_kod}`")
+                                        
+                                        if etlap_api_df is not None and napi_oszlop:
+                                            # Keresés az API tábla 1. oszlopában
+                                            e_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(t_kod, na=False)]
+                                            
+                                            if not e_sor.empty:
+                                                etel_nev = str(e_sor.iloc[0][napi_oszlop]).strip()
+                                                tisztitott_nev = clean_text(etel_nev)
+                                                st.write(f"    ➔ 🍲 API Ételnév: `{etel_nev}`")
+                                                st.write(f"    ➔ 🧹 Tisztított név: `{tisztitott_nev}`")
+                                                
+                                                # Keresés a Masterben
+                                                if master_df is not None:
+                                                    m_row = master_df[master_df['Tisztított Név'] == tisztitott_nev]
+                                                    if not m_row.empty:
+                                                        kellek = m_row.iloc[0].get('Kellék', 'ÜRES')
+                                                        st.success(f"    ➔ 🎉 **MEGTALÁLT KELLÉK: {kellek}**")
+                                                    else:
+                                                        st.error(f"    ➔ ❌ Nem található ez a név a Master_Adatbazisban!")
+                                            else:
+                                                st.error(f"    ➔ ❌ A(z) `{t_kod}` kód nincs az API táblázatban!")
                 # ------------------------------------
 
                 # 🚀 1. LÉPÉS: Egy közös indító gomb a PDF-ek előkészítéséhez

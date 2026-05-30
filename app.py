@@ -1099,16 +1099,6 @@ ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z][A-Z0-9*+]*)'
 # Frissített, "szóköz-toleráns" regex
 MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
-# --- EZT A SEGÉDFÜGGVÉNYT TEDD A KÓD ELEJÉRE ---
-def get_day_short(day_str):
-    if not day_str: return ""
-    primary_day = day_str.split(',')[0].strip() # "Csütörtök, Péntek" -> "Csütörtök"
-    day_map = {
-        "Hétfő": "Hé", "Kedd": "Ke", "Szerda": "Sze",
-        "Csütörtök": "Csü", "Péntek": "Pé", "Szombat": "Szo"
-    }
-    return day_map.get(primary_day, primary_day[:2])
-
 def extract_all_meta(pdf_files):
     all_meta = {'jaratok': [], 'ev': '', 'het': '', 'nap': ''}
     

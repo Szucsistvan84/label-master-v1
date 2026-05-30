@@ -31,6 +31,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.graphics.shapes import Drawing
 from reportlab.graphics.barcode.qr import QrCodeWidget
 from mobil_modulok import render_mobil_aruatvetel, render_mobil_bepakolas, render_mobil_kiszallitas
+from nyomtatas_modulok import create_label_pdf
 
 def check_user_role():
     """Visszaadja a felhasználó szerepkörét."""

@@ -2710,12 +2710,15 @@ def main():
             # 🚀 FELDOLGOZÁS GOMB ÉS LOGIKA
             if up_files:
                 if st.button("🚀 FELDOLGOZÁS"):
-                    # 💥 AZONNALI MEMÓRIATISZTÍTÁS: Új feldolgozáskor eldobjuk a régi letöltéseket,
-                    # így a régi gombok azonnal eltűnnek a képernyőről!
+                    # 💥 Első lépésként GYÖKERESTŐL kitépjük a régi letöltő gombokat és azok adatait
                     for key in ['generated_labels_pdf', 'generated_manifest_pdf', 'generated_raklista_pdf']:
                         if key in st.session_state:
                             del st.session_state[key]
                     
+                    # Ha van bármilyen logikai változód ami jelzi, hogy lefutott a generálás, azt is töröljük:
+                    if 'dokumentumok_generalva' in st.session_state:
+                        st.session_state.dokumentumok_generalva = False
+
                     meta_auto = extract_all_meta(up_files)
                     st.session_state.meta_data = meta_auto
                     

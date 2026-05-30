@@ -24,7 +24,6 @@ ORDER_PAT = r'(\d+)-([A-Z0-9\*]+)'
 
 def register_fonts():
     """Regisztrálja a szükséges TrueType betűtípusokat a ReportLab számára."""
-    # A projektben használt egyedi betűtípusok
     f_reg = "DejaVu"
     f_bold = "DejaVu-Bold"
     
@@ -69,19 +68,18 @@ def format_kellek_alert(pdf_kod, pdf_nev, master_df):
     if not match.empty:
         kellek = str(match.iloc[0]['Kellék']).strip()
         if not kellek or kellek.lower() == "nan" or kellek == "": return ""
-        # Csillagos szabály: Ha a kellék * jellegű (pl. *Tzatziki)
         if kellek.startswith('*'):
-            if '*' in str(pdf_kod): # Csak ha a PDF kódjában is van csillag
+            if '*' in str(pdf_kod): 
                 return f"⚠ + {kellek.replace('*', '').strip().upper()}"
             return ""
         else:
-            # Sima kellék (mindenki kapja)
             return f"⚠ + {kellek.upper()}"
     return "" 
 
-# --- REPORLAB FLOWABLE ÉS CANVAS OSZTÁLYOK ---
+# --- AKTÍV REPORTLAB FLOWABLE OSZTÁLYOK ---
 
 class Checkbox(Flowable):
+    """Klasszikus üres négyzet rajzolása a menetterv táblázatába."""
     def __init__(self, size=10):
         Flowable.__init__(self)
         self.width = size
@@ -92,29 +90,8 @@ class Checkbox(Flowable):
         self.canv.setStrokeColor(colors.black)
         self.canv.rect(0, 0, self.width, self.height, stroke=1, fill=0)
 
-class NumberingCanvas(canvas.Canvas):
-    def __init__(self, *args, **kwargs):
-        canvas.Canvas.__init__(self, *args, **kwargs)
-        self._saved_page_states = []
-
-    def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
-
-    def save(self):
-        num_pages = len(self._saved_page_states)
-        for state in self._saved_page_states:
-            self.__dict__.update(state)
-            self.draw_page_number(num_pages)
-            canvas.Canvas.showPage(self)
-        canvas.Canvas.save(self)
-
-    def draw_page_number(self, page_count):
-        # Ez a rész üres marad, mert a menetrend belső FinalCanvas footer függvénye fog rajzolni
-        pass
-
 def get_checkbox_drawing():
-    """Szép vektoros checkbox rajzolása raklistához."""
+    """Szép vektoros checkbox rajzolása a raklistához."""
     d = Drawing(10, 10)
     d.hAlign = 'CENTER'
     d.add(Rect(1, 1, 8, 8, fillColor=colors.white, strokeColor=colors.HexColor('#555555'), strokeWidth=0.6))
@@ -166,7 +143,6 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             r = df.iloc[i]
             top_y = y + lh - inner_m + lift
             
-            # Rendelés formázása
             r_full = str(r.get('Rendelés_Full', r.get('Rendelés', '')))
             kulonleges = False
             napi_blokkok = re.split(r'(\s*\|\s*|(?=Hé:|Ke:|Sze:|Csü:|Pé:|Szo:))', r_full)
@@ -188,7 +164,6 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             
             formazott_rendeles = "".join(formazott_reszek)
 
-            # Névnap ellenőrzés
             nevnap_uzenet = ""
             if nevnapok_df is not None and not nevnapok_df.empty and kulcs_nevnap != "NINCS":
                 n_dat_col = next((c for c in ['Datum', 'Dátum', 'datum', 'dátum'] if c in nevnapok_df.columns), nevnapok_df.columns[0])
@@ -209,7 +184,6 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 except Exception as e_nv_belso:
                     logger.warning(f"Hiba az ügyfél névnap ellenőrzésekor: {e_nv_belso}")
 
-            # Kellék ellenőrzés
             kellek_kiiras = ""
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None:
                 keresett_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
@@ -255,7 +229,6 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                                 if nev not in kellek_szotar:
                                     kellek_szotar[nev] = []
                                 if kod not in kellek_szotar[nev]:
-                                    kodok_szoveg = kodok_szoveg if 'kodok_szoveg' in locals() else kod # biztonsági fallback
                                     kellek_szotar[nev].append(kod)
                             except:
                                 continue
@@ -268,13 +241,11 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
 
             biztonsagi_emeles = -0.5 * mm if row_i == 0 else 0
 
-            # Sorszám és ID kirajzolás
             p.setFont(f_bold, 8)
             p.drawString(x + inner_m, top_y - (3 * mm) + biztonsagi_emeles, f"#{int(r['Sorrend'])}")
             p.setFont(f_reg, 7)
             p.drawRightString(x + lw - inner_m, top_y - (3 * mm) + biztonsagi_emeles, f"ID: {str(r.get('temp_id', 'N/A'))}")
 
-            # Név sáv háttere kiemeléshez
             nev_y_pozicio = top_y - 7.0 * mm + biztonsagi_emeles
             if kulonleges:
                 p.saveState()
@@ -287,16 +258,13 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setFont(f_reg, 8)
             p.drawRightString(x + lw - inner_m, nev_y_pozicio, str(r.get('Telefon', '')))
             
-            # Cím sáv
             p.setFont(f_reg, 7)
             p.drawString(x + inner_m, top_y - 10.5 * mm + biztonsagi_emeles, str(r.get('Cím', ''))[:45])
 
-            # Rendelés flowable rész
             para = Paragraph(formazott_rendeles, order_s)
             pw, ph = para.wrap(usable_w, 18 * mm)
             para.drawOn(p, x + inner_m, y_eff + 19 * mm) 
 
-            # Alsó szeparátor vonal
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 6 * mm, x + lw - inner_m, y_eff + 6 * mm)
 
@@ -306,7 +274,6 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 p.setFont(f_bold, 9)
                 p.drawString(x + inner_m, y_eff + 7 * mm, f"Fizet: {penz_nyers}")
 
-            # Összegző darabszám
             p.setFont(f_bold, 7.5)
             try:
                 osszesen_db = int(float(str(r.get('Összesen', 0)).replace("'", "").strip() or 0))
@@ -314,7 +281,6 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 osszesen_db = 0
             p.drawRightString(x + lw - inner_m, y_eff + 7 * mm, f"Össz: {osszesen_db} db")
 
-            # Kellékek riasztó felirata
             if kellek_kiiras:
                 p.saveState()
                 p.setFont(f_bold, 7)
@@ -322,7 +288,6 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 p.drawCentredString(x + lw / 2, y_eff + 12.5 * mm, f"⚠️ {kellek_kiiras} ⚠️")
                 p.restoreState()
 
-            # Legalsó infó sáv (Névnap vagy futár)
             if nevnap_uzenet:
                 p.setFont(f_reg, 8) 
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, nevnap_uzenet)
@@ -331,7 +296,6 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
 
         else:
-            # Üres helyekre nyomtatandó Marketing promóció
             m_text = (
                 f"<font size='10' name='{f_bold}'>15% kedvezmény* 3 hétig</font><br/>"
                 f"Új Ügyfeleink részére!<br/><br/>"
@@ -430,7 +394,7 @@ def create_manifest_pdf(df, c_n, meta):
         prev_grp = str(df.iloc[i-1].get('Csoport', '')).strip().lower() if i > 0 else ""
         is_valid = curr_grp and curr_grp not in ['0', '0.0', 'nan', 'none', '']
 
-        prefix = "▲ " if (is_valid and i > 0 and curr_grp == prev_grp) else ""
+        prefix = "▲ " if (is_valid aud i > 0 and curr_grp == prev_grp) else ""
         u_name = str(row.get('Ügyintéző', ''))[:45]
         u_id = str(row.get('temp_id', ''))
         
@@ -454,13 +418,13 @@ def create_manifest_pdf(df, c_n, meta):
             sorszam_vegleges = str(i+1)
 
         table_data.append([
-            sorszam_vegleges,                                    # 0: #
-            info_flow,                                           # 1: Név/Cím
-            Paragraph(formazott_rendeles, styles['Small']),      # 2: Rendelés
-            Checkbox(10),                                        # 3: ☐
-            Paragraph(f"<b>{penz_val}</b>", styles['Normal']),   # 4: Pénz
-            Paragraph(str(row.get('Telefon', '')), styles['Small']), # 5: Tel
-            str(row.get('Összesen', ''))                         # 6: DB
+            sorszam_vegleges,                                    
+            info_flow,                                           
+            Paragraph(formazott_rendeles, styles['Small']),      
+            Checkbox(10),                                        
+            Paragraph(f"<b>{penz_val}</b>", styles['Normal']),   
+            Paragraph(str(row.get('Telefon', '')), styles['Small']), 
+            str(row.get('Összesen', ''))                         
         ])
 
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
@@ -496,6 +460,7 @@ def create_manifest_pdf(df, c_n, meta):
     elements.append(Paragraph(magyarazat, styles['QRText']))
     
     class FinalCanvas(canvas.Canvas):
+        """Ez az osztály végzi el dinamikusan az X / Y alapú oldalszámozást és láblécet."""
         def __init__(self, *args, **kwargs):
             canvas.Canvas.__init__(self, *args, **kwargs)
             self.pages = []
@@ -550,7 +515,6 @@ def create_raklista_pdf(df, jarat_info, meta_dict, sh):
     prefix_to_nev = {"H": "Hétfő", "K": "Kedd", "S": "Szerda", "C": "Csütörtök", "P": "Péntek", "Z": "Szombat"}
     prefix_to_num = {"H": "1", "K": "2", "S": "3", "C": "4", "P": "5", "Z": "6"}
 
-    # 1. Darabszámok kinyerése és rendszerezése
     counts = {}
     for _, r in df.iterrows():
         order_str = str(r.get('Rendelés_Full', ''))
@@ -569,7 +533,6 @@ def create_raklista_pdf(df, jarat_info, meta_dict, sh):
                 full_key = f"{prefix}_{code.strip().upper()}"
                 counts[full_key] = counts.get(full_key, 0) + int(qty)
 
-    # Táblázat cella stílusok
     title_style = ParagraphStyle('T', fontName=f_bold, fontSize=12, leading=14, spaceAfter=2)
     meta_style = ParagraphStyle('M', fontName=f_reg, fontSize=9, leading=11, spaceAfter=6)
     
@@ -583,7 +546,6 @@ def create_raklista_pdf(df, jarat_info, meta_dict, sh):
     right_style = ParagraphStyle('R', fontName=f_reg, fontSize=7, leading=8.5, alignment=2)
     right_bold_style = ParagraphStyle('R', fontName=f_bold, fontSize=7, leading=8.5, alignment=2)
 
-    # 2. Besorolások és kategóriák meghatározása
     kategoria_csoportok = {}
     kategoria_sorrendek = {}
     
@@ -702,7 +664,6 @@ def create_raklista_pdf(df, jarat_info, meta_dict, sh):
             elements.append(t)
             elements.append(Spacer(1, 4 * mm)) 
 
-    # Financial Summary Line
     jutalek = int(total_money * 0.13)
     summary_data = [
         ["", "", "", "", "ÖSSZESEN:", f"{total_qty} db", f"{total_money} Ft"],
@@ -730,7 +691,6 @@ def create_raklista_pdf(df, jarat_info, meta_dict, sh):
         'csoportok': kategoria_csoportok
     }
 
-    # Google Sheets API szinkron
     try:
         if mobil_raklista_rows:
             import pandas as pd

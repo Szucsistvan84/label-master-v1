@@ -10,6 +10,7 @@ import gspread
 import folium
 import logging
 import time
+import unicodedata
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 from streamlit_folium import st_folium

@@ -2528,6 +2528,15 @@ def main():
                 st.session_state.master_df = pd.DataFrame()
                 st.session_state.etlap_api_df = pd.DataFrame()
 
+    # 🟢 EZT A BLOKKOT ADJUK HOZZÁ ITT, A 10-ES PONT LEGUTOLSÓ SORA UTÁN:
+    # Biztosítjuk, hogy a main() függvényen kívüli kódok is lássák a session_state-ben lévő adatokat
+    global etlap_api_df, etelek_master_df, master_df, ugyfelkor_df, mdf
+    etlap_api_df = st.session_state.get('etlap_api_df', pd.DataFrame())
+    etelek_master_df = st.session_state.get('etelek_master_df', pd.DataFrame())
+    master_df = etelek_master_df
+    ugyfelkor_df = st.session_state.get('ugyfelkor_df', pd.DataFrame())
+    mdf = st.session_state.get('mdf', pd.DataFrame())
+
 
     # =========================================================================
     # 📱 1. ÁG: QR-KÓDOS MOBIL NÉZET

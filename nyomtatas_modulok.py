@@ -229,25 +229,41 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                             nyers_kod = code.strip()          
                             tiszta_kod = nyers_kod.replace('*', '').strip()  
                             
-                            # --- 1. Fix kis adagos Tzatziki kivételek lekezelése (Ha a kód végén ott a csillag) ---
+                            # --- 1. Fix kis adagos Tzatziki kivételek lekezelése a PDF kód alapján (Ha a kód végén ott a csillag) ---
                             if nyers_kod.endswith('*') and tiszta_kod in ["UK", "E1K"]:
                                 talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
                             
-                            # --- 2. Minden más étel automatikus ellenőrzése a format_kellek_alert függvénnyel ---
+                            # --- 2. Minden más étel és a normál ág ellenőrzése ---
                             else:
                                 etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
                                 if not etel_sor.empty:
                                     etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
+                                    tisztitott_etel_nev = clean_text(etel_nev)  # Az ételnév megtisztítása (kisbetű, ékezetek nélkül, szóközök nélkül)
                                     
-                                    # Meghívjuk a saját formázó függvényedet, ami a Master_Adatbazis-ból dolgozik
+                                    # Lekérjük az adatbázisból, hogy van-e hozzá kellék rendelve
                                     alert_szoveg = format_kellek_alert(nyers_kod, etel_nev, master_df)
                                     if alert_szoveg:
-                                        # Levágjuk az alert függvény által odarakott "⚠ +" részt, hogy tiszta kelléknevet kapjunk
-                                        tiszta_kellek = alert_szoveg.replace("⚠ +", "").replace("⚠+", "").strip().upper()
-                                        if tiszta_kellek:
-                                            talalt_kellekek.append(f"{tiszta_kod}: {tiszta_kellek}")
+                                        # Megnézzük a nyers kelléknevet a táblázatból (hogy ott van-e az elején a csillag)
+                                        # Mivel a format_kellek_alert már megtalálta, kiszedjük a tiszta nevet:
+                                        kellek_tiszta = alert_szoveg.replace("⚠ +", "").replace("⚠+", "").strip().upper()
+                                        
+                                        # Megkeressük az eredeti cellaértéket a master_df-ből, hogy lássuk, csillagos-e (*Tzatziki)
+                                        match_row = master_df[master_df['Tisztított Név'] == tisztitott_etel_nev]
+                                        master_kellek_nyers = str(match_row.iloc[0]['Kellék']).strip() if not match_row.empty else ""
+                                        
+                                        # HA a kellék csillaggal kezdődik (azaz ez a speciális Tzatziki szabály)
+                                        if master_kellek_nyers.startswith('*'):
+                                            # Célzott ellenőrzés a két kis adagra, amit kértél:
+                                            if "csirkessouvlakivegyeskoretsultburgparoltrizstzatziki" in tisztitott_etel_nev and tiszta_kod == "UK":
+                                                talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
+                                            elif "rantottpulykamelljazminrizs" in tisztitott_etel_nev and tiszta_kod == "E1K":
+                                                talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
+                                        
+                                        # MINDEN MÁS NORMÁL KELLÉK (Pl. Tartármártás, Tejföl, ami jár a nagynak és kicsinek is)
+                                        else:
+                                            talalt_kellekek.append(f"{tiszta_kod}: {kellek_tiszta}")
                     
-                    # Összevonjuk a talált kellékeket kódok szerint (pl. ha két különböző kódhoz is ugyanaz a kellék kell)
+                    # Összevonjuk a talált kellékeket kódok szerint az etikett kiíráshoz
                     if talalt_kellekek:
                         kellek_szotar = {}
                         for item in talalt_kellekek:

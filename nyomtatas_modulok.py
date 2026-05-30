@@ -214,7 +214,8 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             ) or ""
 
             kellek_kiiras = ""
-            if kulcs_api_datum != "NINCS" and etlap_api_df is not None:
+            if kulcs_api_datum != "NINCS" and etlap_api_df is not None and not etlap_api_df.empty:
+                # Megkeressük a nap pontos oszlopát az API táblában
                 keresett_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
                 napi_oszlop = next((col for col in etlap_api_df.columns if keresett_nap_szamokkal in "".join(filter(str.isdigit, str(col)))), None)
                 
@@ -228,28 +229,25 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                             nyers_kod = code.strip()          
                             tiszta_kod = nyers_kod.replace('*', '').strip()  
                             
-                            if nyers_kod in ["UK*", "E1K*"]:
+                            # --- 1. Fix kis adagos Tzatziki kivételek lekezelése (Ha a kód végén ott a csillag) ---
+                            if nyers_kod.endswith('*') and tiszta_kod in ["UK", "E1K"]:
                                 talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
+                            
+                            # --- 2. Minden más étel automatikus ellenőrzése a format_kellek_alert függvénnyel ---
                             else:
                                 etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
                                 if not etel_sor.empty:
                                     etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
-                                    keresett_nev_tiszta = clean_text(etel_nev)
                                     
-                                    if master_df is not None:
-                                        for _, m_row in master_df.iterrows():
-                                            master_tiszta_nev = str(m_row.get('Tisztított Név', '')).strip().lower()
-                                            if master_tiszta_nev == keresett_nev_tiszta:
-                                                kell = str(m_row.get('Kellék', '')).strip()
-                                                if kell and kell.lower() != 'nan':
-                                                    kellek_tiszta = kell.replace('*', '').strip().upper()
-                                                    if kell.startswith('*') or nyers_kod.endswith('*'):
-                                                        if tiszta_kod == "UK" or tiszta_kod == "E1K":
-                                                            talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
-                                                    else:
-                                                        talalt_kellekek.append(f"{tiszta_kod}: {kellek_tiszta}")
-                                                break
-
+                                    # Meghívjuk a saját formázó függvényedet, ami a Master_Adatbazis-ból dolgozik
+                                    alert_szoveg = format_kellek_alert(nyers_kod, etel_nev, master_df)
+                                    if alert_szoveg:
+                                        # Levágjuk az alert függvény által odarakott "⚠ +" részt, hogy tiszta kelléknevet kapjunk
+                                        tiszta_kellek = alert_szoveg.replace("⚠ +", "").replace("⚠+", "").strip().upper()
+                                        if tiszta_kellek:
+                                            talalt_kellekek.append(f"{tiszta_kod}: {tiszta_kellek}")
+                    
+                    # Összevonjuk a talált kellékeket kódok szerint (pl. ha két különböző kódhoz is ugyanaz a kellék kell)
                     if talalt_kellekek:
                         kellek_szotar = {}
                         for item in talalt_kellekek:

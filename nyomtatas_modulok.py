@@ -229,37 +229,31 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                             nyers_kod = code.strip()          
                             tiszta_kod = nyers_kod.replace('*', '').strip()  
                             
-                            # --- 1. Fix kis adagos Tzatziki kivételek lekezelése a PDF kód alapján (Ha a kód végén ott a csillag) ---
-                            if nyers_kod.endswith('*') and tiszta_kod in ["UK", "E1K"]:
-                                talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
-                            
-                            # --- 2. Minden más étel és a normál ág ellenőrzése ---
-                            else:
-                                etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
-                                if not etel_sor.empty:
-                                    etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
-                                    tisztitott_etel_nev = clean_text(etel_nev)  # Az ételnév megtisztítása (kisbetű, ékezetek nélkül, szóközök nélkül)
+                            # Megkeressük az ételt az API étlapon a kód alapján
+                            etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
+                            if not etel_sor.empty:
+                                etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
+                                tisztitott_etel_nev = clean_text(etel_nev)  # Kisbetűs, ékezetek és szóközök nélküli név
+                                
+                                # Lekérjük a Master Adatbázisból, hogy van-e az ételnévhez rendelve valamilyen kellék
+                                match_row = master_df[master_df['Tisztított Név'] == tisztitott_etel_nev] if master_df is not None else None
+                                
+                                if match_row is not None and not match_row.empty:
+                                    master_kellek_nyers = str(match_row.iloc[0]['Kellék']).strip()
                                     
-                                    # Lekérjük az adatbázisból, hogy van-e hozzá kellék rendelve
-                                    alert_szoveg = format_kellek_alert(nyers_kod, etel_nev, master_df)
-                                    if alert_szoveg:
-                                        # Megnézzük a nyers kelléknevet a táblázatból (hogy ott van-e az elején a csillag)
-                                        # Mivel a format_kellek_alert már megtalálta, kiszedjük a tiszta nevet:
-                                        kellek_tiszta = alert_szoveg.replace("⚠ +", "").replace("⚠+", "").strip().upper()
+                                    if master_kellek_nyers and master_kellek_nyers.lower() != 'nan':
+                                        # Megtisztítjuk a kellék nevét a táblázatbeli csillagtól (*Tzatziki -> TZATZIKI)
+                                        kellek_tiszta = master_kellek_nyers.replace('*', '').strip().upper()
                                         
-                                        # Megkeressük az eredeti cellaértéket a master_df-ből, hogy lássuk, csillagos-e (*Tzatziki)
-                                        match_row = master_df[master_df['Tisztított Név'] == tisztitott_etel_nev]
-                                        master_kellek_nyers = str(match_row.iloc[0]['Kellék']).strip() if not match_row.empty else ""
-                                        
-                                        # HA a kellék csillaggal kezdődik (azaz ez a speciális Tzatziki szabály)
+                                        # --- 1. A SPECIÁLIS TZATZIKI SZABÁLY (Ha a kellék csillaggal kezdődik az adatbázisban) ---
                                         if master_kellek_nyers.startswith('*'):
-                                            # Célzott ellenőrzés a két kis adagra, amit kértél:
+                                            # Csak akkor aktiválódik, ha a kód és a konkrét napi ételnév is megegyezik a kis adaggal
                                             if "csirkessouvlakivegyeskoretsultburgparoltrizstzatziki" in tisztitott_etel_nev and tiszta_kod == "UK":
                                                 talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
                                             elif "rantottpulykamelljazminrizs" in tisztitott_etel_nev and tiszta_kod == "E1K":
                                                 talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
                                         
-                                        # MINDEN MÁS NORMÁL KELLÉK (Pl. Tartármártás, Tejföl, ami jár a nagynak és kicsinek is)
+                                        # --- 2. MINDEN MÁS NORMÁL KELLÉK (Pl. Tartármártás, Tejföl, ami jár kicsinek és nagynak is) ---
                                         else:
                                             talalt_kellekek.append(f"{tiszta_kod}: {kellek_tiszta}")
                     

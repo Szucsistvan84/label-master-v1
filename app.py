@@ -2982,14 +2982,6 @@ def main():
                             # Csendben üres DataFrame-ként inicializáljuk, hogy a PDF modulok ne kapjanak hibát
                             st.session_state.nevnapok_df = pd.DataFrame()
                             st.session_state.keresztnevek_df = pd.DataFrame()
-                                time.sleep(1.5) # Védelmi szünet az API kvóta miatt
-                                
-                                ws_keresztnevek = sh_master.worksheet("Keresztnevek")
-                                st.session_state.keresztnevek_df = pd.DataFrame(ws_keresztnevek.get_all_records())
-                            except Exception as e:
-                                st.error(f"⚠️ A névnap adatbázis betöltése sikertelen: {e}")
-                                st.session_state.nevnapok_df = pd.DataFrame()
-                                st.session_state.keresztnevek_df = pd.DataFrame()
 
                         # PDF-ek legenerálása memóriába (így csak egyszer futnak le!)
                         try:

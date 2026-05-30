@@ -3973,6 +3973,25 @@ def main():
                     st.caption("💡 Az étlap kódok automatikusan frissülnek a '🚀 FELDOLGOZÁS' gomb megnyomásakor.")
 
                 c1, c2, c3 = st.columns(3)
+                # --- DEBUG PANEL AZ ETIKETTEKHEZ ---
+                with st.expander("🔍 Kellék Kereső Debug Panel (Teszteléshez)", expanded=True):
+                    st.write(f"Kiválasztott API dátum kulcs: `{meta.get('api_datum_kulcs', 'NINCS')}`")
+                    
+                    teszt_talalatok = []
+                    # Megnézzük az első 10 olyan sort a táblázatban, ahol van rendelés
+                    for idx, r in edited_df.dropna(subset=['Rendelés_Full']).head(10).iterrows():
+                        napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
+                        for b in napi_blokkok:
+                            if '*' in b or 'R1' in b: # Ha van benne csillag vagy rántott étel
+                                teszt_talalatok.append(f"Sor {idx} ({r.get('Név', 'Névtelen')}): `{b.strip()}`")
+                                
+                    if teszt_talalatok:
+                        st.write("📌 Találtunk potenciális kellékes rendeléseket a táblázatban:")
+                        for t in teszt_talalatok:
+                            st.write(t)
+                    else:
+                        st.warning("⚠ Nem találtunk egyetlen csillagos (*) vagy R1-es rendelést sem az 'Rendelés_Full' oszlopban!")
+                # ------------------------------------
                 c1.download_button(
                     "📄 ETIKETTEK", 
                     create_label_pdf(edited_df, st.session_state.c_n, st.session_state.c_p, meta, st.session_state.etelek_master_df, st.session_state.nevnapok_df, st.session_state.keresztnevek_df, st.session_state.etlap_api_df),

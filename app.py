@@ -2693,6 +2693,21 @@ def main():
             st.subheader("📄 Új PDF-ek")
             up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
             
+            # 🔄 AUTOMATIKUS TISZTÍTÁS ÚJ FELTÖLTÉSKOR (Még a gombnyomás előtt lefut!)
+            if up_files:
+                # Egyedi azonosító a fájlok neveiből és méretéből
+                current_files_signature = "".join([f"{f.name}_{f.size}" for f in up_files])
+                
+                # Ha új fájlt dobtak be a feltöltőbe
+                if st.session_state.get('last_files_signature') != current_files_signature:
+                    st.session_state['last_files_signature'] = current_files_signature
+                    
+                    # Töröljük a memóriából a régi generált PDF byte-okat
+                    for key in ['generated_labels_pdf', 'generated_manifest_pdf', 'generated_raklista_pdf']:
+                        if key in st.session_state:
+                            del st.session_state[key]
+            
+            # 🚀 FELDOLGOZÁS GOMB ÉS LOGIKA
             if up_files:
                 if st.button("🚀 FELDOLGOZÁS"):
                     meta_auto = extract_all_meta(up_files)

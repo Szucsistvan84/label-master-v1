@@ -1349,18 +1349,6 @@ def render_logisztikai_kozpont(sheet):
         
         st.info("☝️ **Vezetői döntéstámogatás:** Amint feltöltődik a Sheets történelmi adatokkal, azonnal látni fogod, ha egy járat üzemanyag- vagy időarányosan veszteségessé válik (pl. túl sokat kell autózni túl kevés címért), így azonnal be tudsz avatkozni a járatok átszervezésébe.")
 
-def register_fonts():
-    try:
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
-        
-        pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
-        pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
-        
-        return 'DejaVu', 'DejaVu-Bold'
-    except Exception as e:
-        return 'Helvetica', 'Helvetica-Bold'
-
 def sync_interfood_etlap(year, week, sheet_id):
     api_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     headers = {

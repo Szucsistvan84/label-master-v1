@@ -9,6 +9,7 @@ import os
 import gspread
 import folium
 import logging
+import time
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 from streamlit_folium import st_folium
@@ -20,60 +21,42 @@ from io import BytesIO
 from mobil_modulok import render_mobil_aruatvetel, render_mobil_bepakolas, render_mobil_kiszallitas
 from nyomtatas_modulok import create_label_pdf, create_manifest_pdf, create_raklista_pdf
 
+# --- GLOBÁLIS KONFIGURÁCIÓK ÉS SEGÉDFÜGGVÉNYEK ---
 def check_user_role():
     """Visszaadja a felhasználó szerepkörét."""
-    # Ha nincs bejelentkezve, alapértelmezett a 'futar'
     role = st.session_state.get('user_szerep', 'futar')
-    
-    # Itt ellenőrizzük, hogy a te neved szerepel-e a "Szuper Admin" listán
-    # Írd be a saját felhasználói nevedet ide (ami a rendszerben van):
     if st.session_state.get('user_nev') == "SajátNeved": 
         return "superadmin"
-        
     return role
 
 def biztonsagos_koordinata_tisztito(val):
-    """
-    Minden létező koordináta formátumot (sima szám, magyar vesszős, 
-    szimpla vagy dupla aposztrófos hibákat) tiszta float számmá alakít,
-    és ellenőrzi az országos kompatibilitást (Magyarország geofence).
-    """
+    """Minden létező koordináta formátumot tiszta float számmá alakít."""
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return None
     s = str(val).strip()
     if not s or s.lower() == "none" or s == "0" or s == "0.0":
         return None
         
-    # Letakarítjuk az összes szimpla és dupla aposztrófot, backticket
     s = s.replace("'", "").replace('"', '').replace('`', '')
-    # Magyar tizedesvessző kicserélése pontra
     s = s.replace(",", ".")
     
     try:
         f = float(s)
-        
-        # 🌍 ORSZÁGOS KOMPATIBILITÁSÚ GEODEKOR (Magyarország határa)
-        # Ha a szám valamiért egybefüggő 8-9 jegyű egész számként maradt (pl. 475271541)
         if abs(f) > 1000:
-            # Ha 47-tel vagy 46-tal kezdődik (szélesség)
             if str(abs(int(f))).startswith(('46', '47', '48')):
                 f = f / 10000000 if len(str(int(f))) >= 9 else f / 1000000
-            # Ha 16 és 22 között kezdődik (hosszúság)
             elif str(abs(int(f))).startswith(('16', '17', '18', '19', '20', '21', '22')):
                 f = f / 10000000 if len(str(int(f))) >= 9 else f / 1000000
         
-        # Szigorú magyarországi kerítés ellenőrzés
-        # Lat: 45.5 - 48.8 | Lon: 16.0 - 23.0
         if 45.5 <= f <= 48.8 or 16.0 <= f <= 23.0:
             return round(f, 7)
         else:
-            return None # Ha kiesik az országból, eldobjuk a hibás értéket
+            return None
     except:
         return None
 
-# 2. LOGGOLÁS BEÁLLÍTÁSA
+# LOGGOLÁS BEÁLLÍTÁSA
 LOG_FILE = "utvonaltervezo.log"
-
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -84,24 +67,41 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- GOOGLE SHEETS KONFIGURÁCIÓ ---
-SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
-SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
+# GEOCODING SETUP
+geolocator = Nominatim(user_agent="futarszoli_app")
+geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)
 
-# --- ADATBÁZIS SEGÉDFÜGGVÉNYEK ---
+# Globális kliens inicializálása üresen
+client = None 
+
+def get_google_sheets_creds():
+    """Összeállítja és visszaadja a Google Credentials objektumot a Secrets-ből."""
+    if "gcp_service_account" in st.secrets:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+    else:
+        creds_dict = dict(st.secrets)
+        
+    if "private_key" in creds_dict:
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
+    return Credentials.from_service_account_info(creds_dict, scopes=[
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ])
+
 def get_latest_week_from_master(sheet_id):
     """Kinyeri a legnagyobb hetet a 'wXX' formátumú szövegekből."""
     try:
+        global client
+        if client is None:
+            client = gspread.authorize(get_google_sheets_creds())
         sheet = client.open_by_key(sheet_id).worksheet("Master_Adatbazis")
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
         
-        # 🟢 EZT ÍRD ÁT A PONTOS OSZLOPNEVEDRE!
         oszlop_nev = "Kódok és Árak" 
-        
         if oszlop_nev not in df.columns:
-            # Ha ezt látod a képernyőn, akkor nem egyezik a név
-            st.error(f"Hiba: Az oszlop '{oszlop_nev}' nem található. Elérhetőek: {df.columns.tolist()}")
+            st.error(f"Hiba: Az oszlop '{oszlop_nev}' nem található.")
             return 2026, 0
 
         all_weeks = []
@@ -114,118 +114,19 @@ def get_latest_week_from_master(sheet_id):
             
         return 2026, max(all_weeks)
     except Exception as e:
-        # 🟢 Hogy lásd a valódi hibát (pl. engedélyezési hiba), írassuk ki:
-        st.error(f"Hiba történt: {e}")
+        st.error(f"Hiba történt a hét lekérésekor: {e}")
         return 2026, 0
-        
-# ==============================================================================
-# 4. GOOGLE SHEETS KAPCSOLAT ÉS ADATOK BETÖLTÉSE (MAXIMÁLIS KVÓTAVÉDELEMMEL)
-# ==============================================================================
-import gspread
-import pandas as pd
-import time
-from google.oauth2.service_account import Credentials
-
-# CSAK AKKOR TÖLTÜNK LE, HA MÉG EBBEN A MUNKAMENETBEN NEM TÖRTÉNT MEG
-if "google_data_loaded" not in st.session_state:
-    with st.spinner("🔄 Alapadatok biztonságos betöltése... (Kvótakímélő mód aktív)"):
-        try:
-            # Hitelesítés összeállítása
-            if "gcp_service_account" in st.secrets:
-                creds_dict = dict(st.secrets["gcp_service_account"])
-            else:
-                creds_dict = dict(st.secrets)
-
-            if "private_key" in creds_dict:
-                creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-
-            creds = Credentials.from_service_account_info(creds_dict, scopes=[
-                "https://spreadsheets.google.com/feeds",
-                "https://www.googleapis.com/auth/drive"
-            ])
-            client = gspread.authorize(creds)
-            
-            # --- 1. TÁBLÁZAT: Master Data (Biztonsági szünetekkel) ---
-            sh_master = client.open_by_key(SHEET_ID_MASTER)
-            time.sleep(2.0)  # Emelt szünet a Google API-nak
-            
-            ws_etlap = sh_master.worksheet("Etlap")
-            st.session_state.etlap_api_df = pd.DataFrame(ws_etlap.get_all_records())
-            time.sleep(2.0)
-            
-            ws_etelek = sh_master.worksheet("Master_Adatbazis")
-            st.session_state.etelek_master_df = pd.DataFrame(ws_etelek.get_all_records())
-            time.sleep(2.0)
-            
-            ws_nevnapok = sh_master.worksheet("Nevnapok")
-            st.session_state.nevnapok_df = pd.DataFrame(ws_nevnapok.get_all_records())
-            time.sleep(2.0)
-            
-            ws_keresztnevek = sh_master.worksheet("Keresztnevek")
-            st.session_state.keresztnevek_df = pd.DataFrame(ws_keresztnevek.get_all_records())
-            time.sleep(1.0)
-            
-            # --- JAVÍTÁS: Nem töltjük le az ügyfélkört előre az indításkor! ---
-            # Kezdetben csak egy üres vázat hozunk létre a session_state-ben, nehogy összeomoljon az app.
-            # Ezt a PDF feldolgozása gomb (vagy a Karbantartó panel) fogja frissíteni valódi adatokkal.
-            if "ugyfelkor_df" not in st.session_state or st.session_state.ugyfelkor_df is None:
-                ures_vaz = pd.DataFrame(columns=['ID', 'Név', 'Cím', 'Lat', 'Lon', 'Telefon', 'Csoport', 'Megjegyzés'])
-                st.session_state.ugyfelkor_df = ures_vaz
-                st.session_state.mdf = ures_vaz
-            
-            # Megjelöljük a sikeres betöltést
-            st.session_state.google_data_loaded = True
-            st.success("✅ Alapadatok sikeresen szinkronizálva!")
-            time.sleep(0.5)
-            st.rerun()
-
-        except Exception as e:
-            st.error(f"❌ Hiba a táblák betöltésekor: {e}")
-            st.stop()
-
-# Globális változók biztonságos átadása default értékekkel (ha még üresek lennének)
-etlap_api_df = st.session_state.get('etlap_api_df', pd.DataFrame())
-etelek_master_df = st.session_state.get('etelek_master_df', pd.DataFrame())
-master_df = etelek_master_df
-nevnapok_df = st.session_state.get('nevnapok_df', pd.DataFrame())
-keresztnevek_df = st.session_state.get('keresztnevek_df', pd.DataFrame())
-ugyfelkor_df = st.session_state.get('ugyfelkor_df', pd.DataFrame())
-mdf = st.session_state.get('mdf', pd.DataFrame())
-
-# 2. Ügyfelek, címek, GPS, sorrend (Etikett_Ugyfelkor_DB)
-UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
-
-# --- GEOCODING SETUP ---
-geolocator = Nominatim(user_agent="futarszoli_app")
-logger.info("Geolocator inicializálva.")
-geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)
-
-# Itt hozzuk létre üresen, minden függvényen kívül
-client = None 
 
 def get_coordinates(address):
-    """
-    Lekéri a megadott cím koordinátáit a Nominatim segítségével, 
-    hibakezeléssel és naplózással kiegészítve.
-    A GYÖKÉROK JAVÍTÁSA: Kényszerített ponttal ellátott String formátumot ad vissza,
-    hogy a Google Sheets/Excel ne tudja tizedesvesszővé alakítani!
-    """
+    """Lekéri a megadott cím koordinátáit."""
     try:
-        # Itt a 'geocode' objektumot használjuk, ami a RateLimiter-en keresztül fut
         location = geocode(address) 
-        
         if location:
-            # Szöveggé alakítjuk fix 7 tizedesjeggyel, ponttal elválasztva
-            # Az elejére rakott apostróffal (') kényszerítjük a Google Sheets-et a String tárolásra!
             str_lat = f"'{location.latitude:.7f}"
             str_lon = f"'{location.longitude:.7f}"
-            
-            logger.info(f"Cím sikeresen feloldva: {address} -> Lat: {str_lat}, Lon: {str_lon}")
             return str_lat, str_lon
         else:
-            logger.warning(f"Nem található koordináta a címhez: {address}")
             return None, None
-            
     except Exception as e:
         logger.error(f"Váratlan hiba a geocoding során ({address}): {e}")
         return None, None
@@ -233,77 +134,37 @@ def get_coordinates(address):
 def tisztitott_cim_lekerese(nyers_szoveg):
     if not nyers_szoveg:
         return ""
-    # Tisztítás a felesleges karakterektől
     szoveg = nyers_szoveg.replace('$', '').strip()
-    
-    # REGEX: Irányítószám (4 szám) + Város + Utca + Házszám
-    # Ez a minta megengedi a pontokat az utca után és keresi a számokat utána
     minta = r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-z-áéíóöőúüű]+\s*,\s*[^,]+?\s\d+[a-zA-Z0-9\/\-\.]*)'
     match = re.search(minta, szoveg)
-    
     if match:
         return match.group(1).strip()
-    
-    # Ha a bonyolult minta nem talál semmit, egy egyszerűbb vágás, ami nem bántja a házszámot
-    # Csak a tipikus emelet/ajtó kulcsszavaktól vágunk
     tisztitott = szoveg.split('. fsz')[0].split('. fszt')[0].split(', fsz')[0]
     return tisztitott.strip()
 
-# ==============================================================================
-# 🟢 FUTÁR JOGOSULTSÁGOK LETÖLTÉSE A GOOGLE SHEETS-BŐL
-# ==============================================================================
-@st.cache_data(ttl=300)  # 5 percig őrzi meg a memóriában a futárokat, hogy védje a kvótát
+@st.cache_data(ttl=300)
 def _tiszta_futar_lista_letoltes(sheet_id):
-    if "gcp_service_account" in st.secrets:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-    else:
-        creds_dict = dict(st.secrets)
-        
-    if "private_key" in creds_dict: 
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-        
-    creds = Credentials.from_service_account_info(creds_dict, scopes=[
-        "https://spreadsheets.google.com/feeds", 
-        "https://www.googleapis.com/auth/drive"
-    ])
-    local_client = gspread.authorize(creds)
-    sh = local_client.open_by_key(sheet_id)
-    
     try:
+        local_client = gspread.authorize(get_google_sheets_creds())
+        sh = local_client.open_by_key(sheet_id)
         ws_futarok = sh.worksheet("Futárok")
         return ws_futarok.get_all_records()
     except Exception as e:
         return []
 
-# ==============================================================================
-# 🟢 1. AZ ÜGYFÉLKÖR BEOLVASÁSÁNAK GYORSÍTÓTÁRAZÁSA (API VÉDELEM)
-# Ez teljesen kívül helyezkedik el, így a Streamlit képes megfelelően cache-elni!
-# ==============================================================================
 @st.cache_data(ttl=600)
 def _tiszta_ugyfelkor_letoltes(sheet_id):
-    if "gcp_service_account" in st.secrets:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-    else:
-        creds_dict = dict(st.secrets)
-        
-    if "private_key" in creds_dict: 
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-        
-    creds = Credentials.from_service_account_info(creds_dict, scopes=[
-        "https://spreadsheets.google.com/feeds", 
-        "https://www.googleapis.com/auth/drive"
-    ])
-    local_client = gspread.authorize(creds)
-    sh = local_client.open_by_key(sheet_id)  
-    ws_ugyfel = sh.worksheet("Ugyfelkor")
-    
     try:
-        records = ws_ugyfel.get_all_records(value_render_option='UNFORMATTED_VALUE')
-    except:
-        records = ws_ugyfel.get_all_records()
+        local_client = gspread.authorize(get_google_sheets_creds())
+        sh = local_client.open_by_key(sheet_id)  
+        ws_ugyfel = sh.worksheet("Ugyfelkor")
+        try:
+            return ws_ugyfel.get_all_records(value_render_option='UNFORMATTED_VALUE')
+        except:
+            return ws_ugyfel.get_all_records()
+    except Exception as e:
+        return []
         
-    return records
-
 # ==============================================================================
 # 🟢 2. A JAVÍTOTT, TELJES MESTER LISTA SZINKRONIZÁLÓ FÜGGVÉNY (GOLYÓÁLLÓ VERZIÓ)
 # ==============================================================================

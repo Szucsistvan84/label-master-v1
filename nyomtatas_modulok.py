@@ -161,12 +161,24 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=7.5, leading=10, alignment=1)
 
     total_slots = math.ceil(len(df) / 21) * 21
+    
+    # --- JAVÍTOTT DÁTUM KEZELÉS (Kigyomlált datetime.now() és meta alapú illesztés) ---
+    kulcs_api_datum = meta.get('api_datum_kulcs', '')
     pdf_datum = meta.get('datum_iso', '')
     
-    if not pdf_datum or len(str(pdf_datum)) < 5:
-        pdf_datum = datetime.now().strftime("%Y-%m-%d")
-
-    kulcs_nevnap = str(pdf_datum)[-5:].replace('.', '-') 
+    # Biztonsági tartalék ág: Ha a meta valamiért üres lenne, de a datum_iso ott van
+    if not kulcs_api_datum and pdf_datum:
+        kulcs_api_datum = str(pdf_datum).replace('-', '.')
+        if not kulcs_api_datum.endswith('.'):
+            kulcs_api_datum += "."
+            
+    # Ha még így is teljesen üres, akkor kapja meg a "NINCS" flag-et
+    if not kulcs_api_datum:
+        kulcs_api_datum = "NINCS"
+        
+    # A névnap kulcsának képzése a pdf_datum-ból (hónap-nap formátum, pl: "05-20")
+    kulcs_nevnap = str(pdf_datum)[-5:].replace('.', '-') if pdf_datum else "NINCS"
+    # --------------------------------------------------------------------------------
     kulcs_api_datum = str(pdf_datum).replace('-', '.')
     if not kulcs_api_datum.endswith('.'):
         kulcs_api_datum += "."

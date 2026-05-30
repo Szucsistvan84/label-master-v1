@@ -2570,18 +2570,30 @@ def main():
                 st.session_state.etelek_master_df = m_df  
                 st.session_state.master_df = m_df 
                 
-                # 2. Étlap API betöltése
-                api_df = pd.DataFrame(sheet.worksheet("Etlap_API").get_all_records())
-                api_df.columns = [str(col).replace('\n', ' ').strip().replace('\ufeff', '') for col in api_df.columns]
-                st.session_state.etlap_api_df = api_df
+                # 2. Étlap API betöltése az ÚJ, INTELLIGENS IDŐUTAZÁS-BIZTOS LOGIKÁVAL
+                # Először csak a fejléceket kérjük le, hogy ellenőrizzük a naptári hetet
+                ws_etlap = sheet.worksheet("Etlap_API")
                 
-                st.toast("✅ Alap adatbázisok sikeresen betöltve!", icon="🔥")
+                # Trükk: Csak a legelső sort olvassuk be (a dátumokat), nem a teljes gigantikus táblát!
+                nyers_fejlec = ws_etlap.row_values(1) 
+                jelenlegi_het_trigger = "-".join(nyers_fejlec)
+                
+                # Meghívjuk a fájl tetejére elhelyezett smart cache függvényt
+                # Figyelem: Mivel a gspread worksheet objektumot nem lehet közvetlenül cache-elni, 
+                # a SHEET_ID-t és a triggert adjuk át neki, és ő letölti ha kell!
+                api_df = load_etlap_api_smart(SHEET_ID, columns_trigger=jelenlegi_het_trigger)
+                
+                if api_df is not None:
+                    st.session_state.etlap_api_df = api_df
+                    st.toast("✅ Alap adatbázisok sikeresen betöltve!", icon="🔥")
+                else:
+                    raise Exception("Nem sikerült letölteni az Etlap_API-t.")
+                    
             except Exception as e:
                 st.warning(f"⚠️ Hiba a táblák betöltésekor: {e}")
                 st.session_state.master_df = pd.DataFrame()
                 st.session_state.etlap_api_df = pd.DataFrame()
 
-    # 🟢 EZT A BLOKKOT ADJUK HOZZÁ ITT, A 10-ES PONT LEGUTOLSÓ SORA UTÁN:
     # Biztosítjuk, hogy a main() függvényen kívüli kódok is lássák a session_state-ben lévő adatokat
     global etlap_api_df, etelek_master_df, master_df, ugyfelkor_df, mdf
     etlap_api_df = st.session_state.get('etlap_api_df', pd.DataFrame())

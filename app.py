@@ -1603,30 +1603,6 @@ def clean_text(text):
     text = re.sub(r'[^a-zA-Z0-9]', '', text).lower()
     return text
 
-def get_gender_and_nevnap(full_name, nevnapok_df, keresztnevek_df, target_date):
-    # A target_date formátuma: "2026-04-24"
-    mai_sor = nevnapok_df[nevnapok_df['Datum'] == target_date]
-    if mai_sor.empty: return None
-    
-    mai_nevek = [n.strip() for n in str(mai_sor.iloc[0]['Nevek']).split(',')]
-    
-    # 2. Vevő nevének ellenőrzése
-    name_parts = str(full_name).split(' ')
-    for part in name_parts:
-        clean_part = part.strip().lower()
-        if clean_part in mai_nevek:
-            # Megvan a névnapos! Nem meghatározása
-            gender_match = keresztnevek_df[keresztnevek_df['Keresztnév'].str.lower() == clean_part]
-            
-            ikon = "✨" # Alapértelmezett (Férfi vagy ismeretlen)
-            if not gender_match.empty:
-                nem = str(gender_match.iloc[0]['Nem']).lower()
-                if 'nő' in nem:
-                    ikon = "✿"
-            
-            return f"{ikon} Boldog névnapot, {part}! {ikon}"
-    return None
-
 def load_futar_from_sheets(sheet_id):
     """Betölti a futárok adatait a Google Sheet 'Futárok' lapjáról."""
     try:

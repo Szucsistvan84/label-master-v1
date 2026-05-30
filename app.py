@@ -1088,51 +1088,6 @@ except Exception as e:
     st.error(f"Sikertelen Google Sheets kapcsolódás: {e}")
     client = None
 
-def load_names_from_sheets(sheet_id):
-    try:
-        creds_info = st.secrets["gcp_service_account"].to_dict()
-        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
-
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
-
-        creds = service_account.Credentials.from_service_account_info(
-            creds_info, 
-            scopes=scopes
-        )
-        
-        client = gspread.authorize(creds)
-        sheet = client.open_by_key(sheet_id)
-        
-        # --- 1. Vezetéknevek ---
-        v_sheet = sheet.worksheet("Vezeteknevek")
-        v_list = set(str(name).strip() for name in v_sheet.col_values(1)[1:] if name)
-        
-        # --- 2. Keresztnevek ---
-        k_sheet = sheet.worksheet("Keresztnevek")
-        k_data = k_sheet.get_all_records()
-        k_dict = {str(row.get('Keresztnév', '')).strip(): str(row.get('Nem', '')).strip() 
-                  for row in k_data if row.get('Keresztnév')}
-        
-        # --- 3. Névnapok (HIÁNYZÓ RÉSZ PÓTLÁSA) ---
-        # Ha van ilyen munkalapod, így töltsd be:
-        try:
-            n_sheet = sheet.worksheet("Nevnapok") # Írd át a pontos névre!
-            n_data = n_sheet.get_all_records()
-            # Itt feltételezem a táblázat szerkezetét:
-            n_dict = {str(row.get('Dátum', '')).strip(): str(row.get('Név', '')).strip() for row in n_data}
-        except:
-            n_dict = {} # Ha nincs ilyen sheet, üres marad
-        
-        return v_list, k_dict, n_dict
-
-    except Exception as e:
-        st.error(f"Hiba a Google Sheets betöltésekor: {e}")
-        # Fontos: 3 értéket adjunk vissza hiba esetén is!
-        return set(), {}, {}
-
 # --- ALAPBEÁLLÍTÁSOK ---
 PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'
 # Frissített minta: felismeri a sima (-), az en-dash (–) és az em-dash (—) jeleket is

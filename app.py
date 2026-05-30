@@ -2540,31 +2540,49 @@ def merge_data(all_rows):
     
 # --- FŐ PROGRAMFUTÁS ---
 def main():
-    # 1. Globális elérés a gspread kliensnek
+    # 1. Streamlit alapbeállítás – Ennek KÖTELEZŐEN a legelsőnek kell lennie!
+    st.set_page_config(page_title="Interfood Label Master", layout="wide")
+
+    # 2. Globális elérés a gspread kliensnek
     global client  
 
-    # 2. Az ID-k fix definiálása helyben
+    # 3. Az ID-k fix definiálása helyben
     SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o" 
     UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
-    SHEET_ID_MASTER = SHEET_ID # Biztonsági másolat, ha a kódod máshol így hivatkozik rá
+    SHEET_ID_MASTER = SHEET_ID
     SHEET_ID_UGYFELKOR = UGYFELKOR_SHEET_ID
 
-    # 1. Lekérjük a linkből a paramétereket
+    # 4. Fontok regisztrálása a nyomtatáshoz
+    from nyomtatas_modulok import register_fonts
+    register_fonts()
+
+    # 5. Session State alapértékek biztonságos beállítása
+    if 'mdf' not in st.session_state: st.session_state.mdf = None
+    if 'meta_data' not in st.session_state: st.session_state.meta_data = []
+    if 'weights' not in st.session_state: st.session_state.weights = {}
+    if 'editor_key' not in st.session_state: st.session_state.editor_key = 0
+    if 'c_n' not in st.session_state: st.session_state.c_n = "Szűcs István"
+    if 'c_p' not in st.session_state: st.session_state.c_p = "+36 20 886 8971"
+    if 'bejelentkezve' not in st.session_state: st.session_state.bejelentkezve = False
+    if 'user_nev' not in st.session_state: st.session_state.user_nev = ""
+    if 'user_jarat' not in st.session_state: st.session_state.user_jarat = ""
+    if 'user_szerep' not in st.session_state: st.session_state.user_szerep = "futar"
+    if 'nevnapok_df' not in st.session_state: st.session_state.nevnapok_df = pd.DataFrame()
+    if 'keresztnevek_df' not in st.session_state: st.session_state.keresztnevek_df = pd.DataFrame()
+
+    # 6. URL paraméterek lekérése
     query_params = st.query_params
     view = query_params.get("view", None)
     url_jarat = query_params.get("jarat", "")
 
-    # 2. BIZTONSÁGOS OKOSÍTÁS: Ha a parancsikon miatt nincs 'view' a linkben
+    # 7. BIZTONSÁGOS OKOSÍTÁS: Ha a parancsikon miatt nincs 'view' a linkben
     if view is None:
-        # Ha már be van töltve Excel/API adat a munkamenetben, akkor ez az asztali admin
         if 'edited_df' in st.session_state:
             view = "desktop"
         else:
-            # Ha nincs adat (mert a futár most nyitotta meg a parancsikont üresen)
             st.markdown("### 📱 Interfood Futár Terminál")
             st.info("A parancsikonról indítottad az alkalmazást. Kattints az alábbi gombra a folytatáshoz:")
             
-            # Ez a gomb mobilnézetbe teszi az appot és frissít egyet
             if st.button("🚀 MOBIL TERMINÁL INDÍTÁSA", use_container_width=True, type="primary"):
                 st.query_params.update(view="mobile")
                 st.rerun()
@@ -2574,25 +2592,15 @@ def main():
                 if st.button("Asztali verzió megnyitása"):
                     st.query_params.update(view="desktop")
                     st.rerun()
-            return # Megállítjuk a futást, hogy ne dobjon üres táblázatos hibákat alatta
+            return # Megállítjuk a futást
 
-    # 3. Beállítjuk a logikai változót a kód többi részének
+    # 8. Logikai nézet beállítása a kód többi részének
     is_mobile_view = (view == "mobile")
 
-    # 🟢 ALVÓ MÓD / RENDSZERÉBRESZTÉS ELLENŐRZÉSE
-    with st.spinner("⏳ A Label Master rendszer ébredezik és kapcsolódik a szerverhez... Kérjük, várjon egy pillanatot!"):
-        if "bejelentkezve" not in st.session_state:
-            st.session_state.bejelentkezve = False
-            st.session_state.user_nev = ""
-            st.session_state.user_jarat = ""
-            st.session_state.user_szerep = "futar"
-        
-        app_ready = True 
-
-    # Ha még nincs bejelentkezve, megállítjuk az appot
-    if not st.session_state.bejelentkezve and app_ready:
+    # 9. Beléptető rendszer / Biztonsági ellenőrzés
+    if not st.session_state.bejelentkezve:
         st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🎯 Label Master</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatokhoz</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:
@@ -2604,7 +2612,8 @@ def main():
                 if not jarat_input or not password_input:
                     st.error("❌ Mindkét mező kitöltése kötelező!")
                 else:
-                    futar_adatok = _tiszta_futar_lista_letoltes(UGYFELKOR_SHEET_ID)
+                    with st.spinner("⏳ Kapcsolódás a biztonsági szerverhez..."):
+                        futar_adatok = _tiszta_futar_lista_letoltes(UGYFELKOR_SHEET_ID)
                     
                     talalt_futar = None
                     tisztitott_input_jarat = str(jarat_input).strip().lower()
@@ -2630,49 +2639,33 @@ def main():
                         
                         st.success(f"Sikeres belépés! Üdvözlünk, {st.session_state.user_nev}!")
                         st.rerun()
-                        
+                    else:
+                        st.error("❌ Hibás járatszám vagy jelszó!")
         return 
 
-    # App alapbeállításai és háttér adatbázisok betöltése
-    st.set_page_config(page_title="Interfood Label Master", layout="wide")
-    from nyomtatas_modulok import register_fonts
-    register_fonts()
-
-    if 'mdf' not in st.session_state: st.session_state.mdf = None
-    if 'meta_data' not in st.session_state: st.session_state.meta_data = []
-    if 'weights' not in st.session_state: st.session_state.weights = {}
-    if 'editor_key' not in st.session_state: st.session_state.editor_key = 0
-    if 'c_n' not in st.session_state: st.session_state.c_n = "Szűcs István"
-    if 'c_p' not in st.session_state: st.session_state.c_p = "+36 20 886 8971"
-
-    if 'master_df' not in st.session_state:
-        try:
-            client = gspread.authorize(get_google_sheets_creds())
-            sheet = client.open_by_key(SHEET_ID)
-            
-            m_df = pd.DataFrame(sheet.worksheet("Master_Adatbazis").get_all_records())
-            m_df.columns = [col.strip().replace('\ufeff', '') for col in m_df.columns]
-            st.session_state.etelek_master_df = m_df  
-            
-            n_df = pd.DataFrame(sheet.worksheet("Nevnapok").get_all_records())
-            n_df.columns = [col.strip().replace('\ufeff', '') for col in n_df.columns]
-            st.session_state.nevnapok_df = n_df
-            
-            k_df = pd.DataFrame(sheet.worksheet("Keresztnevek").get_all_records())
-            k_df.columns = [col.strip().replace('\ufeff', '') for col in k_df.columns]
-            st.session_state.keresztnevek_df = k_df
-
-            api_df = pd.DataFrame(sheet.worksheet("Etlap_API").get_all_records())
-            api_df.columns = [str(col).replace('\n', ' ').strip().replace('\ufeff', '') for col in api_df.columns]
-            st.session_state.etlap_api_df = api_df
-            
-            st.success("✅ Minden adatbázis (Master, Névnapok, API) sikeresen betöltve!")
-        except Exception as e:
-            st.warning(f"⚠️ Hiba a táblák betöltésekor: {e}")
-            st.session_state.master_df = pd.DataFrame()
-            st.session_state.nevnapok_df = pd.DataFrame()
-            st.session_state.keresztnevek_df = pd.DataFrame()
-            st.session_state.etlap_api_df = pd.DataFrame()
+    # 10. Alapértelmezett háttér adatbázisok betöltése (Csak sikeres bejelentkezés után fut le)
+    if 'master_df' not in st.session_state or 'etlap_api_df' not in st.session_state:
+        with st.spinner("⏳ A Label Master adatbázisok inicializálása... Kérjük, várjon!"):
+            try:
+                client = gspread.authorize(get_google_sheets_creds())
+                sheet = client.open_by_key(SHEET_ID)
+                
+                # 1. Master Adatbázis betöltése
+                m_df = pd.DataFrame(sheet.worksheet("Master_Adatbazis").get_all_records())
+                m_df.columns = [col.strip().replace('\ufeff', '') for col in m_df.columns]
+                st.session_state.etelek_master_df = m_df  
+                st.session_state.master_df = m_df 
+                
+                # 2. Étlap API betöltése
+                api_df = pd.DataFrame(sheet.worksheet("Etlap_API").get_all_records())
+                api_df.columns = [str(col).replace('\n', ' ').strip().replace('\ufeff', '') for col in api_df.columns]
+                st.session_state.etlap_api_df = api_df
+                
+                st.toast("✅ Alap adatbázisok sikeresen betöltve!", icon="🔥")
+            except Exception as e:
+                st.warning(f"⚠️ Hiba a táblák betöltésekor: {e}")
+                st.session_state.master_df = pd.DataFrame()
+                st.session_state.etlap_api_df = pd.DataFrame()
 
 
     # =========================================================================

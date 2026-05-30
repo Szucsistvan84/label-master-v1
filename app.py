@@ -965,9 +965,8 @@ except Exception as e:
     client = None
 
 def extract_all_meta(pdf_files):
-    all_meta = {'jaratok': [], 'ev': '', 'het': '', 'nap': ''}
+    all_meta = {'jaratok': [], 'ev': '', 'het': '', 'nap': '', 'datum_iso': '', 'api_datum_kulcs': ''}
     
-    # 🟢 JAVÍTOTT: 2, 3 és 4 jegyű járatszámokat is felismer (\d{2,4})
     jarat_re = re.compile(r'(\d{2,4})\.\s*járat|Nyomtatta:\s*(\d{2,4})')
     
     for uploaded_file in pdf_files:
@@ -998,6 +997,42 @@ def extract_all_meta(pdf_files):
                     all_meta['nap'] = nap_raw.rstrip(',')
     
     all_meta['jaratok'].sort()
+    
+    # --- DÁTUM KISZÁMÍTÁSA FIXEN AZ ÉV, HÉT ÉS NAP ALAPJÁN (datetime.now() KIZÁRVA) ---
+    if all_meta['ev'] and all_meta['het'] and all_meta['nap']:
+        try:
+            # Magyar napnevek lefordítása a Python ISO hétköznap számaira (1 = Hétfő, 7 = Vasárnap)
+            nap_tisztitott = all_meta['nap'].lower().strip()
+            nap_szamok = {
+                'hetfo': 1, 'hétfő': 1,
+                'kedd': 2,
+                'szerda': 3,
+                'csutortok': 4, 'csütörtök': 4,
+                'pente': 5, 'pénte': 5, 'pentek': 5, 'péntek': 5, # Biztonsági részleges egyezésekre is
+                'szombat': 6,
+                'vasarnap': 7, 'vasárnap': 7
+            }
+            
+            # Megkeressük a nap számát
+            nap_szoveg_kulcs = next((k for k in nap_szamok if k in nap_tisztitott), None)
+            
+            if nap_szoveg_kulcs:
+                nap_szama = nap_szamok[nap_szoveg_kulcs]
+                 target_year = int(all_meta['ev'])
+                target_week = int(all_meta['het'])
+                
+                # Kiszámoljuk a pontos naptári napot az ISO év és hét alapján (%G-%V-%u formátum)
+                kalkulalt_datum = datetime.strptime(f"{target_year}-{target_week}-{nap_szama}", "%G-%V-%u")
+                
+                # Mentjük ISO formátumban (pl. "2026-05-20")
+                all_meta['datum_iso'] = kalkulalt_datum.strftime("%Y-%m-%d")
+                
+                # Elkészítjük az Etlap_API formátumot (pl. "2026.05.20.")
+                all_meta['api_datum_kulcs'] = kalkulalt_datum.strftime("%Y.%m.%d.")
+        except Exception as e:
+            # Ha bármi elhasalna az elemzésnél, üresen hagyja, de nem omlasztja össze az appot
+            pass
+
     return all_meta
 
 def render_logisztikai_kozpont(sheet):

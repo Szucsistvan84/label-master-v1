@@ -2693,24 +2693,10 @@ def main():
             st.subheader("📄 Új PDF-ek")
             up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
             
-            # 🔄 AUTOMATIKUS TISZTÍTÁS ÚJ FELTÖLTÉSKOR (Még a gombnyomás előtt lefut!)
-            if up_files:
-                # Egyedi azonosító a fájlok neveiből és méretéből
-                current_files_signature = "".join([f"{f.name}_{f.size}" for f in up_files])
-                
-                # Ha új fájlt dobtak be a feltöltőbe
-                if st.session_state.get('last_files_signature') != current_files_signature:
-                    st.session_state['last_files_signature'] = current_files_signature
-                    
-                    # Töröljük a memóriából a régi generált PDF byte-okat
-                    for key in ['generated_labels_pdf', 'generated_manifest_pdf', 'generated_raklista_pdf']:
-                        if key in st.session_state:
-                            del st.session_state[key]
-            
             # 🚀 FELDOLGOZÁS GOMB ÉS LOGIKA
             if up_files:
                 if st.button("🚀 FELDOLGOZÁS"):
-                    # 💥 MOST MÁR A JÓ KULCSOKAT TÖRÖLJÜK: Azonnal eltünteti a letöltő gombokat!
+                    # 💥 Első lépésként azonnal töröljük a régi PDF-eket a memóriából a JÓ KULCSOKKAL!
                     for key in ['ready_label_pdf', 'ready_manifest_pdf', 'ready_raklista_pdf']:
                         if key in st.session_state:
                             del st.session_state[key]
@@ -2782,7 +2768,7 @@ def main():
                                 st.session_state.aktiv_jaratok = feltoltott_jaratok
                         
                         st.success("🎉 A menettervek feldolgozása és a felhő szinkronizáció sikeresen megtörtént!")
-                        st.rerun()
+                        # ❌ ST.RERUN() ELTÁVOLÍTVA A BIZTONSÁG ÉRDEKÉBEN!
 
             st.divider() 
 

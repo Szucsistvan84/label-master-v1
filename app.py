@@ -2635,6 +2635,7 @@ def main():
 
     # App alapbeállításai és háttér adatbázisok betöltése
     st.set_page_config(page_title="Interfood Label Master", layout="wide")
+    from nyomtatas_modulok import register_fonts
     register_fonts()
 
     if 'mdf' not in st.session_state: st.session_state.mdf = None

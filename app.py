@@ -3211,19 +3211,75 @@ def main():
                     else:
                         st.warning("⚠ Nem találtunk egyetlen csillagos (*) vagy R1-es rendelést sem az 'Rendelés_Full' oszlopban!")
                 # ------------------------------------
-                c1.download_button(
-                    "📄 ETIKETTEK", 
-                    create_label_pdf(edited_df, st.session_state.c_n, st.session_state.c_p, meta, st.session_state.etelek_master_df, st.session_state.nevnapok_df, st.session_state.keresztnevek_df, st.session_state.etlap_api_df),
-                    "etikettek.pdf", use_container_width=True
-                )
-                c2.download_button("📋 MENETTERV", create_manifest_pdf(edited_df, st.session_state.c_n, meta), "menetterv.pdf", use_container_width=True)
-                # 🔄 JAVÍTÁS: Sima 'sh' helyett helyben nyitjuk meg a táblázatot az Ügyfélkör ID-val!
-                c3.download_button(
-                    "📊 RAKLISTA", 
-                    create_raklista_pdf(edited_df, aktualis_jaratok, meta, client.open_by_key(SHEET_ID_UGYFELKOR)), 
-                    "raklista.pdf", 
-                    use_container_width=True
-                )
+
+                # 🚀 1. LÉPÉS: Egy közös indító gomb a PDF-ek előkészítéséhez
+                st.write("")
+                if st.button("🚀 DOKUMENTUMOK ÉS RAKLISTA GENERÁLÁSA", type="primary", use_container_width=True):
+                    with st.spinner("⏳ PDF-ek generálása és adatok szinkronizálása folyamatban..."):
+                        
+                        # 🎁 ON-DEMAND NÉVNAP BETÖLTÉS (Csak akkor fut le, ha etikettet generálunk és még üres)
+                        if 'nevnapok_df' not in st.session_state or st.session_state.nevnapok_df.empty:
+                            try:
+                                import time
+                                ws_nevnapok = sh_master.worksheet("Nevnapok")
+                                st.session_state.nevnapok_df = pd.DataFrame(ws_nevnapok.get_all_records())
+                                time.sleep(1.5) # Védelmi szünet az API kvóta miatt
+                                
+                                ws_keresztnevek = sh_master.worksheet("Keresztnevek")
+                                st.session_state.keresztnevek_df = pd.DataFrame(ws_keresztnevek.get_all_records())
+                            except Exception as e:
+                                st.error(f"⚠️ A névnap adatbázis betöltése sikertelen: {e}")
+                                st.session_state.nevnapok_df = pd.DataFrame()
+                                st.session_state.keresztnevek_df = pd.DataFrame()
+
+                        # PDF-ek legenerálása memóriába (így csak egyszer futnak le!)
+                        try:
+                            label_pdf_buf = create_label_pdf(
+                                edited_df, st.session_state.c_n, st.session_state.c_p, meta, 
+                                st.session_state.etelek_master_df, st.session_state.nevnapok_df, 
+                                st.session_state.keresztnevek_df, st.session_state.etlap_api_df
+                            )
+                            st.session_state['ready_label_pdf'] = label_pdf_buf.getvalue() if label_pdf_buf else None
+                            
+                            manifest_pdf_buf = create_manifest_pdf(edited_df, st.session_state.c_n, meta)
+                            st.session_state['ready_manifest_pdf'] = manifest_pdf_buf.getvalue() if manifest_pdf_buf else None
+                            
+                            raklista_pdf_buf = create_raklista_pdf(edited_df, aktualis_jaratok, meta, client.open_by_key(SHEET_ID_UGYFELKOR))
+                            st.session_state['ready_raklista_pdf'] = raklista_pdf_buf.getvalue() if raklista_pdf_buf else None
+                            
+                            st.success("✅ Minden dokumentum sikeresen elkészült és a Google Sheets frissítve!")
+                        except Exception as pdf_err:
+                            st.error(f"❌ Hiba történt a PDF-ek generálása közben: {pdf_err}")
+
+                # 🚀 2. LÉPÉS: Ha a PDF-ek készen vannak a memóriában, megjelenítjük a letöltő gombokat
+                if st.session_state.get('ready_label_pdf') and st.session_state.get('ready_manifest_pdf') and st.session_state.get('ready_raklista_pdf'):
+                    st.write("### 📥 Elkészült fájlok letöltése:")
+                    dl_c1, dl_c2, dl_c3 = st.columns(3)
+                    
+                    dl_c1.download_button(
+                        "📄 ETIKETTEK LETÖLTÉSE", 
+                        data=st.session_state['ready_label_pdf'],
+                        file_name="etikettek.pdf", 
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                    
+                    dl_c2.download_button(
+                        "📋 MENETTERV LETÖLTÉSE", 
+                        data=st.session_state['ready_manifest_pdf'],
+                        file_name="menetterv.pdf", 
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                    
+                    dl_c3.download_button(
+                        "📊 RAKLISTA LETÖLTÉSE", 
+                        data=st.session_state['ready_raklista_pdf'],
+                        file_name="raklista.pdf", 
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+
                 # --- QR-KÓD GENERÁLÁS A MOBIL NÉZETHEZ ---
                 st.write("---")
                 st.subheader("📱 Mobil Terminál Indítása")

@@ -2985,23 +2985,33 @@ def main():
                 elif meta.get('ev') and meta.get('het'):
                     st.caption("💡 Az étlap kódok automatikusan frissülnek a '🚀 FELDOLGOZÁS' gomb megnyomásakor.")
 
-                # --- DEBUG PANEL AZ ETIKETTEKHEZ ---
+                # --- EGYSZERŰSÍTETT DEBUG PANEL (ÜGYFÉL KERESŐ) ---
                 with st.expander("🔍 Kellék Kereső Debug Panel (Teszteléshez)", expanded=True):
-                    st.write(f"Kiválasztott API dátum kulcs: `{meta.get('api_datum_kulcs', 'NINCS')}`")
+                    api_kulcs = meta.get('api_datum_kulcs', 'NINCS')
+                    st.write(f"Kiválasztott API dátum kulcs: `{api_kulcs}`")
                     
-                    teszt_talalatok = []
-                    for idx, r in edited_df.dropna(subset=['Rendelés_Full']).head(10).iterrows():
-                        napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
-                        for b in napi_blokkok:
-                            if '*' in b or 'R1' in b:
-                                teszt_talalatok.append(f"Sor {idx} ({r.get('Név', 'Névtelen')}): `{b.strip()}`")
-                                
-                    if teszt_talalatok:
-                        st.write("📌 Találtunk potenciális kellékes rendeléseket a táblázatban:")
-                        for t in teszt_talalatok:
-                            st.write(t)
+                    # Kilistázzuk az összes oszlopot az API-ból, hogy lássuk, megvan-e a péntek
+                    if etlap_api_df is not None:
+                        st.write("API táblázat oszlopai:")
+                        st.write(list(etlap_api_df.columns))
                     else:
-                        st.warning("⚠ Nem találtunk egyetlen csillagos (*) vagy R1-es rendelést sem az 'Rendelés_Full' oszlopban!")
+                        st.error("Az Etlap_API táblázat nincs betöltve!")
+
+                    st.write("---")
+                    st.write("📌 **Minden ügyfél, akinek a rendelésében csillag (*) található:**")
+                    
+                    talalt_csillagos = 0
+                    for idx, r in edited_df.dropna(subset=['Rendelés_Full']).iterrows():
+                        rendeles_szoveg = str(r.get('Rendelés_Full', ''))
+                        
+                        # Ha van csillag a teljes szövegben (péntek vagy szombat, mindegy)
+                        if '*' in rendeles_szoveg:
+                            talalt_csillagos += 1
+                            st.write(f"**{talalt_csillagos}. Ügyfél:** {r.get('Név', 'Névtelen')} (Sor: {idx})")
+                            st.write(f"➔ Teljes rendelés: `{rendeles_szoveg}`")
+                            
+                    if talalt_csillagos == 0:
+                        st.warning("⚠ Egyetlen ügyfelet sem találtunk a táblázatban, akinek csillag (*) lenne a rendelésében!")
                 # ------------------------------------
 
                 # 🚀 1. LÉPÉS: Egy közös indító gomb a PDF-ek előkészítéséhez

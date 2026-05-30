@@ -4,12 +4,9 @@ import pandas as pd
 import re
 import math
 import requests
-import PIL.ImageDraw
 import openpyxl
 import os
 import gspread
-import base64
-import unicodedata
 import folium
 import logging
 from geopy.geocoders import Nominatim
@@ -20,16 +17,6 @@ from gspread_dataframe import set_with_dataframe
 from google.oauth2 import service_account
 from google.oauth2.service_account import Credentials
 from io import BytesIO
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.lib import colors
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Frame, KeepInFrame, Flowable, PageBreak
-from reportlab.graphics.shapes import Drawing
-from reportlab.graphics.barcode.qr import QrCodeWidget
 from mobil_modulok import render_mobil_aruatvetel, render_mobil_bepakolas, render_mobil_kiszallitas
 from nyomtatas_modulok import create_label_pdf, create_manifest_pdf, create_raklista_pdf
 

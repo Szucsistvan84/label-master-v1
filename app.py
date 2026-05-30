@@ -2571,11 +2571,36 @@ def main():
         return
 
     # 10. Alapértelmezett háttér adatbázisok betöltése (Csak sikeres bejelentkezés után fut le)
+    # --- AUTOMATIKUS IDŐUTAZÁS FIGYELŐ ÉS SESSION TISZTÍTÓ ---
+    try:
+        client = gspread.authorize(get_google_sheets_creds())
+        sheet = client.open_by_key(SHEET_ID)
+        ws_etlap = sheet.worksheet("Etlap_API")
+        
+        # Villámgyorsan lekérjük csak a legelső sort a felhőből (a dátumokat)
+        nyers_fejlec = ws_etlap.row_values(1) 
+        jelenlegi_het_trigger = "-".join(nyers_fejlec)
+        
+        # HA már van elmentett triggerünk, de az NEM egyezik a felhőben lévővel -> IDŐUTAZÁS TÖRTÉNT!
+        if 'etlap_trigger_state' in st.session_state and st.session_state.etlap_trigger_state != jelenlegi_het_trigger:
+            # Teljes tisztítótűz: eldobjuk a beragadt régi heti session adatokat
+            if 'etlap_api_df' in st.session_state: del st.session_state['etlap_api_df']
+            if 'master_df' in st.session_state: del st.session_state['master_df']
+            if 'etelek_master_df' in st.session_state: del st.session_state['etelek_master_df']
+            
+            st.session_state.etlap_trigger_state = jelenlegi_het_trigger
+        elif 'etlap_trigger_state' not in st.session_state:
+            st.session_state.etlap_trigger_state = jelenlegi_het_trigger
+            
+    except Exception as e:
+        # Ha a bejelentkezés még nem történt meg, vagy nincs net, kap egy ideiglenes triggert
+        jelenlegi_het_trigger = "INITIAL"
+
+    # Most már az 'if' golyóálló: ha fent töröltük a session-t a hétváltás miatt, akkor kötelezően be fog lépni ide!
     if 'master_df' not in st.session_state or 'etlap_api_df' not in st.session_state:
         with st.spinner("⏳ A Label Master adatbázisok inicializálása... Kérjük, várjon!"):
             try:
-                client = gspread.authorize(get_google_sheets_creds())
-                sheet = client.open_by_key(SHEET_ID)
+                # Mivel fent már megnyitottuk a sheet-et, nem kell újra authorizálni, használhatjuk a meglévőt
                 
                 # 1. Master Adatbázis betöltése
                 m_df = pd.DataFrame(sheet.worksheet("Master_Adatbazis").get_all_records())
@@ -2583,22 +2608,12 @@ def main():
                 st.session_state.etelek_master_df = m_df  
                 st.session_state.master_df = m_df 
                 
-                # 2. Étlap API betöltése az ÚJ, INTELLIGENS IDŐUTAZÁS-BIZTOS LOGIKÁVAL
-                # Először csak a fejléceket kérjük le, hogy ellenőrizzük a naptári hetet
-                ws_etlap = sheet.worksheet("Etlap_API")
-                
-                # Trükk: Csak a legelső sort olvassuk be (a dátumokat), nem a teljes gigantikus táblát!
-                nyers_fejlec = ws_etlap.row_values(1) 
-                jelenlegi_het_trigger = "-".join(nyers_fejlec)
-                
-                # Meghívjuk a fájl tetejére elhelyezett smart cache függvényt
-                # Figyelem: Mivel a gspread worksheet objektumot nem lehet közvetlenül cache-elni, 
-                # a SHEET_ID-t és a triggert adjuk át neki, és ő letölti ha kell!
+                # 2. Étlap API betöltése az okosított smart cache függvénnyel
                 api_df = load_etlap_api_smart(SHEET_ID, columns_trigger=jelenlegi_het_trigger)
                 
                 if api_df is not None:
                     st.session_state.etlap_api_df = api_df
-                    st.toast("✅ Alap adatbázisok sikeresen betöltve!", icon="🔥")
+                    st.toast("✅ Alap adatbázisok sikeresen betöltve / frissítve!", icon="🔥")
                 else:
                     raise Exception("Nem sikerült letölteni az Etlap_API-t.")
                     

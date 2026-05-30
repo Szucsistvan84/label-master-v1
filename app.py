@@ -180,6 +180,20 @@ def _tiszta_ugyfelkor_letoltes(sheet_id):
             return ws_ugyfel.get_all_records()
     except Exception as e:
         return []
+
+# ==============================================================================
+# 🔥 IDE MÁSOLD BE AZ ÚJ, OKOSÍTOTT ÉTLAP FIGYELŐT:
+# ==============================================================================
+@st.cache_data(show_spinner="Étlap API frissítése...")
+def load_etlap_api_smart(file_path, columns_trigger=None):
+    """
+    Beolvassa az Etlap_API-t. Ha a 'columns_trigger' (az oszlopnevek összeragasztva)
+    megváltozik egy időutazás miatt, a Streamlit magától törli a régi cache-t!
+    """
+    import os
+    if os.path.exists(file_path):
+        return pd.read_csv(file_path)
+    return None
         
 # ==============================================================================
 # 🟢 2. A JAVÍTOTT, TELJES MESTER LISTA SZINKRONIZÁLÓ FÜGGVÉNY (GOLYÓÁLLÓ VERZIÓ)

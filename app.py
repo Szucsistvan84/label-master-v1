@@ -2977,12 +2977,11 @@ def main():
                 if st.button("🚀 DOKUMENTUMOK ÉS RAKLISTA GENERÁLÁSA", type="primary", use_container_width=True):
                     with st.spinner("⏳ PDF-ek generálása és adatok szinkronizálása folyamatban..."):
                         
-                        # 🎁 ON-DEMAND NÉVNAP BETÖLTÉS (Csak akkor fut le, ha etikettet generálunk és még üres)
+                        # 🎁 ON-DEMAND NÉVNAP BETÖLTÉS (Ideiglenesen kikapcsolva a kvótavédelem miatt)
                         if 'nevnapok_df' not in st.session_state or st.session_state.nevnapok_df.empty:
-                            try:
-                                import time
-                                ws_nevnapok = sh_master.worksheet("Nevnapok")
-                                st.session_state.nevnapok_df = pd.DataFrame(ws_nevnapok.get_all_records())
+                            # Csendben üres DataFrame-ként inicializáljuk, hogy a PDF modulok ne kapjanak hibát
+                            st.session_state.nevnapok_df = pd.DataFrame()
+                            st.session_state.keresztnevek_df = pd.DataFrame()
                                 time.sleep(1.5) # Védelmi szünet az API kvóta miatt
                                 
                                 ws_keresztnevek = sh_master.worksheet("Keresztnevek")

@@ -2502,11 +2502,15 @@ def main():
                         st.session_state.user_jarat_lista = [alap_jarat] 
                         st.session_state.user_szerep = str(talalt_futar.get('Szerep', 'futar')).strip().lower()
                         
+                        # Tisztítjuk a bemeneti mezőket a memóriából a biztonság és a tiszta újratöltés érdekében
+                        if "login_jarat_field" in st.session_state: del st.session_state["login_jarat_field"]
+                        if "login_password_field" in st.session_state: del st.session_state["login_password_field"]
+                        
                         st.success(f"Sikeres belépés! Üdvözlünk, {st.session_state.user_nev}!")
                         st.rerun()
                     else:
                         st.error("❌ Hibás járatszám vagy jelszó!")
-        return 
+        return
 
     # 10. Alapértelmezett háttér adatbázisok betöltése (Csak sikeres bejelentkezés után fut le)
     if 'master_df' not in st.session_state or 'etlap_api_df' not in st.session_state:

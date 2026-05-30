@@ -21,7 +21,41 @@ from io import BytesIO
 from mobil_modulok import render_mobil_aruatvetel, render_mobil_bepakolas, render_mobil_kiszallitas
 from nyomtatas_modulok import create_label_pdf, create_manifest_pdf, create_raklista_pdf
 
-# --- GLOBÁLIS KONFIGURÁCIÓK ÉS SEGÉDFÜGGVÉNYEK ---
+# ==============================================================================
+# 1. GLOBÁLIS KONFIGURÁCIÓK, MINTÁK ÉS BEÁLLÍTÁSOK
+# ==============================================================================
+
+# --- LOGGOLÁS BEÁLLÍTÁSA ---
+LOG_FILE = "utvonaltervezo.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# --- GEOCODING (CÍMKERESŐ) SETUP ---
+geolocator = Nominatim(user_agent="futarszoli_app")
+geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)
+
+# --- GLOBÁLIS REGEX MINTÁK (PDF FELDOLGOZÁSHOZ) ---
+PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'
+# Frissített minta: felismeri a sima (-), az en-dash (–) és az em-dash (—) jeleket is
+ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z][A-Z0-9*+]*)'
+# Frissített, "szóköz-toleráns" regex
+MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
+
+# --- GOOGLE SHEETS ALAPHELYZET ---
+client = None 
+
+
+# ==============================================================================
+# 2. GLOBÁLIS SEGÉDFÜGGVÉNYEK
+# ==============================================================================
+
 def check_user_role():
     """Visszaadja a felhasználó szerepkörét."""
     role = st.session_state.get('user_szerep', 'futar')
@@ -54,25 +88,6 @@ def biztonsagos_koordinata_tisztito(val):
             return None
     except:
         return None
-
-# LOGGOLÁS BEÁLLÍTÁSA
-LOG_FILE = "utvonaltervezo.log"
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# GEOCODING SETUP
-geolocator = Nominatim(user_agent="futarszoli_app")
-geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)
-
-# Globális kliens inicializálása üresen
-client = None 
 
 def get_google_sheets_creds():
     """Összeállítja és visszaadja a Google Credentials objektumot a Secrets-ből."""
@@ -948,17 +963,6 @@ try:
 except Exception as e:
     st.error(f"Sikertelen Google Sheets kapcsolódás: {e}")
     client = None
-
-# --- ALAPBEÁLLÍTÁSOK ---
-PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'
-# Frissített minta: felismeri a sima (-), az en-dash (–) és az em-dash (—) jeleket is
-# \d+         -> Darabszám (legalább egy számjegy)
-# \s*-\s* -> Kötőjel (szóközökkel vagy anélkül)
-# [A-Z]       -> A cikkszám ELSŐ karaktere KÖTELEZŐEN BETŰ
-# [A-Z0-9*+]* -> A többi karakter lehet betű, szám vagy speciális jel (*, +)
-ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z][A-Z0-9*+]*)'
-# Frissített, "szóköz-toleráns" regex
-MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
 def extract_all_meta(pdf_files):
     all_meta = {'jaratok': [], 'ev': '', 'het': '', 'nap': ''}

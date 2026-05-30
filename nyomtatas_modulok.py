@@ -205,25 +205,13 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             
             formazott_rendeles = "".join(formazott_reszek)
 
-            nevnap_uzenet = ""
-            if nevnapok_df is not None and not nevnapok_df.empty and kulcs_nevnap != "NINCS":
-                n_dat_col = next((c for c in ['Datum', 'Dátum', 'datum', 'dátum'] if c in nevnapok_df.columns), nevnapok_df.columns[0])
-                n_nev_col = next((c for c in ['Nevek', 'Név', 'Nev', 'nevek'] if c in nevnapok_df.columns), nevnapok_df.columns[1] if len(nevnapok_df.columns) > 1 else nevnapok_df.columns[0])
-
-                try:
-                    mai_sor = nevnapok_df[nevnapok_df[n_dat_col].astype(str).str.contains(kulcs_nevnap)]
-                    if not mai_sor.empty:
-                        t_nev = str(r.get('Ügyintéző', '')).strip()
-                        for t in ["Dr.", "dr.", "id.", "ifj.", "özv.", "Özv."]:
-                            t_nev = t_nev.replace(t, "")
-                        szavak = [s.strip() for s in t_nev.split() if s.strip()]
-                        keresztnev = szavak[1] if len(szavak) > 1 else (szavak[0] if szavak else "")
-                        
-                        ma_unneplok = [n.strip().lower() for n in str(mai_sor.iloc[0][n_nev_col]).split(',')]
-                        if keresztnev.lower().strip() in ma_unneplok:
-                            nevnap_uzenet = f"★ Boldog Névnapot, {keresztnev}! ★"
-                except Exception as e_nv_belso:
-                    logger.warning(f"Hiba az ügyfél névnap ellenőrzésekor: {e_nv_belso}")
+            # --- NÉVNAP ELLENŐRZÉS (Az új, áthelyezett függvénnyel) ---
+            nevnap_uzenet = get_gender_and_nevnap(
+                full_name=r.get('Ügyintéző', ''),
+                nevnapok_df=nevnapok_df,
+                keresztnevek_df=keresztnevek_df,
+                target_date=pdf_datum
+            ) or ""
 
             kellek_kiiras = ""
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None:

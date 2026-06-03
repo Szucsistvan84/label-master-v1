@@ -236,17 +236,20 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     talalt_kellekek = []
                     napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
                     
+                    # --- FINOMHANGOLT KELLÉK KERESŐ (CSILLAG SZABÁLY + TISZTA KÓD) ---
                     for blokk in napi_blokkok:
                         found_orders = re.findall(ORDER_PAT, blokk.upper())
                         for qty, code in found_orders:
                             nyers_kod = code.strip()          
                             tiszta_kod = nyers_kod.replace('*', '').strip()  
                             
+                            # Megkeressük az ételt az API étlapon a kód alapján
                             etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
                             if not etel_sor.empty:
                                 etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
                                 tisztitott_etel_nev = clean_text(etel_nev)
                                 
+                                # Lekérjük a Master Adatbázisból a kelléket
                                 match_row = master_df[master_df['Tisztított Név'] == tisztitott_etel_nev] if master_df is not None else None
                                 
                                 if match_row is not None and not match_row.empty:
@@ -255,15 +258,13 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                                     if master_kellek_nyers and master_kellek_nyers.lower() != 'nan':
                                         kellek_tiszta = master_kellek_nyers.replace('*', '').strip().upper()
                                         
-                                        # 1. Speciális Tzatziki szabály
-                                        if master_kellek_nyers.startswith('*'):
-                                            if "csirkessouvlakivegyeskoretsultburgparoltrizstzatziki" in tisztitott_etel_nev and tiszta_kod == "UK":
-                                                talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
-                                            elif "rantottpulykamelljazminrizs" in tisztitott_etel_nev and tiszta_kod == "E1K":
-                                                talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
-                                        # 2. Normál kellékek
-                                        else:
-                                            talalt_kellekek.append(f"{tiszta_kod}: {kellek_tiszta}")
+                                        # 🌟 ARANYAT ÉRŐ CSILLAG-SZABÁLY: 
+                                        # Csak akkor riasztunk, ha a menettervben a kód végén OTT VAN a csillag!
+                                        if not nyers_kod.endswith('*'):
+                                            continue # Ha nincs csillag (pl. R1, R2, nagy Tzatzikis ételek), nincs külön kellék!
+                                        
+                                        # Minden normál és speciális kellék (Pl. Tartár, Tzatziki, Zsemlekocka) ami csillagos kódból jött
+                                        talalt_kellekek.append(f"{tiszta_kod}: {kellek_tiszta}")
                     
                     # Összevonjuk a talált kellékeket kódok szerint
                     if talalt_kellekek:

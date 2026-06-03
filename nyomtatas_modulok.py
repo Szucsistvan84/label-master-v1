@@ -225,9 +225,10 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 target_date=pdf_datum
             ) or ""
 
-            kellek_kiiras = ""
+            # --- INTELLIGENS KELLÉK ÉS DINAMIKUS MÉRETEZÉS MOTOR ---
+            talalt_kellekek_listaja = [] # Ebben gyűjtjük a külön sorokat
+            
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None and not etlap_api_df.empty:
-                # Megkeressük a nap pontos oszlopát az API táblában
                 keresett_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
                 napi_oszlop = next((col for col in etlap_api_df.columns if keresett_nap_szamokkal in "".join(filter(str.isdigit, str(col)))), None)
                 
@@ -241,35 +242,30 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                             nyers_kod = code.strip()          
                             tiszta_kod = nyers_kod.replace('*', '').strip()  
                             
-                            # Megkeressük az ételt az API étlapon a kód alapján
                             etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
                             if not etel_sor.empty:
                                 etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
-                                tisztitott_etel_nev = clean_text(etel_nev)  # Kisbetűs, ékezetek és szóközök nélküli név
+                                tisztitott_etel_nev = clean_text(etel_nev)
                                 
-                                # Lekérjük a Master Adatbázisból, hogy van-e az ételnévhez rendelve valamilyen kellék
                                 match_row = master_df[master_df['Tisztított Név'] == tisztitott_etel_nev] if master_df is not None else None
                                 
                                 if match_row is not None and not match_row.empty:
                                     master_kellek_nyers = str(match_row.iloc[0]['Kellék']).strip()
                                     
                                     if master_kellek_nyers and master_kellek_nyers.lower() != 'nan':
-                                        # Megtisztítjuk a kellék nevét a táblázatbeli csillagtól (*Tzatziki -> TZATZIKI)
                                         kellek_tiszta = master_kellek_nyers.replace('*', '').strip().upper()
                                         
-                                        # --- 1. A SPECIÁLIS TZATZIKI SZABÁLY (Ha a kellék csillaggal kezdődik az adatbázisban) ---
+                                        # 1. Speciális Tzatziki szabály
                                         if master_kellek_nyers.startswith('*'):
-                                            # Csak akkor aktiválódik, ha a kód és a konkrét napi ételnév is megegyezik a kis adaggal
                                             if "csirkessouvlakivegyeskoretsultburgparoltrizstzatziki" in tisztitott_etel_nev and tiszta_kod == "UK":
                                                 talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
                                             elif "rantottpulykamelljazminrizs" in tisztitott_etel_nev and tiszta_kod == "E1K":
                                                 talalt_kellekek.append(f"{tiszta_kod}: TZATZIKI")
-                                        
-                                        # --- 2. MINDEN MÁS NORMÁL KELLÉK (Pl. Tartármártás, Tejföl, ami jár kicsinek és nagynak is) ---
+                                        # 2. Normál kellékek
                                         else:
                                             talalt_kellekek.append(f"{tiszta_kod}: {kellek_tiszta}")
                     
-                    # Összevonjuk a talált kellékeket kódok szerint az etikett kiíráshoz
+                    # Összevonjuk a talált kellékeket kódok szerint
                     if talalt_kellekek:
                         kellek_szotar = {}
                         for item in talalt_kellekek:
@@ -282,12 +278,29 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                             except:
                                 continue
                         
-                        osszevont_elemek = []
                         for nev, kodok in kellek_szotar.items():
                             kodok_szoveg = ", ".join(sorted(kodok))
-                            osszevont_elemek.append(f"{kodok_szoveg}: {nev}")
-                        kellek_kiiras = "; ".join(osszevont_elemek)
+                            talalt_kellekek_listaja.append(f"• {kodok_szoveg}: {nev}")
 
+            # --- DINAMIKUS RENDELÉS BETŰMÉRET SZABÁLYOZÁS (PÉNTEKI 16 TÉTELES VÉDELEM) ---
+            # Megszámoljuk a rendelés szövegének hosszát. Ha túl hosszú, drasztikusan csökkentjük a betűméretet!
+            nyers_rendeles_szoveg = str(formazott_rendeles)
+            karakterszam = len(nyers_rendeles_szoveg)
+            
+            # Készítünk egy egyedi stílust a rendelésnek a hossztól függően
+            egyedi_order_s = ParagraphStyle('DinamikusOrderS', parent=order_s)
+            
+            if karakterszam > 120:     # Brutális gigarendelés (Pl. 16 tétel)
+                egyedi_order_s.fontSize = 6.0
+                egyedi_order_s.leading = 7.0
+            elif karakterszam > 70:    # Hosszabb rendelés
+                egyedi_order_s.fontSize = 7.5
+                egyedi_order_s.leading = 9.0
+            else:                      # Normál rendelés (1-3 tétel)
+                egyedi_order_s.fontSize = 9.0
+                egyedi_order_s.leading = 11.0
+
+            # --- 1. VEZETŐ ADATOK (FEJLÉC ÉS NÉV BLOKK) RAJZOLÁSA ---
             biztonsagi_emeles = -0.5 * mm if row_i == 0 else 0
 
             p.setFont(f_bold, 8)
@@ -310,10 +323,15 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setFont(f_reg, 7)
             p.drawString(x + inner_m, top_y - 10.5 * mm + biztonsagi_emeles, str(r.get('Cím', ''))[:45])
 
-            para = Paragraph(formazott_rendeles, order_s)
-            pw, ph = para.wrap(usable_w, 18 * mm)
-            para.drawOn(p, x + inner_m, y_eff + 19 * mm) 
+            # --- 2. RENDELÉSEK DINAMIKUS MEGJELENÍTÉSE ---
+            # A rendelést behúzzuk egy behatárolt területre a felső blokk alá
+            para = Paragraph(formazott_rendeles, egyedi_order_s)
+            pw, ph = para.wrap(usable_w, 14 * mm)
+            # Fentről mérve az utca/házszám alá tesszük pontosan
+            rendeles_y = top_y - 12.0 * mm - ph
+            para.drawOn(p, x + inner_m, rendeles_y) 
 
+            # --- 3. LÁBLÉC FIX ELEMEI (Fizetés, darabszám, futár) ---
             p.setLineWidth(0.1)
             p.line(x + inner_m, y_eff + 6 * mm, x + lw - inner_m, y_eff + 6 * mm)
 
@@ -330,19 +348,42 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 osszesen_db = 0
             p.drawRightString(x + lw - inner_m, y_eff + 7 * mm, f"Össz: {osszesen_db} db")
 
-            if kellek_kiiras:
-                p.saveState()
-                p.setFont(f_bold, 7)
-                p.setFillColor(colors.HexColor('#111111'))
-                p.drawCentredString(x + lw / 2, y_eff + 12.5 * mm, f"⚠️ {kellek_kiiras} ⚠️")
-                p.restoreState()
-
             if nevnap_uzenet:
                 p.setFont(f_reg, 8) 
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, nevnap_uzenet)
             else:
                 p.setFont(f_reg, 6.5)
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
+
+            # --- 4. TÖBBSOROS KELLÉK RIASZTÁS PANEL (A fennmaradó tiszta helyre) ---
+            # Kiszámoljuk a rendelés alja és a lábléc teteje közötti szabad zónát, oda tiszta Paragraph-ot teszünk!
+            if talalt_kellekek_listaja:
+                # Összerakjuk a HTML formázott többsoros szöveget
+                kellek_html = "<font size='6.5'><b>▲ KELLÉK RIASZTÁS:</b></font><br/>"
+                kellek_html += "<br/>".join([f"<font size='6'><b>{k}</b></font>" for k in talalt_kellekek_listaja])
+                
+                # Létrehozunk egy középre igazított stílust a kellékeknek
+                kellek_style = ParagraphStyle(
+                    'KellekStyle',
+                    parent=order_s,
+                    alignment=1,        # 1 = Középre igazítás (Center)
+                    leading=7.0,        # Sorok közötti szoros távolság
+                    textColor=colors.HexColor('#111111')
+                )
+                
+                kellek_para = Paragraph(kellek_html, kellek_style)
+                kpw, kph = kellek_para.wrap(usable_w, 12 * mm)
+                
+                # Kiszámoljuk a tökéletes Y pozíciót: pontosan a fizetési elválasztó vonal (y_eff + 6mm) FÖLÉ tesszük
+                kellek_y = y_eff + 6.5 * mm
+                
+                p.saveState()
+                # Opcionális: Ha szeretnél mögé egy nagyon halvány figyelmeztető hátteret, hogy feltűnő legyen:
+                # p.setFillColor(colors.HexColor('#FFF2CC')) # Halványsárga panel
+                # p.rect(x + inner_m, kellek_y - 0.5*mm, usable_w, kph + 1*mm, fill=1, stroke=0)
+                
+                kellek_para.drawOn(p, x + inner_m, kellek_y)
+                p.restoreState()
 
         else:
             m_text = (

@@ -60,21 +60,37 @@ def clean_text(text):
     return re.sub(r'[^a-z0-9]', '', text)
 
 def format_kellek_alert(pdf_kod, pdf_nev, master_df):
-    """Meghatározza a kellék riasztást a csillagos szabály szerint."""
-    if master_df is None or master_df.empty: return ""
+    """
+    Meghatározza a kellék riasztást a szigorú csillagos szabály szerint.
+    Ha a kód csillagos, de nincs kellék az adatbázisban, figyelmeztetést küld a debuggernek.
+    """
+    if master_df is None or master_df.empty: 
+        return ""
+        
+    # 🌟 AZ ALAPSZABÁLY: Ha a rendelési cikkszámban nincs csillag, 
+    # akkor azonnal kilépünk, mert a nagy adagba bele van csomagolva!
+    if '*' not in str(pdf_kod):
+        return ""
+        
     tiszta_nev = clean_text(pdf_nev)
     match = master_df[master_df['Tisztított Név'] == tiszta_nev]
 
+    # Ha megtaláltuk az ételt az adatbázisban
     if not match.empty:
         kellek = str(match.iloc[0]['Kellék']).strip()
-        if not kellek or kellek.lower() == "nan" or kellek == "": return ""
-        if kellek.startswith('*'):
-            if '*' in str(pdf_kod): 
-                return f"⚠ + {kellek.replace('*', '').strip().upper()}"
+        
+        # FIX: Ha a cella üres, 'nan', vagy hiányzik, de a kód csillagos volt -> HIÁNYZÓ KELLÉK!
+        if not kellek or kellek.lower() == "nan" or kellek == "":
+            print(f"❌ DEBUGGER FIGYELMEZTETÉS: Hiányzó kellék megnevezés a(z) {pdf_kod} cikkszámú és [{pdf_nev}] nevű termékhez a Master Adatbázisban!")
             return ""
-        else:
-            return f"⚠ + {kellek.upper()}"
-    return "" 
+            
+        # Ha minden rendben, visszaadjuk a megtisztított kelléket (Tzatziki elejéről a * is lekerül, ha ottmaradt volna)
+        tiszta_kellek = kellek.replace('*', '').strip().upper()
+        return f"⚠ + {tiszta_kellek}"
+        
+    # Ha magát az ételt sem találjuk a Master Adatbázisban, de a kód csillagos volt:
+    print(f"❌ DEBUGGER FIGYELMEZTETÉS: A(z) [{pdf_nev}] ({pdf_kod}) étel egyáltalnal nem szerepel a Master Adatbázisban, így a kelléke sem határozható meg!")
+    return ""
 
 # --- AKTÍV REPORTLAB FLOWABLE OSZTÁLYOK ---
 

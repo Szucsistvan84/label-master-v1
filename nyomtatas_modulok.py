@@ -259,23 +259,23 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             # Sortörések formázása a ReportLab számára
             rendeles_szoveg = rendeles_szoveg.replace('|', '<br/>').strip()
 
-            # --- DINAMIKUS RENDELÉS BETŰMÉRET SZABÁLYOZÁS (PÉNTEKI 16 TÉTELES VÉDELEM) ---
-            # Megszámoljuk a rendelés szövegének hosszát. Ha túl hosszú, drasztikusan csökkentjük a betűméretet!
-            nyers_rendeles_szoveg = str(formazott_rendeles)
+            # --- DINAMIKUS RENDELÉS BETŰMÉRET ÉS IN-LINE KELLÉK MEGJELENÍTÉS ---
+            # Most már a frissített, sorfolytonos 'rendeles_szoveg' változót használjuk!
+            nyers_rendeles_szoveg = str(rendeles_szoveg)
             karakterszam = len(nyers_rendeles_szoveg)
             
-            # Készítünk egy egyedi stílust a rendelésnek a hossztól függően
+            # Készítünk egy egyedi stílust a rendelésnek a hossztól függően (egy picivel kisebbre véve, ahogy kérted)
             egyedi_order_s = ParagraphStyle('DinamikusOrderS', parent=order_s)
             
-            if karakterszam > 120:     # Brutális gigarendelés (Pl. 16 tétel)
-                egyedi_order_s.fontSize = 6.0
-                egyedi_order_s.leading = 7.0
-            elif karakterszam > 70:    # Hosszabb rendelés
-                egyedi_order_s.fontSize = 7.5
-                egyedi_order_s.leading = 9.0
-            else:                      # Normál rendelés (1-3 tétel)
-                egyedi_order_s.fontSize = 9.0
-                egyedi_order_s.leading = 11.0
+            if karakterszam > 150:     # Brutális gigarendelés
+                egyedi_order_s.fontSize = 5.5
+                egyedi_order_s.leading = 6.5
+            elif karakterszam > 80:    # Hosszabb rendelés vagy sok kellékes kiegészítés
+                egyedi_order_s.fontSize = 7.0
+                egyedi_order_s.leading = 8.5
+            else:                      # Normál rendelés (picit kisebb az eredeti 9-esnél az esztétika miatt)
+                egyedi_order_s.fontSize = 8.0
+                egyedi_order_s.leading = 10.0
 
             # --- 1. VEZETŐ ADATOK (FEJLÉC ÉS NÉV BLOKK) RAJZOLÁSA ---
             biztonsagi_emeles = -0.5 * mm if row_i == 0 else 0
@@ -300,13 +300,28 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setFont(f_reg, 7)
             p.drawString(x + inner_m, top_y - 10.5 * mm + biztonsagi_emeles, str(r.get('Cím', ''))[:45])
 
-            # --- 2. RENDELÉSEK DINAMIKUS MEGJELENÍTÉSE ---
-            # A rendelést behúzzuk egy behatárolt területre a felső blokk alá
-            para = Paragraph(formazott_rendeles, egyedi_order_s)
-            pw, ph = para.wrap(usable_w, 14 * mm)
-            # Fentről mérve az utca/házszám alá tesszük pontosan
-            rendeles_y = top_y - 12.0 * mm - ph
-            para.drawOn(p, x + inner_m, rendeles_y) 
+            # --- 2. RENDELÉSEK ESZTÉTIKUS KERETEZETT MEGJELENÍTÉSE ---
+            # Kiszámoljuk a rendelkezésre álló fix szélességet a keretnek
+            keret_szelesseg = lw - (2 * inner_m)
+            
+            # Létrehozzuk a rendelési beágyazott szöveget az új stílussal
+            para = Paragraph(rendeles_szoveg, egyedi_order_s)
+            
+            # Egycellás táblázattal elegáns keretet és halvány hátteret adunk neki
+            rendeles_tabla = Table([[para]], colWidths=[keret_szelesseg])
+            rendeles_tabla.setStyle(TableStyle([
+                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor("#BCBCBC")),      # Elegáns szürke keretvonal
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#FAFAFA")),   # Nagyon halvány, tiszta háttérszín
+                ('TOPPADDING', (0,0), (-1,-1), 3),                            # Belső margók a kereten belül
+                ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+                ('LEFTPADDING', (0,0), (-1,-1), 4),
+                ('RIGHTPADDING', (0,0), (-1,-1), 4),
+            ]))
+            
+            # Kiszámoljuk a méreteket és elhelyezzük a kártyán
+            tw, th = rendeles_tabla.wrap(keret_szelesseg, 15 * mm)
+            rendeles_y = top_y - 11.5 * mm - th
+            rendeles_tabla.drawOn(p, x + inner_m, rendeles_y) 
 
             # --- 3. LÁBLÉC FIX ELEMEI (Fizetés, darabszám, futár) ---
             p.setLineWidth(0.1)
@@ -332,35 +347,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 p.setFont(f_reg, 6.5)
                 p.drawCentredString(x + lw / 2, y_eff + 2.5 * mm, f"Futár: {fn} | {ft}")
 
-            # --- 4. TÖBBSOROS KELLÉK RIASZTÁS PANEL (A fennmaradó tiszta helyre) ---
-            # Kiszámoljuk a rendelés alja és a lábléc teteje közötti szabad zónát, oda tiszta Paragraph-ot teszünk!
-            if talalt_kellekek_listaja:
-                # Összerakjuk a HTML formázott többsoros szöveget
-                kellek_html = "<font size='6.5'><b>▲ KELLÉK RIASZTÁS:</b></font><br/>"
-                kellek_html += "<br/>".join([f"<font size='6'><b>{k}</b></font>" for k in talalt_kellekek_listaja])
-                
-                # Létrehozunk egy középre igazított stílust a kellékeknek
-                kellek_style = ParagraphStyle(
-                    'KellekStyle',
-                    parent=order_s,
-                    alignment=1,        # 1 = Középre igazítás (Center)
-                    leading=7.0,        # Sorok közötti szoros távolság
-                    textColor=colors.HexColor('#111111')
-                )
-                
-                kellek_para = Paragraph(kellek_html, kellek_style)
-                kpw, kph = kellek_para.wrap(usable_w, 12 * mm)
-                
-                # Kiszámoljuk a tökéletes Y pozíciót: pontosan a fizetési elválasztó vonal (y_eff + 6mm) FÖLÉ tesszük
-                kellek_y = y_eff + 6.5 * mm
-                
-                p.saveState()
-                # Opcionális: Ha szeretnél mögé egy nagyon halvány figyelmeztető hátteret, hogy feltűnő legyen:
-                # p.setFillColor(colors.HexColor('#FFF2CC')) # Halványsárga panel
-                # p.rect(x + inner_m, kellek_y - 0.5*mm, usable_w, kph + 1*mm, fill=1, stroke=0)
-                
-                kellek_para.drawOn(p, x + inner_m, kellek_y)
-                p.restoreState()
+            # --- 4. RÉGI TÖBBSOROS KELLÉK PANEL TÖRÖLVE (Beolvadt a fenti keretes rendelésbe!) ---
 
         else:
             m_text = (

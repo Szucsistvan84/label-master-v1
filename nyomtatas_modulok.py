@@ -245,21 +245,28 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             talalt_kellekek_listaja = [] # Ebben gyűjtjük a külön sorokat
             
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None and not etlap_api_df.empty:
-                keresett_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
-                napi_oszlop = next((col for col in etlap_api_df.columns if keresett_nap_szamokkal in "".join(filter(str.isdigit, str(col)))), None)
+                var_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
+                napi_oszlop = next((col for col in etlap_api_df.columns if var_nap_szamokkal in "".join(filter(str.isdigit, str(col)))), None)
                 
                 if napi_oszlop:
                     talalt_kellekek = []
                     napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
                     
-                    # --- GOLYÓÁLLÓ KELLÉK KERESŐ (KIZÁRÓLAG A CIKKSZÁM CSILLAGJA DÖNT) ---
+                    # --- GOLYÓÁLLÓ KELLÉK KERESŐ (SZIGORÚAN BELÉPÉSI CSILLAG-ELLENŐRZÉSSEL) ---
                     for blokk in napi_blokkok:
                         found_orders = re.findall(ORDER_PAT, blokk.upper())
                         for qty, code in found_orders:
                             nyers_kod = code.strip()          
+                            
+                            # 🌟 AZ ARANY SZABÁLY: Ha a rendelési kód nem tartalmaz csillagot (pl. R1, R2, R1K, R2K),
+                            # akkor azonnal eldobjuk és ugrunk a következő tételre! Nincs API és Master keresgélés!
+                            if '*' not in nyers_kod:
+                                continue
+                                
+                            # Mivel van benne csillag, letisztítjuk és azonosítjuk az ételt
                             tiszta_kod = nyers_kod.replace('*', '').strip()  
                             
-                            # Megkeressük az ételt az API étlapon a kód alapján
+                            # Pontos kiinduló kód alapú illesztés az API étlapon
                             etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
                             if not etel_sor.empty:
                                 etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
@@ -274,15 +281,8 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                                     if master_kellek_nyers and master_kellek_nyers.lower() != 'nan':
                                         kellek_tiszta = master_kellek_nyers.replace('*', '').strip().upper()
                                         
-                                        # 🌟 A MEGOLDÁS: Csak akkor riasztunk, ha maga a kiszűrt rendelési kód tartalmazott csillagot!
-                                        # Ha nyers_kod = "R2K*", akkor nyers_kod != tiszta_kod (True) -> Kell kellék!
-                                        # Ha nyers_kod = "R2", akkor nyers_kod == tiszta_kod (False) -> Átugorjuk!
-                                        # Ha nyers_kod = "L2*", akkor nyers_kod != tiszta_kod (True) -> Kell kellék!
-                                        if nyers_kod == tiszta_kod:
-                                            continue # Ha megegyeznek, az azt jelenti, hogy a kód végén NEM volt csillag. Kihagyjuk!
-                                        
-                                        # Minden igazoltan csillagos rendelésből jött kellék (Pl. L2*, L2K*, M*, R1K*, R2K*)
-                                        talalt_kellekek.append(f"{tiszta_kod}: {kellek_tiszta}")
+                                        # Hozzáadjuk a listához a pontos, csillagos nyers kódot (így R1K* vagy R2K* lesz a címkén!)
+                                        talalt_kellekek.append(f"{nyers_kod}: {kellek_tiszta}")
                     
                     # Összevonjuk a talált kellékeket kódok szerint
                     if talalt_kellekek:

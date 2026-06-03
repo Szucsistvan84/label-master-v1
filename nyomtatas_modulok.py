@@ -236,7 +236,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     talalt_kellekek = []
                     napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
                     
-                    # --- FINOMHANGOLT KELLÉK KERESŐ (CSILLAG SZABÁLY + TISZTA KÓD) ---
+                    # --- GOLYÓÁLLÓ KELLÉK KERESŐ (KIZÁRÓLAG A CIKKSZÁM CSILLAGJA DÖNT) ---
                     for blokk in napi_blokkok:
                         found_orders = re.findall(ORDER_PAT, blokk.upper())
                         for qty, code in found_orders:
@@ -258,12 +258,14 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                                     if master_kellek_nyers and master_kellek_nyers.lower() != 'nan':
                                         kellek_tiszta = master_kellek_nyers.replace('*', '').strip().upper()
                                         
-                                        # 🌟 ARANYAT ÉRŐ CSILLAG-SZABÁLY: 
-                                        # Csak akkor riasztunk, ha a menettervben a kód végén OTT VAN a csillag!
-                                        if not nyers_kod.endswith('*'):
-                                            continue # Ha nincs csillag (pl. R1, R2, nagy Tzatzikis ételek), nincs külön kellék!
+                                        # 🌟 A MEGOLDÁS: Csak akkor riasztunk, ha maga a kiszűrt rendelési kód tartalmazott csillagot!
+                                        # Ha nyers_kod = "R2K*", akkor nyers_kod != tiszta_kod (True) -> Kell kellék!
+                                        # Ha nyers_kod = "R2", akkor nyers_kod == tiszta_kod (False) -> Átugorjuk!
+                                        # Ha nyers_kod = "L2*", akkor nyers_kod != tiszta_kod (True) -> Kell kellék!
+                                        if nyers_kod == tiszta_kod:
+                                            continue # Ha megegyeznek, az azt jelenti, hogy a kód végén NEM volt csillag. Kihagyjuk!
                                         
-                                        # Minden normál és speciális kellék (Pl. Tartár, Tzatziki, Zsemlekocka) ami csillagos kódból jött
+                                        # Minden igazoltan csillagos rendelésből jött kellék (Pl. L2*, L2K*, M*, R1K*, R2K*)
                                         talalt_kellekek.append(f"{tiszta_kod}: {kellek_tiszta}")
                     
                     # Összevonjuk a talált kellékeket kódok szerint

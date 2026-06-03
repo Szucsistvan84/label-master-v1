@@ -208,66 +208,56 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 target_date=pdf_datum
             ) or ""
 
-            # --- INTELLIGENS KELLÉK ÉS DINAMIKUS MÉRETEZÉS MOTOR ---
-            talalt_kellekek_listaja = [] # Ebben gyűjtjük a külön sorokat (A ReportLab ezt olvassa!)
+            # --- INTELLIGENS SORFOLYTONOS KELLÉK MOTOR ---
+            rendeles_szoveg = str(r.get('Rendelés_Full', '')).strip()
             
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None and not etlap_api_df.empty:
                 var_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
                 napi_oszlop = next((col for col in etlap_api_df.columns if var_nap_szamokkal in "".join(filter(str.isdigit, str(col)))), None)
                 
                 if napi_oszlop:
-                    talalt_kellekek = []
-                    napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
+                    napi_blokkok = rendeles_szoveg.split('|')
+                    uj_blokkok = []
                     
-                    # --- GOLYÓÁLLÓ KELLÉK KERESŐ ---
                     for blokk in napi_blokkok:
                         found_orders = re.findall(ORDER_PAT, blokk.upper())
+                        modositott_blokk = blokk
+                        
                         for qty, code in found_orders:
                             nyers_kod = code.strip()          
                             
-                            # 1. LÉPÉS: Csillag ellenőrzése
-                            if '*' not in str(nyers_kod):
-                                continue
+                            # Csak a csillagos kódokkal foglalkozunk
+                            if '*' in str(nyers_kod):
+                                tiszta_kod = nyers_kod.replace('*', '').strip()  
                                 
-                            # 2. LÉPÉS: Tisztítás az API-hoz
-                            tiszta_kod = nyers_kod.replace('*', '').strip()  
-                            
-                            # 3. LÉPÉS: API Étlap keresés startswith-el
-                            etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
-                            
-                            if not etel_sor.empty:
-                                etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
-                                tisztitott_etel_nev = clean_text(etel_nev)
+                                # API Étlap keresés startswith-el
+                                etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
                                 
-                                # 4. LÉPÉS: Master Adatbázis keresés
-                                match_row = master_df[master_df['Tisztított Név'] == tisztitott_etel_nev] if master_df is not None else None
-                                
-                                if match_row is not None and not match_row.empty:
-                                    master_kellek_nyers = str(match_row.iloc[0]['Kellék']).strip()
+                                if not etel_sor.empty:
+                                    etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
+                                    tisztitott_etel_nev = clean_text(etel_nev)
                                     
-                                    if master_kellek_nyers and master_kellek_nyers.lower() != 'nan':
-                                        kellek_tiszta = master_kellek_nyers.replace('*', '').strip().upper()
+                                    # Master Adatbázis keresés a kellékért
+                                    match_row = master_df[master_df['Tisztított Név'] == tisztitott_etel_nev] if master_df is not None else None
+                                    
+                                    if match_row is not None and not match_row.empty:
+                                        master_kellek_nyers = str(match_row.iloc[0]['Kellék']).strip()
                                         
-                                        # Eredeti nyers kóddal mentünk (pl. "L2K*")
-                                        talalt_kellekek.append(f"{nyers_kod}: {kellek_tiszta}")
-                    
-                    # 🌟 ÖSSZEVONÁS ÉS FORMÁZÁS (SZIGORÚAN A NAPI_OSZLOP-ON BELÜL!)
-                    if talalt_kellekek:
-                        kellek_szotar = {}
-                        for item in talalt_kellekek:
-                            try:
-                                kod, nev = item.split(": ", 1)
-                                if nev not in kellek_szotar:
-                                    kellek_szotar[nev] = []
-                                if kod not in kellek_szotar[nev]:
-                                    kellek_szotar[nev].append(kod)
-                            except:
-                                continue
+                                        if master_kellek_nyers and master_kellek_nyers.lower() != 'nan':
+                                            # Megtartjuk a Master Adatbázis eredeti írásmódját (pl. "Zsemlekockák")
+                                            kellek_szep = master_kellek_nyers.replace('*', '').strip()
+                                            
+                                            # Intelligens in-line csere a szövegben
+                                            regi_resz = f"{qty}-{code}"
+                                            uj_resz = f"{qty}-{code} (⚠️+ {kellek_szep})"
+                                            modositott_blokk = modositott_blokk.replace(regi_resz, uj_resz)
                         
-                        for nev, kodok in kellek_szotar.items():
-                            kodok_szoveg = ", ".join(sorted(kodok))
-                            # Ide gyűjtjük be a formázott szöveget a ReportLab számára!
-                            talalt_kellekek_listaja.append(f"• {kodok_szoveg}: {nev}")
+                        uj_blokkok.append(modositott_blokk)
+                    
+                    rendeles_szoveg = "|".join(uj_blokkok)
+
+            # Sortörések formázása a ReportLab számára
+            rendeles_szoveg = rendeles_szoveg.replace('|', '<br/>').strip()
 
             # --- DINAMIKUS RENDELÉS BETŰMÉRET SZABÁLYOZÁS (PÉNTEKI 16 TÉTELES VÉDELEM) ---
             # Megszámoljuk a rendelés szövegének hosszát. Ha túl hosszú, drasztikusan csökkentjük a betűméretet!

@@ -209,7 +209,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             ) or ""
 
             # --- INTELLIGENS KELLÉK ÉS DINAMIKUS MÉRETEZÉS MOTOR ---
-            talalt_kellekek_listaja = [] # Ebben gyűjtjük a külön sorokat
+            talalt_kellekek_listaja = [] # Ebben gyűjtjük a külön sorokat (A ReportLab ezt olvassa!)
             
             if kulcs_api_datum != "NINCS" and etlap_api_df is not None and not etlap_api_df.empty:
                 var_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
@@ -219,39 +219,27 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     talalt_kellekek = []
                     napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
                     
-            # --- INTELLIGENS KELLÉK ÉS DINAMIKUS MÉRETEZÉS MOTOR ---
-            talalt_kellekek_listaja = [] # Ebben gyűjtjük a külön sorokat
-            
-            if kulcs_api_datum != "NINCS" and etlap_api_df is not None and not etlap_api_df.empty:
-                var_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
-                napi_oszlop = next((col for col in etlap_api_df.columns if var_nap_szamokkal in "".join(filter(str.isdigit, str(col)))), None)
-                
-                if napi_oszlop:
-                    talalt_kellekek = []
-                    napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
-                    
-                    # --- GOLYÓÁLLÓ KELLÉK KERESŐ (JAVÍTOTT, EREDETI API KERESÉSSEL) ---
+                    # --- GOLYÓÁLLÓ KELLÉK KERESŐ ---
                     for blokk in napi_blokkok:
                         found_orders = re.findall(ORDER_PAT, blokk.upper())
                         for qty, code in found_orders:
                             nyers_kod = code.strip()          
                             
-                            # 🌟 1. LÉPÉS: Ha a rendelési kódban nincs csillag (pl. R1, R2, R1K, R2K), azonnal eldobjuk!
+                            # 1. LÉPÉS: Csillag ellenőrzése
                             if '*' not in str(nyers_kod):
                                 continue
                                 
-                            # 2. LÉPÉS: Letisztítjuk a csillagot az API-hoz (pl. "L2K*" -> "L2K")
+                            # 2. LÉPÉS: Tisztítás az API-hoz
                             tiszta_kod = nyers_kod.replace('*', '').strip()  
                             
-                            # 🌟 3. LÉPÉS: HELYREÁLLÍTOTT EREDETI KERESÉS! 
-                            # A startswith tökéletesen megtalálja az "L2" kódot az "L2K" tiszta kód alapján is!
+                            # 3. LÉPÉS: API Étlap keresés startswith-el
                             etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
                             
                             if not etel_sor.empty:
                                 etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
                                 tisztitott_etel_nev = clean_text(etel_nev)
                                 
-                                # 4. LÉPÉS: Lekérjük a Master Adatbázisból a kelléket
+                                # 4. LÉPÉS: Master Adatbázis keresés
                                 match_row = master_df[master_df['Tisztított Név'] == tisztitott_etel_nev] if master_df is not None else None
                                 
                                 if match_row is not None and not match_row.empty:
@@ -260,10 +248,10 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                                     if master_kellek_nyers and master_kellek_nyers.lower() != 'nan':
                                         kellek_tiszta = master_kellek_nyers.replace('*', '').strip().upper()
                                         
-                                        # Mentjük a listába az eredeti csillagos kóddal (pl. "L2K*: ZSEMLEKOCKÁK")
+                                        # Eredeti nyers kóddal mentünk (pl. "L2K*")
                                         talalt_kellekek.append(f"{nyers_kod}: {kellek_tiszta}")
                     
-                    # Összevonjuk a talált kellékeket kódok szerint
+                    # 🌟 ÖSSZEVONÁS ÉS FORMÁZÁS (SZIGORÚAN A NAPI_OSZLOP-ON BELÜL!)
                     if talalt_kellekek:
                         kellek_szotar = {}
                         for item in talalt_kellekek:
@@ -278,6 +266,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                         
                         for nev, kodok in kellek_szotar.items():
                             kodok_szoveg = ", ".join(sorted(kodok))
+                            # Ide gyűjtjük be a formázott szöveget a ReportLab számára!
                             talalt_kellekek_listaja.append(f"• {kodok_szoveg}: {nev}")
 
             # --- DINAMIKUS RENDELÉS BETŰMÉRET SZABÁLYOZÁS (PÉNTEKI 16 TÉTELES VÉDELEM) ---

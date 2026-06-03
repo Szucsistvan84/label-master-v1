@@ -59,39 +59,6 @@ def clean_text(text):
     text = "".join(c for c in unicodedata.normalize('NFD', text) if unicodedata.category(c) != 'Mn')
     return re.sub(r'[^a-z0-9]', '', text)
 
-def format_kellek_alert(pdf_kod, pdf_nev, master_df):
-    """
-    Meghatározza a kellék riasztást a szigorú csillagos szabály szerint.
-    Ha a kód csillagos, de nincs kellék az adatbázisban, figyelmeztetést küld a debuggernek.
-    """
-    if master_df is None or master_df.empty: 
-        return ""
-        
-    # 🌟 AZ ALAPSZABÁLY: Ha a rendelési cikkszámban nincs csillag, 
-    # akkor azonnal kilépünk, mert a nagy adagba bele van csomagolva!
-    if '*' not in str(pdf_kod):
-        return ""
-        
-    tiszta_nev = clean_text(pdf_nev)
-    match = master_df[master_df['Tisztított Név'] == tiszta_nev]
-
-    # Ha megtaláltuk az ételt az adatbázisban
-    if not match.empty:
-        kellek = str(match.iloc[0]['Kellék']).strip()
-        
-        # FIX: Ha a cella üres, 'nan', vagy hiányzik, de a kód csillagos volt -> HIÁNYZÓ KELLÉK!
-        if not kellek or kellek.lower() == "nan" or kellek == "":
-            print(f"❌ DEBUGGER FIGYELMEZTETÉS: Hiányzó kellék megnevezés a(z) {pdf_kod} cikkszámú és [{pdf_nev}] nevű termékhez a Master Adatbázisban!")
-            return ""
-            
-        # Ha minden rendben, visszaadjuk a megtisztított kelléket (Tzatziki elejéről a * is lekerül, ha ottmaradt volna)
-        tiszta_kellek = kellek.replace('*', '').strip().upper()
-        return f"⚠ + {tiszta_kellek}"
-        
-    # Ha magát az ételt sem találjuk a Master Adatbázisban, de a kód csillagos volt:
-    print(f"❌ DEBUGGER FIGYELMEZTETÉS: A(z) [{pdf_nev}] ({pdf_kod}) étel egyáltalnal nem szerepel a Master Adatbázisban, így a kelléke sem határozható meg!")
-    return ""
-
 # --- AKTÍV REPORTLAB FLOWABLE OSZTÁLYOK ---
 
 class Checkbox(Flowable):
@@ -252,27 +219,27 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     talalt_kellekek = []
                     napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
                     
-                    # --- GOLYÓÁLLÓ KELLÉK KERESŐ (SZIGORÚAN BELÉPÉSI CSILLAG-ELLENŐRZÉSSEL) ---
+                    # --- GOLYÓÁLLÓ KELLÉK KERESŐ (HELYES LOGIKAI SORREND) ---
                     for blokk in napi_blokkok:
                         found_orders = re.findall(ORDER_PAT, blokk.upper())
                         for qty, code in found_orders:
                             nyers_kod = code.strip()          
                             
-                            # 🌟 AZ ARANY SZABÁLY: Ha a rendelési kód nem tartalmaz csillagot (pl. R1, R2, R1K, R2K),
-                            # akkor azonnal eldobjuk és ugrunk a következő tételre! Nincs API és Master keresgélés!
+                            # 🌟 1. LÉPÉS: AZONNALI SZŰRÉS! Ha a rendelési kódban nincs csillag,
+                            # akkor azonnal ugrunk a következő tételre. (Pl. R1, R2, R1K azonnal kiesik!)
                             if '*' not in nyers_kod:
                                 continue
                                 
-                            # Mivel van benne csillag, letisztítjuk és azonosítjuk az ételt
+                            # 2. LÉPÉS: Csak ha csillagos, akkor tisztítjuk meg a kódot az API-hoz
                             tiszta_kod = nyers_kod.replace('*', '').strip()  
                             
-                            # Pontos kiinduló kód alapú illesztés az API étlapon
+                            # 3. LÉPÉS: Megkeressük az ételt az API étlapon (az eredeti startswith logikáddal!)
                             etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
                             if not etel_sor.empty:
                                 etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
                                 tisztitott_etel_nev = clean_text(etel_nev)
                                 
-                                # Lekérjük a Master Adatbázisból a kelléket
+                                # 4. LÉPÉS: Lekérjük a Master Adatbázisból a kelléket
                                 match_row = master_df[master_df['Tisztított Név'] == tisztitott_etel_nev] if master_df is not None else None
                                 
                                 if match_row is not None and not match_row.empty:
@@ -281,7 +248,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                                     if master_kellek_nyers and master_kellek_nyers.lower() != 'nan':
                                         kellek_tiszta = master_kellek_nyers.replace('*', '').strip().upper()
                                         
-                                        # Hozzáadjuk a listához a pontos, csillagos nyers kódot (így R1K* vagy R2K* lesz a címkén!)
+                                        # Mentjük a listába (az eredeti nyers kóddal, pl. "L2K*: ZSEMLEKOCKÁK")
                                         talalt_kellekek.append(f"{nyers_kod}: {kellek_tiszta}")
                     
                     # Összevonjuk a talált kellékeket kódok szerint

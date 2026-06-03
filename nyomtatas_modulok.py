@@ -219,22 +219,34 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     talalt_kellekek = []
                     napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
                     
-                    # --- GOLYÓÁLLÓ KELLÉK KERESŐ (HELYES LOGIKAI SORREND) ---
+            # --- INTELLIGENS KELLÉK ÉS DINAMIKUS MÉRETEZÉS MOTOR ---
+            talalt_kellekek_listaja = [] # Ebben gyűjtjük a külön sorokat
+            
+            if kulcs_api_datum != "NINCS" and etlap_api_df is not None and not etlap_api_df.empty:
+                var_nap_szamokkal = "".join(filter(str.isdigit, kulcs_api_datum))
+                napi_oszlop = next((col for col in etlap_api_df.columns if var_nap_szamokkal in "".join(filter(str.isdigit, str(col)))), None)
+                
+                if napi_oszlop:
+                    talalt_kellekek = []
+                    napi_blokkok = str(r.get('Rendelés_Full', '')).split('|')
+                    
+                    # --- GOLYÓÁLLÓ KELLÉK KERESŐ (JAVÍTOTT, EREDETI API KERESÉSSEL) ---
                     for blokk in napi_blokkok:
                         found_orders = re.findall(ORDER_PAT, blokk.upper())
                         for qty, code in found_orders:
                             nyers_kod = code.strip()          
                             
-                            # 🌟 1. LÉPÉS: AZONNALI SZŰRÉS! Ha a rendelési kódban nincs csillag,
-                            # akkor azonnal ugrunk a következő tételre. (Pl. R1, R2, R1K azonnal kiesik!)
-                            if '*' not in nyers_kod:
+                            # 🌟 1. LÉPÉS: Ha a rendelési kódban nincs csillag (pl. R1, R2, R1K, R2K), azonnal eldobjuk!
+                            if '*' not in str(nyers_kod):
                                 continue
                                 
-                            # 2. LÉPÉS: Csak ha csillagos, akkor tisztítjuk meg a kódot az API-hoz
+                            # 2. LÉPÉS: Letisztítjuk a csillagot az API-hoz (pl. "L2K*" -> "L2K")
                             tiszta_kod = nyers_kod.replace('*', '').strip()  
                             
-                            # 3. LÉPÉS: Megkeressük az ételt az API étlapon (az eredeti startswith logikáddal!)
+                            # 🌟 3. LÉPÉS: HELYREÁLLÍTOTT EREDETI KERESÉS! 
+                            # A startswith tökéletesen megtalálja az "L2" kódot az "L2K" tiszta kód alapján is!
                             etel_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(tiszta_kod, na=False)]
+                            
                             if not etel_sor.empty:
                                 etel_nev = str(etel_sor.iloc[0][napi_oszlop]).strip()
                                 tisztitott_etel_nev = clean_text(etel_nev)
@@ -248,7 +260,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                                     if master_kellek_nyers and master_kellek_nyers.lower() != 'nan':
                                         kellek_tiszta = master_kellek_nyers.replace('*', '').strip().upper()
                                         
-                                        # Mentjük a listába (az eredeti nyers kóddal, pl. "L2K*: ZSEMLEKOCKÁK")
+                                        # Mentjük a listába az eredeti csillagos kóddal (pl. "L2K*: ZSEMLEKOCKÁK")
                                         talalt_kellekek.append(f"{nyers_kod}: {kellek_tiszta}")
                     
                     # Összevonjuk a talált kellékeket kódok szerint

@@ -2386,6 +2386,18 @@ def merge_data(all_rows):
         combined = all_rows
     # -------------------------
 
+    # 🛑 1. BIZTONSÁGI SZŰRÉS: Kidobjuk a lemondott/üres sorokat még az összefésülés ELŐTT
+    if 'Rendelés_Full' in combined.columns:
+        combined = combined[combined['Rendelés_Full'].astype(str).str.strip() != ""]
+        combined = combined[combined['Rendelés_Full'].notna() & (combined['Rendelés_Full'].astype(str).str.lower() != 'nan')]
+    if 'Rendelés' in combined.columns:
+        combined = combined[combined['Rendelés'].astype(str).str.strip() != ""]
+        combined = combined[combined['Rendelés'].notna() & (combined['Rendelés'].astype(str).str.lower() != 'nan')]
+
+    # Ha a szűrés után nem maradt adat, üres DataFrame-et adunk vissza
+    if combined.empty:
+        return pd.DataFrame()
+
     merged = []
     unique_ids = combined['temp_id'].unique()
     
@@ -2395,7 +2407,6 @@ def merge_data(all_rows):
         
         # 🟢 ÚJ: Megtartjuk a PDF-ből jövő egyedi járatszámot ennél az ügyfélnél
         if 'pdf_jarat' in subset.columns:
-            # Ha valamiért eltérne a csoporton belül, az első érvényeset vesszük ki
             nem_ures_jarat = subset['pdf_jarat'].dropna().astype(str).str.strip()
             nem_ures_jarat = nem_ures_jarat[nem_ures_jarat != ""]
             if not nem_ures_jarat.empty:
@@ -2406,7 +2417,8 @@ def merge_data(all_rows):
             all_orders = []
             for _, r in subset.iterrows():
                 o_str = str(r.get('Rendelés_Full', '')).strip()
-                if o_str: all_orders.append(o_str)
+                if o_str and o_str.lower() != 'nan': 
+                    all_orders.append(o_str)
             base['Rendelés_Full'] = " | ".join(all_orders)
             
             # DB összeadása
@@ -2427,6 +2439,14 @@ def merge_data(all_rows):
     
     res = pd.DataFrame(merged)
     
+    # 🛑 2. BIZTONSÁGI SZŰRÉS: Ha az összefűzés után maradt volna üres vagy 'nan' rendelés, azt is kiszűrjük
+    if 'Rendelés_Full' in res.columns:
+        res = res[res['Rendelés_Full'].astype(str).str.strip() != ""]
+        res = res[res['Rendelés_Full'].notna() & (res['Rendelés_Full'].astype(str).str.lower() != 'nan')]
+    
+    if res.empty:
+        return pd.DataFrame()
+    
     # 🟢 ÚJ: Áttesszük a hivatalos 'Járat' oszlopba a kinyert egyedi járatokat
     if 'pdf_jarat' in res.columns:
         res['Járat'] = res['pdf_jarat'].astype(str).str.strip()
@@ -2434,7 +2454,7 @@ def merge_data(all_rows):
     # Biztosítjuk a tiszta oszlopneveket
     res.columns = [c.strip() for c in res.columns]
     
-    # Automatikus sorszámozás 1-től
+    # Automatikus sorszámozás 1-től (Ez így most már a lemondások NÉLKÜLI tiszta sorszám lesz!)
     res['Sorrend'] = range(1, len(res) + 1)
     
     # A csoportosítási rész maradhat változatlanul:

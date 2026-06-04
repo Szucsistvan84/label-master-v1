@@ -258,6 +258,18 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
 
             # Sortörések formázása a ReportLab számára
             rendeles_szoveg = rendeles_szoveg.replace('|', '<br/>').strip()
+            
+            # --- SZOMBATI RENDELÉSEK FÉLKÖVÉRRÉ TÉTELE ---
+            if "Szo:" in rendeles_szoveg:
+                uj_sorok = []
+                for sor in rendeles_szoveg.split('<br/>'):
+                    sor_strip = sor.strip()
+                    if sor_strip.startswith("Szo:"):
+                        # A szombati sor elejét és végét is közrefogjuk a félkövér <b> tag-gel
+                        uj_sorok.append(f"<b>{sor_strip}</b>")
+                    else:
+                        uj_sorok.append(sor)
+                rendeles_szoveg = "<br/>".join(uj_sorok)
 
             # --- DINAMIKUS RENDELÉS BETŰMÉRET ÉS IN-LINE KELLÉK MEGJELENÍTÉS ---
             # Most már a frissített, sorfolytonos 'rendeles_szoveg' változót használjuk!

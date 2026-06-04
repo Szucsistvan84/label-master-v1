@@ -264,9 +264,10 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                 uj_sorok = []
                 for sor in rendeles_szoveg.split('<br/>'):
                     sor_strip = sor.strip()
-                    if sor_strip.startswith("Szo:"):
-                        # A szombati sor elejét és végét is közrefogjuk a félkövér <b> tag-gel
-                        uj_sorok.append(f"<b>{sor_strip}</b>")
+                    # A startswith helyett az 'in'-nel biztosítjuk, hogy akkor is megtalálja, ha van előtte szóköz
+                    if "Szo:" in sor_strip:
+                        # A sima <b> helyett a ReportLab-nek dedikáltan átadjuk a f_bold (DejaVu-Bold) fontot tagként
+                        uj_sorok.append(f'<font name="{f_bold}">{sor_strip}</font>')
                     else:
                         uj_sorok.append(sor)
                 rendeles_szoveg = "<br/>".join(uj_sorok)

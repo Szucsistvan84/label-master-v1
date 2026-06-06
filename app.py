@@ -2760,7 +2760,7 @@ def main():
             
             # 🌟 ÚJ MENÜVÁLASZTÓ AZ ADMINOKNAK
             if is_admin:
-                admin_funkcio = st.sidebar.radio(
+                admin_funkcio = st.radio(
                     "📌 Válassz funkciót:",
                     ["📋 Raklista & Étlap Kezelés", "🚚 Logisztikai Központ & Stand"]
                 )
@@ -2771,6 +2771,25 @@ def main():
             st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
             st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
             kivalasztott_datum = st.date_input("📅 Kiszállítás dátuma (Névnaphoz)")
+            
+            # ==================================================================
+            # 🧪 GLOBÁLIS TESZT ÜZEMMÓD KAPCSOLÓ (A Kezelés blokk alján)
+            # ==================================================================
+            st.divider()
+            
+            if 'teszt_uzemmod' not in st.session_state:
+                st.session_state.teszt_uzemmod = False
+                
+            st.session_state.teszt_uzemmod = st.toggle(
+                "🧪 TESZT ÜZEMMÓD (Nincs mentés)", 
+                value=st.session_state.teszt_uzemmod, 
+                help="Ha bekapcsolod, sem a PDF feldolgozás, sem a mobil terminál nem fog írni a Google Sheets-be!"
+            )
+            
+            if st.session_state.teszt_uzemmod:
+                st.warning("⚠️ Adatbázis mentés letiltva (Asztali + Mobil)!")
+            # ==================================================================
+            
             st.divider()
 
             # ADMINISZTRÁCIÓS SZAKASZ (Csak jogosultaknak)

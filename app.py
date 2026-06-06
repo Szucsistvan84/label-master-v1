@@ -3055,9 +3055,8 @@ def main():
                                 if 'Megjegyzés' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][megj_idx] = str(row['Megjegyzés']).strip()
                                 elif 'Megjegyzes' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][megj_idx] = str(row['Megjegyzes']).strip()
                                 
-                                if utolso_idx is not None:
-                                    from datetime import datetime
-                                    teljes_adat[sor_mátrix_idx][utolso_idx] = datetime.now().strftime('%Y.%m.%d')
+                                # Kézi adatmódosításnál NEM írjuk felül az Utolso_Rendeles-t a mai nappal, 
+                                # mert az elrontaná a valós szállítási napok követhetőségét! Érintetlenül hagyjuk.
                                     
                                 módosult_darab += 1
                                 
@@ -3075,11 +3074,26 @@ def main():
                                             pass
 
                             if módosult_darab > 0:
-                                ws_ugyfel.update('A1', teljes_adat, value_input_option='RAW')
+                                # ------------------------------------------------------------------
+                                # INNEN INDUL A MENTÉS ELŐTTI AUTOMATIKUS TÍPUSTISZTÍTÓ SZŰRŐNK!
+                                # ------------------------------------------------------------------
+                                # Visszaalakítjuk DataFrame-mé az adatokat, hogy átengedhessük a központi tisztítón
+                                df_teljes_tisztitasra = pd.DataFrame(teljes_adat[1:], columns=fejlec)
+                                
+                                # Átfuttatjuk a kötelező szigorú szűrőnkön
+                                df_teljes_tisztitott = kotelezo_ugyfelkor_formatum_tisztitas(df_teljes_tisztitasra)
+                                
+                                # Visszaalakítjuk a tisztított fésült listát a Google Sheets formátumra (fejléccel együtt)
+                                tiszta_mentendo_lista = [fejlec] + df_teljes_tisztitott.values.tolist()
+                                
+                                # Mentés a Google Sheets-be szigorúan RAW formátumban (hogy a stringek szövegek maradjanak)
+                                ws_ugyfel.update('A1', tiszta_mentendo_lista, value_input_option='RAW')
+                                # ------------------------------------------------------------------
+                                
                                 if 'google_data_loaded' in st.session_state:
                                     del st.session_state['google_data_loaded']
                                     
-                                st.success(f"🎉 Siker! Összesen {módosult_darab} ügyfél adatai elmentve a felhőbe, mindössze 1 API hívással!")
+                                st.success(f"🎉 Siker! Összesen {módosult_darab} ügyfél adatai formázva és elmentve a felhőbe, 1 API hívással!")
                                 st.balloons()
                                 st.rerun()
                             else:

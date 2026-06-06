@@ -3291,7 +3291,12 @@ def main():
                 
                 alap_url = "https://interfood-menetterv-etikett-generator.streamlit.app" 
                 jarat_id = meta.get('jarat', '')
-                mobil_link = f"{alap_url}/?view=mobile&jarat={jarat_id}"
+                
+                # Dinamikus teszt paraméter átadása a linknek, ha az asztali gépen aktív a kapcsoló
+                if st.session_state.get('teszt_uzemmod', False):
+                    mobil_link = f"{alap_url}/?view=mobile&jarat={jarat_id}&test=true"
+                else:
+                    mobil_link = f"{alap_url}/?view=mobile&jarat={jarat_id}"
                 
                 import qrcode
                 from io import BytesIO
@@ -3307,6 +3312,10 @@ def main():
                 
                 qr_col1, qr_col2 = st.columns([2, 1])
                 with qr_col1:
+                    # Kis extra figyelmeztetés a felületre, hogy ne tévesszen meg
+                    if st.session_state.get('teszt_uzemmod', False):
+                        st.warning("🧪 **A QR-kód TESZT ÜZEMMÓDRA van felkészítve!** A telefonod nem fog éles adatokat módosítani.")
+                    
                     st.markdown(f"""
                     💡 **Szkenneld be ezt a QR-kódot a telefonoddal**, hogy megnyisd a **Futár Terminált**!
                     * Automatikusan a mobilra optimalizált nézet fog megnyílni.

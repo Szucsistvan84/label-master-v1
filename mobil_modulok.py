@@ -309,13 +309,61 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     st.session_state[f"bepak_allapot_{i}"] = False
                                     st.session_state[f"lada_szam_tarolt_{i}"] = None
 
-                            label = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[bepakolt_kulcs] else "Bepakolás a ládába"
+                            label = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[lada_tarolt_kulcs] else "Bepakolás a ládába"
                             st.checkbox(label, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}", on_change=log_lada)
                             st.write("---")
                 
                 # Kártyák kirajzolása
                 render_kartyak(df_forditott)
                 
+                # ==============================================================================
+                # 🔥 ÚJ FUNKCIÓ: 2. LÉPÉS LEZÁRÁSA ÉS INDULÁS A CÍMEKRE
+                # ==============================================================================
+                st.write("")
+                st.write("---")
+                st.subheader("🏁 Bepakolás Lezárása")
+                st.info("Ha minden címet berendeztél a ládákba, zárd le a fázist az induláshoz!")
+                
+                if st.button("📦 LÁDÁZÁS ÉS BEPAKOLÁS KÉSZ (Indulás)", use_container_width=True, type="primary", key="futar_bepakolas_kesz_btn"):
+                    
+                    # 1. Állapot átírása, hogy a 3. lépés (Kiszállítás) fül aktívvá váljon
+                    st.session_state.kiszallitas_folyamatban = True
+                    
+                    # 2. TESZT ÜZEMMÓD ELLENŐRZÉSE
+                    if st.session_state.get('teszt_uzemmod', False):
+                        st.warning("🧪 **Teszt üzemmód aktív!** A bepakolás lezárását sikeresen szimuláltuk, a kiszállítás fül megnyílt. A Google Sheets-be NEM mentettünk időbélyeget.")
+                        time.sleep(2.0)
+                        st.rerun()
+                    else:
+                        # ÉLES IDŐBÉLYEGZŐ MENTÉS A GOOGLE TABLES-BE
+                        try:
+                            sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
+                            idok_sheet = sh_ugyfelkor.worksheet("Mobil_Idobelyegek")
+                            
+                            most = datetime.now()
+                            bepakolas_vege_ido = most.strftime("%H:%M:%S")
+                            mai_datum = most.strftime("%Y-%m-%d")
+                            futar_neve = st.session_state.get('user_nev', 'Ismeretlen Futár')
+                            jarat_szoveg = ", ".join(map(str, valasztott_jaratok))
+                            
+                            # Megpróbáljuk frissíteni az 1. lépésben már létrehozott időbélyeg-sort
+                            sor_szam = st.session_state.get('idobelyeg_sor_index')
+                            if sor_szam:
+                                # Tegyük fel, hogy az 5. oszlop az áruátvétel vége, a 6. oszlop a bepakolás vége (igazítsd a táblázatodhoz!)
+                                idok_sheet.update_cell(sor_szam, 6, bepakolas_vege_ido)
+                            else:
+                                # Ha valamiért nem volt meg a sor indexe, új sort fűzünk hozzá
+                                idok_sheet.append_row([mai_datum, jarat_szoveg, futar_neve, "", bepakolas_vege_ido])
+                            
+                            st.success(f"🎉 Bepakolás lezárva ({bepakolas_vege_ido})! Jó utat kívánunk! 🚚")
+                            time.sleep(1.5)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Hiba az éles időbélyeg mentésekor: {e}")
+                            # Hiba esetén is engedjük tovább a futárt a felületen, ne akadjon el az úton
+                            time.sleep(2.0)
+                            st.rerun()
+                            
             else:
                 st.error("Az Adatok munkalap üres!")
         else:

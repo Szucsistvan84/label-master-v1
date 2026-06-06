@@ -38,6 +38,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ==============================================================================
+# 🧪 URL PARAMÉTEREK ÉS TESZT MÓD INICIALIZÁLÁSA
+# ==============================================================================
+if 'teszt_uzemmod' not in st.session_state:
+    st.session_state.teszt_uzemmod = False
+
+# Ha a mobilos vagy asztali URL-ből jön a teszt jelzés, kényszerítjük a teszt módot
+if "test" in st.query_params and st.query_params["test"] == "true":
+    st.session_state.teszt_uzemmod = True
+# ==============================================================================
+
 # --- GEOCODING (CÍMKERESŐ) SETUP ---
 geolocator = Nominatim(user_agent="futarszoli_app")
 geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)

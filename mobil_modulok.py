@@ -157,23 +157,28 @@ def render_mobil_aruatvetel(client):
                 
                 if st.button("⚠️ HIBA BEKÜLDÉSE AZ ADMINNAK", use_container_width=True, key="mob_hiba_submit"):
                     if hiba_etel != "":
-                        try:
-                            hibak_sheet = sh_ugyfelkor.worksheet("Logisztikai_Hibak")
-                            most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            if hiba_tipus == "Többlet (Többet kaptunk)":
-                                fokategoria = "ÁRUÁTVÉTELI TÖBBLET"
-                                hiany_db, tobblet_db = 0, int(hiba_db)
-                            else:
-                                fokategoria = "ÁRUÁTVÉTELI HIÁNY"
-                                hiany_db, tobblet_db = int(hiba_db), 0
-                            
-                            hibak_sheet.append_row([
-                                most_hiba, hiba_melyik_jarat, fokategoria, "N/A", hiba_etel, 
-                                hiany_db, tobblet_db, hiba_tipus, hiba_megj, futar_neve, "Feldolgozatlan"
-                            ])
-                            st.success("Sikeresen rögzítve! ✅")
-                        except Exception as e:
-                            st.error(f"Hiba a mentésnél: {e}")
+                        # --- TESZT ÜZEMMÓD ELLENŐRZÉSE ---
+                        if st.session_state.get('teszt_uzemmod', False):
+                            st.warning("🧪 **Teszt üzemmód aktív mobilon is!** A hibabejelentést sikeresen szimuláltuk, de a Google Sheets-be (Logisztikai_Hibak) NEM mentettünk semmit.")
+                        else:
+                            # ÉLES MENTÉS (A jól működő eredeti kódod)
+                            try:
+                                hibak_sheet = sh_ugyfelkor.worksheet("Logisztikai_Hibak")
+                                most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                if hiba_tipus == "Többlet (Többet kaptunk)":
+                                    fokategoria = "ÁRUÁTVÉTELI TÖBBLET"
+                                    hiany_db, tobblet_db = 0, int(hiba_db)
+                                else:
+                                    fokategoria = "ÁRUÁTVÉTELI HIÁNY"
+                                    hiany_db, tobblet_db = int(hiba_db), 0
+                                    
+                                hibak_sheet.append_row([
+                                    most_hiba, hiba_melyik_jarat, fokategoria, "N/A", hiba_etel, 
+                                    hiany_db, tobblet_db, hiba_tipus, hiba_megj, futar_neve, "Feldolgozatlan"
+                                ])
+                                st.success("Sikeresen rögzítve! ✅")
+                            except Exception as e:
+                                st.error(f"Hiba a mentésnél: {e}")
                     else:
                         st.warning("Kérlek válaszd ki az ételt!")
 

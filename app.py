@@ -3089,17 +3089,14 @@ def main():
                             
                             # 2. Összes étel adagszáma (ha van 'Mennyiség' oszlop, összeadjuk, különben a sorok száma)
                             if 'Mennyiség' in df_temp.columns:
-                                import pandas as pd # Biztos ami biztos, ha még nem lenne importálva
                                 szamitott_osszes_etel = int(pd.to_numeric(df_temp['Mennyiség'], errors='coerce').sum())
                             else:
                                 szamitott_osszes_etel = len(df_temp)
                             
                             # 3. Forgalmi érték számítása (Ha van 'Ár' vagy 'Összeg' oszlopod. Ha nincs, marad 0)
                             if 'Ár' in df_temp.columns:
-                                import pandas as pd
                                 szamitott_total_ertek = int(pd.to_numeric(df_temp['Ár'], errors='coerce').sum())
                             elif 'Összeg' in df_temp.columns:
-                                import pandas as pd
                                 szamitott_total_ertek = int(pd.to_numeric(df_temp['Összeg'], errors='coerce').sum())
                             else:
                                 szamitott_total_ertek = 0

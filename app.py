@@ -2758,12 +2758,102 @@ def main():
         st.title("📱 Futár Terminál")
         st.caption(f"Bejelentkezve: {st.session_state.user_nev}")
         
+        # ==============================================================================
+        # 📊 INTELIGENS FUTÁR MŰSZERFAL (GLOBÁLIS MOBIL SIDEBAR)
+        # ==============================================================================
+        with st.sidebar:
+            st.markdown("<h2 style='text-align: center; color: #1E3A8A;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
+            
+            # Alapadatok kiírása
+            futar_nev_kiir = st.session_state.get('user_nev', 'Ismeretlen Futár')
+            jarat_lista_kiir = st.session_state.get('user_jarat_lista', [])
+            jarat_szoveg_kiir = ", ".join(map(str, jarat_lista_kiir)) if jarat_lista_kiir else "Nincs"
+            
+            st.write(f"👤 **Futár:** {futar_nev_kiir}")
+            st.write(f"🚚 **Járat(ok):** {jarat_szoveg_kiir}")
+            st.write("---")
+
+            # --- 1. STATISZTIKÁK (A memóriában lévő adatokból vagy PDF metaadatból) ---
+            meta_forras = st.session_state.get('meta_data')
+            if not isinstance(meta_forras, dict):
+                meta_forras = {}
+
+            # Biztonságos adatkinyerés alapértelmezett értékekkel (ha még nincs betöltve)
+            osszes_cim = meta_forras.get('osszes_cim', 0)
+            osszes_etel = meta_forras.get('osszes_etel', 0)
+            forgalmi_ertek = meta_forras.get('total_ertek', 0)
+            jutalek = meta_forras.get('futar_jutalek', 0)
+
+            st.subheader("💰 Pénzügy & Mennyiség")
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                st.metric("Összes cím", f"{osszes_cim} db")
+                st.metric("Forgalom", f"{forgalmi_ertek:,} Ft".replace(",", " "))
+            with col_s2:
+                st.metric("Összes étel", f"{osszes_etel} adag")
+                st.metric("Jutalékod", f"{jutalek:,} Ft".replace(",", " "))
+                
+            st.write("---")
+
+            # --- 2. FOLYAMATJELZŐ (Kiszállítás haladása) ---
+            st.subheader("🏁 Kiszállítás Haladás")
+            
+            # Megszámoljuk a már sikeresen kiszállított címeket a session_state-ből
+            kesz_cimek_szama = 0
+            for k in st.session_state.keys():
+                if k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres":
+                    kesz_cimek_szama += 1
+                    
+            if osszes_cim > 0:
+                haladas_szazalek = min(1.0, kesz_cimek_szama / osszes_cim)
+            else:
+                haladas_szazalek = 0.0
+                
+            st.progress(haladas_szazalek)
+            st.caption(f"Teljesítve: {kesz_cimek_szama} / {osszes_cim} cím ({int(haladas_szazalek * 100)}%)")
+            st.write("---")
+
+            # --- 3. MENET KÖZBENI SÜRGŐS HIBABEJELENTŐ ---
+            st.subheader("⚠️ Probléma az úton?")
+            with st.expander("🚨 SÜRGŐS HIBABEJELENTÉS"):
+                st.write("Sérült, elcserélt vagy elhagyott étel esetén itt jelezheted a központnak:")
+                
+                # A 'datetime' és 'time' modulokat az app.py tetején importálni kell, ha még nincsenek!
+                from datetime import datetime
+                
+                st_hiba_tipus = st.selectbox("Hiba jellege:", ["Sérült étel (kifolyt/kilyukadt)", "Elcserélt étel", "Hiányzó/Elhagyott étel"], key="sidebar_hiba_tipus")
+                st_hiba_vevo = st.text_input("Vevő neve / Címe:", placeholder="Pl. Kovács Péter, Fő utca 12.", key="sidebar_hiba_vevo")
+                st_hiba_leiras = st.text_area("Rövid leírás (Melyik étel?):", placeholder="Pl. A zóna rántott hús doboza elrepedt, kifolyt.", key="sidebar_hiba_leiras")
+                
+                if st.button("🚨 HIBA KÜLDÉSE A DISZPÉCSERNEK", type="primary", use_container_width=True, key="sidebar_hiba_submit_btn"):
+                    if not st_hiba_vevo or not st_hiba_leiras:
+                        st.error("❌ Kérlek, add meg a vevőt és a leírást!")
+                    else:
+                        is_test_mode = st.query_params.get("test", "false") == "true" or st.session_state.get('teszt_uzemmod', False)
+                        
+                        if is_test_mode:
+                            st.warning(f"🧪 **Teszt mód:** A hibát rögzítettük (Típus: {st_hiba_tipus}, Vevő: {st_hiba_vevo}). Éles mentés nem történt.")
+                        else:
+                            try:
+                                sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
+                                try:
+                                    hibak_sheet = sh_ugyfelkor.worksheet("Hibajelentések")
+                                except:
+                                    hibak_sheet = sh_ugyfelkor.worksheet("Mobil_Idobelyegek")
+                                
+                                most_ido = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                hibak_sheet.append_row([most_ido, futar_nev_kiir, jarat_szoveg_kiir, st_hiba_tipus, st_hiba_vevo, st_hiba_leiras])
+                                st.success("✅ A hiba sikeresen elküldve! A diszpécser látja.")
+                            except Exception as e:
+                                st.error(f"Mentési hiba: {e}")
+
+        # ==============================================================================
+        # TAB-OK (FÜLEK) INDÍTÁSA
+        # ==============================================================================
         tab1, tab2, tab3 = st.tabs(["1. Áruátvétel 📦", "2. Címekre szedés 📥", "3. Kiszállítás 🚚"])
         
         # --- 1. TAB: ÁRUÁTVÉTEL (Bekötve a tiszta, különálló mobil_modulok.py-ból) ---
         with tab1:
-            # Most már a hitelesített 'client' objektumot adjuk át, 
-            # így a mobil modul eléri mind a két szükséges Google Sheet-et!
             render_mobil_aruatvetel(client)
             
         # --- 2. TAB: CÍMEKRE SZEDÉS (KISZERVEZVE A MODULBA) ---

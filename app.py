@@ -3079,6 +3079,52 @@ def main():
                         
                         st.session_state.mdf = df_temp
                         
+                        # =========================================================================
+                        # 📊 MOBIL MŰSZERFAL ADATAINAK KISZÁMÍTÁSA ÉS MENTÉSE
+                        # =========================================================================
+                        try:
+                            # 1. Összes egyedi cím száma
+                            szamitott_osszes_cim = int(df_temp['Cím'].nunique()) if 'Cím' in df_temp.columns else 0
+                            
+                            # 2. Összes étel adagszáma (ha van 'Mennyiség' oszlop, összeadjuk, különben a sorok száma)
+                            if 'Mennyiség' in df_temp.columns:
+                                import pandas as pd # Biztos ami biztos, ha még nem lenne importálva
+                                szamitott_osszes_etel = int(pd.to_numeric(df_temp['Mennyiség'], errors='coerce').sum())
+                            else:
+                                szamitott_osszes_etel = len(df_temp)
+                            
+                            # 3. Forgalmi érték számítása (Ha van 'Ár' vagy 'Összeg' oszlopod. Ha nincs, marad 0)
+                            if 'Ár' in df_temp.columns:
+                                import pandas as pd
+                                szamitott_total_ertek = int(pd.to_numeric(df_temp['Ár'], errors='coerce').sum())
+                            elif 'Összeg' in df_temp.columns:
+                                import pandas as pd
+                                szamitott_total_ertek = int(pd.to_numeric(df_temp['Összeg'], errors='coerce').sum())
+                            else:
+                                szamitott_total_ertek = 0
+                                
+                            # 4. JUTALÉK SZÁMÍTÁSA (Fixen 350 Ft / cím alapértelmezetten, írd át ha más a matek)
+                            szamitott_jutalek = int(szamitott_osszes_cim * 350) 
+                            
+                        except Exception as e:
+                            # Biztonsági háló hiba esetére
+                            szamitott_osszes_cim = 0
+                            szamitott_osszes_etel = 0
+                            szamitott_total_ertek = 0
+                            szamitott_jutalek = 0
+
+                        # Frissítjük a meglévő meta_data szótárat az új értékekkel
+                        if 'meta_data' not in st.session_state or not isinstance(st.session_state.meta_data, dict):
+                            st.session_state.meta_data = {}
+                            
+                        st.session_state.meta_data.update({
+                            'osszes_cim': szamitott_osszes_cim,
+                            'osszes_etel': szamitott_osszes_etel,
+                            'total_ertek': szamitott_total_ertek,
+                            'futar_jutalek': szamitott_jutalek
+                        })
+                        # =========================================================================
+                        
                         if 'Járat' in df_temp.columns:
                             feltoltott_jaratok = df_temp['Járat'].dropna().astype(str).str.strip().unique().tolist()
                             feltoltott_jaratok = [j for j in feltoltott_jaratok if j != "" and j.lower() != 'nan']
@@ -3087,7 +3133,7 @@ def main():
                         
                         st.success("🎉 A menettervek feldolgozása és a felhő szinkronizáció sikeresen megtörtént!")
 
-            st.divider() 
+            st.divider()
 
             # FŐABLAK MEGJELENÍTÉSE
             if st.session_state.mdf is not None and not st.session_state.mdf.empty:

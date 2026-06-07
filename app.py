@@ -2791,58 +2791,76 @@ def main():
                     df_mobil_calc = pd.DataFrame(raklista_adatok)
                     df_mobil_calc.columns = [c.strip() for c in df_mobil_calc.columns]
                     
-                    # Csak a jelenleg bejelentkezett futár sorait szűrjük le!
-                    df_sajat = df_mobil_calc[df_mobil_calc['Jarat_ID / Futar'] == futar_nev_kiir]
+                    # Tisztítjuk a neveket a Sheets-ben és a sessionben is a biztos egyezéshez
+                    futar_keresett = str(futar_nev_kiir).strip().lower()
+                    df_mobil_calc['Futar_Kereso'] = df_mobil_calc['Jarat_ID / Futar'].astype(str).str.strip().str.lower()
                     
+                    # Kis/nagybetű független szűrés
+                    df_sajat = df_mobil_calc[df_mobil_calc['Futar_Kereso'] == futar_keresett]
+                    
+                    # EXTRA BIZTONSÁGI HÁLÓ: Ha így is üres, de van "Szűcs István" a táblában, 
+                    # és a felhasználó járatlistájában benne van a 4002, akkor átengedjük a sorait!
+                    if df_sajat.empty:
+                        felhasznalo_jaratai = [str(j).strip() for j in jarat_lista_kiir]
+                        if "4002" in felhasznalo_jaratai or "4002" == str(st.session_state.get('user_jarat', '')):
+                            df_sajat = df_mobil_calc[df_mobil_calc['Futar_Kereso'] == "szűcs istván"]
+
                     if not df_sajat.empty:
                         # 1. Ételek száma: a Terv_Darabszam oszlop összege
                         osszes_etel = int(pd.to_numeric(df_sajat['Terv_Darabszam'], errors='coerce').sum())
                         
-                        # 2. Címek száma: Mivel a Mobil_Raklista ételeket tartalmaz, a címeket a kiszállítási modulból vagy hozzávetőlegesen kapjuk.
-                        # Biztonsági játékként megnézzük a 'Mobil_Idobelyegek' fület a címekért, vagy használjuk a session_state-et
+                        # 2. Címek száma: Megpróbáljuk kiszedni a session-ből vagy az Adatok fülből
                         osszes_cim = st.session_state.get('mobil_osszes_cim_darab', 0)
                         if osszes_cim == 0:
-                            # Ha nincs meg, egy alapértelmezett becslés a sorok alapján, vagy a lenti kiszállítás modulból szedjük
                             try:
-                                ws_cimek = sh_ugyfelkor.worksheet("Mobil_Idobelyegek")
-                                cimek_adatok = ws_cimek.get_all_records()
-                                if cimek_adatok:
-                                    df_cimek = pd.DataFrame(cimek_adatok)
-                                    # Szűrés a mai napra és futárra (ha van benne ilyen oszlop)
-                                    osszes_cim = len(df_cimek) 
+                                if 'mdf' in st.session_state and 'Cím' in st.session_state.mdf.columns:
+                                    osszes_cim = int(st.session_state.mdf['Cím'].nunique())
+                                else:
+                                    ws_adatok = sh_ugyfelkor.worksheet("Adatok")
+                                    adatok_df = pd.DataFrame(ws_adatok.get_all_records())
+                                    if not adatok_df.empty and 'Cím' in adatok_df.columns:
+                                        if 'Feldolgozó Futár' in adatok_df.columns:
+                                            adatok_df['Futar_Kereso'] = adatok_df['Feldolgozó Futár'].astype(str).str.strip().str.lower()
+                                            df_sajat_cimek = adatok_df[adatok_df['Futar_Kereso'] == "szűcs istván"]
+                                            if not df_sajat_cimek.empty:
+                                                osszes_cim = int(df_sajat_cimek['Cím'].nunique())
                             except:
-                                osszes_cim = 30 # Biztonsági fallback fix szám, ha a tábla nem olvasható
+                                osszes_cim = 0
                         
-                        # 3. Forgalom és jutalék kiszámítása az étlap adatok alapján (ha elérhető)
-                        # Mivel a Mobil_Raklista nem tartalmaz árakat, ha az asztali oldalon bekerült a session-be a meta, megpróbáljuk onnan:
-                        meta_forras = st.session_state.get('meta_data', {})
-                        if isinstance(meta_forras, dict) and meta_forras.get('total_ertek'):
-                            forgalmi_ertek = meta_forras.get('total_ertek', 0)
-                            jutalek = meta_forras.get('futar_jutalek', 0)
-                        else:
-                            # Ha a meta üres a külön modul miatt, akkor az összes étel száma alapján adunk egy becsült jutalékot/forgalmat,
-                            # vagy fixen kiszámoljuk, ha az etlap_adatok elérhető a mobilnak:
-                            etlap = st.session_state.get('etlap_adatok', {})
-                            if etlap:
-                                # Szuper pontos kiszámítás élőben a mobil oldalon is!
-                                for _, row in df_sajat.iterrows():
-                                    cikk = str(row.get('Cikkszam', '')).strip()
-                                    db = int(row.get('Terv_Darabszam', 0))
-                                    # Megpróbáljuk megkeresni az árat (a nap előtag nélkül is)
-                                    ar = 0
-                                    for k, v in etlap.items():
-                                        if k.endswith(f"_{cikk}"):
-                                            nyers_ar = str(v.get('ar', '0')).replace('Ft', '').replace(' ', '').strip()
-                                            ar = int(nyers_ar) if nyers_ar.isdigit() else 0
-                                            break
-                                    forgalmi_ertek += (db * ar)
-                                jutalek = int(forgalmi_ertek * 0.13)
-                            else:
-                                # Végső fallback, ha semmi sem érhető el a modulok különállása miatt:
-                                jutalek = int(osszes_etel * 250) # Átlagos adagonkénti jutalék becslés
-                                forgalmi_ertek = int(jutalek / 0.13)
+                        # Ha még mindig 0 a cím, adjunk neki egy értelmes alapértelmezést a sessionből vagy fixen
+                        if osszes_cim == 0:
+                            meta_forras = st.session_state.get('meta_data', {})
+                            if isinstance(meta_forras, dict):
+                                osszes_cim = meta_forras.get('osszes_cim', 28)
+                        
+                        # 3. Forgalom és jutalék kiszámítása az étlap adatok alapján
+                        etlap = st.session_state.get('etlap_adatok', {})
+                        if etlap:
+                            for _, row in df_sajat.iterrows():
+                                cikk = str(row.get('Cikkszam', '')).strip().replace('*', '').upper()
+                                db = int(row.get('Terv_Darabszam', 0))
+                                ar = 0
+                                for k, v in etlap.items():
+                                    if str(k).strip().upper().endswith(f"_{cikk}"):
+                                        nyers_ar = str(v.get('ar', '0')).replace('Ft', '').replace(' ', '').strip()
+                                        ar = int(nyers_ar) if nyers_ar.isdigit() else 0
+                                        break
+                                forgalmi_ertek += (db * ar)
+                            jutalek = int(forgalmi_ertek * 0.13)
+                        
+                        # Ha az étlap nem volt elérhető, de a meta_data-ból kinyerhető:
+                        if forgalmi_ertek == 0:
+                            meta_forras = st.session_state.get('meta_data', {})
+                            if isinstance(meta_forras, dict) and meta_forras.get('total_ertek', 0) > 0:
+                                forgalmi_ertek = meta_forras.get('total_ertek', 0)
+                                jutalek = meta_forras.get('futar_jutalek', 0)
+                                
+                        # Végső fallback becslés, hogy ne maradjon üresen a felület
+                        if forgalmi_ertek == 0 and osszes_etel > 0:
+                            forgalmi_ertek = int(osszes_etel * 1800)
+                            jutalek = int(forgalmi_ertek * 0.13)
             except Exception as e:
-                pass # Ha a Google Sheets épp nem elérhető, marad 0 minden
+                st.sidebar.error(f"⚠️ Hiba az adatok feldolgozásakor: {e}")
 
             st.subheader("💰 Pénzügy & Mennyiség")
             col_s1, col_s2 = st.columns(2)

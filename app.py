@@ -2805,35 +2805,44 @@ def main():
                             df_sajat = df_mobil_calc[df_mobil_calc['Futar_Kereso'] == "szűcs istván"]
 
                     if not df_sajat.empty:
-                        # 1. Ételek száma: a Terv_Darabszam oszlop összege (278 adag)
+                        # 1. Ételek száma: ezt mindig az aktuálisan betöltött raklista táblázatból számolja (dinamikus!)
                         osszes_etel = int(pd.to_numeric(df_sajat['Terv_Darabszam'], errors='coerce').sum())
                         
-                        # Alapértelmezett papír szerinti értékek, ha a fül még nem létezne
-                        osszes_cim = 28
-                        forgalmi_ertek = 456605
-                        jutalek = 59358
+                        # 2. MEGÁLLÓK ÉS CÍMEK DINAMIKUS SZÁMÍTÁSA A NAPI ADATOKBÓL
+                        if 'Cim' in df_sajat.columns:
+                            osszes_megallo = int(df_sajat['Cim'].nunique())
+                            osszes_cim = len(df_sajat['Cim'])
+                        elif 'Cím' in df_sajat.columns:
+                            osszes_megallo = int(df_sajat['Cím'].nunique())
+                            osszes_cim = len(df_sajat['Cím'])
+                        else:
+                            # Biztonsági háló: ha nincs meg az oszlop, 0-ról indul, nem égetünk be régi számot!
+                            osszes_megallo = 0
+                            osszes_cim = 0
                         
-                        # 🚀 KÍSÉRLET A PONTOS ADATOK KIOLVASÁSÁRA A GOOGLE SHEETS-BŐL
+                        # Kezdőértékek a pénzügyhöz (ha a Sheets-ből még nem sikerülne beolvasni, 0 legyen, ne a pénteki!)
+                        forgalmi_ertek = 0
+                        jutalek = 0
+                        
+                        # 🚀 KÍSÉRLET A MAI PONTOS ADATOK KIOLVASÁSÁRA A GOOGLE SHEETS-BŐL
                         try:
                             ws_summary = sh_ugyfelkor.worksheet("Mobil_Summary")
                             summary_records = ws_summary.get_all_records()
                             
-                            futar_megtalálva = False
                             for s_row in summary_records:
                                 summary_futar = str(s_row.get('Futar', s_row.get('futar', ''))).strip().lower()
                                 if summary_futar == "szűcs istván" or summary_futar == futar_keresett:
-                                    osszes_cim = int(s_row.get('Cimek', s_row.get('Címek', 28)))
-                                    forgalmi_ertek = int(s_row.get('Forgalom', 456605))
-                                    jutalek = int(s_row.get('Jutalek', s_row.get('Jutalék', 59358)))
-                                    futar_megtalálva = True
+                                    # Ha az irodai feldolgozás már beírta a Sheets-be a mai napot, akkor azt vesszük el:
+                                    osszes_cim = int(s_row.get('Cimek', s_row.get('Címek', osszes_cim)))
+                                    forgalmi_ertek = int(s_row.get('Forgalom', 0))
+                                    jutalek = int(s_row.get('Jutalek', s_row.get('Jutalék', 0)))
                                     break
                         except Exception as sheets_err:
-                            # Ha még nem futott le az irodai mentés, a memóriából próbáljuk meg
+                            # Ha a Sheets épp nem elérhető, megpróbálja a memóriából (session_state) kihalászni a mai adatot
                             meta_forras = st.session_state.get('meta_data', {})
                             if isinstance(meta_forras, dict) and meta_forras.get('total_ertek', 0) > 0:
-                                osszes_cim = meta_forras.get('osszes_cim', 28)
-                                forgalmi_ertek = meta_forras.get('total_ertek', 456605)
-                                jutalek = meta_forras.get('futar_jutalek', 59358)
+                                forgalmi_ertek = meta_forras.get('total_ertek', 0)
+                                jutalek = meta_forras.get('futar_jutalek', 0)
             except Exception as e:
                 st.sidebar.error(f"⚠️ Hiba az adatok feldolgozásakor: {e}")
 

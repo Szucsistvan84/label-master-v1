@@ -2805,54 +2805,70 @@ def main():
                             df_sajat = df_mobil_calc[df_mobil_calc['Futar_Kereso'] == "szűcs istván"]
 
                     if not df_sajat.empty:
-                        # 1. Ételek száma: dinamikusan a napi adatokból
+                        # 1. Ételek száma: dinamikusan a napi raklista adatokból
                         osszes_etel = int(pd.to_numeric(df_sajat['Terv_Darabszam'], errors='coerce').sum())
                         
-                        # 2. MEGÁLLÓK ÉS CÍMEK TŰPONTOS DINAMIKUS SZÁMÍTÁSA
+                        # 2. MEGÁLLÓK ÉS CÍMEK DINAMIKUS SZÁMÍTÁSA (Több járatot és helyettesítést is kezelve!)
                         osszes_megallo = 0
                         osszes_cim = 0
                         
                         try:
-                            # Megpróbáljuk az Adatok fülből vagy a sessionből kiszedni a futár élő címeit
-                            if 'mdf' in st.session_state and not st.session_state.mdf.empty:
-                                df_cimek_forras = st.session_state.mdf
-                            else:
-                                ws_adatok = sh_ugyfelkor.worksheet("Adatok")
-                                df_cimek_forras = pd.DataFrame(ws_adatok.get_all_records())
+                            # Kiolvassuk az Adatok fület, pont úgy, ahogy a mobil kiszállítási modul teszi
+                            ws_adatok = sh_ugyfelkor.worksheet("Adatok")
+                            df_adatok_all = pd.DataFrame(ws_adatok.get_all_records())
                             
-                            if not df_cimek_forras.empty:
-                                # Megkeressük a futár oszlopot (bárhogy is van írva)
-                                for c in df_cimek_forras.columns:
-                                    if c.strip().lower() in ['feldolgozó futár', 'feldolgozo futar', 'futár', 'futar']:
-                                        df_cimek_forras['Futar_Tiszta'] = df_cimek_forras[c].astype(str).str.strip().str.lower()
+                            if not df_adatok_all.empty:
+                                # Egységesítjük az oszlopneveket space-ek nélkül
+                                df_adatok_all.columns = [str(c).strip() for c in df_adatok_all.columns]
+                                
+                                # Megkeressük a Járat oszlopot
+                                jarat_col_name = None
+                                for c in df_adatok_all.columns:
+                                    if 'járat' in c.lower() or 'jarat' in c.lower():
+                                        jarat_col_name = c
                                         break
                                 
-                                # Szűrés az aktuális futárra
-                                df_futar_cimei = df_cimek_forras[df_cimek_forras['Futar_Tiszta'] == futar_keresett]
-                                if df_futar_cimei.empty and futar_keresett == "szűcs istván":
-                                    # Biztonsági háló járat ID alapján, ha a név nem egyezne tökéletesen
-                                    if 'Járat' in df_cimek_forras.columns:
-                                        df_futar_cimei = df_cimek_forras[df_cimek_forras['Járat'].astype(str).str.contains('4002')]
-                                    elif 'Jarat' in df_cimek_forras.columns:
-                                        df_futar_cimei = df_cimek_forras[df_cimek_forras['Jarat'].astype(str).str.contains('4002')]
+                                # Lekérjük a session_state-ből az éppen aktív járatokat (lista)
+                                # Ha nincs meg, akkor fallback-ként az irodai felületről mentett jarat_id-t használjuk
+                                aktiv_jaratok = st.session_state.get('szurt_jaratok', [])
+                                if not aktiv_jaratok and 'jarat_id' in st.session_state:
+                                    aktiv_jaratok = [st.session_state['jarat_id']]
                                 
-                                # Ha sikeresen megvannak a futár sorai az Adatok közül, megszámoljuk a címeket
-                                if not df_futar_cimei.empty:
-                                    cim_oszlop = 'Cím' if 'Cím' in df_futar_cimei.columns else ('Cim' if 'Cim' in df_futar_cimei.columns else '')
-                                    if cim_oszlop:
-                                        osszes_megallo = int(df_futar_cimei[cim_oszlop].nunique())
-                                        osszes_cim = len(df_futar_cimei[cim_oszlop])
+                                # Stringgé alakítjuk a járatokat a pontos illesztéshez
+                                aktiv_jaratok_str = [str(j).strip() for j in aktiv_jaratok]
+                                
+                                if jarat_col_name and aktiv_jaratok_str:
+                                    # Kiszűrjük az ÖSSZES olyan sort, ami az aktív járatok valamelyikéhez tartozik
+                                    df_futar_cimei = df_adatok_all[df_adatok_all[jarat_col_name].astype(str).str.strip().isin(aktiv_jaratok_str)]
+                                    
+                                    if not df_futar_cimei.empty:
+                                        # Megkeressük a Cím oszlopot
+                                        cim_col_name = None
+                                        for c in df_futar_cimei.columns:
+                                            if 'cím' in c.lower() or 'cim' in c.lower():
+                                                cim_col_name = c
+                                                break
+                                        
+                                        if cim_col_name:
+                                            # Megálló: az egyedi fizikai címek száma
+                                            osszes_megallo = int(df_futar_cimei[cim_col_name].astype(str).str.strip().nunique())
+                                            # Cím: az összes leadandó rendelési sor száma ezen a járaton / járatokon
+                                            osszes_cim = len(df_futar_cimei)
+                                        else:
+                                            osszes_cim = len(df_futar_cimei)
+                                            osszes_megallo = osszes_cim
                         except Exception as e_logisztika:
+                            # Ha bármi hiba történne a Sheets elérésekor, ne dőljön össze az app
                             pass
                         
-                        # Végső fallback mentőöv: ha az Adatok fül se hozott eredményt, megnézzük a raklista sorait
+                        # Végső vészhelyzeti fallback: ha a fenti számítás valamiért 0-át adna vissza, 
+                        # akkor se hagyjuk üresen, hanem nézzük meg a raklista egyedi sorait
                         if osszes_cim == 0:
-                            if 'Cim' in df_sajat.columns:
-                                osszes_megallo = int(df_sajat['Cim'].nunique())
-                                osszes_cim = len(df_sajat['Cim'])
-                            elif 'Cím' in df_sajat.columns:
-                                osszes_megallo = int(df_sajat['Cím'].nunique())
-                                osszes_cim = len(df_sajat['Cím'])
+                            for c in df_sajat.columns:
+                                if 'cím' in c.lower() or 'cim' in c.lower():
+                                    osszes_megallo = int(df_sajat[c].nunique())
+                                    osszes_cim = len(df_sajat[c])
+                                    break
                         
                         # Alapértelmezett pénzügyi értékek
                         forgalmi_ertek = 0
@@ -2874,8 +2890,6 @@ def main():
                             if isinstance(meta_forras, dict) and meta_forras.get('total_ertek', 0) > 0:
                                 forgalmi_ertek = meta_forras.get('total_ertek', 0)
                                 jutalek = meta_forras.get('futar_jutalek', 0)
-            except Exception as e:
-                st.sidebar.error(f"⚠️ Hiba az adatok feldolgozásakor: {e}")
 
             # --- METRIKÁK MEGJELENÍTÉSE A KÉPERNYŐN ---
             st.subheader("💰 Pénzügy & Mennyiség")

@@ -359,8 +359,9 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         # Azonnal stabilizáljuk és megtisztítjuk az alapbázist is a memóriában
         df_ugyfelkor_teljes = kotelezo_ugyfelkor_formatum_tisztitas(df_ugyfelkor_teljes)
         
-        # Kinyerjük a szállítás VALÓDI dátumát a meta adatokból (ÉÉÉÉ-HH-NN formátumban)
-        szallitas_napja = meta_auto.get('datum_iso', datetime.now().strftime("%Y-%m-%d"))
+        # Kinyerjük a szállítás VALÓDI dátumát a session_state-ből vagy fallbackként a mai napot
+        meta_forras = st.session_state.get('meta_data', {})
+        szallitas_napja = meta_forras.get('datum_iso', datetime.now().strftime("%Y-%m-%d"))
         
         új_koordináta_számláló = 0
         

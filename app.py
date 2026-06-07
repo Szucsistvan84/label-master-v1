@@ -2547,6 +2547,7 @@ def merge_data(all_rows):
     
 # --- FŐ PROGRAMFUTÁS ---
 def main():
+    import pandas as pd
     # 1. Streamlit alapbeállítás – Ennek KÖTELEZŐEN a legelsőnek kell lennie!
     st.set_page_config(page_title="Interfood Label Master", layout="wide")
 

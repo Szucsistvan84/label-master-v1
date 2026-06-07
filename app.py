@@ -2782,7 +2782,7 @@ def main():
 
             try:
                 # Megnyitjuk a Mobil_Raklista fület, amit az asztali oldal mentett el
-                sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKor if 'SHEET_ID_UGYFELKOR' in locals() else SHEET_ID)
+                sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR if 'SHEET_ID_UGYFELKOR' in locals() else SHEET_ID)
                 ws_raklista = sh_ugyfelkor.worksheet("Mobil_Raklista")
                 raklista_adatok = ws_raklista.get_all_records()
                 

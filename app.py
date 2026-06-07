@@ -2622,16 +2622,28 @@ def main():
             jarat_input = st.text_input("JÁRATSZÁM (vagy Admin):", value=url_jarat, key="login_jarat_field", placeholder="Pl. 4002 vagy admin")
             password_input = st.text_input("JELSZÓ / KÓD:", type="password", key="login_password_field", placeholder="••••••••")
             
-            # TESZT ÜZEMMÓD EXTRA: Ha teszt linkről jött, kap egy gombot a jelszó nélküli belépéshez
+            # TESZT ÜZEMMÓD EXTRA: Ha teszt linkről jött, kap egy gombot a szimulált belépéshez
             if url_teszt and jarat_input:
                 st.info(f"🧪 Szimulált belépés észlelve a(z) {jarat_input} járathoz.")
                 if st.button("🧪 TESZT BELÉPÉS JELSZÓ NÉLKÜL", type="primary", use_container_width=True):
+                    
+                    # Megpróbáljuk kihúzni a PDF-ből beolvasott valódi futárnevet a session_state-ből
+                    meta_forras = st.session_state.get('meta_data', {})
+                    pdf_futar_nev = meta_forras.get('futar_neve', meta_forras.get('futar', ''))
+                    
+                    # Ha van név a PDF-ben (pl. Szűcs István), akkor azonnal azt használjuk,
+                    # ha nincs, akkor alapértelmezetten a te nevedet adjuk meg a teszthez
+                    if pdf_futar_nev:
+                        st.session_state.user_nev = pdf_futar_nev
+                    else:
+                        st.session_state.user_nev = "Szűcs István"
+                    
                     st.session_state.bejelentkezve = True
-                    st.session_state.user_nev = f"Teszt Futár ({jarat_input})"
-                    # Kezeljük, ha a QR-kódban több járat van vesszővel elválasztva (pl: 4002,4003)
+                    # Kezeljük a QR-kódból érkező járatokat listaként
                     st.session_state.user_jarat_lista = [j.strip() for j in str(jarat_input).split(",") if j.strip()]
                     st.session_state.user_szerep = "futar"
-                    st.success("🧪 Sikeres teszt belépés!")
+                    
+                    st.success(f"🧪 Sikeres teszt belépés! Név: {st.session_state.user_nev}")
                     st.rerun()
 
             if st.button("🔑 BIZTONSÁGOS BELÉPÉS", use_container_width=True):

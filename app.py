@@ -2808,7 +2808,7 @@ def main():
                         # 1. Ételek száma: ezt mindig az aktuálisan betöltött raklista táblázatból számolja (dinamikus!)
                         osszes_etel = int(pd.to_numeric(df_sajat['Terv_Darabszam'], errors='coerce').sum())
                         
-                        # 2. MEGÁLLÓK ÉS CÍMEK DINAMIKUS SZÁMÍTÁSA A NAPI ADATOKBÓL
+                        # 2. MEGÁLLÓK ÉS CÍMEK DINAMIKUS SZÁMÍTÁSA A NAPI ADATOKBÓL (Helyben számolva, így mindig pontos!)
                         if 'Cim' in df_sajat.columns:
                             osszes_megallo = int(df_sajat['Cim'].nunique())
                             osszes_cim = len(df_sajat['Cim'])
@@ -2816,15 +2816,15 @@ def main():
                             osszes_megallo = int(df_sajat['Cím'].nunique())
                             osszes_cim = len(df_sajat['Cím'])
                         else:
-                            # Biztonsági háló: ha nincs meg az oszlop, 0-ról indul, nem égetünk be régi számot!
+                            # Biztonsági háló hiba esetére
                             osszes_megallo = 0
                             osszes_cim = 0
                         
-                        # Kezdőértékek a pénzügyhöz (ha a Sheets-ből még nem sikerülne beolvasni, 0 legyen, ne a pénteki!)
+                        # Kezdőértékek a pénzügyhöz
                         forgalmi_ertek = 0
                         jutalek = 0
                         
-                        # 🚀 KÍSÉRLET A MAI PONTOS ADATOK KIOLVASÁSÁRA A GOOGLE SHEETS-BŐL
+                        # 🚀 KÍSÉRLET A MAI PONTOS PÉNZÜGYI ADATOK KIOLVASÁSÁRA A GOOGLE SHEETS-BŐL
                         try:
                             ws_summary = sh_ugyfelkor.worksheet("Mobil_Summary")
                             summary_records = ws_summary.get_all_records()
@@ -2832,13 +2832,13 @@ def main():
                             for s_row in summary_records:
                                 summary_futar = str(s_row.get('Futar', s_row.get('futar', ''))).strip().lower()
                                 if summary_futar == "szűcs istván" or summary_futar == futar_keresett:
-                                    # Ha az irodai feldolgozás már beírta a Sheets-be a mai napot, akkor azt vesszük el:
-                                    osszes_cim = int(s_row.get('Cimek', s_row.get('Címek', osszes_cim)))
+                                    # ⚠️ ITT A TRÜKK: A címeket NEM olvassuk be a Sheetsből, hogy ne írja felül a jót!
+                                    # Csak a tiszta pénzügyi tényeket vesszük el:
                                     forgalmi_ertek = int(s_row.get('Forgalom', 0))
                                     jutalek = int(s_row.get('Jutalek', s_row.get('Jutalék', 0)))
                                     break
                         except Exception as sheets_err:
-                            # Ha a Sheets épp nem elérhető, megpróbálja a memóriából (session_state) kihalászni a mai adatot
+                            # Ha a Sheets épp nem elérhető, megpróbálja a memóriából kihalászni a mai adatot
                             meta_forras = st.session_state.get('meta_data', {})
                             if isinstance(meta_forras, dict) and meta_forras.get('total_ertek', 0) > 0:
                                 forgalmi_ertek = meta_forras.get('total_ertek', 0)
@@ -2846,14 +2846,18 @@ def main():
             except Exception as e:
                 st.sidebar.error(f"⚠️ Hiba az adatok feldolgozásakor: {e}")
 
+            # --- METRIKÁK MEGJELENÍTÉSE A KÉPERNYŐN ---
             st.subheader("💰 Pénzügy & Mennyiség")
             col_s1, col_s2 = st.columns(2)
             with col_s1:
-                st.metric("Összes cím", f"{osszes_cim} db")
-                st.metric("Forgalom", f"{forgalmi_ertek:,} Ft".replace(",", " "))
+                st.metric("📍 Tervezett megállók", f"{osszes_megallo} db")
+                st.metric("🏠 Összes cím (ügyfél)", f"{osszes_cim} db")
             with col_s2:
-                st.metric("Összes étel", f"{osszes_etel} adag")
-                st.metric("Jutalékod", f"{jutalek:,} Ft".replace(",", " "))
+                st.metric("📦 Összes étel", f"{osszes_etel} adag")
+                st.metric("💵 Forgalom", f"{forgalmi_ertek:,} Ft".replace(",", " "))
+                
+            # A jutalékot kitesszük teljes szélességben kiemelve, mert ez a legfontosabb a futárnak
+            st.metric("⭐ Várható Jutalékod", f"{jutalek:,} Ft".replace(",", " "))
                 
             st.write("---")
 

@@ -2805,22 +2805,56 @@ def main():
                             df_sajat = df_mobil_calc[df_mobil_calc['Futar_Kereso'] == "szűcs istván"]
 
                     if not df_sajat.empty:
-                        # 1. Ételek száma: ezt mindig az aktuálisan betöltött raklista táblázatból számolja (dinamikus!)
+                        # 1. Ételek száma: dinamikusan a napi adatokból
                         osszes_etel = int(pd.to_numeric(df_sajat['Terv_Darabszam'], errors='coerce').sum())
                         
-                        # 2. MEGÁLLÓK ÉS CÍMEK DINAMIKUS SZÁMÍTÁSA A NAPI ADATOKBÓL (Helyben számolva, így mindig pontos!)
-                        if 'Cim' in df_sajat.columns:
-                            osszes_megallo = int(df_sajat['Cim'].nunique())
-                            osszes_cim = len(df_sajat['Cim'])
-                        elif 'Cím' in df_sajat.columns:
-                            osszes_megallo = int(df_sajat['Cím'].nunique())
-                            osszes_cim = len(df_sajat['Cím'])
-                        else:
-                            # Biztonsági háló hiba esetére
-                            osszes_megallo = 0
-                            osszes_cim = 0
+                        # 2. MEGÁLLÓK ÉS CÍMEK TŰPONTOS DINAMIKUS SZÁMÍTÁSA
+                        osszes_megallo = 0
+                        osszes_cim = 0
                         
-                        # Kezdőértékek a pénzügyhöz
+                        try:
+                            # Megpróbáljuk az Adatok fülből vagy a sessionből kiszedni a futár élő címeit
+                            if 'mdf' in st.session_state and not st.session_state.mdf.empty:
+                                df_cimek_forras = st.session_state.mdf
+                            else:
+                                ws_adatok = sh_ugyfelkor.worksheet("Adatok")
+                                df_cimek_forras = pd.DataFrame(ws_adatok.get_all_records())
+                            
+                            if not df_cimek_forras.empty:
+                                # Megkeressük a futár oszlopot (bárhogy is van írva)
+                                for c in df_cimek_forras.columns:
+                                    if c.strip().lower() in ['feldolgozó futár', 'feldolgozo futar', 'futár', 'futar']:
+                                        df_cimek_forras['Futar_Tiszta'] = df_cimek_forras[c].astype(str).str.strip().str.lower()
+                                        break
+                                
+                                # Szűrés az aktuális futárra
+                                df_futar_cimei = df_cimek_forras[df_cimek_forras['Futar_Tiszta'] == futar_keresett]
+                                if df_futar_cimei.empty and futar_keresett == "szűcs istván":
+                                    # Biztonsági háló járat ID alapján, ha a név nem egyezne tökéletesen
+                                    if 'Járat' in df_cimek_forras.columns:
+                                        df_futar_cimei = df_cimek_forras[df_cimek_forras['Járat'].astype(str).str.contains('4002')]
+                                    elif 'Jarat' in df_cimek_forras.columns:
+                                        df_futar_cimei = df_cimek_forras[df_cimek_forras['Jarat'].astype(str).str.contains('4002')]
+                                
+                                # Ha sikeresen megvannak a futár sorai az Adatok közül, megszámoljuk a címeket
+                                if not df_futar_cimei.empty:
+                                    cim_oszlop = 'Cím' if 'Cím' in df_futar_cimei.columns else ('Cim' if 'Cim' in df_futar_cimei.columns else '')
+                                    if cim_oszlop:
+                                        osszes_megallo = int(df_futar_cimei[cim_oszlop].nunique())
+                                        osszes_cim = len(df_futar_cimei[cim_oszlop])
+                        except Exception as e_logisztika:
+                            pass
+                        
+                        # Végső fallback mentőöv: ha az Adatok fül se hozott eredményt, megnézzük a raklista sorait
+                        if osszes_cim == 0:
+                            if 'Cim' in df_sajat.columns:
+                                osszes_megallo = int(df_sajat['Cim'].nunique())
+                                osszes_cim = len(df_sajat['Cim'])
+                            elif 'Cím' in df_sajat.columns:
+                                osszes_megallo = int(df_sajat['Cím'].nunique())
+                                osszes_cim = len(df_sajat['Cím'])
+                        
+                        # Alapértelmezett pénzügyi értékek
                         forgalmi_ertek = 0
                         jutalek = 0
                         
@@ -2832,13 +2866,10 @@ def main():
                             for s_row in summary_records:
                                 summary_futar = str(s_row.get('Futar', s_row.get('futar', ''))).strip().lower()
                                 if summary_futar == "szűcs istván" or summary_futar == futar_keresett:
-                                    # ⚠️ ITT A TRÜKK: A címeket NEM olvassuk be a Sheetsből, hogy ne írja felül a jót!
-                                    # Csak a tiszta pénzügyi tényeket vesszük el:
                                     forgalmi_ertek = int(s_row.get('Forgalom', 0))
                                     jutalek = int(s_row.get('Jutalek', s_row.get('Jutalék', 0)))
                                     break
                         except Exception as sheets_err:
-                            # Ha a Sheets épp nem elérhető, megpróbálja a memóriából kihalászni a mai adatot
                             meta_forras = st.session_state.get('meta_data', {})
                             if isinstance(meta_forras, dict) and meta_forras.get('total_ertek', 0) > 0:
                                 forgalmi_ertek = meta_forras.get('total_ertek', 0)

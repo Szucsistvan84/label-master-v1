@@ -3290,7 +3290,15 @@ def main():
                 st.subheader("📱 Mobil Terminál Indítása")
                 
                 alap_url = "https://interfood-menetterv-etikett-generator.streamlit.app" 
-                jarat_id = meta.get('jarat', '')
+                
+                # Biztonságos járat_id lekérés: ha a 'meta' épp nem elérhető, megnézi a session_state-et is
+                jarat_id = ""
+                if 'meta' in locals() or 'meta' in globals():
+                    jarat_id = meta.get('jarat', '')
+                elif 'pdf_meta' in st.session_state:
+                    jarat_id = st.session_state.pdf_meta.get('jarat', '')
+                elif 'valasztott_jarat' in st.session_state:
+                    jarat_id = st.session_state.valasztott_jarat
                 
                 # Dinamikus teszt paraméter átadása a linknek, ha az asztali gépen aktív a kapcsoló
                 if st.session_state.get('teszt_uzemmod', False):

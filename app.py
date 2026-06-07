@@ -2776,6 +2776,7 @@ def main():
 
             # --- ÉLŐ ADATOLVASÁS A GOOGLE SHEETS-BŐL ---
             osszes_cim = 0
+            osszes_megallo = 0
             osszes_etel = 0
             forgalmi_ertek = 0
             jutalek = 0
@@ -2809,9 +2810,6 @@ def main():
                         osszes_etel = int(pd.to_numeric(df_sajat['Terv_Darabszam'], errors='coerce').sum())
                         
                         # 2. MEGÁLLÓK ÉS CÍMEK DINAMIKUS SZÁMÍTÁSA (Több járatot és helyettesítést is kezelve!)
-                        osszes_megallo = 0
-                        osszes_cim = 0
-                        
                         try:
                             # Kiolvassuk az Adatok fület, pont úgy, ahogy a mobil kiszállítási modul teszi
                             ws_adatok = sh_ugyfelkor.worksheet("Adatok")
@@ -2829,7 +2827,6 @@ def main():
                                         break
                                 
                                 # Lekérjük a session_state-ből az éppen aktív járatokat (lista)
-                                # Ha nincs meg, akkor fallback-ként az irodai felületről mentett jarat_id-t használjuk
                                 aktiv_jaratok = st.session_state.get('szurt_jaratok', [])
                                 if not aktiv_jaratok and 'jarat_id' in st.session_state:
                                     aktiv_jaratok = [st.session_state['jarat_id']]
@@ -2858,11 +2855,9 @@ def main():
                                             osszes_cim = len(df_futar_cimei)
                                             osszes_megallo = osszes_cim
                         except Exception as e_logisztika:
-                            # Ha bármi hiba történne a Sheets elérésekor, ne dőljön össze az app
                             pass
                         
-                        # Végső vészhelyzeti fallback: ha a fenti számítás valamiért 0-át adna vissza, 
-                        # akkor se hagyjuk üresen, hanem nézzük meg a raklista egyedi sorait
+                        # Végső vészhelyzeti fallback: ha a fenti számítás valamiért 0-át adna vissza
                         if osszes_cim == 0:
                             for c in df_sajat.columns:
                                 if 'cím' in c.lower() or 'cim' in c.lower():
@@ -2890,6 +2885,9 @@ def main():
                             if isinstance(meta_forras, dict) and meta_forras.get('total_ertek', 0) > 0:
                                 forgalmi_ertek = meta_forras.get('total_ertek', 0)
                                 jutalek = meta_forras.get('futar_jutalek', 0)
+            except Exception as e_global_dashboard:
+                # Ez a külső try lezárása, ami eddig hiányzott!
+                st.sidebar.error(f"⚠️ Műszerfal hiba: {e_global_dashboard}")
 
             # --- METRIKÁK MEGJELENÍTÉSE A KÉPERNYŐN ---
             st.subheader("💰 Pénzügy & Mennyiség")
@@ -2901,7 +2899,7 @@ def main():
                 st.metric("📦 Összes étel", f"{osszes_etel} adag")
                 st.metric("💵 Forgalom", f"{forgalmi_ertek:,} Ft".replace(",", " "))
                 
-            # A jutalékot kitesszük teljes szélességben kiemelve, mert ez a legfontosabb a futárnak
+            # A jutalékot kitesszük teljes szélességben kiemelve
             st.metric("⭐ Várható Jutalékod", f"{jutalek:,} Ft".replace(",", " "))
                 
             st.write("---")

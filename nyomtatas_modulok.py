@@ -732,6 +732,18 @@ def create_raklista_pdf(df, jarat_info, meta_dict, sh):
             elements.append(Spacer(1, 4 * mm)) 
 
     jutalek = int(total_money * 0.13)
+    
+    # =========================================================================
+    # 📊 ITT MENTJÜK EL A HAJSZÁLPONTOS ADATOKAT A MOBIL MŰSZERFALNAK!
+    # =========================================================================
+    if isinstance(meta_dict, dict):
+        meta_dict['osszes_etel'] = int(total_qty)
+        meta_dict['total_ertek'] = int(total_money)
+        meta_dict['futar_jutalek'] = int(jutalek)
+        # A címeket a df-ből húzzuk ki egyedi számolással
+        meta_dict['osszes_cim'] = int(df['Cím'].nunique()) if 'Cím' in df.columns else 0
+    # =========================================================================
+
     summary_data = [
         ["", "", "", "", "ÖSSZESEN:", f"{total_qty} db", f"{total_money} Ft"],
         ["", "", "", "", "JUTALÉK (13%):", "", f"{jutalek} Ft"]

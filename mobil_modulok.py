@@ -227,31 +227,34 @@ def get_mobil_adatok_cached(_client, sheet_id):  # <- Ide került az alsó vonal
     sh = _client.open_by_key(sheet_id)
     return pd.DataFrame(sh.worksheet("Adatok").get_all_records())
 
-# --- 2. A GYORSÍTOTT MOBIL FÜGGVÉNY ---
+# --- 2. A GYORSÍTOTT MOBIL FÜGGVÉNY (ÁTALAKÍTOTT VERZIÓ) ---
 def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
-    # --- VEZÉRLÉS AZ OLDALSÁVBAN (FIXEN RÖGZÍTVE) ---
-    with st.sidebar:
-        st.markdown("### 📦 Pakolás vezérlés")
+    # --- FŐ TARTALOM HIERARCHIA ---
+    st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
+    st.caption("💡 Pakolás fordított sorrendben! A csoportosított címeket szedd egy szatyorba.")
+
+    # --- VEZÉRLÉS VISSZATÉTELE A MODUL TETEJÉRE (SIDEBAR HELYETT) ---
+    if 'mobil_lada_szam' not in st.session_state: st.session_state.mobil_lada_szam = 1
+    if "mutasd_bepakoltat" not in st.session_state: st.session_state.mutasd_bepakoltat = False
+
+    # Három oszlopba rendezzük a gombokat és a kijelzőt, hogy mobilon tökéletesen mutasson
+    col_info, col_gomb1, col_gomb2 = st.columns([1, 1.2, 1.2])
+    
+    with col_info:
+        st.metric("📦 Aktuális:", f"{st.session_state.mobil_lada_szam}. láda")
         
-        if 'mobil_lada_szam' not in st.session_state: st.session_state.mobil_lada_szam = 1
-        if "mutasd_bepakoltat" not in st.session_state: st.session_state.mutasd_bepakoltat = False
-        
-        st.metric("📦 Aktuális láda:", f"{st.session_state.mobil_lada_szam}. láda")
-        
-        # A fejléc gomboknál kell a rerun, hogy azonnal átrendezze a nézetet
-        if st.button("➕ Következő láda", use_container_width=True):
+    with col_gomb1:
+        if st.button("➕ Következő láda", use_container_width=True, key="bepak_fofelulet_kov_lada_btn"):
             st.session_state.mobil_lada_szam += 1
             st.rerun()
             
+    with col_gomb2:
         gomb_szoveg = "🔍 Rejtsd a kész" if st.session_state.mutasd_bepakoltat else "🔍 Mutasd a kész"
-        if st.button(gomb_szoveg, use_container_width=True):
+        if st.button(gomb_szoveg, use_container_width=True, key="bepak_fofelulet_elrejtes_btn"):
             st.session_state.mutasd_bepakoltat = not st.session_state.mutasd_bepakoltat
             st.rerun()
-        st.write("---")
-
-    # --- FŐ TARTALOM ---
-    st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
-    st.caption("💡 Pakolás fordított sorrendben! A csoportosított címeket szedd egy szatyorba.")
+            
+    st.write("---") # Elválasztó vonal a vezérlés és a kártyák között
 
     try:
         valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
@@ -330,7 +333,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                     st.session_state.kiszallitas_folyamatban = True
                     
                     # 2. TESZT ÜZEMMÓD ELLENŐRZÉSE
-                    if st.session_state.get('teszt_uzemmod', False):
+                    if st.session_state.get('teszt_uzemmod', False) or st.query_params.get("test", "false") == "true":
                         st.warning("🧪 **Teszt üzemmód aktív!** A bepakolás lezárását sikeresen szimuláltuk, a kiszállítás fül megnyílt. A Google Sheets-be NEM mentettünk időbélyeget.")
                         time.sleep(2.0)
                         st.rerun()
@@ -349,7 +352,6 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             # Megpróbáljuk frissíteni az 1. lépésben már létrehozott időbélyeg-sort
                             sor_szam = st.session_state.get('idobelyeg_sor_index')
                             if sor_szam:
-                                # Tegyük fel, hogy az 5. oszlop az áruátvétel vége, a 6. oszlop a bepakolás vége (igazítsd a táblázatodhoz!)
                                 idok_sheet.update_cell(sor_szam, 6, bepakolas_vege_ido)
                             else:
                                 # Ha valamiért nem volt meg a sor indexe, új sort fűzünk hozzá
@@ -360,7 +362,6 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             st.rerun()
                         except Exception as e:
                             st.error(f"Hiba az éles időbélyeg mentésekor: {e}")
-                            # Hiba esetén is engedjük tovább a futárt a felületen, ne akadjon el az úton
                             time.sleep(2.0)
                             st.rerun()
                             
@@ -370,7 +371,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             st.info("ℹ️ Válaszd ki a járatodat az 1. fülön!")
     except Exception as e:
         st.error(f"Hiba a betöltéskor: {e}")
-
+        
 # --- 3. LÉPÉS: KISZÁLLÍTÁS MODUL ---
 def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
     st.markdown("## 🚚 3. lépés: Kiszállítás és Elszámolás")

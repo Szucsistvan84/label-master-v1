@@ -3292,14 +3292,21 @@ def main():
                 
                 alap_url = "https://interfood-menetterv-etikett-generator.streamlit.app" 
                 
-                # Biztonságos járat_id lekérés: ha a 'meta' épp nem elérhető, megnézi a session_state-et is
+                # Szuperbiztos járat_id lekérés a listás struktúrából
                 jarat_id = ""
-                if 'meta' in locals() or 'meta' in globals():
-                    jarat_id = meta.get('jarat', '')
-                elif 'pdf_meta' in st.session_state:
-                    jarat_id = st.session_state.pdf_meta.get('jarat', '')
-                elif 'valasztott_jarat' in st.session_state:
-                    jarat_id = st.session_state.valasztott_jarat
+                
+                # 1. Elsődlegesen megnézzük a PDF beolvasásból mentett adatokat (session_state)
+                meta_forras = st.session_state.get('meta_data', {})
+                jarat_lista = meta_forras.get('jaratok', []) # Ez egy lista, pl: ['12'] vagy ['12', '14']
+                
+                if jarat_lista:
+                    # Ha több járat van (helyettesítés), vesszővel elválasztva fűzzük be a linkbe (pl: 12,14)
+                    jarat_id = ",".join(str(j) for j in jarat_lista)
+                
+                # 2. Ha a PDF-ből nem jött semmi, megnézzük a manuális választót (ha van ilyen)
+                if not jarat_id:
+                    if 'valasztott_jarat' in st.session_state:
+                        jarat_id = str(st.session_state.valasztott_jarat)
                 
                 # Dinamikus teszt paraméter átadása a linknek, ha az asztali gépen aktív a kapcsoló
                 if st.session_state.get('teszt_uzemmod', False):

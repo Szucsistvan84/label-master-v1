@@ -2604,6 +2604,11 @@ def main():
     # 8. Logikai nézet beállítása a kód többi részének
     is_mobile_view = (view == "mobile")
 
+    # --- URL PARAMÉTEREK AUTOMATIKUS KIOLVASÁSA ---
+    # Kiolvassuk a linkből a járatot és a teszt módot, ha léteznek
+    url_jarat = st.query_params.get("jarat", "")
+    url_teszt = st.query_params.get("test", "false") == "true"
+
     # 9. Beléptető rendszer / Biztonsági ellenőrzés
     if not st.session_state.bejelentkezve:
         st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🎯 Label Master</h1>", unsafe_allow_html=True)
@@ -2612,9 +2617,23 @@ def main():
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:
             st.warning("🔒 Kérjük, add meg a járatszámodat és az egyedi jelszavadat!")
-            jarat_input = st.text_input("JÁRATSZÁM (vagy Admin):", key="login_jarat_field", placeholder="Pl. 4002 vagy admin")
+            
+            # AUTOMATIKUS KITÖLTÉS: Ha az URL-ben jött járat, azt rakjuk be alapértelmezettnek (value=url_jarat)
+            jarat_input = st.text_input("JÁRATSZÁM (vagy Admin):", value=url_jarat, key="login_jarat_field", placeholder="Pl. 4002 vagy admin")
             password_input = st.text_input("JELSZÓ / KÓD:", type="password", key="login_password_field", placeholder="••••••••")
             
+            # TESZT ÜZEMMÓD EXTRA: Ha teszt linkről jött, kap egy gombot a jelszó nélküli belépéshez
+            if url_teszt and jarat_input:
+                st.info(f"🧪 Szimulált belépés észlelve a(z) {jarat_input} járathoz.")
+                if st.button("🧪 TESZT BELÉPÉS JELSZÓ NÉLKÜL", type="primary", use_container_width=True):
+                    st.session_state.bejelentkezve = True
+                    st.session_state.user_nev = f"Teszt Futár ({jarat_input})"
+                    # Kezeljük, ha a QR-kódban több járat van vesszővel elválasztva (pl: 4002,4003)
+                    st.session_state.user_jarat_lista = [j.strip() for j in str(jarat_input).split(",") if j.strip()]
+                    st.session_state.user_szerep = "futar"
+                    st.success("🧪 Sikeres teszt belépés!")
+                    st.rerun()
+
             if st.button("🔑 BIZTONSÁGOS BELÉPÉS", use_container_width=True):
                 if not jarat_input or not password_input:
                     st.error("❌ Mindkét mező kitöltése kötelező!")
@@ -2640,11 +2659,13 @@ def main():
                     if talalt_futar:
                         st.session_state.bejelentkezve = True
                         st.session_state.user_nev = talalt_futar.get('Név', 'Ismeretlen felhasználó')
-                        alap_jarat = str(talalt_futar.get('Járat', talalt_futar.get('Jarat', ''))).strip()
-                        st.session_state.user_jarat_lista = [alap_jarat] 
+                        
+                        # Kezeljük a többszörös járatokat is a biztonság kedvéért (vesszővel elválasztva)
+                        raw_jarat = str(talalt_futar.get('Járat', talalt_futar.get('Jarat', ''))).strip()
+                        st.session_state.user_jarat_lista = [j.strip() for j in raw_jarat.split(",") if j.strip()]
+                        
                         st.session_state.user_szerep = str(talalt_futar.get('Szerep', 'futar')).strip().lower()
                         
-                        # Tisztítjuk a bemeneti mezőket a memóriából a biztonság és a tiszta újratöltés érdekében
                         if "login_jarat_field" in st.session_state: del st.session_state["login_jarat_field"]
                         if "login_password_field" in st.session_state: del st.session_state["login_password_field"]
                         

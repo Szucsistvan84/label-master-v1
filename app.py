@@ -2627,8 +2627,11 @@ def main():
                 st.info(f"🧪 Szimulált belépés észlelve a(z) {jarat_input} járathoz.")
                 if st.button("🧪 TESZT BELÉPÉS JELSZÓ NÉLKÜL", type="primary", use_container_width=True):
                     
-                    # Megpróbáljuk kihúzni a PDF-ből beolvasott valódi futárnevet a session_state-ből
-                    meta_forras = st.session_state.get('meta_data', {})
+                    # Szuperbiztos metaadat és futárnév lekérés
+                    meta_forras = st.session_state.get('meta_data')
+                    if not isinstance(meta_forras, dict): 
+                        meta_forras = {} # Ha None vagy nem szótár, kap egy üres szótárt
+                    
                     pdf_futar_nev = meta_forras.get('futar_neve', meta_forras.get('futar', ''))
                     
                     # Ha van név a PDF-ben (pl. Szűcs István), akkor azonnal azt használjuk,

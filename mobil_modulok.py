@@ -395,6 +395,13 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         tel_oszlop = 'Telefon' if 'Telefon' in df_adatok.columns else 'Tel'
         rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_adatok.columns else ('Kosár' if 'Kosár' in df_adatok.columns else None)
         
+        # Pénz oszlop intelligens detektálása az adatokból
+        penz_oszlop = None
+        for c in df_adatok.columns:
+            if 'pénz' in c.lower() or 'penz' in c.lower() or 'fizet' in c.lower() or 'tartozas' in c.lower() or 'összeg' in c.lower():
+                penz_oszlop = c
+                break
+
         lat_oszlop = 'Latitude' if 'Latitude' in df_adatok.columns else 'Lat'
         lon_oszlop = 'Longitude' if 'Longitude' in df_adatok.columns else 'Lon'
 
@@ -418,6 +425,10 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             haladas_szazalek = kesz_cimek / osszes_bepakolt if osszes_bepakolt > 0 else 0
             st.progress(haladas_szazalek)
             st.metric("Kézbesítve:", f"{kesz_cimek} / {osszes_bepakolt} megálló")
+            
+            # 💰 Borravaló élő összesítő a menü sávban
+            aktualis_napi_borravalo = sum(int(st.session_state.get(f"borravalo_{idx}", 0)) for idx, _ in bepakolt_sorok)
+            st.metric("Gyűjtött borravaló eddig:", f"{aktualis_napi_borravalo:,} Ft")
             st.write("---")
 
         for sorszam, (idx, row) in enumerate(bepakolt_sorok, 1):
@@ -446,13 +457,10 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     st.markdown("📦 **Átadandó termékek:**")
                     st.code(str(row[rendeles_oszlop]).strip(), language="text")
                 
-                # --- 🗺️ GOLYÓÁLLÓ OPENSTREETMAP BEÁGYAZÁS (GOOGLE HELYETT) ---
-                # Nem igényel sütiket, nem blokkolja az asztali böngésző, azonnal működik szöveges címre is
+                # --- 🗺️ OPENSTREETMAP BEÁGYAZÁS ---
                 if saved_lat and saved_lon and saved_lat != "nan" and saved_lon != "nan":
-                    # Ha van koordináta, arra ugrunk
                     embed_url = f"https://www.google.com/maps/search/?api=1&query={saved_lat},{saved_lon}&zoom=16&layers=M"
                 else:
-                    # Ha nincs koordináta, a tiszta szöveges címre keresünk rá
                     clean_address = f"{aktualis_cim}, Hungary"
                     encoded_osm = urllib.parse.quote(clean_address)
                     embed_url = f"https://maps.google.com/maps?q={encoded_osm}&zoom=16&layers=M"
@@ -477,7 +485,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                         st.button("📞 Nincs telefonszám", disabled=True, use_container_width=True)
                         
                 with col_gps:
-                    # Külső navigáció indítása (Google Maps alkalmazás)
                     nav_target = f"{saved_lat},{saved_lon}" if (saved_lat and saved_lon and saved_lat != "nan") else aktualis_cim
                     encoded_nav = urllib.parse.quote(nav_target)
                     maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_nav}"
@@ -491,13 +498,10 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
                 st.write("")
                 
-                # --- 🎯 KOORDINÁTA JAVÍTÁS / MENTÉS (BIZTONSÁGOS GPS LEKÉRÉSSEL) ---
+                # --- 🎯 KOORDINÁTA JAVÍTÁS / MENTÉS ---
                 with st.expander("🎯 Pontatlan a pozíció? Kapu rögzítése"):
                     st.write("Állj meg a kapu előtt a kocsival, és mentsd el a pontos koordinátákat a jövőre nézve.")
-                    
                     loc = get_geolocation()
-                    
-                    # 🔐 BIZTONSÁGI ELLENŐRZÉS: Csak akkor olvassuk be a 'coords'-ot, ha kaptunk adatot a böngészőtől
                     if loc and 'coords' in loc:
                         curr_lat = loc['coords']['latitude']
                         curr_lon = loc['coords']['longitude']
@@ -531,8 +535,39 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
                 st.write("---")
                 
+                # --- 💰 INTELLIGENS BORRAVALÓ SZÁMÍTÁS ---
+                # Megpróbáljuk kinyerni a kért összeget a táblázatból számmá alakítva
+                elovart_osszeg = 0
+                if penz_oszlop:
+                    nyers_penz = str(row[penz_oszlop]).replace("Ft", "").replace(" ", "").replace("\xa0", "").strip()
+                    try:
+                        elovart_osszeg = int(pd.to_numeric(nyers_penz, errors='coerce'))
+                    except:
+                        elovart_osszeg = 0
+                        
+                st.markdown(f"💵 **Fizetendő összeg:** `{elovart_osszeg:,} Ft`" if elovart_osszeg > 0 else "💵 **Fizetendő összeg:** `Nincs megadva (0 Ft)`")
+                
+                # Input mező az átvett összegnek (Alapértelmezetten pontosan annyi, amennyit kérünk)
+                atvett_osszeg = st.number_input(
+                    "💰 Ügyféltől átvett készpénz (Ft):",
+                    min_value=0,
+                    value=int(elovart_osszeg),
+                    step=50,
+                    key=f"atvett_input_{idx}"
+                )
+                
+                # Borravaló számítása a te logikád alapján: Kapott - Elvárt
+                szamitott_borravalo = 0
+                if atvett_osszeg > elovart_osszeg:
+                    szamitott_borravalo = atvett_osszeg - elovart_osszeg
+                    st.success(f"➕ Észlelt borravaló ezen a címen: **{szamitott_borravalo:,} Ft**")
+                elif atvett_osszeg < elovart_osszeg and atvett_osszeg > 0:
+                    st.warning(f"⚠️ Figyelem! Kevesebb pénzt kaptál, mint a számla összege ({elovart_osszeg - atvett_osszeg:,} Ft hiány)!")
+
                 # --- LEZÁRÁS ---
                 if st.button("✅ Cím sikeresen átadva", key=f"siker_{idx}", use_container_width=True, type="primary"):
+                    # Elmentjük a borravalót a memóriába a cím indexével
+                    st.session_state[f"borravalo_{idx}"] = szamitott_borravalo
                     st.session_state[f"kiszallitva_{idx}"] = True
                     st.toast(f"🎉 {vevo_neve} sikeresen kézbesítve!")
                     st.rerun()
@@ -540,13 +575,19 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             break
             
         else:
+            # 🏆 Ha minden cím elfogyott, akkor összesítjük és véglegesítjük a borravalót
+            teljes_napi_borravalo = sum(int(st.session_state.get(f"borravalo_{idx}", 0)) for idx, _ in bepakolt_sorok)
+            st.session_state['futar_borravalo'] = teljes_napi_borravalo
+            
             st.balloons()
-            st.success("🏆 Szép munka! Minden mára tervezett címet sikeresen kézbesítettél!")
+            st.success(f"🏆 Szép munka! Minden mára tervezett címet sikeresen kézbesítettél!")
+            st.info(f"💰 A mai napon összegyűjtött összes borravalód: **{teljes_napi_borravalo:,} Ft**, ez automatikusan hozzáadásra kerül a záró elszámolásodhoz!")
             
             if st.button("🔄 Teszt adatok törlése (Újraindítás)", use_container_width=True):
                 for k in list(st.session_state.keys()):
-                    if "kiszallitva_" in k or "lada_szam_tarolt_" in k:
+                    if "kiszallitva_" in k or "lada_szam_tarolt_" in k or "borravalo_" in k or "atvett_input_" in k:
                         del st.session_state[k]
+                st.session_state['futar_borravalo'] = 0
                 st.rerun()
 
     except Exception as e:

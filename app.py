@@ -3216,75 +3216,187 @@ def main():
                         st.session_state.mdf = df_temp
                         
                         # =========================================================================
-                        # 📊 MOBIL MŰSZERFAL ADATAINAK KISZÁMÍTÁSA ÉS MENTÉSE
+                        # 📊 MOBIL MŰSZERFAL ADATAINAK DINAMIKUS KISZÁMÍTÁSA ÉS MENTÉSE (HISTÓRIA LOGIKA)
                         # =========================================================================
                         try:
-                            # 1. Összes egyedi cím száma a feldolgozott adatokból Szűcs Istvánra (vagy az aktuális futárra) szűrve
+                            # 1. API dátum kulcs kinyerése a metaadatokból
+                            api_datum_kulcs = str(meta_auto.get('datum_kulcs', meta_auto.get('datum', kivalasztott_datum))).strip()
+                            
+                            # 2. Futár neve és járatok összegyűjtése a bejelentkezett felhasználó alapján
+                            aktualis_futar = str(st.session_state.get('user_nev', 'Szűcs István')).strip()
+                            
+                            feltoltott_jaratok = []
+                            if 'Járat' in df_temp.columns:
+                                feltoltott_jaratok = df_temp['Járat'].dropna().astype(str).str.strip().unique().tolist()
+                                feltoltott_jaratok = [j for j in feltoltott_jaratok if j != "" and j.lower() != 'nan']
+                            jarat_szoveg = ", ".join(feltoltott_jaratok) if feltoltott_jaratok else "Nincs"
+
+                            # 3. Összes egyedi cím és megálló számítása
+                            szamitott_osszes_megallo = 0
                             szamitott_osszes_cim = 0
-                            if 'Feldolgozó Futár' in df_temp.columns and 'Cím' in df_temp.columns:
-                                df_futar_cimek = df_temp[df_temp['Feldolgozó Futár'].astype(str).str.strip().str.lower() == "szűcs istván"]
-                                if not df_futar_cimek.empty:
-                                    szamitott_osszes_cim = int(df_futar_cimek['Cím'].nunique())
                             
-                            # Fallback, ha a fenti specifikus szűrés valamiért nem hoz eredményt
-                            if szamitott_osszes_cim == 0 and 'Cím' in df_temp.columns:
-                                szamitott_osszes_cim = int(df_temp['Cím'].nunique())
+                            if 'Cím' in df_temp.columns:
+                                # Ha van futár oszlop, rászűrünk az aktuális futárra az egyedi megállóknál
+                                if 'Feldolgozó Futár' in df_temp.columns:
+                                    df_futar_szurt = df_temp[df_temp['Feldolgozó Futár'].astype(str).str.strip().str.lower() == aktualis_futar.lower()]
+                                    if not df_futar_szurt.empty:
+                                        szamitott_osszes_megallo = int(df_futar_szurt['Cím'].astype(str).str.strip().nunique())
+                                        szamitott_osszes_cim = len(df_futar_szurt)
+                                
+                                # Fallback, ha nem volt futár szűrés vagy üres lett az eredmény
+                                if szamitott_osszes_megallo == 0:
+                                    szamitott_osszes_megallo = int(df_temp['Cím'].astype(str).str.strip().nunique())
+                                    szamitott_osszes_cim = len(df_temp)
+                            else:
+                                st.warning("⚠️ A feltöltött adatokban nem található 'Cím' oszlop, a megállók száma 0 lett.")
 
-                            # 2. Összes étel adagszáma (Fixen a raklista alapján ellenőrzött 278 adag)
-                            szamitott_osszes_etel = 278
-                            
-                            # 3. TŰPONTOS ÉRTÉKEK BEÁLLÍTÁSA A PAPÍR ALAPÚ RAKLISTA ALAPJÁN
-                            szamitott_total_ertek = 456605  # A papír szerinti pontos összeg
-                            szamitott_jutalek = 59358      # A papír szerinti pontos 13% jutalék
-                            
-                        except Exception as e:
-                            # Biztonsági háló hiba esetére alapértelmezett értékekkel
-                            szamitott_osszes_cim = 28
-                            szamitott_osszes_etel = 278
-                            szamitott_total_ertek = 456605
-                            szamitott_jutalek = 59358
+                            # 4. Összes étel (adagszám) dinamikus összegzése
+                            szamitott_osszes_etel = 0
+                            darab_col = None
+                            for c in df_temp.columns:
+                                if 'darab' in c.lower() or 'adag' in c.lower() or 'mennyiseg' in c.lower() or 'db' in c.lower():
+                                    darab_col = c
+                                    break
+                                    
+                            if darab_col:
+                                szamitott_osszes_etel = int(pd.to_numeric(df_temp[darab_col], errors='coerce').sum())
+                            else:
+                                st.warning("⚠️ Nem található darabszám vagy adag oszlop, az ételek száma 0 lett.")
 
-                        # Frissítjük a meglévő meta_data szótárat az új értékekkel a memóriában is
-                        if 'meta_data' not in st.session_state or not isinstance(st.session_state.meta_data, dict):
-                            st.session_state.meta_data = {}
+                            # 5. Pénzügyi mutatók (Össz Forgalom, Beszedett KP és Borravaló)
+                            szamitott_total_ertek = 0
+                            szamitott_kp_forgalom = 0
+                            szamitott_borravalo = int(st.session_state.get('futar_borravalo', 0))
                             
-                        st.session_state.meta_data.update({
-                            'osszes_cim': szamitott_osszes_cim if szamitott_osszes_cim > 0 else 28,
-                            'osszes_etel': szamitott_osszes_etel,
-                            'total_ertek': szamitott_total_ertek,
-                            'futar_jutalek': szamitott_jutalek
-                        })
+                            ertek_col = None
+                            for c in df_temp.columns:
+                                if 'érték' in c.lower() or 'ertek' in c.lower() or 'forgalom' in c.lower() or 'összeg' in c.lower():
+                                    ertek_col = c
+                                    break
+                                    
+                            if ertek_col:
+                                szamitott_total_ertek = int(pd.to_numeric(df_temp[ertek_col], errors='coerce').sum())
+                                szamitott_kp_forgalom = szamitott_total_ertek  # Alapértelmezetten mindent KP-nak tekintünk
+                            else:
+                                st.error("❌ Nem sikerült kiszámítani a napi forgalmat (hiányzó érték oszlop)! A pénzügyi mutatók 0-zva lettek.")
 
-                        # 🚀 AUTOMATIKUS FELTÖLTÉS A GOOGLE SHEETS "Mobil_Summary" FÜLRE
+                        except Exception as e_calc:
+                            st.error(f"⚠️ Hiba történt a statisztikák kiszámítása közben: {e_calc}")
+                            api_datum_kulcs = str(kivalasztott_datum)
+                            aktualis_futar = str(st.session_state.get('user_nev', 'Szűcs István'))
+                            jarat_szoveg = "Hiba"
+                            szamitott_osszes_megallo = 0
+                            szamitott_osszes_cim = 0
+                            szamitott_osszes_etel = 0
+                            szamitott_total_ertek = 0
+                            szamitott_kp_forgalom = 0
+                            szamitott_borravalo = 0
+
+                        # 🚀 JUTALÉK LOGIKA INTELLIGENS MEGHATÁROZÁSA (13% vs 14% bónusz sáv)
+                        szamitott_jutalek = 0
+                        import datetime
                         try:
-                            # A korábbi hiba elkerülésére a legbiztosabb nagybetűs változót használjuk a táblanyitáshoz
                             target_sheet_id = SHEET_ID_UGYFELKOR if 'SHEET_ID_UGYFELKOR' in locals() else SHEET_ID
                             sh_ugyfelkor = client.open_by_key(target_sheet_id)
                             
-                            # Ellenőrizzük, hogy létezik-e már a Mobil_Summary fül, ha nem, létrehozzuk
+                            # Új, 10 oszlopos tiszta struktúra (Online fizetések nélkül)
+                            fejlec = ["Datum", "Futar", "Jaratok", "Tervezett_Megallok", "Osszes_Cim", "Osszes_Etel", "Forgalom_Osszes", "Beszedett_KP", "Borravalo", "Vart_Jutalek"]
+                            cols_count = len(fejlec)
+                            
                             if "Mobil_Summary" in [w.title for w in sh_ugyfelkor.worksheets()]:
                                 ws_summary = sh_ugyfelkor.worksheet("Mobil_Summary")
+                                summary_records = ws_summary.get_all_records()
                             else:
-                                ws_summary = sh_ugyfelkor.add_worksheet("Mobil_Summary", rows=10, cols=5)
+                                ws_summary = sh_ugyfelkor.add_worksheet("Mobil_Summary", rows=500, cols=cols_count)
+                                ws_summary.append_row(fejlec)
+                                summary_records = []
+
+                            # Aktuális hét határainak kiszámítása a bónusz sávhoz
+                            ma_dt = datetime.datetime.strptime(api_datum_kulcs, "%Y-%m-%d")
+                            het_kezdete = ma_dt - datetime.timedelta(days=ma_dt.weekday())
+                            het_vege = het_kezdete + datetime.timedelta(days=6)
                             
-                            # Letöröljük az esetleges régi adatot, és felírjuk az új tiszta tényeket
-                            ws_summary.clear()
-                            ws_summary.append_row(["Futar", "Cimek", "Forgalom", "Jutalek"])
-                            ws_summary.append_row([
-                                "Szűcs István",
-                                int(st.session_state.meta_data['osszes_cim']),
-                                int(szamitott_total_ertek),
-                                int(szamitott_jutalek)
-                            ])
-                        except Exception as sheets_error:
-                            st.error(f"⚠️ Nem sikerült a Mobil Összegzést feltölteni a Google Sheets-be: {sheets_error}")
+                            eheti_eddigi_forgalom = 0
+                            existing_row_index = None
+                            
+                            for idx, row in enumerate(summary_records, start=2):
+                                r_date_str = str(row.get('Datum', '')).strip()
+                                r_futar = str(row.get('Futar', '')).strip().lower()
+                                
+                                if r_futar == aktualis_futar.lower():
+                                    try:
+                                        r_dt = datetime.datetime.strptime(r_date_str, "%Y-%m-%d")
+                                        if het_kezdete <= r_dt <= het_vege:
+                                            if r_date_str == api_datum_kulcs:
+                                                existing_row_index = idx
+                                            else:
+                                                eheti_eddigi_forgalom += int(pd.to_numeric(row.get('Forgalom_Osszes', 0), errors='coerce'))
+                                    except:
+                                        pass
+                                        
+                            # Heti halmozott forgalom ellenőrzése
+                            teljes_eheti_forgalom = eheti_eddigi_forgalom + szamitott_total_ertek
+                            
+                            if teljes_eheti_forgalom >= 2100000:
+                                jutalek_kulcs = 0.14
+                                st.info(f"🎉 Gratulálunk! Az eheti összesített forgalom ({teljes_eheti_forgalom:,} Ft) elérte a limitet, a mai napra 14% jutalék jár!")
+                            else:
+                                jutalek_kulcs = 0.13
+                                
+                            szamitott_jutalek = int(round(szamitott_total_ertek * jutalek_kulcs))
+
+                        except Exception as e_futar_logic:
+                            st.error(f"⚠️ Nem sikerült ellenőrizni a heti jutaléksávot, alapértelmezett 13%-al számolunk. Hiba: {e_futar_logic}")
+                            szamitott_jutalek = int(round(szamitott_total_ertek * 0.13))
+
+                        # Memória frissítése az alkalmazáson belül
+                        if 'meta_data' not in st.session_state or not isinstance(st.session_state.meta_data, dict):
+                            st.session_state.meta_data = {}
+                        st.session_state.meta_data.update({
+                            'datum_kulcs': api_datum_kulcs,
+                            'osszes_megallo': szamitott_osszes_megallo,
+                            'osszes_cim': szamitott_osszes_cim,
+                            'osszes_etel': szamitott_osszes_etel,
+                            'total_ertek': szamitott_total_ertek,
+                            'kp_forgalom': szamitott_kp_forgalom,
+                            'borravalo': szamitott_borravalo,
+                            'futar_jutalek': szamitott_jutalek
+                        })
+
+                        # 🚀 GOOGLE SHEETS MENTÉS VAGY UPDATE (NINCS .clear(), megmarad a múlt!)
+                        if not st.session_state.get('teszt_uzemmod', False):
+                            try:
+                                uj_adat_sor = [
+                                    api_datum_kulcs,
+                                    aktualis_futar,
+                                    jarat_szoveg,
+                                    int(szamitott_osszes_megallo),
+                                    int(szamitott_osszes_cim),
+                                    int(szamitott_osszes_etel),
+                                    int(szamitott_total_ertek),
+                                    int(szamitott_kp_forgalom),
+                                    int(szamitott_borravalo),
+                                    int(szamitott_jutalek)
+                                ]
+                                
+                                if existing_row_index:
+                                    # Ha már létezik mai sor a futárnak, finoman felülírjuk az A-J tartományt
+                                    cell_range = f"A{existing_row_index}:J{existing_row_index}"
+                                    ws_summary.update(cell_range, [uj_adat_sor])
+                                    st.success(f"🔄 Mobil_Summary sikeresen FRISSÍTVE: {api_datum_kulcs} - {aktualis_futar}")
+                                else:
+                                    # Új nap esetén csak hozzáfűzzük a meglévők alá
+                                    ws_summary.append_row(uj_adat_sor)
+                                    st.success(f"➕ Új napi rekord HOZZÁADVA a Mobil_Summary-hez: {api_datum_kulcs} - {aktualis_futar}")
+                                    
+                            except Exception as sheets_error:
+                                st.error(f"⚠️ Nem sikerült az adatok feltöltése a Google Sheets-be: {sheets_error}")
+                        else:
+                            st.info("🧪 Teszt üzemmód aktív: A mentés átugorva.")
                         # =========================================================================
                         
-                        if 'Járat' in df_temp.columns:
-                            feltoltott_jaratok = df_temp['Járat'].dropna().astype(str).str.strip().unique().tolist()
-                            feltoltott_jaratok = [j for j in feltoltott_jaratok if j != "" and j.lower() != 'nan']
-                            if feltoltott_jaratok:
-                                st.session_state.aktiv_jaratok = feltoltott_jaratok
+                        if feltoltott_jaratok:
+                            st.session_state.aktiv_jaratok = feltoltott_jaratok
                         
                         st.success("🎉 A menettervek feldolgozása és a felhő szinkronizáció sikeresen megtörtént!")
 

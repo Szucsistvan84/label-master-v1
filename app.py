@@ -153,6 +153,12 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
         
     # Minden üres/hiányzó értéket üres stringre cserélünk a Sheets kompatibilitás miatt
     df_clean = df_clean.fillna("")
+
+    # 🔥 EZT A KÉT SORT ADD HOZZÁ A RETURN ELŐTT:
+    if 'Lat' in df_clean.columns:
+        df_clean['Lat'] = df_clean['Lat'].astype(str)
+    if 'Lon' in df_clean.columns:
+        df_clean['Lon'] = df_clean['Lon'].astype(str)
     
     return df_clean
 

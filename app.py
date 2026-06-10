@@ -370,6 +370,8 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     master_df = pd.DataFrame()
 
     try:
+        import re  # <--- 🔥 Fontos az emelet/ajtó reguláris levágásához!
+        
         # 1. Betöltjük a Google Sheets aktuális teljes 'Ugyfelkor' tartalmát egy DataFrame-be
         ugyfelkor_adatok = ws_ugyfel.get_all_records()
         df_ugyfelkor_teljes = pd.DataFrame(ugyfelkor_adatok)
@@ -384,6 +386,10 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         
         új_koordináta_számláló = 0
         
+        # Beállítjuk a helyi, biztonságos Nominatim geolocator-t egyedi azonosítóval
+        from geopy.geocoders import Nominatim
+        geolocator_helyi = Nominatim(user_agent="Interfood_Express_Delivery_App_v3_2026")
+        
         # 2. Végigmegyünk a PDF-ből most beolvasott napi megrendeléseken
         for idx, row in df_napi.iterrows():
             u_id = str(row['ID']).strip()
@@ -397,7 +403,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                 if tisztitott_ar.isdigit() or (tisztitott_ar.startswith('-') and tisztitott_ar[1:].isdigit()):
                     mai_rendeles_erteke = int(tisztitott_ar)
             
-            # ELLENŐRIZZÜK A KOORDINÁTÁKAT
+            # ELLENŐRIZZÜK A KOORDINÁTÁKAT A TÁBLÁZATBAN
             van_koordinata = False
             lat_clean, lon_clean = "", ""
             
@@ -412,49 +418,51 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                         lon_str = str(lon_val).replace("'", "").replace('"', '').replace(',', '.').strip()
                         
                         if lat_str not in ["", "None", "nan", "NaN", "0", "0.0"]:
-                            try:
-                                lat_clean = float(lat_str)
-                                lon_clean = float(lon_str)
-                                van_koordinata = True
-                            except ValueError:
-                                van_koordinata = False
+                            lat_clean = lat_str
+                            lon_clean = lon_str
+                            van_koordinata = True
             
-            # Ha nincs meg a koordináta, akkor lekérjük a Geocoder API-n keresztül
+            # 🔥 Ha nincs meg a koordináta, akkor lekérjük a PONTOS CÍM ALAPJÁN
             if not van_koordinata:
                 nev = row.get('Ügyintéző', row.get('Név', row.get('Nev', 'Ismeretlen név')))
-                eredeti_cim = str(row.get('Cím', row.get('Cim', '')))
+                eredeti_cim = str(row.get('Cím', row.get('Cim', ''))).strip()
                 
+                logger.info(f"✨ Koordináta pótlása CÍM alapján: {nev} ({u_id}) -> {eredeti_cim}")
+                st.info(f"📍 GPS koordináta keresése cím alapján: {nev}...")
+                
+                # Cím tisztítása (emelet, ajtó levágása a sikeres térkép találathoz)
+                tisztitott_cim_keresni = eredeti_cim.split('.')[0]
+                tisztitott_cim_keresni = re.sub(r'\s\d+/\d+.*$', '', tisztitott_cim_keresni).strip()
+                
+                lat, lon = None, None
                 try:
-                    keresesi_cim = tisztitott_cim_lekerese(eredeti_cim)
-                except NameError:
-                    keresesi_cim = eredeti_cim
+                    time.sleep(1.3) # Szigorú Nominatim API kímélés (anti-tilt védelem!)
+                    location = geolocator_helyi.geocode(tisztitott_cim_keresni, timeout=10)
                     
-                logger.info(f"✨ Koordináta keresése/pótlása: {nev} ({u_id})...")
-                st.info(f"📍 GPS koordináta keresése: {nev}...")
-                
-                try:
-                    lat, lon = get_coordinates(keresesi_cim)
-                    time.sleep(0.2) # API kímélése
-                except Exception as e:
-                    logger.error(f"Hiba a geocoding során ({nev}): {e}")
+                    if location:
+                        lat, lon = location.latitude, location.longitude
+                    else:
+                        # Másodlagos próbálkozás vágottabb címmel (csak Város + Utca + Házszám)
+                        vágott_cím = ", ".join(tisztitott_cim_keresni.split(",")[:2])
+                        location_vágott = geolocator_helyi.geocode(vágott_cím, timeout=10)
+                        if location_vágott:
+                            lat, lon = location_vágott.latitude, location_vágott.longitude
+                except Exception as e_geo:
+                    logger.error(f"Hiba a geocoding során ({nev}): {e_geo}")
                     lat, lon = None, None
                     
                 if lat is not None and lon is not None:
-                    try:
-                        lat_clean = round(float(str(lat).replace("'", "").replace('"', '').replace(',', '.').strip()), 6)
-                        lon_clean = round(float(str(lon).replace("'", "").replace('"', '').replace(',', '.').strip()), 6)
-                        st.success(f"🎯 GPS sikeresen megvan: {nev}")
-                        új_koordináta_számláló += 1
-                    except Exception as e_conv:
-                        logger.error(f"Konverziós hiba új koordinátánál ({nev}): {e_conv}")
-                        lat_clean, lon_clean = "", ""
+                    lat_clean = str(lat).strip()
+                    lon_clean = str(lon).strip()
+                    st.success(f"🎯 GPS sikeresen megvan: {nev} ({lat_clean}, {lon_clean})")
+                    új_koordináta_számláló += 1
                 else:
-                    st.warning(f"⚠️ Nem találtam koordinátát: {nev}")
+                    st.warning(f"⚠️ Nem találtam koordinátát a címre: {eredeti_cim} ({nev})")
                     lat_clean, lon_clean = "", ""
 
             # --- INTEGRÁCIÓ: FRISSÍTÉS VAGY ÚJ HOZZÁADÁS A MEMÓRIÁBAN ---
             if not df_ugyfelkor_teljes.empty and u_id in df_ugyfelkor_teljes['ID'].values:
-                # MEGLÉVŐ ÜGYFÉL: Módosítunk és biztonságosan kumulálunk (Numeric cast)
+                # MEGLÉVŐ ÜGYFÉL: Módosítunk és biztonságosan kumulálunk
                 idx_ugyfel = df_ugyfelkor_teljes[df_ugyfelkor_teljes['ID'] == u_id].index[0]
                 
                 try:
@@ -467,16 +475,16 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                 df_ugyfelkor_teljes.at[idx_ugyfel, 'Osszertek'] = jelenlegi_ertek + mai_rendeles_erteke
                 df_ugyfelkor_teljes.at[idx_ugyfel, 'Rendeles_Szam'] = jelenlegi_szam + 1
                 df_ugyfelkor_teljes.at[idx_ugyfel, 'Utolso_Rendeles'] = szallitas_napja
-                df_ugyfelkor_teljes.at[idx_ugyfel, 'Lat'] = str(lat_clean) if lat_clean else ""
-                df_ugyfelkor_teljes.at[idx_ugyfel, 'Lon'] = str(lon_clean) if lon_clean else ""
+                df_ugyfelkor_teljes.at[idx_ugyfel, 'Lat'] = lat_clean
+                df_ugyfelkor_teljes.at[idx_ugyfel, 'Lon'] = lon_clean
             else:
-                # TELJESEN ÚJ ÜGYFÉL: Új sort építünk tiszta típusokkal
+                # TELJESEN ÚJ ÜGYFÉL: Új sort építünk tiszta szöveges koordinátákkal
                 uj_sor = {
                     'ID': u_id,
                     'Név': row.get('Név', row.get('Ügyintéző', 'Ismeretlen Ügyfél')),
                     'Cím': row.get('Cím', row.get('Cim', '')),
-                    'Lat': str(lat_clean) if lat_clean else "",
-                    'Lon': str(lon_clean) if lon_clean else "",
+                    'Lat': lat_clean,
+                    'Lon': lon_clean,
                     'Telefon': str(row.get('Telefon', '')),
                     'Csoport': str(row.get('Csoport', '')),
                     'Megjegyzés': str(row.get('Megjegyzés', row.get('Megjegyzes', ''))),
@@ -489,7 +497,11 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         # 3. Az összefésült teljes állományt még egyszer átfuttatjuk a szigorú formázón a biztonság kedvéért
         df_ugyfelkor_vegleges = kotelezo_ugyfelkor_formatum_tisztitas(df_ugyfelkor_teljes)
         
-        # 4. 🔥 JAVÍTOTT MENTÉS: Indexek nélkül, pontos cellameghatározással írjuk felül a Sheets-et
+        # Biztosítjuk, hogy a koordináta oszlopok tiszta stringek maradjanak a mentés előtt is
+        df_ugyfelkor_vegleges['Lat'] = df_ugyfelkor_vegleges['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
+        df_ugyfelkor_vegleges['Lon'] = df_ugyfelkor_vegleges['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
+
+        # 4. 🔥 MENTÉS: Indexek nélkül felülírjuk az Ugyfelkor fület
         set_with_dataframe(ws_ugyfel, df_ugyfelkor_vegleges, row=1, col=1, include_index=False, resize=True)
         st.success(f"🎉 Ügyfélkör adatbázis sikeresen szűrve és elmentve! Új koordináták pótolva: {új_koordináta_számláló} db.")
         
@@ -502,7 +514,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     except Exception as e_full_process:
         logger.error(f"Súlyos hiba az ügyfélkör PDF alapú frissítése során: {e_full_process}")
         st.error(f"❌ Nem sikerült az ügyfélkör automatikus frissítése: {e_full_process}")
-
     # --- 4. LÉPÉS: SZIGORÚ ÖSSZEFÉSÜLÉS (Koordináták áthúzása a napi listába) ---
     if not master_df.empty:
         df_napi = df_napi.drop(columns=['Lat', 'Lon'], errors='ignore')

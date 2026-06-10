@@ -467,8 +467,8 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                 df_ugyfelkor_teljes.at[idx_ugyfel, 'Osszertek'] = jelenlegi_ertek + mai_rendeles_erteke
                 df_ugyfelkor_teljes.at[idx_ugyfel, 'Rendeles_Szam'] = jelenlegi_szam + 1
                 df_ugyfelkor_teljes.at[idx_ugyfel, 'Utolso_Rendeles'] = szallitas_napja
-                df_ugyfelkor_teljes.at[idx_ugyfel, 'Lat'] = lat_clean
-                df_ugyfelkor_teljes.at[idx_ugyfel, 'Lon'] = lon_clean
+                df_ugyfelkor_teljes.at[idx_ugyfel, 'Lat'] = str(lat_clean) if lat_clean else ""
+                df_ugyfelkor_teljes.at[idx_ugyfel, 'Lon'] = str(lon_clean) if lon_clean else ""
             else:
                 # TELJESEN ÚJ ÜGYFÉL: Új sort építünk tiszta típusokkal
                 uj_sor = {

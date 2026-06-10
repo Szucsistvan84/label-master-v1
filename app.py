@@ -403,7 +403,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                 if tisztitott_ar.isdigit() or (tisztitott_ar.startswith('-') and tisztitott_ar[1:].isdigit()):
                     mai_rendeles_erteke = int(tisztitott_ar)
             
-            # ELLENŐRIZZÜK A KOORDINÁTÁKAT A TÁBLÁZATBAN
+            # ELLENŐRIZZÜK A KOORDINÁTÁKAT
             van_koordinata = False
             lat_clean, lon_clean = "", ""
             
@@ -414,53 +414,51 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                     lon_val = talalat.iloc[0].get('Lon')
                     
                     if pd.notna(lat_val) and pd.notna(lon_val):
-                        lat_str = str(lat_val).replace("'", "").replace('"', '').replace(',', '.').strip()
-                        lon_str = str(lon_val).replace("'", "").replace('"', '').replace(',', '.').strip()
+                        # Átfuttatjuk a beépített tisztítón. Ha az visszadobja (None), mert nincs benne tizedespont/vessző, 
+                        # vagy irreális érték, akkor kényszerítjük az újrakérdezést!
+                        ellenorzott_lat = biztonsagos_koordinata_tisztito(lat_val)
+                        ellenorzott_lon = biztonsagos_koordinata_tisztito(lon_val)
                         
-                        if lat_str not in ["", "None", "nan", "NaN", "0", "0.0"]:
-                            lat_clean = lat_str
-                            lon_clean = lon_str
+                        if ellenorzott_lat is not None and ellenorzott_lon is not None:
+                            lat_clean = ellenorzott_lat
+                            lon_clean = ellenorzott_lon
                             van_koordinata = True
+                        else:
+                            logger.warning(f"⚠️ Hibás (pont nélküli) koordináta az adatbázisban ({u_id}). Újra lekérjük az API-ból!")
             
-            # 🔥 Ha nincs meg a koordináta, akkor lekérjük a PONTOS CÍM ALAPJÁN
+            # Ha nincs meg a koordináta (vagy hibás volt és eldobtuk), lekérjük a tiszta cím alapján
             if not van_koordinata:
                 nev = row.get('Ügyintéző', row.get('Név', row.get('Nev', 'Ismeretlen név')))
-                eredeti_cim = str(row.get('Cím', row.get('Cim', ''))).strip()
+                eredeti_cim = str(row.get('Cím', row.get('Cim', '')))
                 
-                logger.info(f"✨ Koordináta pótlása CÍM alapján: {nev} ({u_id}) -> {eredeti_cim}")
-                st.info(f"📍 GPS koordináta keresése cím alapján: {nev}...")
+                # Meghívjuk a legfelső, javított intelligens címtisztító függvényt!
+                keresesi_cim = tisztitott_cim_lekerese(eredeti_cim)
+                    
+                logger.info(f"✨ Koordináta keresése CÍM alapján: {nev} ({u_id}) -> {keresesi_cim}")
+                st.info(f"📍 GPS koordináta keresése: {nev}...")
                 
-                # --- MAGYAR CÍMTISZTÍTÓ LOGIKA (Emelet, ajtó, lépcsőház, szóközök takarítása) ---
-                # 1. Első körben levágjuk az első pont utáni részt (Pl. "11. 1/13"-ból marad a "11")
-                tisztitott_cim_keresni = eredeti_cim.split('.')[0] 
-                
-                # 2. Eltávolítjuk a pont nélküli, tipikus magyar emelet/ajtó mintákat is a biztonság kedvéért (pl. "1/13", "fszt")
-                tisztitott_cim_keresni = re.sub(r'\s+\d+/\d+\s*$', '', tisztitott_cim_keresni) 
-                tisztitott_cim_keresni = re.sub(r'\s+\d+/\d+.*$', '', tisztitott_cim_keresni)  
-                tisztitott_cim_keresni = re.sub(r'(?i)\s+(fszt|fsz|emelet|em|ajtó|ajto|lh|lph).*$', '', tisztitott_cim_keresni)
-                tisztitott_cim_keresni = tisztitott_cim_keresni.strip()
-                
+                # --- HÁROMLÉPCSŐS MENTŐÖV RENDSZER NOMINATIMHOZ ---
                 lat, lon = None, None
                 try:
                     time.sleep(1.3) # Szigorú Nominatim API kímélés (anti-tilt védelem!)
                     
                     # 1. PRÓBÁLKOZÁS: Tisztított, tiszta házszámos cím (Pl. "4024 Debrecen, Batthyány u. 11")
-                    logger.info(f"🔍 [Próba 1] Keresés erre: '{tisztitott_cim_keresni}'")
-                    location = geolocator_helyi.geocode(tisztitott_cim_keresni, timeout=10)
+                    logger.info(f"🔍 [Próba 1] Keresés erre: '{keresesi_cim}'")
+                    location = geolocator_helyi.geocode(keresesi_cim, timeout=10)
                     
                     if location:
                         lat, lon = location.latitude, location.longitude
                     else:
-                        # 2. PRÓBÁLKOZÁS: Ha nem találja, megpróbáljuk irányítószám NÉLKÜL (Pl. "Debrecen, Batthyány u. 11")
-                        vágott_cim_iranyitoszam_nelkul = re.sub(r'^\d{4}\s+', '', tisztitott_cim_keresni).strip()
+                        # 2. PRÓBÁLKOZÁS: Ha nem találja, megpróbáljuk irányítószám NÉLKÜL
+                        vágott_cim_iranyitoszam_nelkul = re.sub(r'^\d{4}\s+', '', keresesi_cim).strip()
                         logger.info(f"🔍 [Próba 2] Keresés irányítószám nélkül: '{vágott_cim_iranyitoszam_nelkul}'")
                         location_vágott = geolocator_helyi.geocode(vágott_cim_iranyitoszam_nelkul, timeout=10)
                         
                         if location_vágott:
                             lat, lon = location_vágott.latitude, location_vágott.longitude
                         else:
-                            # 3. PRÓBÁLKOZÁS: Csak az utca neve házszám nélkül (Hogy legalább az utcát megtalálja!)
-                            utca_szint = ", ".join(tisztitott_cim_keresni.split(",")[:2]) # Város + Utca részig
+                            # 3. PRÓBÁLKOZÁS: Csak az utca neve házszám nélkül (Hogy legalább a környék meglegyen)
+                            utca_szint = ", ".join(keresesi_cim.split(",")[:2]) # Város + Utca részig
                             utca_szint = re.sub(r'\s+\d+\s*$', '', utca_szint).strip() # Házszám levágása
                             logger.info(f"🔍 [Próba 3] Végső mentőöv (csak utca): '{utca_szint}'")
                             location_utca = geolocator_helyi.geocode(utca_szint, timeout=10)
@@ -472,9 +470,9 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                     lat, lon = None, None
                     
                 if lat is not None and lon is not None:
-                    lat_clean = str(lat).strip()
-                    lon_clean = str(lon).strip()
-                    st.success(f"🎯 GPS sikeresen megvan: {nev} ({lat_clean}, {lon_clean})")
+                    lat_clean = round(float(lat), 6)
+                    lon_clean = round(float(lon), 6)
+                    st.success(f"🎯 GPS sikeresen megvan: {nev} -> ({lat_clean}, {lon_clean})")
                     új_koordináta_számláló += 1
                 else:
                     st.warning(f"⚠️ Nem találtam koordinátát a címre: {eredeti_cim} ({nev})")

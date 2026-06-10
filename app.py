@@ -593,8 +593,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
             df_mások_adatai = df_existing[df_existing['Feldolgozó Futár'] != aktualis_futar_nev]
             
             # 2. Megtartjuk a SAJÁT, de már IDŐBÉLYEGGEL ELLÁTOTT (lezárt) sorainkat!
-            # (Feltételezzük, hogy az 'Időbélyeg' oszlopba kerül a lezárás a futár appból. 
-            # Ha a 'Státusz' oszlop jelzi a lezárást, pl. 'Kiszállítva', akkor arra is szűrhetünk.)
             df_saját_lezárt_adatai = df_existing[
                 (df_existing['Feldolgozó Futár'] == aktualis_futar_nev) & 
                 (df_existing['Időbélyeg'].astype(str).str.strip() != "")
@@ -606,20 +604,109 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
             # Ha teljesen üres a táblázat, akkor csak az új adatokat mentjük
             save_df = df_uj_adatok
 
-        # Típusbiztonsági takarítás a mentés előtt
-        save_df['Lat'] = save_df['Lat'].apply(biztonsagos_float)
-        save_df['Lon'] = save_df['Lon'].apply(biztonsagos_float)
+        # 🎯 KOORDINÁTA-VÉDELEM JAVÍTÁS: Nem float-ként, hanem tiszta stringként mentjük, hogy ne tűnjenek el a tizedesek!
+        save_df['Lat'] = save_df['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
+        save_df['Lon'] = save_df['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
         save_df['ID'] = save_df['ID'].astype(str)
         
         for col in save_df.columns:
             save_df[col] = save_df[col].astype(object)
         save_df = save_df.fillna('')
         
-        # 🚨 A TELJES TÖRLÉS HELYETT: Csak felülírjuk a táblázatot az összefésült, biztonságos adattal!
-        ws_adatok.clear() # Most már kiüríthetjük egy tizedmásodpercre, mert a 'save_df'-ben benne van a pesti kolléga adata is!
+        # Frissítjük az Adatok fület az összefésült adatokkal
+        ws_adatok.clear()
         set_with_dataframe(ws_adatok, save_df, include_index=False, include_column_header=True)
         logger.info("🚀 Biztonságos, többfelhasználós szinkronizáció kész! Minden kolléga adata megőrizve.")
-        
+        st.success("🚀 Mobil terminál adatsorok (Adatok) sikeresen szinkronizálva a felhőbe!")
+
+        # =========================================================================
+        # 🔥 INTELLIGENS HETI SÁVOS STATISZTIKA MENTÉS A MOBIL_SUMMARY LAPRA
+        # =========================================================================
+        try:
+            ws_summary = sh.worksheet("Mobil_Summary")
+            
+            # 1. Ételek adagszáma a 'Rendelés' oszlopból
+            osszes_etel = 0
+            if 'Rendelés' in df_uj_adatok.columns:
+                for _, r in df_uj_adatok.iterrows():
+                    r_szoveg = str(r.get('Rendelés', ''))
+                    darabok = re.findall(r'(\d+)-', r_szoveg)
+                    osszes_etel += sum(int(d) for d in darabok) if darabok else (1 if r_szoveg.strip() and r_szoveg.lower() != 'none' else 0)
+
+            # 2. Bruttó Forgalom a 'Fizetendő' oszlopból
+            forgalom_osszes = 0
+            if 'Fizetendő' in df_uj_adatok.columns:
+                f_sor = df_uj_adatok['Fizetendő'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+                forgalom_osszes = int(pd.to_numeric(f_sor, errors='coerce').fillna(0).sum())
+
+            # 3. 📅 HETI FORGALOM ELLENŐRZÉSE (Aktuális ISO év és hét sorszáma alapján)
+            try:
+                datum_obj = datetime.strptime(szallitas_napja, "%Y-%m-%d")
+                aktualis_ev, aktualis_het, _ = datum_obj.isocalendar()
+            except:
+                aktualis_ev, aktualis_het = datetime.now().isocalendar()[0], datetime.now().isocalendar()[1]
+
+            eddigi_heti_forgalom = 0
+            summary_records = ws_summary.get_all_records()
+            
+            if summary_records:
+                df_sum_history = pd.DataFrame(summary_records)
+                df_sum_history.columns = [str(c).strip() for c in df_sum_history.columns]
+                
+                d_col = next((c for c in df_sum_history.columns if 'dátum' in c.lower() or 'datum' in c.lower()), df_sum_history.columns[0])
+                f_col = next((c for c in df_sum_history.columns if 'futár' in c.lower() or 'futar' in c.lower()), df_sum_history.columns[1])
+                p_col = next((c for c in df_sum_history.columns if 'forgalom' in c.lower() or 'bevétel' in c.lower()), df_sum_history.columns[6])
+
+                df_futar_history = df_sum_history[df_sum_history[f_col].astype(str).str.strip() == aktualis_futar_nev.strip()]
+                
+                for _, hist_row in df_futar_history.iterrows():
+                    hist_date_str = str(hist_row[d_col]).strip()
+                    try:
+                        hist_dt = datetime.strptime(hist_date_str, "%Y-%m-%d")
+                        h_ev, h_het, _ = hist_dt.isocalendar()
+                        # Ha ugyanazon a héten van, hozzáadjuk az eddigi teljesítményhez
+                        if h_ev == aktualis_ev and h_het == aktualis_het:
+                            hist_money = str(hist_row[p_col]).replace(' ', '').replace('Ft', '').strip()
+                            hist_money = "".join(filter(str.isdigit, hist_money))
+                            if hist_money.isdigit():
+                                eddigi_heti_forgalom += int(hist_money)
+                    except:
+                        continue
+
+            # Összesített heti volumen kiszámítása
+            teljes_heti_volumen = eddigi_heti_forgalom + forgalom_osszes
+            
+            # Sávos ellenőrzés a heti 2.100.000 Ft-os limitre
+            if teljes_heti_volumen >= 2100000:
+                jutalek_szazalek = 0.14
+                st.info(f"🚀 Gratuláció! A heti összesített forgalom ({teljes_heti_volumen:,} Ft) átlépte a limitet. 14%-os emelt jutalék érvényes!")
+            else:
+                jutalek_szazalek = 0.13
+                st.info(f"📊 Aktuális heti összesített forgalom: {teljes_heti_volumen:,} Ft (Alap 13%-os sáv).")
+
+            vart_jutalek = int(forgalom_osszes * jutalek_szazalek)
+            jaratok_str = ", ".join(df_uj_adatok['Járat'].astype(str).unique())
+
+            summary_row = [
+                szallitas_napja,                             # Datum
+                aktualis_futar_nev,                          # Futar
+                jaratok_str,                                 # Jaratok
+                len(df_uj_adatok),                           # Tervezett_Megallok
+                len(df_uj_adatok),                           # Osszes_Cim
+                osszes_etel,                                 # Osszes_Etel
+                forgalom_osszes,                             # Forgalom_Osszes
+                0,                                           # Beszedett_KP
+                0,                                           # Borravalo
+                vart_jutalek                                 # Vart_Jutalek
+            ]
+            
+            ws_summary.append_row(summary_row)
+            st.success(f"📈 Napi rekord rögzítve a heti elszámolás alapján ({jutalek_szazalek*100}% jutalékkal: {vart_jutalek:,} Ft)!")
+            
+        except Exception as e_sum:
+            logger.error(f"Hiba a Mobil_Summary mentésekor: {e_sum}")
+            st.warning(f"⚠️ A statisztikai összefoglalót nem sikerült rögzíteni: {e_sum}")
+            
     except Exception as e:
         logger.warning(f"A térkép elkészült, de az 'Adatok' fül frissítése megszakadt: {e}")
 

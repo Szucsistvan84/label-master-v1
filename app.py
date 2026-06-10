@@ -105,6 +105,8 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     """
     Szigorú típusbiztos szűrő az Ugyfelkor DataFrame-re.
     Garantálja, hogy a Google Sheets-be csak tiszta, számolható adatok kerüljenek.
+    A koordinátákat átfuttatja a biztonsagos_koordinata_tisztito-n, és stringként 
+    menti, hogy a Google Sheets ne nyelje le a tizedesvesszőket.
     """
     if df.empty:
         return df
@@ -123,19 +125,17 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     if 'Cím' in df_clean.columns:
         df_clean['Cím'] = df_clean['Cím'].astype(str).str.strip()
         
-    # 3. Koordináták kényszerítése float számmá (MINDEN zavaró karakter kigyomlálása!)
+    # =========================================================================
+    # 🔥 JAVÍTOTT 3. PONT: Koordináták precíziós tisztítása és mentése
+    # =========================================================================
     for col in ['Lat', 'Lon']:
         if col in df_clean.columns:
-            # Szöveggé alakítjuk, kiszedjük a szimpla/dupla idézőjeleket, cseréljük a vesszőt, majd stripelünk
-            df_clean[col] = (
-                df_clean[col].astype(str)
-                .str.replace("'", "", regex=False)
-                .str.replace('"', '', regex=False)
-                .str.replace(',', '.', regex=False)
-                .str.strip()
-            )
-            # Biztonságos konverzió: ami nem szám, abból NaN (hiányzó érték) lesz, nem dob hibát!
-            df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').fillna(0.0)
+            # Első lépés: átengedjük a te okos, levágás-biztos tisztító függvényeden
+            df_clean[col] = df_clean[col].apply(biztonsagos_koordinata_tisztito)
+            
+            # Második lépés (Google Sheets trükk): Szöveggé alakítjuk a kapott tiszta float számot.
+            # Így a gspread tizedespontos stringként küldi be, és a Sheets nem fogja eltüntetni a pontot!
+            df_clean[col] = df_clean[col].apply(lambda x: f"{x}" if x is not None and not pd.isna(x) else "")
             
     # 4. Telefon, Csoport, Megjegyzés, Utolso_Rendeles tisztítása stringgé (nan-ok eltávolítása)
     for col in ['Telefon', 'Csoport', 'Megjegyzés', 'Utolso_Rendeles']:

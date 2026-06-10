@@ -430,23 +430,43 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                 logger.info(f"✨ Koordináta pótlása CÍM alapján: {nev} ({u_id}) -> {eredeti_cim}")
                 st.info(f"📍 GPS koordináta keresése cím alapján: {nev}...")
                 
-                # Cím tisztítása (emelet, ajtó levágása a sikeres térkép találathoz)
-                tisztitott_cim_keresni = eredeti_cim.split('.')[0]
-                tisztitott_cim_keresni = re.sub(r'\s\d+/\d+.*$', '', tisztitott_cim_keresni).strip()
+                # --- MAGYAR CÍMTISZTÍTÓ LOGIKA (Emelet, ajtó, lépcsőház, szóközök takarítása) ---
+                # 1. Első körben levágjuk az első pont utáni részt (Pl. "11. 1/13"-ból marad a "11")
+                tisztitott_cim_keresni = eredeti_cim.split('.')[0] 
+                
+                # 2. Eltávolítjuk a pont nélküli, tipikus magyar emelet/ajtó mintákat is a biztonság kedvéért (pl. "1/13", "fszt")
+                tisztitott_cim_keresni = re.sub(r'\s+\d+/\d+\s*$', '', tisztitott_cim_keresni) 
+                tisztitott_cim_keresni = re.sub(r'\s+\d+/\d+.*$', '', tisztitott_cim_keresni)  
+                tisztitott_cim_keresni = re.sub(r'(?i)\s+(fszt|fsz|emelet|em|ajtó|ajto|lh|lph).*$', '', tisztitott_cim_keresni)
+                tisztitott_cim_keresni = tisztitott_cim_keresni.strip()
                 
                 lat, lon = None, None
                 try:
                     time.sleep(1.3) # Szigorú Nominatim API kímélés (anti-tilt védelem!)
+                    
+                    # 1. PRÓBÁLKOZÁS: Tisztított, tiszta házszámos cím (Pl. "4024 Debrecen, Batthyány u. 11")
+                    logger.info(f"🔍 [Próba 1] Keresés erre: '{tisztitott_cim_keresni}'")
                     location = geolocator_helyi.geocode(tisztitott_cim_keresni, timeout=10)
                     
                     if location:
                         lat, lon = location.latitude, location.longitude
                     else:
-                        # Másodlagos próbálkozás vágottabb címmel (csak Város + Utca + Házszám)
-                        vágott_cím = ", ".join(tisztitott_cim_keresni.split(",")[:2])
-                        location_vágott = geolocator_helyi.geocode(vágott_cím, timeout=10)
+                        # 2. PRÓBÁLKOZÁS: Ha nem találja, megpróbáljuk irányítószám NÉLKÜL (Pl. "Debrecen, Batthyány u. 11")
+                        vágott_cim_iranyitoszam_nelkul = re.sub(r'^\d{4}\s+', '', tisztitott_cim_keresni).strip()
+                        logger.info(f"🔍 [Próba 2] Keresés irányítószám nélkül: '{vágott_cim_iranyitoszam_nelkul}'")
+                        location_vágott = geolocator_helyi.geocode(vágott_cim_iranyitoszam_nelkul, timeout=10)
+                        
                         if location_vágott:
                             lat, lon = location_vágott.latitude, location_vágott.longitude
+                        else:
+                            # 3. PRÓBÁLKOZÁS: Csak az utca neve házszám nélkül (Hogy legalább az utcát megtalálja!)
+                            utca_szint = ", ".join(tisztitott_cim_keresni.split(",")[:2]) # Város + Utca részig
+                            utca_szint = re.sub(r'\s+\d+\s*$', '', utca_szint).strip() # Házszám levágása
+                            logger.info(f"🔍 [Próba 3] Végső mentőöv (csak utca): '{utca_szint}'")
+                            location_utca = geolocator_helyi.geocode(utca_szint, timeout=10)
+                            if location_utca:
+                                lat, lon = location_utca.latitude, location_utca.longitude
+                                
                 except Exception as e_geo:
                     logger.error(f"Hiba a geocoding során ({nev}): {e_geo}")
                     lat, lon = None, None

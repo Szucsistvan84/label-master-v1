@@ -426,17 +426,21 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                     lon_val = talalat.iloc[0].get('Lon')
                     
                     if pd.notna(lat_val) and pd.notna(lon_val):
-                        # Átfuttatjuk a beépített tisztítón. Ha az visszadobja (None), mert nincs benne tizedespont/vessző, 
-                        # vagy irreális érték, akkor kényszerítjük az újrakérdezést!
-                        ellenorzott_lat = biztonsagos_koordinata_tisztito(lat_val)
-                        ellenorzott_lon = biztonsagos_koordinata_tisztito(lon_val)
+                        lat_str = str(lat_val).strip()
+                        lon_str = str(lon_val).strip()
                         
-                        if ellenorzott_lat is not None and ellenorzott_lon is not None:
-                            lat_clean = ellenorzott_lat
-                            lon_clean = ellenorzott_lon
-                            van_koordinata = True
-                        else:
-                            logger.warning(f"⚠️ Hibás (pont nélküli) koordináta az adatbázisban ({u_id}). Újra lekérjük az API-ból!")
+                        # 🔥 CSAPDA KIKÜSZÖBÖLÉSE: Ha '0', '0.0', 'nan' vagy üres, akkor hibásnak tekintjük!
+                        if lat_str not in ["", "None", "nan", "NaN", "0", "0.0"] and lon_str not in ["", "None", "nan", "NaN", "0", "0.0"]:
+                            ellenorzott_lat = biztonsagos_koordinata_tisztito(lat_val)
+                            ellenorzott_lon = biztonsagos_koordinata_tisztito(lon_val)
+                            
+                            if ellenorzott_lat is not None and ellenorzott_lon is not None:
+                                lat_clean = ellenorzott_lat
+                                lon_clean = ellenorzott_lon
+                                van_koordinata = True
+                        
+                        if not van_koordinata:
+                            logger.warning(f"⚠️ Hibás, hiányzó vagy '0' koordináta az adatbázisban ({u_id}). Újra lekérjük a cím alapján!")
             
             # Ha nincs meg a koordináta (vagy hibás volt és eldobtuk), lekérjük a tiszta cím alapján
             if not van_koordinata:

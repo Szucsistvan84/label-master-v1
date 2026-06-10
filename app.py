@@ -524,12 +524,23 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                 }
                 df_ugyfelkor_teljes = pd.concat([df_ugyfelkor_teljes, pd.DataFrame([uj_sor])], ignore_index=True)
 
-        # 3. Az összefésült teljes állományt még egyszer átfuttatjuk a szigorú formázón a biztonság kedvéért
+        # --- BIZTONSÁGI TÍPUSKONVERZIÓ MENTÉS ELŐTT ---
+        # Mielőtt átadnánk a formázónak, a teljes táblázatban kényszerítjük, hogy a Lat/Lon oszlop string legyen
+        if 'Lat' in df_ugyfelkor_teljes.columns:
+            df_ugyfelkor_teljes['Lat'] = df_ugyfelkor_teljes['Lat'].apply(lambda x: "" if pd.isna(x) or str(x).strip().lower() in ['nan', 'none', '0.0', '0'] else str(x).strip())
+        if 'Lon' in df_ugyfelkor_teljes.columns:
+            df_ugyfelkor_teljes['Lon'] = df_ugyfelkor_teljes['Lon'].apply(lambda x: "" if pd.isna(x) or str(x).strip().lower() in ['nan', 'none', '0.0', '0'] else str(x).strip())
+
+        # 3. Az összefésült teljes állományt átfuttatjuk a szigorú formázón
         df_ugyfelkor_vegleges = kotelezo_ugyfelkor_formatum_tisztitas(df_ugyfelkor_teljes)
         
-        # Biztosítjuk, hogy a koordináta oszlopok tiszta stringek maradjanak a mentés előtt is
-        df_ugyfelkor_vegleges['Lat'] = df_ugyfelkor_vegleges['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
-        df_ugyfelkor_vegleges['Lon'] = df_ugyfelkor_vegleges['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
+        # Utólagos ellenőrzés a vegleges dataframe-en is, hogy a formázó se alakíthassa vissza floattá
+        df_ugyfelkor_vegleges['Lat'] = df_ugyfelkor_vegleges['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0', 'None'], '')
+        df_ugyfelkor_vegleges['Lon'] = df_ugyfelkor_vegleges['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0', 'None'], '')
+
+        # 4. 🔥 MENTÉS: Indexek nélkül felülírjuk az Ugyfelkor fület
+        set_with_dataframe(ws_ugyfel, df_ugyfelkor_vegleges, row=1, col=1, include_index=False, resize=True)
+        st.success(f"🎉 Ügyfélkör adatbázis sikeresen szűrve és elmentve! Új koordináták pótolva: {új_koordináta_számláló} db.")
 
         # 4. 🔥 MENTÉS: Indexek nélkül felülírjuk az Ugyfelkor fület
         set_with_dataframe(ws_ugyfel, df_ugyfelkor_vegleges, row=1, col=1, include_index=False, resize=True)

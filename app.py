@@ -380,6 +380,18 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     # --- 3. LÉPÉS: ÚJ ÜGYFELEK ÉSZLELÉSE, GEOMAPOLÁS ÉS ADATBÁZIS ÖSSZEFÉSÜLÉS ---
     st.info("🔄 Ügyfélkör adatbázis aktualizálása és koordináták ellenőrzése...")
     
+    # 💡 Lokális kisegítő funkció a pont nélküli régi Excel/Sheets koordináták megmentésére (pl. 4752315 -> 47.52315)
+    def hibas_excel_koordinata_helyreallito(val):
+        if pd.isna(val) or str(val).strip() in ["", "0", "0.0", "None", "nan", "NaN"]:
+            return ""
+        s = str(val).replace(",", ".").replace(" ", "").strip()
+        # Ha benne maradt az a bizonyos zavaró aposztróf, azt itt azonnal lefejtjük róla
+        s = s.lstrip("'")
+        if "." not in s and len(s) >= 6:
+            # Magyarországi koordináták fixen 47... és 21... számmal kezdődnek, beszúrjuk a tizedespontot
+            s = s[:2] + "." + s[2:]
+        return s
+
     try:
         import re  # <--- 🔥 Fontos az emelet/ajtó reguláris levágásához!
         
@@ -387,9 +399,13 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         ugyfelkor_adatok = ws_ugyfel.get_all_records()
         df_ugyfelkor_teljes = pd.DataFrame(ugyfelkor_adatok)
         
-        # 🔥 AZONNALI TISZTÍTÁS: Kigyomláljuk az összes létező hibát (pl. idézőjelek, vesszők) a felhőből letöltött adatokból
+        # 🔥 AZONNALI TISZTÍTÁS ÉS REGENERÁLÁS: Kigyomláljuk a hibákat, és MEGMENTJÜK a pont nélküli koordinátákat!
         if not df_ugyfelkor_teljes.empty:
             df_ugyfelkor_teljes = kotelezo_ugyfelkor_formatum_tisztitas(df_ugyfelkor_teljes)
+            if 'Lat' in df_ugyfelkor_teljes.columns:
+                df_ugyfelkor_teljes['Lat'] = df_ugyfelkor_teljes['Lat'].apply(hibas_excel_koordinata_helyreallito)
+            if 'Lon' in df_ugyfelkor_teljes.columns:
+                df_ugyfelkor_teljes['Lon'] = df_ugyfelkor_teljes['Lon'].apply(hibas_excel_koordinata_helyreallito)
         
         # Kinyerjük a szállítás VALÓDI dátumát a session_state-ből vagy fallbackként a mai napot
         meta_forras = st.session_state.get('meta_data', {})
@@ -424,29 +440,25 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                     lat_val = talalat.iloc[0].get('Lat')
                     lon_val = talalat.iloc[0].get('Lon')
                     
-                    if pd.notna(lat_val) and pd.notna(lon_val):
-                        lat_str = str(lat_val).strip()
-                        lon_str = str(lon_val).strip()
+                    # Átfuttatjuk a helyreállítón, hogy biztosan tiszta, ponttal ellátott stringet kapjunk
+                    lat_str = hibas_excel_koordinata_helyreallito(lat_val)
+                    lon_str = hibas_excel_koordinata_helyreallito(lon_val)
+                    
+                    # Ha sikeresen kaptunk koordinátát, nem engedjük újra lekérdezni!
+                    if lat_str != "" and lon_str != "":
+                        lat_clean = lat_str
+                        lon_clean = lon_str
+                        van_koordinata = True
                         
-                        # 🔥 CSAPDA KIKÜSZÖBÖLÉSE: Ha '0', '0.0', 'nan' vagy üres, akkor hibásnak tekintjük!
-                        if lat_str not in ["", "None", "nan", "NaN", "0", "0.0"] and lon_str not in ["", "None", "nan", "NaN", "0", "0.0"]:
-                            ellenorzott_lat = biztonsagos_koordinata_tisztito(lat_val)
-                            ellenorzott_lon = biztonsagos_koordinata_tisztito(lon_val)
-                            
-                            if ellenorzott_lat is not None and ellenorzott_lon is not None:
-                                lat_clean = str(ellenorzott_lat)
-                                lon_clean = str(ellenorzott_lon)
-                                van_koordinata = True
-                        
-                        if not van_koordinata:
-                            logger.warning(f"⚠️ Hibás, hiányzó vagy '0' koordináta az adatbázisban ({u_id}). Újra lekérjük a cím alapján!")
+                if not van_koordinata and u_id in df_ugyfelkor_teljes['ID'].values:
+                    logger.warning(f"⚠️ Valóban hiányzó koordináta az adatbázisban ({u_id}). Lekérjük a cím alapján!")
             
-            # Ha nincs meg a koordináta (vagy hibás volt és eldobtuk), lekérjük a tiszta cím alapján
+            # Ha nincs meg a koordináta, lekérjük a tiszta cím alapján
             if not van_koordinata:
                 nev = row.get('Ügyintéző', row.get('Név', row.get('Nev', 'Ismeretlen név')))
                 eredeti_cim = str(row.get('Cím', row.get('Cim', '')))
                 
-                # Meghívjuk a legfelső, javított intelligens címtisztító függvényt!
+                # Meghívjuk a legfelső, javított intelligens címtisztító függvényt! (Nem vágja le a házszámot)
                 keresesi_cim = tisztitott_cim_lekerese(eredeti_cim)
                     
                 logger.info(f"✨ Koordináta keresése CÍM alapján: {nev} ({u_id}) -> {keresesi_cim}")
@@ -485,7 +497,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                     lat, lon = None, None
                     
                 if lat is not None and lon is not None:
-                    # 🔥 KÉNYSZERÍTETT STRING KONVERZIÓ: Azonnal szövegként mentjük el a tizedesek és Pandas típusok védelmében
+                    # Szövegként mentjük el a tizedesek és aposztróf-mentesség védelmében
                     lat_clean = str(round(float(lat), 6))
                     lon_clean = str(round(float(lon), 6))
                     st.success(f"🎯 GPS sikeresen megvan: {nev} -> ({lat_clean}, {lon_clean})")
@@ -538,8 +550,8 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         df_ugyfelkor_vegleges = kotelezo_ugyfelkor_formatum_tisztitas(df_ugyfelkor_teljes)
         
         # Utólagos ellenőrzés a vegleges dataframe-en is
-        df_ugyfelkor_vegleges['Lat'] = df_ugyfelkor_vegleges['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0', 'None'], '')
-        df_ugyfelkor_vegleges['Lon'] = df_ugyfelkor_vegleges['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0', 'None'], '')
+        df_ugyfelkor_vegleges['Lat'] = df_ugyfelkor_vegleges['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
+        df_ugyfelkor_vegleges['Lon'] = df_ugyfelkor_vegleges['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
 
         # 4. 🔥 MENTÉS: Indexek nélkül felülírjuk az Ugyfelkor fület
         set_with_dataframe(ws_ugyfel, df_ugyfelkor_vegleges, row=1, col=1, include_index=False, resize=True)

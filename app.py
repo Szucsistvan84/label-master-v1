@@ -542,10 +542,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         set_with_dataframe(ws_ugyfel, df_ugyfelkor_vegleges, row=1, col=1, include_index=False, resize=True)
         st.success(f"🎉 Ügyfélkör adatbázis sikeresen szűrve és elmentve! Új koordináták pótolva: {új_koordináta_számláló} db.")
 
-        # 4. 🔥 MENTÉS: Indexek nélkül felülírjuk az Ugyfelkor fület
-        set_with_dataframe(ws_ugyfel, df_ugyfelkor_vegleges, row=1, col=1, include_index=False, resize=True)
-        st.success(f"🎉 Ügyfélkör adatbázis sikeresen szűrve és elmentve! Új koordináták pótolva: {új_koordináta_számláló} db.")
-        
         # A lokális master_df frissítése a merge-höz
         master_df = df_ugyfelkor_vegleges.copy()
         

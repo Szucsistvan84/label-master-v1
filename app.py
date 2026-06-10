@@ -378,9 +378,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     # --- 3. LÉPÉS: ÚJ ÜGYFELEK ÉSZLELÉSE, GEOMAPOLÁS ÉS ADATBÁZIS ÖSSZEFÉSÜLÉS ---
     st.info("🔄 Ügyfélkör adatbázis aktualizálása és koordináták ellenőrzése...")
     
-    # Előkészítjük a master_df-et biztonsági okokból az try blokkon kívül
-    master_df = pd.DataFrame()
-
     try:
         import re  # <--- 🔥 Fontos az emelet/ajtó reguláris levágásához!
         
@@ -435,8 +432,8 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                             ellenorzott_lon = biztonsagos_koordinata_tisztito(lon_val)
                             
                             if ellenorzott_lat is not None and ellenorzott_lon is not None:
-                                lat_clean = ellenorzott_lat
-                                lon_clean = ellenorzott_lon
+                                lat_clean = str(ellenorzott_lat)
+                                lon_clean = str(ellenorzott_lon)
                                 van_koordinata = True
                         
                         if not van_koordinata:
@@ -486,8 +483,9 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                     lat, lon = None, None
                     
                 if lat is not None and lon is not None:
-                    lat_clean = round(float(lat), 6)
-                    lon_clean = round(float(lon), 6)
+                    # 🔥 KÉNYSZERÍTETT STRING KONVERZIÓ: Azonnal szövegként mentjük el a tizedesek és Pandas típusok védelmében
+                    lat_clean = str(round(float(lat), 6))
+                    lon_clean = str(round(float(lon), 6))
                     st.success(f"🎯 GPS sikeresen megvan: {nev} -> ({lat_clean}, {lon_clean})")
                     új_koordináta_számláló += 1
                 else:
@@ -509,16 +507,16 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                 df_ugyfelkor_teljes.at[idx_ugyfel, 'Osszertek'] = jelenlegi_ertek + mai_rendeles_erteke
                 df_ugyfelkor_teljes.at[idx_ugyfel, 'Rendeles_Szam'] = jelenlegi_szam + 1
                 df_ugyfelkor_teljes.at[idx_ugyfel, 'Utolso_Rendeles'] = szallitas_napja
-                df_ugyfelkor_teljes.at[idx_ugyfel, 'Lat'] = lat_clean
-                df_ugyfelkor_teljes.at[idx_ugyfel, 'Lon'] = lon_clean
+                df_ugyfelkor_teljes.at[idx_ugyfel, 'Lat'] = str(lat_clean)
+                df_ugyfelkor_teljes.at[idx_ugyfel, 'Lon'] = str(lon_clean)
             else:
                 # TELJESEN ÚJ ÜGYFÉL: Új sort építünk tiszta szöveges koordinátákkal
                 uj_sor = {
                     'ID': u_id,
                     'Név': row.get('Név', row.get('Ügyintéző', 'Ismeretlen Ügyfél')),
                     'Cím': row.get('Cím', row.get('Cim', '')),
-                    'Lat': lat_clean,
-                    'Lon': lon_clean,
+                    'Lat': str(lat_clean),
+                    'Lon': str(lon_clean),
                     'Telefon': str(row.get('Telefon', '')),
                     'Csoport': str(row.get('Csoport', '')),
                     'Megjegyzés': str(row.get('Megjegyzés', row.get('Megjegyzes', ''))),
@@ -529,7 +527,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                 df_ugyfelkor_teljes = pd.concat([df_ugyfelkor_teljes, pd.DataFrame([uj_sor])], ignore_index=True)
 
         # --- BIZTONSÁGI TÍPUSKONVERZIÓ MENTÉS ELŐTT ---
-        # Mielőtt átadnánk a formázónak, a teljes táblázatban kényszerítjük, hogy a Lat/Lon oszlop string legyen
         if 'Lat' in df_ugyfelkor_teljes.columns:
             df_ugyfelkor_teljes['Lat'] = df_ugyfelkor_teljes['Lat'].apply(lambda x: "" if pd.isna(x) or str(x).strip().lower() in ['nan', 'none', '0.0', '0'] else str(x).strip())
         if 'Lon' in df_ugyfelkor_teljes.columns:
@@ -538,7 +535,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         # 3. Az összefésült teljes állományt átfuttatjuk a szigorú formázón
         df_ugyfelkor_vegleges = kotelezo_ugyfelkor_formatum_tisztitas(df_ugyfelkor_teljes)
         
-        # Utólagos ellenőrzés a vegleges dataframe-en is, hogy a formázó se alakíthassa vissza floattá
+        # Utólagos ellenőrzés a vegleges dataframe-en is
         df_ugyfelkor_vegleges['Lat'] = df_ugyfelkor_vegleges['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0', 'None'], '')
         df_ugyfelkor_vegleges['Lon'] = df_ugyfelkor_vegleges['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0', 'None'], '')
 
@@ -546,7 +543,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         set_with_dataframe(ws_ugyfel, df_ugyfelkor_vegleges, row=1, col=1, include_index=False, resize=True)
         st.success(f"🎉 Ügyfélkör adatbázis sikeresen szűrve és elmentve! Új koordináták pótolva: {új_koordináta_számláló} db.")
 
-        # A lokális master_df frissítése a merge-höz
+        # A globális master_df frissítése a merge-höz, hogy ne legyen üres!
         master_df = df_ugyfelkor_vegleges.copy()
         
         if 'google_data_loaded' in st.session_state:
@@ -555,6 +552,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     except Exception as e_full_process:
         logger.error(f"Súlyos hiba az ügyfélkör PDF alapú frissítése során: {e_full_process}")
         st.error(f"❌ Nem sikerült az ügyfélkör automatikus frissítése: {e_full_process}")
+        
     # --- 4. LÉPÉS: SZIGORÚ ÖSSZEFÉSÜLÉS (Koordináták áthúzása a napi listába) ---
     if not master_df.empty:
         df_napi = df_napi.drop(columns=['Lat', 'Lon'], errors='ignore')

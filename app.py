@@ -206,12 +206,18 @@ def get_latest_week_from_master(sheet_id):
         return 2026, 0
 
 def get_coordinates(address):
-    """Lekéri a megadott cím koordinátáit."""
+    """Lekéri a megadott cím koordinátáit - APOSZTRÓF NÉLKÜL, TISZTA SZÁMKÉNT!"""
     try:
-        location = geocode(address) 
+        # Meghívjuk a javított címtisztítót, hogy ne küldjünk zagyvaságot az API-nak
+        tisztitott_cim = tisztitott_cim_lekerese(address)
+        if not tisztitott_cim:
+            return None, None
+            
+        location = geocode(tisztitott_cim) 
         if location:
-            str_lat = f"'{location.latitude:.7f}"
-            str_lon = f"'{location.longitude:.7f}"
+            # Szigorúan LEVÁGUK az aposztrófot! Tiszta string formátum kell ponttal: "47.1234567"
+            str_lat = f"{location.latitude:.7f}"
+            str_lon = f"{location.longitude:.7f}"
             return str_lat, str_lon
         else:
             return None, None
@@ -223,24 +229,20 @@ def tisztitott_cim_lekerese(nyers_szoveg):
     if not nyers_szoveg:
         return ""
     
-    # 1. Eltávolítjuk a zárójeles részt a végéről (pl. " (Károly Benedek)" -> teljesen eltűnik)
+    # 1. Zárójeles részek eltávolítása (pl. név lecsípése a végéről)
     szoveg = re.sub(r'\(.*?\)', '', str(nyers_szoveg)).strip()
     szoveg = szoveg.replace('$', '').strip()
     
-    # 2. Ha van benne pont (pl. "Batthyány u. 11. 1/13"), levágjuk az ELSŐ olyan pont utáni részt,
-    # ami után emelet/ajtó/lépcsőház utalás van, vagy egyszerűen a házszám utáni pontnál kettévágjuk:
-    if '.' in szoveg:
-        részek = szoveg.split('.')
-        # Megnézzük, hogy az első pont előtti rész tartalmaz-e utca/út/tér jelzést és számot
-        if any(utca_szzo in részek[0].lower() for utca_szzo in ['u', 'utca', 'út', 'ut', 'tér', 'ter', 'krt', 'körút']):
-            szoveg = részek[0].strip()
-            
-    # 3. Biztonsági reguláris tisztítás a pont nélküli emelet/ajtó formátumokra (pl. "1/13", "fszt")
-    szoveg = re.sub(r'\s+\d+/\d+\s*$', '', szoveg)
-    szoveg = re.sub(r'\s+\d+/\d+.*$', '', szoveg)
-    szoveg = re.sub(r'(?i)\s+(fszt|fsz|emelet|em|ajtó|ajto|lh|lph).*$', '', szoveg)
+    # 2. OKOS LAKÁSSZÁM-ELTÁVOLÍTÁS (Nem vágjuk le a házszámot az 'u.' után!)
+    # Csak az emelet/ajtó/lakás/lépcsőház és a perjeles (pl. 11. 1/13 -> 11.) részeket bántjuk
+    szoveg = re.split(r'\s+\d+/\d+\s*$', szoveg)[0]
+    szoveg = re.split(r'\s+\d+/\d+.*$', szoveg)[0]
+    szoveg = re.split(r'(?i)\s+(fszt|fsz|emelet|em|ajtó|ajto|lh|lph).*$', szoveg)[0]
     
-    return szoveg.strip()
+    # Ha a legvégén maradt egy magányos pont vagy vessző a levágás miatt, azt lekapjuk
+    szoveg = szoveg.strip().rstrip(',').rstrip('.')
+    
+    return szoveg
 
 @st.cache_data(ttl=300)
 def _tiszta_futar_lista_letoltes(sheet_id):

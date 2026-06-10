@@ -491,6 +491,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                             utca_szint = re.sub(r'\s+\d+\s*$', '', utca_szint).strip()
                             location_utca = geolocator_helyi.geocode(utca_szint, timeout=10)
                             if location_utca:
+                                # 🔥 ITT VOLT A HIBA (location volt location_utca helyett):
                                 lat, lon = location_utca.latitude, location_utca.longitude
                                 
                 except Exception as e_geo:

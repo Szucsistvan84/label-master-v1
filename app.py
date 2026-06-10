@@ -222,13 +222,25 @@ def get_coordinates(address):
 def tisztitott_cim_lekerese(nyers_szoveg):
     if not nyers_szoveg:
         return ""
-    szoveg = nyers_szoveg.replace('$', '').strip()
-    minta = r'(\d{4}\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-z-áéíóöőúüű]+\s*,\s*[^,]+?\s\d+[a-zA-Z0-9\/\-\.]*)'
-    match = re.search(minta, szoveg)
-    if match:
-        return match.group(1).strip()
-    tisztitott = szoveg.split('. fsz')[0].split('. fszt')[0].split(', fsz')[0]
-    return tisztitott.strip()
+    
+    # 1. Eltávolítjuk a zárójeles részt a végéről (pl. " (Károly Benedek)" -> teljesen eltűnik)
+    szoveg = re.sub(r'\(.*?\)', '', str(nyers_szoveg)).strip()
+    szoveg = szoveg.replace('$', '').strip()
+    
+    # 2. Ha van benne pont (pl. "Batthyány u. 11. 1/13"), levágjuk az ELSŐ olyan pont utáni részt,
+    # ami után emelet/ajtó/lépcsőház utalás van, vagy egyszerűen a házszám utáni pontnál kettévágjuk:
+    if '.' in szoveg:
+        részek = szoveg.split('.')
+        # Megnézzük, hogy az első pont előtti rész tartalmaz-e utca/út/tér jelzést és számot
+        if any(utca_szzo in részek[0].lower() for utca_szzo in ['u', 'utca', 'út', 'ut', 'tér', 'ter', 'krt', 'körút']):
+            szoveg = részek[0].strip()
+            
+    # 3. Biztonsági reguláris tisztítás a pont nélküli emelet/ajtó formátumokra (pl. "1/13", "fszt")
+    szoveg = re.sub(r'\s+\d+/\d+\s*$', '', szoveg)
+    szoveg = re.sub(r'\s+\d+/\d+.*$', '', szoveg)
+    szoveg = re.sub(r'(?i)\s+(fszt|fsz|emelet|em|ajtó|ajto|lh|lph).*$', '', szoveg)
+    
+    return szoveg.strip()
 
 @st.cache_data(ttl=300)
 def _tiszta_futar_lista_letoltes(sheet_id):

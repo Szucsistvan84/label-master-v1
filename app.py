@@ -233,10 +233,11 @@ def tisztitott_cim_lekerese(nyers_szoveg):
     szoveg = re.sub(r'\(.*?\)', '', str(nyers_szoveg)).strip()
     szoveg = szoveg.replace('$', '').strip()
     
-    # 2. OKOS LAKÁSSZÁM-ELTÁVOLÍTÁS (Nem vágjuk le a házszámot az 'u.' után!)
-    # Csak az emelet/ajtó/lakás/lépcsőház és a perjeles (pl. 11. 1/13 -> 11.) részeket bántjuk
-    szoveg = re.split(r'\s+\d+/\d+\s*$', szoveg)[0]
-    szoveg = re.split(r'\s+\d+/\d+.*$', szoveg)[0]
+    # 2. OKOS LAKÁSSZÁM-ELTÁVOLÍTÁS (Pont és szóköz toleráns verzió)
+    # Eltávolítja a per jellel elválasztott ajtókat, de MEGTARTJA a házszámot és a pontot!
+    szoveg = re.sub(r'\.?\s+\d+/\d+.*$', '', szoveg)
+    
+    # Emelet, ajtó, lépcsőház kulcsszavak levágása
     szoveg = re.split(r'(?i)\s+(fszt|fsz|emelet|em|ajtó|ajto|lh|lph).*$', szoveg)[0]
     
     # Ha a legvégén maradt egy magányos pont vagy vessző a levágás miatt, azt lekapjuk

@@ -2722,6 +2722,31 @@ def main():
     # 1. Streamlit alapbeállítás – Ennek KÖTELEZŐEN a legelsőnek kell lennie!
     st.set_page_config(page_title="Interfood Label Master", layout="wide")
 
+    # --- CSS TRÜKK A DEPLOY ÉS HAMBURGER ELREJTÉSÉRE (SIDEBAR MARAD!) ---
+    st.markdown(
+        """
+        <style>
+        /* A lábléc és a legfelső dekorációs csík elrejtése */
+        footer {visibility: hidden;}
+        [data-testid="stDecoration"] {display: none;}
+        
+        /* A jobb felső menü (Deploy és Hamburger) elrejtése */
+        .stDeployButton {display:none;}
+        [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+        
+        /* Biztosítjuk, hogy a Hamburger menü ikonja ne látszódjon */
+        #MainMenu {visibility: hidden;}
+        
+        /* Finomhangolás a mobil margókhoz, hogy ne legyen felesleges üres tér fentről */
+        .block-container {
+            padding-top: 2rem;
+            padding-bottom: 1rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     # 2. Globális elérés a gspread kliensnek
     global client  
 

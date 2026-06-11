@@ -2722,25 +2722,36 @@ def main():
     # 1. Streamlit alapbeállítás – Ennek KÖTELEZŐEN a legelsőnek kell lennie!
     st.set_page_config(page_title="Interfood Label Master", layout="wide")
 
-    # --- CSS TRÜKK A DEPLOY ÉS HAMBURGER ELREJTÉSÉRE (SIDEBAR MARAD!) ---
+    # --- JAVÍTOTT, ATOMBIZTOS MOBIL CSS TRÜKK ---
     st.markdown(
         """
         <style>
-        /* A lábléc és a legfelső dekorációs csík elrejtése */
-        footer {visibility: hidden;}
-        [data-testid="stDecoration"] {display: none;}
+        /* 1. AZ ALSÓ LÁBLÉC ÉS A HOZZÁ TARTOZÓ JELZÉSEK TELJES ELTÜNTETÉSE */
+        footer {visibility: hidden !important; display: none !important;}
+        [data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
         
-        /* A jobb felső menü (Deploy és Hamburger) elrejtése */
-        .stDeployButton {display:none;}
-        [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+        /* 2. A JOBB FELSŐ DEPLOY ÉS HAMBURGER MENÜ ELREJTÉSE */
+        .stDeployButton {display: none !important;}
+        #MainMenu {visibility: hidden !important; display: none !important;}
+        [data-testid="stAppDeployButton"] {display: none !important;}
         
-        /* Biztosítjuk, hogy a Hamburger menü ikonja ne látszódjon */
-        #MainMenu {visibility: hidden;}
+        /* 3. A LEGUTÁLATOSABB: A JOBB FELSŐ TOOLBAR (SÚGÓ, BEÁLLÍTÁSOK) ELTÜNTETÉSE */
+        [data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
         
-        /* Finomhangolás a mobil margókhoz, hogy ne legyen felesleges üres tér fentről */
+        /* 4. A FELSŐ DEKORÁCIÓS CSÍK JELZÉSE */
+        [data-testid="stDecoration"] {display: none !important;}
+        
+        /* 5. A SIDEBAR GOMB VÉDELME ÉS KIEMELÉSE */
+        /* Biztosítjuk, hogy a bal felső nyitógomb látható és kattintható maradjon */
+        [data-testid="stSidebarCollapseButton"] {
+            visibility: visible !important;
+            display: inline-flex !important;
+        }
+
+        /* 6. MOBIL MARGÓK FINOMHANGOLÁSA */
         .block-container {
-            padding-top: 2rem;
-            padding-bottom: 1rem;
+            padding-top: 2.5rem !important;
+            padding-bottom: 0rem !important;
         }
         </style>
         """,

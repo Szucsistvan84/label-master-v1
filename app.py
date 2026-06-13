@@ -64,67 +64,6 @@ def check_user_role():
         return "superadmin"
     return role
 
-def kotelezo_ugyfelkor_formatum_tisztitas(df):
-    """
-    Szigorú típusbiztos szűrő az Ugyfelkor DataFrame-re.
-    Garantálja, hogy a Google Sheets-be csak tiszta, számolható adatok kerüljenek.
-    A koordinátákat átfuttatja a biztonsagos_koordinata_tisztito-n, és stringként 
-    menti, hogy a Google Sheets ne nyelje le a tizedesvesszőket.
-    """
-    if df.empty:
-        return df
-        
-    df_clean = df.copy()
-    
-    # 1. ID kényszerítése tiszta 6 jegyű szöveggé (levágva a .0-át ha float lenne)
-    if 'ID' in df_clean.columns:
-        df_clean['ID'] = df_clean['ID'].astype(str).apply(
-            lambda x: "".join(filter(str.isdigit, x.split('.')[0])).strip()
-        )
-        
-    # 2. Nevek és Címek tisztítása a felesleges szóközöktől
-    if 'Név' in df_clean.columns:
-        df_clean['Név'] = df_clean['Név'].astype(str).str.strip()
-    if 'Cím' in df_clean.columns:
-        df_clean['Cím'] = df_clean['Cím'].astype(str).str.strip()
-        
-    # =========================================================================
-    # 🔥 JAVÍTOTT 3. PONT: Koordináták precíziós tisztítása és mentése
-    # =========================================================================
-    for col in ['Lat', 'Lon']:
-        if col in df_clean.columns:
-            # Első lépés: átengedjük a te okos, levágás-biztos tisztító függvényeden
-            df_clean[col] = df_clean[col].apply(biztonsagos_koordinata_tisztito)
-            
-            # Második lépés (Google Sheets trükk): Szöveggé alakítjuk a kapott tiszta float számot.
-            # Így a gspread tizedespontos stringként küldi be, és a Sheets nem fogja eltüntetni a pontot!
-            df_clean[col] = df_clean[col].apply(lambda x: f"{x}" if x is not None and not pd.isna(x) else "")
-            
-    # 4. Telefon, Csoport, Megjegyzés, Utolso_Rendeles tisztítása stringgé (nan-ok eltávolítása)
-    for col in ['Telefon', 'Csoport', 'Megjegyzés', 'Utolso_Rendeles']:
-        if col in df_clean.columns:
-            df_clean[col] = df_clean[col].astype(str).str.strip().replace(['nan', 'None', '<NA>', 'NaN'], '')
-            
-    # 5. Összérték és Rendelésszám szigorúan EGÉSZ SZÁM (Integer)
-    if 'Osszertek' in df_clean.columns:
-        df_clean['Osszertek'] = df_clean['Osszertek'].astype(str).str.replace(r'[^0-9-]', '', regex=True)
-        df_clean['Osszertek'] = pd.to_numeric(df_clean['Osszertek'], errors='coerce').fillna(0).astype(int)
-        
-    if 'Rendeles_Szam' in df_clean.columns:
-        df_clean['Rendeles_Szam'] = df_clean['Rendeles_Szam'].astype(str).str.replace(r'[^0-9-]', '', regex=True)
-        df_clean['Rendeles_Szam'] = pd.to_numeric(df_clean['Rendeles_Szam'], errors='coerce').fillna(0).astype(int)
-        
-    # Minden üres/hiányzó értéket üres stringre cserélünk a Sheets kompatibilitás miatt
-    df_clean = df_clean.fillna("")
-
-    # 🔥 EZT A KÉT SORT ADD HOZZÁ A RETURN ELŐTT:
-    if 'Lat' in df_clean.columns:
-        df_clean['Lat'] = df_clean['Lat'].astype(str)
-    if 'Lon' in df_clean.columns:
-        df_clean['Lon'] = df_clean['Lon'].astype(str)
-    
-    return df_clean
-
 def get_google_sheets_creds():
     """Összeállítja és visszaadja a Google Credentials objektumot a Secrets-ből."""
     if "gcp_service_account" in st.secrets:

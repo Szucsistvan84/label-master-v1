@@ -14,7 +14,7 @@ from adatbazis_modul import (
 )
 from stilus_modul import alkalmaz_mobil_status_bar, alkalmaz_tisztitott_felulet_css, alkalmaz_wolt_gomb_stilus, rendereld_wolt_ugyfel_kartya
 from vizualizacio import utvonal_terkep
-from utils import init_google_sheets, setup_logging, init_test_mode, check_user_role
+from utils import init_google_sheets, setup_logging, init_test_mode, check_user_role, clean_text
 from admin_modul import render_logisztikai_kozpont
 
 # --- KORÁBBI MOBIL ÉS NYOMTATÁS MODULOK BEHÚZÁSA ---

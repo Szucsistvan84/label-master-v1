@@ -762,4 +762,105 @@ def save_futar_to_sheets(df, sheet_id):
         logger.error(f"Hiba a futárok mentésekor: {e}")
         return False
 
+def sync_master_database(sheet_id, ev, start_het, end_het):
+    """
+    Végigfut a heteken, beolvassa a meglévő Master adatokat, 
+    és csak az új ételeket fűzi hozzá, megőrizve a korábbi kellékeket.
+    """
+    import streamlit as st
+    import pandas as pd
+    import requests
+    from io import BytesIO
+    from utils import clean_text  # Beimportáljuk a kiszervezett tisztítót
+    
+    # Használjuk a központi, már hitelesített klienst
+    client = st.session_state.get('client')
+    if not client:
+        st.error("❌ Google Sheets kapcsolat nem érhető el a sync_master_database funkcióban!")
+        return False
+
+    try:
+        try:
+            worksheet = sheet.open_by_key(sheet_id).worksheet("Master_Adatbazis")
+            # 1. LÉPÉS: Beolvassuk a MÁR MEGLÉVŐ adatokat a Sheet-ről
+            existing_data = worksheet.get_all_records()
+            # Szótárba rendezzük a meglévőket a 'Tisztított Név' alapján
+            master_dict = {
+                str(row['Tisztított Név']): {
+                    "Eredeti Név": row.get('Eredeti Név', ''),
+                    "KodAr_List": str(row.get('Kódok és Árak', '')).split(", ") if row.get('Kódok és Árak') else [],
+                    "Kellék": row.get('Kellék', ''),
+                    "Gyakoriság": int(row.get('Gyakoriság', 1))
+                } for row in existing_data if row.get('Tisztított Név')
+            }
+            st.info(f"ℹ️ Meglévő adatbázis betöltve: {len(master_dict)} étel.")
+        except Exception:
+            # Ha nincs még ilyen fül, létrehozzuk
+            sheet_obj = client.open_by_key(sheet_id)
+            worksheet = sheet_obj.add_worksheet(title="Master_Adatbazis", rows="5000", cols="10")
+            master_dict = {}
+            st.info("ℹ️ Új Master_Adatbazis fül létrehozva.")
+
+        # 2. LÉPÉS: Új adatok begyűjtése az API-ból
+        for het in range(start_het, end_het + 1):
+            st.write(f"🔄 {ev}/{het}. hét feldolgozása...")
+            url = f"https://ia.interfood.hu/api/v3/excel-export?year={ev}&week={het}"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            
+            response = requests.get(url, headers=headers, timeout=15)
+            if response.status_code == 200:
+                df = pd.read_excel(BytesIO(response.content), header=None, engine='openpyxl')
+                
+                for i in range(len(df)):
+                    elso_cella = str(df.iloc[i, 0]).strip()
+                    if " - " in elso_cella:
+                        alap_kod = elso_cella.split(" - ")[0].strip()
+                        
+                        for nap_idx in range(1, 7):
+                            eredeti_nev = str(df.iloc[i, nap_idx]).strip()
+                            tiszta_nev = clean_text(eredeti_nev)
+                            
+                            if tiszta_nev and tiszta_nev != "":
+                                ar = ""
+                                if i + 1 < len(df):
+                                    ar = str(df.iloc[i + 1, nap_idx]).strip().replace('Ft', '').replace(' ', '')
+                                
+                                kod_ar_par = f"{alap_kod}:{ar} (w{het})"
+                                
+                                if tiszta_nev in master_dict:
+                                    # HA MÁR MEG VAN: Csak a gyakoriságot és esetleg az új kódot adjuk hozzá
+                                    master_dict[tiszta_nev]['Gyakoriság'] += 1
+                                    if kod_ar_par not in master_dict[tiszta_nev]['KodAr_List']:
+                                        master_dict[tiszta_nev]['KodAr_List'].append(kod_ar_par)
+                                else:
+                                    # HA ÚJ: Létrehozzuk az új bejegyzést
+                                    master_dict[tiszta_nev] = {
+                                        "Eredeti Név": eredeti_nev.replace('*', '').strip(),
+                                        "KodAr_List": [kod_ar_par],
+                                        "Kellék": "",
+                                        "Gyakoriság": 1
+                                    }
+            else:
+                st.warning(f"Nem sikerült letölteni: {ev}/{het}")
+
+        # 3. LÉPÉS: Az összesített (régi + új) adatok visszaírása
+        output_rows = [["Tisztított Név", "Eredeti Név", "Kódok és Árak", "Kellék", "Gyakoriság"]]
+        for tiszta, adat in master_dict.items():
+            output_rows.append([
+                tiszta,
+                value_escaped := adat["Eredeti Név"],
+                ", ".join(adat["KodAr_List"]),
+                adat["Kellék"],
+                adat["Gyakoriság"]
+            ])
+            
+        worksheet.clear()
+        worksheet.update('A1', output_rows)
+        st.success(f"✅ Master Adatbázis frissítve! Összesen {len(master_dict)} egyedi étel található.")
+        return True
+        
+    except Exception as e:
+        st.error(f"Hiba a Master szinkron során: {e}")
+        return False
+
 

@@ -40,22 +40,6 @@ client = init_google_sheets()
 # Innen mehet tovább az app.py törzse (UI elemek, oldalsáv, főlap, stb.)
 # ==============================================================================
 
-
-# --- 3. MASTER DATA (HOSSZÚ TÁVÚ MEMÓRIA) ---
-def load_master_data():
-    if os.path.exists("master_data.csv"):
-        return pd.read_csv("master_data.csv", dtype={'Ügyfélkód': str})
-    return pd.DataFrame(columns=['Ügyfélkód', 'Ügyintéző', 'Cím', 'Telefonszám', 'Megjegyzés'])
-
-def save_to_master(current_df):
-    """Ezt hívjuk meg a Mentés gombnál!"""
-    master_df = load_master_data()
-    # Összefűzzük a mait a régivel, az új adatok felülírják a régit az ID alapján
-    updated_master = pd.concat([master_df, current_df[['Ügyfélkód', 'Ügyintéző', 'Cím', 'Telefonszám', 'Megjegyzés']]])
-    updated_master = updated_master.drop_duplicates(subset=['Ügyfélkód'], keep='last')
-    updated_master.to_csv("master_data.csv", index=False)
-
-
 # --- 1. FUNKCIÓ: ADATOK FELKÜLDÉSE (UPSERT) ---
 def sync_ugyfelkor_fel(df_napi, sheet_id, client):
     if client is None:

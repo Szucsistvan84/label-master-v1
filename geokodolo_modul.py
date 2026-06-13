@@ -6,72 +6,73 @@ from geopy.geocoders import Nominatim
 
 logger = logging.getLogger(__name__)
 
-def clean_address(address_str):
-    """
-    Megtisztítja a bejövő címet a felesleges sallangoktól (emelet, ajtó, megjegyzések),
-    hogy a Nominatim API nagyobb eséllyel találja meg.
-    """
-    if not address_str:
+def tisztitott_cim_lekerese(nyers_szoveg):
+    """A te eredeti, jól bevált címtisztító logikád"""
+    if not nyers_szoveg:
         return ""
     
-    # Alapvető tisztítások (íásjelek, szóközök)
-    s = address_str.strip()
+    # 1. Zárójeles részek eltávolítása (pl. név lecsípése a végéről)
+    szoveg = re.sub(r'\(.*?\)', '', str(nyers_szoveg)).strip()
+    szoveg = szoveg.replace('$', '').strip()
     
-    # Levágjuk a tipikus belső címzéseket (emelet, ajtó, lakás, lépcsőház stb.)
-    s = re.sub(r'\s+\d+/\d+\.?\s*(A|B|C|D)?\s*(em|fszt|ajtó|lakás|lh).*$', '', s, flags=re.IGNORECASE)
-    s = re.sub(r'\s+\d+\.?\s*(em|fszt|ajtó|lakás|lh).*$', '', s, flags=re.IGNORECASE)
-    s = re.sub(r'\s+(fszt|emelet|szint).*$', '', s, flags=re.IGNORECASE)
+    # 2. OKOS LAKÁSSZÁM-ELTÁVOLÍTÁS (Pont és szóköz toleráns verzió)
+    szoveg = re.sub(r'\.?\s+\d+/\d+.*$', '', szoveg)
     
-    # Levágjuk a zárójeles megjegyzéseket a cím végéről
-    s = re.sub(r'\(.*\).*$', '', s)
+    # Emelet, ajtó, lépcsőház kulcsszavak levágása
+    szoveg = re.split(r'(?i)\s+(fszt|fsz|emelet|em|ajtó|ajto|lh|lph).*$', szoveg)[0]
     
-    return s.strip()
+    # Ha a legvégén maradt egy magányos pont vagy vessző a levágás miatt, azt lekapjuk
+    szoveg = szoveg.strip().rstrip(',').rstrip('.')
+    
+    return szoveg
 
-def get_coordinates_3_step(address_str):
-    """
-    3 lépcsős geokódoló algoritmus kötelező késleltetéssel (Rate Limit védelemmel).
-    1. Lépés: Teljes tisztított cím
-    2. Lépés: Irányítószám nélkül (csak város + utca + házszám)
-    3. Lépés: Csak utca szinten (házszám nélkül)
-    """
-    cleaned = clean_address(address_str)
-    if not cleaned:
-        return None, None
+def geocode_with_retry(address_str, retries=2):
+    """Biztonságos Nominatim hívás kötelező késleltetéssel és újrapróbálkozással"""
+    geolocator = Nominatim(user_agent="interfood_label_master_v3")
+    for i in range(retries):
+        try:
+            time.sleep(1.1)  # Kötelező Nominatim rate limit szünet
+            location = geolocator.geocode(address_str, timeout=10)
+            if location:
+                return location
+        except Exception as e:
+            logger.warning(f"Nominatim hiba ({address_str}), próbálkozás {i+1}/{retries}: {e}")
+            time.sleep(2)
+    return None
 
-    # Egyedi User-Agent, hogy a Nominatim ne tiltson ki minket
-    geolocator = Nominatim(user_agent="interfood_express_delivery_app_v3")
-    
-    # --- 1. LÉPÉS: Teljes tisztított cím ---
+def get_coordinates(address):
+    """
+    Lekéri a megadott cím koordinátáit - APOSZTRÓF NÉLKÜL, TISZTA STRINGSZÁMKÉNT!
+    3 lépcsős biztonsági mentéssel.
+    """
     try:
-        time.sleep(1.3) # Kötelező szünet a Nominatim szabályzat miatt!
-        location = geolocator.geocode(cleaned, timeout=10)
+        tisztitott_cim = tisztitott_cim_lekerese(address)
+        if not tisztitott_cim:
+            return None, None
+            
+        # 1. Próbálkozás: Teljes tisztított cím
+        location = geocode_with_retry(tisztitott_cim)
+        
+        # 2. Próbálkozás: Ha nem találja, megpróbáljuk irányítószám nélkül (lecsípjük az első 4 számjegyet)
+        if not location:
+            no_zip = re.sub(r'^\d{4}\s+', '', tisztitott_cim)
+            if no_zip != tisztitott_cim:
+                location = geocode_with_retry(no_zip)
+                
+        # 3. Próbálkozás: Ha még mindig nincs, csak az utca szint (házszám nélkül)
+        if not location:
+            only_street = re.sub(r'\s+\d+\.?\s*$', '', tisztitott_cim)
+            if only_street != tisztitott_cim:
+                location = geocode_with_retry(only_street)
+
         if location:
-            return location.latitude, location.longitude
+            # Szigorúan LEVÁGJUK az aposztrófot! Tiszta string formátum kell ponttal: "47.1234567"
+            str_lat = f"{location.latitude:.7f}"
+            str_lon = f"{location.longitude:.7f}"
+            return str_lat, str_lon
+        else:
+            return None, None
+            
     except Exception as e:
-        logger.warning(f"Geokódolás hiba az 1. lépésben ({cleaned}): {e}")
-
-    # --- 2. LÉPÉS: Irányítószám nélkül ---
-    # Ha pl. "4031 Debrecen, Derék u. 76", megpróbáljuk irányítószám nélkül
-    no_zip = re.sub(r'^\d{4}\s+', '', cleaned)
-    if no_zip != cleaned:
-        try:
-            time.sleep(1.3)
-            location = geolocator.geocode(no_zip, timeout=10)
-            if location:
-                return location.latitude, location.longitude
-        except Exception as e:
-            logger.warning(f"Geokódolás hiba a 2. lépésben ({no_zip}): {e}")
-
-    # --- 3. LÉPÉS: Csak utca szint (házszám lecsípése) ---
-    # Ha pl. "Debrecen, Derék u. 76", levágjuk a számot a végéről -> "Debrecen, Derék u."
-    only_street = re.sub(r'\s+\d+\.?\s*$', '', no_zip)
-    if only_street != no_zip:
-        try:
-            time.sleep(1.3)
-            location = geolocator.geocode(only_street, timeout=10)
-            if location:
-                return location.latitude, location.longitude
-        except Exception as e:
-            logger.warning(f"Geokódolás hiba a 3. lépésben ({only_street}): {e}")
-
-    return None, None
+        logger.error(f"Váratlan hiba a geocoding során ({address}): {e}")
+        return None, None

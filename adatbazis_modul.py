@@ -1023,4 +1023,24 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id):
         st.error(f"❌ Hiba a visszatöltésnél: {e}")
         return df_napi
 
+# adatbazis_modul.py kiegészítése
+
+def _tiszta_futar_lista_letoltes(sheet_id):
+    """Biztonságosan letölti a futárok listáját a PIN kódos azonosításhoz."""
+    import streamlit as st
+    import pandas as pd
+    
+    client = st.session_state.get('client')
+    if client is None:
+        return []
+        
+    try:
+        sh = client.open_by_key(sheet_id)
+        # Feltételezzük, hogy a Futárok vagy első fülön vannak az adatok
+        ws = sh.get_worksheet(0) 
+        return ws.get_all_records()
+    except Exception as e:
+        st.error(f"Hiba a futár lista letöltésekor: {e}")
+        return []
+
 

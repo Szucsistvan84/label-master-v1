@@ -1,29 +1,31 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
-import pdfplumber
 import pandas as pd
 import re
-import math
 import requests
-import openpyxl
 import os
 import gspread
 import folium
 import logging
-import time
-import unicodedata
-from geopy.geocoders import Nominatim
-from geopy.extra.rate_limiter import RateLimiter
-from streamlit_folium import st_folium
-from datetime import datetime
-from gspread_dataframe import set_with_dataframe
-from google.oauth2 import service_account
-from google.oauth2.service_account import Credentials
+import qrcode
 from io import BytesIO
+from datetime import datetime
+from streamlit_folium import st_folium
+from gspread_dataframe import set_with_dataframe
+from google.oauth2.service_account import Credentials
+
+# --- SAJÁT, ÚJONNAN LÉTREHOZOTT MODULOK IMPORTÁLÁSA ---
+from geokodolo_modul import get_coordinates
+from parser_modul import parse_interfood_pdf
+from adatbazis_modul import get_gspread_client, load_sheet_data, save_df_to_sheet, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR
+from stilus_modul import alkalmaz_mobil_status_bar, alkalmaz_tisztitott_felulet_css, alkalmaz_wolt_gomb_stilus, rendereld_wolt_ugyfel_kartya
+
+# --- KORÁBBI MOBIL ÉS NYOMTATÁS MODULOK BEHÚZÁSA ---
 from mobil_modulok import render_mobil_aruatvetel, render_mobil_bepakolas, render_mobil_kiszallitas
 from nyomtatas_modulok import create_label_pdf, create_manifest_pdf, create_raklista_pdf
 
 # ==============================================================================
-# 1. GLOBÁLIS KONFIGURÁCIÓK, MINTÁK ÉS BEÁLLÍTÁSOK
+# 1. GLOBÁLIS KONFIGURÁCIÓK ÉS BEÁLLÍTÁSOK
 # ==============================================================================
 
 # --- LOGGOLÁS BEÁLLÍTÁSA ---
@@ -47,21 +49,9 @@ if 'teszt_uzemmod' not in st.session_state:
 # Ha a mobilos vagy asztali URL-ből jön a teszt jelzés, kényszerítjük a teszt módot
 if "test" in st.query_params and st.query_params["test"] == "true":
     st.session_state.teszt_uzemmod = True
-# ==============================================================================
-
-# --- GEOCODING (CÍMKERESŐ) SETUP ---
-geolocator = Nominatim(user_agent="futarszoli_app")
-geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.5)
-
-# --- GLOBÁLIS REGEX MINTÁK (PDF FELDOLGOZÁSHOZ) ---
-PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'
-# Frissített minta: felismeri a sima (-), az en-dash (–) és az em-dash (—) jeleket is
-ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z][A-Z0-9*+]*)'
-# Frissített, "szóköz-toleráns" regex
-MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
 # --- GOOGLE SHEETS ALAPHELYZET ---
-client = None 
+client = None
 
 
 # ==============================================================================

@@ -643,3 +643,79 @@ def sync_interfood_etlap(year, week, sheet_id):
         st.warning("A program futása megállt a hiba miatt. Másold ki a fenti adatokat!")
         st.stop()
 
+# adatbazis_modul.py kiegészítése
+
+def load_etlap_from_sheets(sheet_id):
+    """
+    Beolvassa a Google Sheets 'Etlap' és 'Etlap_API' fülét,
+    majd az adatokat strukturált indexként adja vissza/menti a session_state-be.
+    """
+    import streamlit as st
+    import pandas as pd
+    
+    # Használjuk a központi, már hitelesített klienst
+    client = st.session_state.get('client')
+    if not client:
+        st.error("❌ Google Sheets kapcsolat nem érhető el a load_etlap_from_sheets funkcióban!")
+        return {}
+
+    try:
+        sheet = client.open_by_key(sheet_id)
+        
+        # =========================================================================
+        # 1. Az 'Etlap' fül beolvasása (Kategóriák és Konyhai Sorrend)
+        # =========================================================================
+        kategoria_index = {}
+        try:
+            kat_worksheet = sheet.worksheet("Etlap")
+            kat_data = kat_worksheet.get_all_records()
+            
+            for row in kat_data:
+                cikkszam = str(row.get('Cikkszam', '')).strip().upper()
+                if cikkszam:
+                    sorrend_nyers = str(row.get('Konyha_Sorrend', '99')).strip()
+                    sorrend_szam = int(sorrend_nyers) if sorrend_nyers.isdigit() else 99
+                    
+                    kategoria_index[cikkszam] = {
+                        "kategoria": row.get('Kategoria', 'Egyéb / Zóna ételek'),
+                        "sorrend": sorrend_szam
+                    }
+            st.session_state['kategoria_adatok'] = kategoria_index
+        except Exception as kat_err:
+            st.warning(f"⚠️ Az 'Etlap' munkalap beolvasása sikertelen, de az árakat betöltöm. Hiba: {kat_err}")
+            st.session_state['kategoria_adatok'] = {}
+
+        # =========================================================================
+        # 2. Az 'Etlap_API' fül beolvasása (Napok szerinti Étlap és Árak)
+        # =========================================================================
+        worksheet = sheet.worksheet("Etlap_API")
+        data = worksheet.get_all_values()
+        df = pd.DataFrame(data)
+        
+        etlap_index = {}
+        
+        for i in range(len(df)):
+            elso_cella = str(df.iloc[i, 0]).strip()
+            
+            if " - " in elso_cella:
+                kod = elso_cella.split(" - ")[0].strip()
+                
+                for nap_idx in range(1, 7):
+                    nev = str(df.iloc[i, nap_idx]).strip()
+                    ar = ""
+                    if i + 1 < len(df):
+                        ar = str(df.iloc[i + 1, nap_idx]).strip()
+                    
+                    if nev and nev.lower() != "nan" and nev != "":
+                        kulcs = f"{nap_idx}_{kod}"
+                        etlap_index[kulcs] = {
+                            "nev": nev,
+                            "ar": ar
+                        }
+        
+        return etlap_index
+        
+    except Exception as e:
+        st.error(f"❌ Hiba az étlap beolvasásakor a Sheets-ből: {e}")
+        return {}
+

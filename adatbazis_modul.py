@@ -3,9 +3,12 @@ import gspread
 import logging
 import re
 import pandas as pd
+import requests
+import streamlit as st
 from google.oauth2.service_account import Credentials
 from gspread_dataframe import set_with_dataframe
 from geokodolo_modul import biztonsagos_koordinata_tisztito
+from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
@@ -558,4 +561,85 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
 
     logger.info("Szinkronizáció teljesen kész.")
     return df_napi, master_df
+
+def sync_interfood_etlap(year, week, sheet_id):
+    """
+    Letölti az Interfood étlapot az API-ból Excel formátumban,
+    és feltölti a Google Sheets 'Etlap_API' munkalapjára.
+    """
+    api_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    # 🟢 KVÓTAVÉDELMI PAJZS: Ha ebben a munkamenetben ez a hét már megvolt, átugorjuk
+    cache_key = f"sync_done_{year}_{week}"
+    if st.session_state.get(cache_key, False):
+        logging.info(f"Interfood étlap szinkron ({year}/W{week}) ebből a munkamenetből már megvolt, átugrás.")
+        return True
+    
+    try:
+        # 1. LÉPÉS: Letöltés megkísérlése
+        st.info(f"🔮 Kapcsolódás az API-hoz: {api_url}")
+        response = requests.get(api_url, headers=headers, timeout=15)
+        
+        if response.status_code != 200:
+            st.error(f"Az API hiba kódot küldött: {response.status_code}")
+            st.stop()
+            return False
+
+        # 2. LÉPÉS: Tartalom ellenőrzése
+        content = response.content
+        if len(content) < 100:
+            st.error("Az API válasza túl rövid, valószínűleg nem egy Excel fájlt kaptunk.")
+            st.stop()
+            return False
+
+        # 3. LÉPÉS: Excel feldolgozás
+        try:
+            df = pd.read_excel(BytesIO(content))
+        except Exception as ex_err:
+            st.error(f"Excel beolvasási hiba: {ex_err}")
+            st.write("A kapott válasz eleje (nyers):", content[:100])
+            st.stop()
+            return False
+
+        # 4. LÉPÉS: Google Sheets feltöltés (A st.session_state kliens alapján)
+        client = st.session_state.get('client')
+        if not client:
+            st.error("❌ Google Sheets kliens nem érhető el! Nem sikerült a hitelesítés.")
+            st.stop()
+            return False
+            
+        sheet = client.open_by_key(sheet_id)
+        
+        try:
+            worksheet = sheet.worksheet("Etlap_API")
+        except:
+            worksheet = sheet.add_worksheet(title="Etlap_API", rows="1000", cols="20")
+            
+        worksheet.clear()
+        set_with_dataframe(worksheet, df)
+        
+        # 🟢 SIKERMENTÉS
+        st.session_state[cache_key] = True
+        st.toast(f"Sikeres szinkron: {year}/W{week}", icon="✅")
+        return True
+        
+    except gspread.exceptions.APIError as api_err:
+        if "Quota exceeded" in str(api_err):
+            st.warning(f"⚠️ Google Sheets hívási limit túllépve (429). A szinkronizálást most átugorjuk, de az app megy tovább!")
+            return True
+        raise api_err
+        
+    except Exception as e:
+        st.error(f"❌ KRITIKUS HIBA TÖRTÉNT!")
+        with st.expander("Kattints ide a részletes hibaadatokért"):
+            st.write(f"Hiba típusa: {type(e).__name__}")
+            st.write(f"Üzenet: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
+        
+        st.warning("A program futása megállt a hiba miatt. Másold ki a fenti adatokat!")
+        st.stop()
 

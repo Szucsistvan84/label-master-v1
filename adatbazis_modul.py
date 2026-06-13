@@ -161,3 +161,24 @@ def get_latest_week_from_master(sheet_id, client):
     except Exception as e:
         logger.error(f"Hiba történt a hét lekérésekor: {e}")
         return 2026, 0
+
+@st.cache_data(show_spinner="Étlap API frissítése a felhőből...")
+def load_etlap_api_smart(_client, sheet_id, columns_trigger=None):
+    """
+    Letölti az Etlap_API munkalapot a Google Sheets-ből a megadott klienssel. 
+    Ha a 'columns_trigger' megváltozik, a Streamlit újra letölti!
+    """
+    try:
+        if _client is None:
+            return pd.DataFrame()
+            
+        sh = _client.open_by_key(sheet_id)
+        ws_api = sh.worksheet("Etlap_API")
+        
+        df = pd.DataFrame(ws_api.get_all_records())
+        df.columns = [str(col).strip().replace('\ufeff', '') for col in df.columns]
+        return df
+    except Exception as e:
+        logger.error(f"❌ Smart Cache hiba az Etlap_API letöltésekor: {e}")
+        return pd.DataFrame()
+

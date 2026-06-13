@@ -884,4 +884,77 @@ def save_to_master(current_df):
     updated_master = updated_master.drop_duplicates(subset=['Ügyfélkód'], keep='last')
     updated_master.to_csv("master_data.csv", index=False)
 
+# adatbazis_modul.py kiegészítése
+
+def sync_ugyfelkor_fel(df_napi, sheet_id):
+    """
+    Feltölti a napi ügyféladatokat a Google Sheet 'Adatok' fülére (Upsert).
+    Ha az ID már létezik, frissíti az adatokat, ha új, akkor hozzáfűzi.
+    """
+    import streamlit as st
+    import pandas as pd
+    from datetime import datetime
+
+    # Központi gspread kliens lekérése
+    client = st.session_state.get('client')
+    if client is None:
+        return 0
+        
+    sh = client.open_by_key(sheet_id)
+    try:
+        ws = sh.worksheet("Adatok")
+    except:
+        ws = sh.add_worksheet(title="Adatok", rows="1000", cols="10")
+        ws.append_row(["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"])
+
+    # Adatok beolvasása és szöveggé kényszerítése a típusgyötrődések ellen
+    data = ws.get_all_records()
+    db_df = pd.DataFrame(data)
+    
+    if db_df.empty:
+        db_df = pd.DataFrame(columns=["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"])
+    else:
+        db_df = db_df.astype(str)
+
+    ma = datetime.now().strftime("%Y-%m-%d")
+    
+    for _, row in df_napi.iterrows():
+        u_id = str(row.get('temp_id', '')).strip()
+        if not u_id or u_id in ['nan', 'None', '']: 
+            continue
+
+        u_nev = str(row.get('Ügyintéző', '')).strip()
+        u_cim = str(row.get('Cím', '')).strip()
+        u_tel = str(row.get('Telefon', '')).strip()
+        u_sorrend = str(row.get('Sorrend', '')).strip()
+        u_megj = str(row.get('Megjegyzés', '')).strip()
+
+        mask = db_df['ID'].astype(str) == u_id
+        if mask.any():
+            idx = db_df[mask].index[0]
+            
+            # Frissítés
+            db_df.at[idx, 'Név'] = u_nev
+            db_df.at[idx, 'Cím'] = u_cim
+            db_df.at[idx, 'Telefon'] = u_tel
+            db_df.at[idx, 'Preferált Sorrend'] = u_sorrend
+            db_df.at[idx, 'Megjegyzés'] = u_megj
+            db_df.at[idx, 'Utolsó Rendelés'] = ma
+        else:
+            # Új sor hozzáadása
+            new_row = {
+                "ID": u_id, "Név": u_nev, "Cím": u_cim, "Telefon": u_tel,
+                "Csoport": "", "Preferált Sorrend": u_sorrend, 
+                "Megjegyzés": u_megj, "Utolsó Rendelés": ma
+            }
+            db_df = pd.concat([db_df, pd.DataFrame([new_row])], ignore_index=True)
+
+    # Nyers nan-ok takarítása mentés előtt
+    db_df = db_df.replace('nan', '').fillna("")
+    
+    final_list = [db_df.columns.values.tolist()] + db_df.values.tolist()
+    ws.clear()
+    ws.update('A1', final_list)
+    return len(df_napi)
+
 

@@ -1842,9 +1842,16 @@ def main():
         # 🏛️ FŐKÉPERNYŐ MEGJELENÍTÉSE A MENÜVÁLASZTÁS ALAPJÁN
         # =========================================================================
         if is_admin and admin_funkcio == "🚚 Logisztikai Központ & Stand":
-            # Megnyitjuk a táblázatot gspread-el, mert a logisztikai központnak szüksége van rá
-            logisztika_sheet_objektum = client.open_by_key(UGYFELKOR_SHEET_ID)
-            render_logisztikai_kozpont(logisztika_sheet_objektum)
+            # Biztonsági ellenőrzés, hogy a kliens létezik-e
+            if client:
+                try:
+                    # Megnyitjuk a táblázatot gspread-el, mert a logisztikai központnak szüksége van rá
+                    logisztika_sheet_objektum = client.open_by_key(UGYFELKOR_SHEET_ID)
+                    render_logisztikai_kozpont(logisztika_sheet_objektum)
+                except Exception as sheet_err:
+                    st.error(f"❌ Nem sikerült megnyitni a Google Táblázatot: {sheet_err}")
+            else:
+                st.error("❌ A Google Sheets kapcsolat nincs inicializálva! Ellenőrizd a beállításokat.")
             
         else:
             # 📋 RAKLISTA GENERÁLÁS ÉS ÉTLAP KEZELÉS (A RÉGI MEGLÉVŐ FŐKÉPERNYŐD)

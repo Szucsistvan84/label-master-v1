@@ -65,3 +65,12 @@ def check_user_role():
     if st.session_state.get('user_nev') == "SajátNeved": 
         return "superadmin"
     return role
+
+def clean_text(text):
+    """Eltávolítja a speciális karaktereket, szóközöket és ékezeteket az összehasonlításhoz."""
+    if not text or str(text).lower() == "nan": return ""
+    # Ékezetek eltávolítása (pl. á -> a)
+    text = "".join(c for c in unicodedata.normalize('NFD', str(text)) if unicodedata.category(c) != 'Mn')
+    # Csak betűk és számok megtartása, kisbetűssé alakítás, szóközök törlése
+    text = re.sub(r'[^a-zA-Z0-9]', '', text).lower()
+    return text

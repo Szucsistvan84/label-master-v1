@@ -15,7 +15,7 @@ from gspread_dataframe import set_with_dataframe
 from google.oauth2.service_account import Credentials
 
 # --- SAJÁT, ÚJONNAN LÉTREHOZOTT MODULOK IMPORTÁLÁSA ---
-from geokodolo_modul import get_coordinates
+from geokodolo_modul import get_coordinates, biztonsagos_koordinata_tisztito
 from parser_modul import parse_interfood_pdf
 from adatbazis_modul import get_gspread_client, load_sheet_data, save_df_to_sheet, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR
 from stilus_modul import alkalmaz_mobil_status_bar, alkalmaz_tisztitott_felulet_css, alkalmaz_wolt_gomb_stilus, rendereld_wolt_ugyfel_kartya

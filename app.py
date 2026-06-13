@@ -64,56 +64,6 @@ def check_user_role():
         return "superadmin"
     return role
 
-def get_coordinates(address):
-    """Lekéri a megadott cím koordinátáit - APOSZTRÓF NÉLKÜL, TISZTA SZÁMKÉNT!"""
-    try:
-        # Meghívjuk a javított címtisztítót, hogy ne küldjünk zagyvaságot az API-nak
-        tisztitott_cim = tisztitott_cim_lekerese(address)
-        if not tisztitott_cim:
-            return None, None
-            
-        location = geocode(tisztitott_cim) 
-        if location:
-            # Szigorúan LEVÁGUK az aposztrófot! Tiszta string formátum kell ponttal: "47.1234567"
-            str_lat = f"{location.latitude:.7f}"
-            str_lon = f"{location.longitude:.7f}"
-            return str_lat, str_lon
-        else:
-            return None, None
-    except Exception as e:
-        logger.error(f"Váratlan hiba a geocoding során ({address}): {e}")
-        return None, None
-
-def tisztitott_cim_lekerese(nyers_szoveg):
-    if not nyers_szoveg:
-        return ""
-    
-    # 1. Zárójeles részek eltávolítása (pl. név lecsípése a végéről)
-    szoveg = re.sub(r'\(.*?\)', '', str(nyers_szoveg)).strip()
-    szoveg = szoveg.replace('$', '').strip()
-    
-    # 2. OKOS LAKÁSSZÁM-ELTÁVOLÍTÁS (Pont és szóköz toleráns verzió)
-    # Eltávolítja a per jellel elválasztott ajtókat, de MEGTARTJA a házszámot és a pontot!
-    szoveg = re.sub(r'\.?\s+\d+/\d+.*$', '', szoveg)
-    
-    # Emelet, ajtó, lépcsőház kulcsszavak levágása
-    szoveg = re.split(r'(?i)\s+(fszt|fsz|emelet|em|ajtó|ajto|lh|lph).*$', szoveg)[0]
-    
-    # Ha a legvégén maradt egy magányos pont vagy vessző a levágás miatt, azt lekapjuk
-    szoveg = szoveg.strip().rstrip(',').rstrip('.')
-    
-    return szoveg
-
-@st.cache_data(ttl=300)
-def _tiszta_futar_lista_letoltes(sheet_id):
-    try:
-        local_client = gspread.authorize(get_google_sheets_creds())
-        sh = local_client.open_by_key(sheet_id)
-        ws_futarok = sh.worksheet("Futárok")
-        return ws_futarok.get_all_records()
-    except Exception as e:
-        return []
-
 @st.cache_data(ttl=600)
 def _tiszta_ugyfelkor_letoltes(sheet_id):
     try:

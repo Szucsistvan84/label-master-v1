@@ -20,6 +20,7 @@ from parser_modul import parse_interfood_pdf
 from adatbazis_modul import get_gspread_client, load_sheet_data, save_df_to_sheet, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, kotelezo_ugyfelkor_formatum_tisztitas, get_latest_week_from_master, load_sheet_data_cached, load_etlap_api_smart, master_lista_szinkron
 from stilus_modul import alkalmaz_mobil_status_bar, alkalmaz_tisztitott_felulet_css, alkalmaz_wolt_gomb_stilus, rendereld_wolt_ugyfel_kartya
 from vizualizacio import utvonal_terkep
+from utils import init_google_sheets
 
 # --- KORÁBBI MOBIL ÉS NYOMTATÁS MODULOK BEHÚZÁSA ---
 from mobil_modulok import render_mobil_aruatvetel, render_mobil_bepakolas, render_mobil_kiszallitas

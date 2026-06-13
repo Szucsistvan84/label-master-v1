@@ -957,4 +957,70 @@ def sync_ugyfelkor_fel(df_napi, sheet_id):
     ws.update('A1', final_list)
     return len(df_napi)
 
+# adatbazis_modul.py kiegészítése
+
+def adatok_visszatoltese_sheetrol(df_napi, sheet_id):
+    """
+    A Google Sheet 'Adatok' füléről visszatölti a korábban mentett ügyféladatokat,
+    frissíti a napi DataFrame-et (nevek, preferált sorrend, megjegyzések),
+    majd a beállított sorrend alapján rendezi a táblázatot.
+    """
+    import streamlit as st
+    import pandas as pd
+    
+    # Központi gspread kliens lekérése
+    client = st.session_state.get('client')
+    if client is None: 
+        return df_napi
+        
+    try:
+        sh = client.open_by_key(sheet_id)
+        ws = sh.worksheet("Adatok")
+        db_df = pd.DataFrame(ws.get_all_records())
+        
+        if db_df.empty: 
+            return df_napi
+            
+        db_df['ID'] = db_df['ID'].astype(str).str.strip()
+        
+        # Eredeti sorrend rögzítése, ha még nincs
+        if 'Original_Order' not in df_napi.columns:
+            df_napi['Original_Order'] = range(1, len(df_napi) + 1)
+
+        for i, row in df_napi.iterrows():
+            u_id = str(row.get('temp_id', '')).strip()
+            match = db_df[db_df['ID'] == u_id]
+            
+            if not match.empty:
+                # Név frissítése
+                s_nev = str(match.iloc[0]['Név']).strip()
+                if s_nev and s_nev.lower() != 'nan':
+                    df_napi.at[i, 'Ügyintéző'] = s_nev
+                
+                # Sorrend frissítése a Sheet-ről
+                s_sorrend = str(match.iloc[0]['Preferált Sorrend']).strip()
+                if s_sorrend and s_sorrend.lower() != 'nan' and s_sorrend != "":
+                    try:
+                        df_napi.at[i, 'Sorrend'] = float(s_sorrend)
+                    except:
+                        pass
+                
+                # Csoport és Megjegyzés frissítése
+                for col in ['Csoport', 'Megjegyzés']:
+                    val = str(match.iloc[0].get(col, '')).strip()
+                    if val.lower() != 'nan':
+                        df_napi.at[i, col] = val
+        
+        # A 999-es hiba elkerülése: ha nincs a Sheet-en sorrend, maradjon az Original_Order
+        df_napi['Sorrend'] = pd.to_numeric(df_napi['Sorrend'], errors='coerce')
+        df_napi['Sorrend'] = df_napi['Sorrend'].fillna(df_napi['Original_Order'])
+        
+        # RENDEZÉS: Csak a Sorrend számít!
+        df_napi = df_napi.sort_values(by=['Sorrend'], ascending=[True])
+        
+        return df_napi
+    except Exception as e:
+        st.error(f"❌ Hiba a visszatöltésnél: {e}")
+        return df_napi
+
 

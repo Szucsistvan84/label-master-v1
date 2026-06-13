@@ -5,7 +5,7 @@ import logging
 
 # --- SAJÁT, ÚJONNAN LÉTREHOZOTT MODULOK IMPORTÁLÁSA ---
 from geokodolo_modul import get_coordinates, biztonsagos_koordinata_tisztito
-from parser_modul import parse_interfood_pdf
+from parser_modul import parse_interfood_pdf, extract_all_meta
 from adatbazis_modul import (
     get_gspread_client, load_sheet_data, save_df_to_sheet, SHEET_ID_MASTER, 
     SHEET_ID_UGYFELKOR, kotelezo_ugyfelkor_formatum_tisztitas, 

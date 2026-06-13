@@ -750,3 +750,121 @@ def split_name_logic(raw_text, name_db):
             
     return " ".join(name_parts), " ".join(comment_parts)
 
+# parser_modul.py kiegészítése
+
+def merge_data(all_rows):
+    """
+    Összefésüli a nyers parser adatokat temp_id alapján. Kezeli a többszörös rendeléseket,
+    kiszűri a lemondott/üres tételeket, sorszámoz, és csoportosítja az azonos címen lakókat.
+    """
+    import pandas as pd
+    import re
+
+    if not all_rows: 
+        return pd.DataFrame()
+    
+    # --- HIBA JAVÍTÁSA ---
+    if isinstance(all_rows, list) and len(all_rows) > 0:
+        if not isinstance(all_rows[0], pd.DataFrame):
+            combined = pd.DataFrame(all_rows)
+        else:
+            combined = pd.concat(all_rows, ignore_index=True)
+    else:
+        combined = all_rows
+    # -------------------------
+
+    # 🛑 1. BIZTONSÁGI SZŰRÉS: Kidobjuk a lemondott/üres sorokat még az összefésülés ELŐTT
+    if 'Rendelés_Full' in combined.columns:
+        combined = combined[combined['Rendelés_Full'].astype(str).str.strip() != ""]
+        combined = combined[combined['Rendelés_Full'].notna() & (combined['Rendelés_Full'].astype(str).str.lower() != 'nan')]
+    if 'Rendelés' in combined.columns:
+        combined = combined[combined['Rendelés'].astype(str).str.strip() != ""]
+        combined = combined[combined['Rendelés'].notna() & (combined['Rendelés'].astype(str).str.lower() != 'nan')]
+
+    # Ha a szűrés után nem maradt adat, üres DataFrame-et adunk vissza
+    if combined.empty:
+        return pd.DataFrame()
+
+    merged = []
+    unique_ids = combined['temp_id'].unique()
+    
+    for tid in unique_ids:
+        subset = combined[combined['temp_id'] == tid]
+        base = subset.iloc[0].to_dict()
+        
+        # 🟢 ÚJ: Megtartjuk a PDF-ből jövő egyedi járatszámot ennél az ügyfélnél
+        if 'pdf_jarat' in subset.columns:
+            nem_ures_jarat = subset['pdf_jarat'].dropna().astype(str).str.strip()
+            nem_ures_jarat = nem_ures_jarat[nem_ures_jarat != ""]
+            if not nem_ures_jarat.empty:
+                base['pdf_jarat'] = nem_ures_jarat.iloc[0]
+        
+        if len(subset) > 1:
+            # Rendelések összefűzése
+            all_orders = []
+            for _, r in subset.iterrows():
+                o_str = str(r.get('Rendelés_Full', '')).strip()
+                if o_str and o_str.lower() != 'nan': 
+                    all_orders.append(o_str)
+            base['Rendelés_Full'] = " | ".join(all_orders)
+            
+            # DB összeadása
+            try:
+                base['Összesen'] = sum(pd.to_numeric(subset['Összesen'], errors='coerce').fillna(0))
+            except: 
+                pass
+            
+            # PÉNZ: Az első érvényes összeget tartjuk meg (nem adunk össze)
+            p_val = ""
+            for _, r in subset.iterrows():
+                val = str(r.get('Pénz', '')).strip()
+                if val and val.lower() != 'nan' and any(c.isdigit() for c in val):
+                    p_val = val
+                    break
+            base['Pénz'] = p_val
+
+        merged.append(base)
+    
+    res = pd.DataFrame(merged)
+    
+    # 🛑 2. BIZTONSÁGI SZŰRÉS: Ha az összefűzés után maradt volna üres vagy 'nan' rendelés, azt is kiszűrjük
+    if 'Rendelés_Full' in res.columns:
+        res = res[res['Rendelés_Full'].astype(str).str.strip() != ""]
+        res = res[res['Rendelés_Full'].notna() & (res['Rendelés_Full'].astype(str).str.lower() != 'nan')]
+    
+    if res.empty:
+        return pd.DataFrame()
+    
+    # 🟢 ÚJ: Áttesszük a hivatalos 'Járat' oszlopba a kinyert egyedi járatokat
+    if 'pdf_jarat' in res.columns:
+        res['Járat'] = res['pdf_jarat'].astype(str).str.strip()
+    
+    # Biztosítjuk a tiszta oszlopneveket
+    res.columns = [c.strip() for c in res.columns]
+    
+    # Automatikus sorszámozás 1-től
+    res['Sorrend'] = range(1, len(res) + 1)
+    
+    if 'Csoport' in res.columns:
+        res['Csoport'] = res['Csoport'].astype(str).replace(['nan', 'None', '0', '0.0'], '')
+
+    # --- CSOPORTOSÍTÁS (Keretezéshez) ---
+    res['Csoport'] = 0
+    group_id = 1
+    for i in range(1, len(res)):
+        def clean_addr(s):
+            return re.sub(r'\W+', '', str(s)).lower()
+        
+        addr_prev = clean_addr(res.iloc[i-1]['Cím'])
+        addr_curr = clean_addr(res.iloc[i]['Cím'])
+        
+        if addr_prev == addr_curr and addr_curr != "":
+            if res.iloc[i-1]['Csoport'] == 0:
+                res.at[res.index[i-1], 'Csoport'] = group_id
+                res.at[res.index[i], 'Csoport'] = group_id
+                group_id += 1
+            else:
+                res.at[res.index[i], 'Csoport'] = res.iloc[i-1]['Csoport']
+                
+    return res
+

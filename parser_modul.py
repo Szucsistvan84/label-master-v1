@@ -722,3 +722,31 @@ def load_all_names(sheet_df):
     
     return all_names
 
+# parser_modul.py kiegészítése
+
+def split_name_logic(raw_text, name_db):
+    """
+    Szétválasztja a nyers szöveget névre és megjegyzésre a megadott név-adatbázis (name_db) alapján.
+    """
+    if not raw_text:
+        return "", ""
+        
+    words = raw_text.split()
+    name_parts = []
+    comment_parts = []
+    is_name_part = True
+    
+    for word in words:
+        if not word:
+            continue
+        clean = word.strip(",./-")
+        
+        # Ha benne van a kapott adatbázisban VAGY nagybetűvel kezdődik, akkor név marad
+        if is_name_part and (clean in name_db or (word[0].isupper() if len(word) > 0 else False)):
+            name_parts.append(word)
+        else:
+            is_name_part = False
+            comment_parts.append(word)
+            
+    return " ".join(name_parts), " ".join(comment_parts)
+

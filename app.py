@@ -64,49 +64,6 @@ def check_user_role():
         return "superadmin"
     return role
 
-def get_google_sheets_creds():
-    """Összeállítja és visszaadja a Google Credentials objektumot a Secrets-ből."""
-    if "gcp_service_account" in st.secrets:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-    else:
-        creds_dict = dict(st.secrets)
-        
-    if "private_key" in creds_dict:
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-        
-    return Credentials.from_service_account_info(creds_dict, scopes=[
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ])
-
-def get_latest_week_from_master(sheet_id):
-    """Kinyeri a legnagyobb hetet a 'wXX' formátumú szövegekből."""
-    try:
-        global client
-        if client is None:
-            client = gspread.authorize(get_google_sheets_creds())
-        sheet = client.open_by_key(sheet_id).worksheet("Master_Adatbazis")
-        data = sheet.get_all_records()
-        df = pd.DataFrame(data)
-        
-        oszlop_nev = "Kódok és Árak" 
-        if oszlop_nev not in df.columns:
-            st.error(f"Hiba: Az oszlop '{oszlop_nev}' nem található.")
-            return 2026, 0
-
-        all_weeks = []
-        for cell_content in df[oszlop_nev].astype(str):
-            weeks = re.findall(r'w(\d+)', cell_content)
-            all_weeks.extend([int(w) for w in weeks])
-            
-        if not all_weeks:
-            return 2026, 0
-            
-        return 2026, max(all_weeks)
-    except Exception as e:
-        st.error(f"Hiba történt a hét lekérésekor: {e}")
-        return 2026, 0
-
 def get_coordinates(address):
     """Lekéri a megadott cím koordinátáit - APOSZTRÓF NÉLKÜL, TISZTA SZÁMKÉNT!"""
     try:

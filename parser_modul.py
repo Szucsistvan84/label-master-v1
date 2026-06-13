@@ -625,3 +625,70 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
     df = pd.DataFrame(rows)
     df['Csoport'] = df.groupby('temp_id').ngroup() + 1
     return df.to_dict('records'), metadata
+
+def extract_all_meta(pdf_files):
+    all_meta = {'jaratok': [], 'ev': '', 'het': '', 'nap': '', 'datum_iso': '', 'api_datum_kulcs': ''}
+    
+    jarat_re = re.compile(r'(\d{2,4})\.\s*járat|Nyomtatta:\s*(\d{2,4})')
+    
+    for uploaded_file in pdf_files:
+        uploaded_file.seek(0) 
+        with pdfplumber.open(uploaded_file) as pdf:
+            text = pdf.pages[0].extract_text() or ""
+            
+            # 1. Járatszámok gyűjtése
+            for match in jarat_re.finditer(text):
+                j_num = match.group(1) or match.group(2)
+                if j_num and j_num not in all_meta['jaratok']:
+                    all_meta['jaratok'].append(j_num)
+            
+            # 2. Dátum infók - Csak ha még üresek
+            if not all_meta['ev']:
+                ev_m = re.search(r'Év:\s*(\d{4})', text)
+                if ev_m: all_meta['ev'] = ev_m.group(1)
+
+            if not all_meta['het']:
+                het_m = re.search(r'Hét:\s*(\d{1,2})', text)
+                if het_m: all_meta['het'] = het_m.group(1)
+
+            # 3. A NAPOK kinyerése
+            if not all_meta['nap']:
+                nap_m = re.search(r'Nap:\s*(.*?)(?=InterFood|$)', text, re.DOTALL)
+                if nap_m:
+                    nap_raw = nap_m.group(1).strip()
+                    all_meta['nap'] = nap_raw.rstrip(',')
+    
+    all_meta['jaratok'].sort()
+    
+    # --- DÁTUM KISZÁMÍTÁSA FIXEN AZ ÉV, HÉT ÉS NAP ALAPJÁN ---
+    if all_meta['ev'] and all_meta['het'] and all_meta['nap']:
+        try:
+            nap_tisztitott = all_meta['nap'].lower().strip()
+            nap_szamok = {
+                'hetfo': 1, 'hétfő': 1,
+                'kedd': 2,
+                'szerda': 3,
+                'csutortok': 4, 'csütörtök': 4,
+                'pente': 5, 'pénte': 5, 'pentek': 5, 'péntek': 5,
+                'szombat': 6,
+                'vasarnap': 7, 'vasárnap': 7
+            }
+            
+            nap_szoveg_kulcs = next((k for k in nap_szamok if k in nap_tisztitott), None)
+            
+            if nap_szoveg_kulcs:
+                nap_szama = nap_szamok[nap_szoveg_kulcs]
+                target_year = int(all_meta['ev'])
+                target_week = int(all_meta['het'])
+                
+                # Kiszámoljuk a pontos naptári napot az ISO év és hét alapján (%G-%V-%u)
+                kalkulalt_datum = datetime.strptime(f"{target_year}-{target_week}-{nap_szama}", "%G-%V-%u")
+                
+                # Mentjük a megfelelő változókba a meta szótáron belül
+                all_meta['datum_iso'] = kalkulalt_datum.strftime("%Y-%m-%d")
+                all_meta['api_datum_kulcs'] = kalkulalt_datum.strftime("%Y.%m.%d.")
+        except Exception as e:
+            pass
+
+    return all_meta
+

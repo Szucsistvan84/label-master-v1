@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import gspread
 import logging
+import re
 import pandas as pd
 from google.oauth2.service_account import Credentials
 from gspread_dataframe import set_with_dataframe
@@ -130,3 +131,29 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     
     return df_clean
 
+def get_latest_week_from_master(sheet_id, client):
+    """Kinyeri a legnagyobb hetet a 'wXX' formátumú szövegekből a megadott klienssel."""
+    try:
+        if client is None:
+            return 2026, 0
+        sheet = client.open_by_key(sheet_id).worksheet("Master_Adatbazis")
+        data = sheet.get_all_records()
+        df = pd.DataFrame(data)
+        
+        oszlop_nev = "Kódok és Árak" 
+        if oszlop_nev not in df.columns:
+            logger.error(f"Hiba: Az oszlop '{oszlop_nev}' nem található.")
+            return 2026, 0
+
+        all_weeks = []
+        for cell_content in df[oszlop_nev].astype(str):
+            weeks = re.findall(r'w(\d+)', cell_content)
+            all_weeks.extend([int(w) for w in weeks])
+            
+        if not all_weeks:
+            return 2026, 0
+            
+        return 2026, max(all_weeks)
+    except Exception as e:
+        logger.error(f"Hiba történt a hét lekérésekor: {e}")
+        return 2026, 0

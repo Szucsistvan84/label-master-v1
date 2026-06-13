@@ -18,7 +18,7 @@ from stilus_modul import alkalmaz_mobil_status_bar, alkalmaz_tisztitott_felulet_
 from vizualizacio import utvonal_terkep
 from utils import init_google_sheets, setup_logging, init_test_mode, check_user_role, clean_text
 from admin_modul import render_logisztikai_kozpont
-from nezetek_modul import render_mobil_sidebar_dashboard, render_desktop_sidebar_controls
+from nezetek_modul import render_mobil_sidebar_dashboard, render_desktop_sidebar_controls, process_uploaded_pdfs
 
 # --- KORÁBBI MOBIL ÉS NYOMTATÁS MODULOK BEHÚZÁSA ---
 from mobil_modulok import render_mobil_aruatvetel, render_mobil_bepakolas, render_mobil_kiszallitas

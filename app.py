@@ -12,7 +12,7 @@ from adatbazis_modul import (
     get_latest_week_from_master, load_sheet_data_cached, load_etlap_api_smart, 
     master_lista_szinkron, sync_interfood_etlap, load_etlap_from_sheets,
     load_futar_from_sheets, save_futar_to_sheets, sync_master_database,
-    load_master_data, save_to_master
+    load_master_data, save_to_master, _tiszta_futar_lista_letoltes
 )
 from stilus_modul import alkalmaz_mobil_status_bar, alkalmaz_tisztitott_felulet_css, alkalmaz_wolt_gomb_stilus, rendereld_wolt_ugyfel_kartya
 from vizualizacio import utvonal_terkep

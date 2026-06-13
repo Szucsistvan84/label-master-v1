@@ -43,10 +43,11 @@ def get_gspread_client():
         logger.error(f"Google Sheets hitelesítési hiba: {e}")
         return None
 
-def load_sheet_data(client, sheet_id, worksheet_name):
-    """Beolvas egy adott fület egy Google Sheet-ből és Pandas DataFrame-et csinál belőle"""
+@st.cache_data(ttl=300, show_spinner="Futárok szinkronizálása...")
+def load_sheet_data_cached(_client, sheet_id, worksheet_name):
+    """Gyorsítótárazott (5 perces) táblázat beolvasás a golyóálló futáshoz."""
     try:
-        sheet = client.open_by_key(sheet_id)
+        sheet = _client.open_by_key(sheet_id)
         worksheet = sheet.worksheet(worksheet_name)
         records = worksheet.get_all_records()
         return pd.DataFrame(records)

@@ -64,19 +64,6 @@ def check_user_role():
         return "superadmin"
     return role
 
-@st.cache_data(ttl=600)
-def _tiszta_ugyfelkor_letoltes(sheet_id):
-    try:
-        local_client = gspread.authorize(get_google_sheets_creds())
-        sh = local_client.open_by_key(sheet_id)  
-        ws_ugyfel = sh.worksheet("Ugyfelkor")
-        try:
-            return ws_ugyfel.get_all_records(value_render_option='UNFORMATTED_VALUE')
-        except:
-            return ws_ugyfel.get_all_records()
-    except Exception as e:
-        return []
-
 # ==============================================================================
 # 🔥 EZ LEGYEN AZ ÚJ, OKOSÍTOTT ÉTLAP FIGYELŐ (GOOGLE SHEETS VERZIÓ):
 # ==============================================================================

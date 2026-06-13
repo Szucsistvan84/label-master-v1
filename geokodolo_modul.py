@@ -76,3 +76,29 @@ def get_coordinates(address):
     except Exception as e:
         logger.error(f"Váratlan hiba a geocoding során ({address}): {e}")
         return None, None
+
+def biztonsagos_koordinata_tisztito(val):
+    """Minden létező koordináta formátumot tiszta float számmá alakít."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    s = str(val).strip()
+    if not s or s.lower() == "none" or s == "0" or s == "0.0":
+        return None
+        
+    s = s.replace("'", "").replace('"', '').replace('`', '')
+    s = s.replace(",", ".")
+    
+    try:
+        f = float(s)
+        if abs(f) > 1000:
+            if str(abs(int(f))).startswith(('46', '47', '48')):
+                f = f / 10000000 if len(str(int(f))) >= 9 else f / 1000000
+            elif str(abs(int(f))).startswith(('16', '17', '18', '19', '20', '21', '22')):
+                f = f / 10000000 if len(str(int(f))) >= 9 else f / 1000000
+        
+        if 45.5 <= f <= 48.8 or 16.0 <= f <= 23.0:
+            return round(f, 7)
+        else:
+            return None
+    except:
+        return None

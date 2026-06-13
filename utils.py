@@ -1,4 +1,5 @@
 # utils.py
+import logging
 import streamlit as st
 import gspread
 from google.oauth2 import service_account
@@ -37,3 +38,30 @@ def init_google_sheets():
         st.error(f"🚨 Sikertelen Google Sheets kapcsolódás: {e}")
         st.session_state['client'] = None
         return None
+
+def setup_logging():
+    """Beállítja az alkalmazás szintű loggolást."""
+    LOG_FILE = "utvonaltervezo.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(LOG_FILE, encoding='utf-8'),
+            logging.StreamHandler()
+        ]
+    )
+
+def init_test_mode():
+    """Inicializálja a teszt üzemmódot a session state-ben és az URL paraméterekben."""
+    if 'teszt_uzemmod' not in st.session_state:
+        st.session_state.teszt_uzemmod = False
+
+    if "test" in st.query_params and st.query_params["test"] == "true":
+        st.session_state.teszt_uzemmod = True
+
+def check_user_role():
+    """Visszaadja a felhasználó aktuális szerepkörét."""
+    role = st.session_state.get('user_szerep', 'futar')
+    if st.session_state.get('user_nev') == "SajátNeved": 
+        return "superadmin"
+    return role

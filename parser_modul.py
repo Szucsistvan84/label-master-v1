@@ -693,3 +693,32 @@ def extract_all_meta(pdf_files):
 
     return all_meta
 
+# parser_modul.py kiegészítése
+
+def load_all_names(sheet_df):
+    """
+    A Google Sheet-ből betöltött nevekből (Családnév, Keresztnév oszlopok) 
+    felépíti a felismeréshez szükséges adatbázist (set formátumban).
+    """
+    all_names = set()
+    titulusok = {"Dr.", "id.", "ifj.", "özv.", "dr.", "vitéz"}
+    all_names.update(titulusok)
+    
+    if sheet_df is not None:
+        # Családnevek begyűjtése
+        if 'Családnév' in sheet_df.columns:
+            csalad_nevek = sheet_df['Családnév'].dropna().unique()
+            all_names.update([str(n).strip() for n in csalad_nevek if str(n).strip()])
+            
+        # Keresztnevek begyűjtése (férfi és női vegyesen)
+        if 'Keresztnév' in sheet_df.columns:
+            kereszt_nevek = sheet_df['Keresztnév'].dropna().unique()
+            for n in kereszt_nevek:
+                nev = str(n).strip()
+                if nev:
+                    all_names.add(nev)
+                    # Automatikus -né képzés minden keresztnévre (biztonsági játék)
+                    all_names.add(nev + "né")
+    
+    return all_names
+

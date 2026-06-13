@@ -719,3 +719,47 @@ def load_etlap_from_sheets(sheet_id):
         st.error(f"❌ Hiba az étlap beolvasásakor a Sheets-ből: {e}")
         return {}
 
+# adatbazis_modul.py kiegészítése
+
+def load_futar_from_sheets(sheet_id):
+    """Betölti a futárok adatait a Google Sheet 'Futárok' lapjáról."""
+    import streamlit as st
+    import pandas as pd
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    client = st.session_state.get('client')
+    if not client:
+        logger.error("❌ Google Sheets kapcsolat nem érhető el a load_futar_from_sheets funkcióban!")
+        return pd.DataFrame()
+
+    try:
+        sheet = client.open_by_key(sheet_id).worksheet("Futárok")
+        data = sheet.get_all_records()
+        return pd.DataFrame(data)
+    except Exception as e:
+        logger.error(f"Hiba a futárok betöltésekor: {e}")
+        return pd.DataFrame()
+
+def save_futar_to_sheets(df, sheet_id):
+    """Visszamenti a módosított futár adatokat a Google Sheet 'Futárok' lapjára."""
+    import streamlit as st
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    client = st.session_state.get('client')
+    if not client:
+        logger.error("❌ Google Sheets kapcsolat nem érhető el a save_futar_to_sheets funkcióban!")
+        return False
+
+    try:
+        sheet = client.open_by_key(sheet_id).worksheet("Futárok")
+        sheet.clear()
+        # Az adatok visszaírása
+        sheet.update([df.columns.values.tolist()] + df.values.tolist())
+        return True
+    except Exception as e:
+        logger.error(f"Hiba a futárok mentésekor: {e}")
+        return False
+
+

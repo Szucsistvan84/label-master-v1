@@ -43,13 +43,16 @@ def get_gspread_client():
         logger.error(f"Google Sheets hitelesítési hiba: {e}")
         return None
 
-@st.cache_data(ttl=300, show_spinner="Futárok szinkronizálása...")
+@st.cache_data(ttl=300, show_spinner="Adatbázisok szinkronizálása...")
 def load_sheet_data_cached(_client, sheet_id, worksheet_name):
-    """Gyorsítótárazott (5 perces) táblázat beolvasás a golyóálló futáshoz."""
+    """Gyorsítótárazott táblázat beolvasás UNFORMATTED és fallback opciókkal."""
     try:
         sheet = _client.open_by_key(sheet_id)
         worksheet = sheet.worksheet(worksheet_name)
-        records = worksheet.get_all_records()
+        try:
+            records = worksheet.get_all_records(value_render_option='UNFORMATTED_VALUE')
+        except:
+            records = worksheet.get_all_records()
         return pd.DataFrame(records)
     except Exception as e:
         logger.error(f"Hiba a táblázat beolvasásakor ({worksheet_name}): {e}")

@@ -1,70 +1,42 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
-import re
-import requests
-import os
-import gspread
-import folium
 import logging
-import qrcode
-from io import BytesIO
-from datetime import datetime
-from streamlit_folium import st_folium
-from gspread_dataframe import set_with_dataframe
-from google.oauth2.service_account import Credentials
 
 # --- SAJÁT, ÚJONNAN LÉTREHOZOTT MODULOK IMPORTÁLÁSA ---
 from geokodolo_modul import get_coordinates, biztonsagos_koordinata_tisztito
 from parser_modul import parse_interfood_pdf
-from adatbazis_modul import get_gspread_client, load_sheet_data, save_df_to_sheet, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, kotelezo_ugyfelkor_formatum_tisztitas, get_latest_week_from_master, load_sheet_data_cached, load_etlap_api_smart, master_lista_szinkron
+from adatbazis_modul import (
+    get_gspread_client, load_sheet_data, save_df_to_sheet, SHEET_ID_MASTER, 
+    SHEET_ID_UGYFELKOR, kotelezo_ugyfelkor_formatum_tisztitas, 
+    get_latest_week_from_master, load_sheet_data_cached, load_etlap_api_smart, 
+    master_lista_szinkron
+)
 from stilus_modul import alkalmaz_mobil_status_bar, alkalmaz_tisztitott_felulet_css, alkalmaz_wolt_gomb_stilus, rendereld_wolt_ugyfel_kartya
 from vizualizacio import utvonal_terkep
-from utils import init_google_sheets
+from utils import init_google_sheets, setup_logging, init_test_mode, check_user_role
 
 # --- KORÁBBI MOBIL ÉS NYOMTATÁS MODULOK BEHÚZÁSA ---
 from mobil_modulok import render_mobil_aruatvetel, render_mobil_bepakolas, render_mobil_kiszallitas
 from nyomtatas_modulok import create_label_pdf, create_manifest_pdf, create_raklista_pdf
 
 # ==============================================================================
-# 1. GLOBÁLIS KONFIGURÁCIÓK ÉS BEÁLLÍTÁSOK
+# 1. GLOBÁLIS KONFIGURÁCIÓK ÉS INICIALIZÁLÁSOK
 # ==============================================================================
 
-# --- LOGGOLÁS BEÁLLÍTÁSA ---
-LOG_FILE = "utvonaltervezo.log"
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
+# --- LOGGOLÁS INICIALIZÁLÁSA (kiszervezve az utils-ba) ---
+setup_logging()
 logger = logging.getLogger(__name__)
 
-# ==============================================================================
-# 🧪 URL PARAMÉTEREK ÉS TESZT MÓD INICIALIZÁLÁSA
-# ==============================================================================
-if 'teszt_uzemmod' not in st.session_state:
-    st.session_state.teszt_uzemmod = False
+# --- TESZT ÜZEMMÓD ÉS PARAMÉTEREK (kiszervezve az utils-ba) ---
+init_test_mode()
 
-# Ha a mobilos vagy asztali URL-ből jön a teszt jelzés, kényszerítjük a teszt módot
-if "test" in st.query_params and st.query_params["test"] == "true":
-    st.session_state.teszt_uzemmod = True
-
-# --- GOOGLE SHEETS ALAPHELYZET ---
-client = None
+# --- GOOGLE SHEETS KLIENS INICIALIZÁLÁSA ---
+client = init_google_sheets()
 
 # ==============================================================================
-# 2. GLOBÁLIS SEGÉDFÜGGVÉNYEK
+# Innen mehet tovább az app.py törzse (UI elemek, oldalsáv, főlap, stb.)
 # ==============================================================================
-
-def check_user_role():
-    """Visszaadja a felhasználó szerepkörét."""
-    role = st.session_state.get('user_szerep', 'futar')
-    if st.session_state.get('user_nev') == "SajátNeved": 
-        return "superadmin"
-    return role
 
                 
 def get_google_sheets_creds():

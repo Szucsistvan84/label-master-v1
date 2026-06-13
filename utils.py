@@ -2,6 +2,8 @@
 import logging
 import streamlit as st
 import gspread
+import re
+import unicodedata
 from google.oauth2 import service_account
 
 def init_google_sheets():

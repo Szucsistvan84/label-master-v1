@@ -6,6 +6,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# --- GLOBÁLIS REGEX MINTÁK (PDF FELDOLGOZÁSHOZ) ---
+PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'
+# Frissített minta: felismeri a sima (-), az en-dash (–) és az em-dash (—) jeleket is
+ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z][A-Z0-9*+]*)'
+# Frissített, "szóköz-toleráns" regex
+MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
+
 # --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
     rows = []

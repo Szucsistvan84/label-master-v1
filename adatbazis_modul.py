@@ -1,10 +1,10 @@
-
 # -*- coding: utf-8 -*-
 import gspread
 import logging
 import pandas as pd
 from google.oauth2.service_account import Credentials
 from gspread_dataframe import set_with_dataframe
+from geokodolo_modul import biztonsagos_koordinata_tisztito
 
 logger = logging.getLogger(__name__)
 

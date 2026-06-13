@@ -2480,8 +2480,9 @@ def main():
 
                 # TÉRKÉP MEGJELENÍTÉSE
                 with st.expander("🗺️ Útvonal megtekintése a térképen", expanded=False):
-                    utvonal_terkep(df_napi=edited_df, sheet_id=UGYFELKOR_SHEET_ID, client=client) 
-
+                    # Meghívjuk a kiszervezett függvényt, az edited_df-et (módosított napi listát) átadva
+                    utvonal_terkep(df_napi=edited_df) 
+                
                 st.subheader("🗄️ Ügyfélkör kezelése")
                 gomb_col1, gomb_col2 = st.columns(2)
 

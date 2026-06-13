@@ -40,56 +40,6 @@ client = init_google_sheets()
 # Innen mehet tovább az app.py törzse (UI elemek, oldalsáv, főlap, stb.)
 # ==============================================================================
 
-# --- 1. AZ OKOS NÉV-MEMÓRIA BETÖLTÉSE (FRISSÍTVE: SHEET-ALAPÚ ÉS CACHE-MENTES) ---
-
-def load_all_names(sheet_df):
-    """
-    A Google Sheet-ből betöltött nevekből (Családnév, Keresztnév oszlopok) 
-    felépíti a felismeréshez szükséges adatbázist.
-    """
-    all_names = set()
-    titulusok = {"Dr.", "id.", "ifj.", "özv.", "dr.", "vitéz"}
-    all_names.update(titulusok)
-    
-    if sheet_df is not None:
-        # Családnevek begyűjtése
-        if 'Családnév' in sheet_df.columns:
-            csalad_nevek = sheet_df['Családnév'].dropna().unique()
-            all_names.update([str(n).strip() for n in csalad_nevek if str(n).strip()])
-            
-        # Keresztnevek begyűjtése (férfi és női vegyesen)
-        if 'Keresztnév' in sheet_df.columns:
-            kereszt_nevek = sheet_df['Keresztnév'].dropna().unique()
-            for n in kereszt_nevek:
-                nev = str(n).strip()
-                if nev:
-                    all_names.add(nev)
-                    # Automatikus -né képzés minden keresztnévre (biztonsági játék)
-                    all_names.add(nev + "né")
-    
-    return all_names
-
-# Használat a fő logikában:
-# Amikor beolvasod a neveket tartalmazó Google Sheet-et (legyen a neve pl. names_df):
-# NAME_DB = load_all_names(names_df)
-
-# --- 2. NÉV ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA ---
-def split_name_logic(raw_text):
-    words = raw_text.split()
-    name_parts = []
-    comment_parts = []
-    is_name_part = True
-    
-    for word in words:
-        clean = word.strip(",./-")
-        # Ha benne van a listáidban VAGY nagybetűs, akkor név marad
-        if is_name_part and (clean in NAME_DB or word[0].isupper()):
-            name_parts.append(word)
-        else:
-            is_name_part = False
-            comment_parts.append(word)
-            
-    return " ".join(name_parts), " ".join(comment_parts)
 
 # --- 3. MASTER DATA (HOSSZÚ TÁVÚ MEMÓRIA) ---
 def load_master_data():

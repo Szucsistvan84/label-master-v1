@@ -863,4 +863,25 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
         st.error(f"Hiba a Master szinkron során: {e}")
         return False
 
+# adatbazis_modul.py kiegészítése
+
+def load_master_data():
+    """Betölti a hosszú távú memóriát a helyi CSV fájlból."""
+    import os
+    import pandas as pd
+    
+    if os.path.exists("master_data.csv"):
+        return pd.read_csv("master_data.csv", dtype={'Ügyfélkód': str})
+    return pd.DataFrame(columns=['Ügyfélkód', 'Ügyintéző', 'Cím', 'Telefonszám', 'Megjegyzés'])
+
+def save_to_master(current_df):
+    """Összefűzi a friss adatokat a meglévő helyi CSV master adattal, az újak felülírják a régit."""
+    import pandas as pd
+    
+    master_df = load_master_data()
+    # Összefűzzük a mait a régivel, az új adatok felülírják a régit az ID alapján
+    updated_master = pd.concat([master_df, current_df[['Ügyfélkód', 'Ügyintéző', 'Cím', 'Telefonszám', 'Megjegyzés']]])
+    updated_master = updated_master.drop_duplicates(subset=['Ügyfélkód'], keep='last')
+    updated_master.to_csv("master_data.csv", index=False)
+
 

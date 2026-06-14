@@ -50,7 +50,7 @@ def get_gspread_client():
 @st.cache_data(ttl=300, show_spinner="Adatbázisok szinkronizálása...")
 def load_sheet_data_cached(_client, sheet_id, worksheet_name):
     """Gyorsítótárazott táblázat beolvasás UNFORMATTED és fallback opciókkal."""
-    import pandas as pd  # JAVÍTÁS: Helyi import a cache-környezet elszigeteltsége miatt!
+    import pandas as pd  # JAVÍTÁS: Szigorú helyi import a cache-környezet elszigeteltsége miatt!
     try:
         sheet = _client.open_by_key(sheet_id)
         worksheet = sheet.worksheet(worksheet_name)
@@ -87,7 +87,7 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     A koordinátákat átfuttatja a biztonsagos_koordinata_tisztito-n, és stringként 
     menti, hogy a Google Sheets ne nyelje le a tizedesvesszőket.
     """
-    import pandas as pd  # JAVÍTÁS: Biztonságos helyi import
+    import pandas as pd  # JAVÍTÁS: Szigorú helyi import
     if df.empty:
         return df
         
@@ -136,7 +136,7 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
 
 def get_latest_week_from_master(sheet_id, client):
     """Kinyeri a legnagyobb hetet a 'wXX' formátumú szövegekből a megadott klienssel."""
-    import pandas as pd  # JAVÍTÁS: Biztonságos helyi import
+    import pandas as pd  # JAVÍTÁS: Szigorú helyi import
     try:
         if client is None:
             return 2026, 0
@@ -168,7 +168,7 @@ def load_etlap_api_smart(_client, sheet_id, columns_trigger=None):
     Letölti az Etlap_API munkalapot a Google Sheets-ből a megadott klienssel. 
     Ha a 'columns_trigger' megváltozik, a Streamlit újra letölti!
     """
-    import pandas as pd  # JAVÍTÁS: Biztonságos helyi import
+    import pandas as pd  # JAVÍTÁS: Szigorú helyi import
     try:
         if _client is None:
             return pd.DataFrame()
@@ -188,7 +188,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     Összefésüli a napi listát a törzslistával (Ugyfelkor) szigorúan 6 jegyű ID alapján.
     Az 'Ugyfelkor' fület CSAK BŐVÍTI az új ügyfelekkel, az 'Adatok' fület szinkronizálja.
     """
-    import pandas as pd
+    import pandas as pd  # JAVÍTÁS: Szigorú helyi import
     import streamlit as st
     import logging
     import time
@@ -847,128 +847,6 @@ def save_to_master(current_df):
     updated_master = pd.concat([master_df, current_df[['Ügyfélkód', 'Ügyintéző', 'Cím', 'Telefonszám', 'Megjegyzés']]])
     updated_master = updated_master.drop_duplicates(subset=['Ügyfélkód'], keep='last')
     updated_master.to_csv("master_data.csv", index=False)
-
-def sync_ugyfelkor_fel(df_napi, sheet_id):
-    """
-    Feltölti a napi ügyféladatokat a Google Sheet 'Adatok' fülére (Upsert).
-    Ha az ID már létezik, frissíti az adatokat, ha új, akkor hozzáfűzi.
-    """
-    import streamlit as st
-    import pandas as pd
-    from datetime import datetime
-
-    client = st.session_state.get('client')
-    if client is None:
-        return 0
-        
-    sh = client.open_by_key(sheet_id)
-    try:
-        ws = sh.worksheet("Adatok")
-    except:
-        ws = sh.add_worksheet(title="Adatok", rows="1000", cols="10")
-        ws.append_row(["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"])
-
-    data = ws.get_all_records()
-    db_df = pd.DataFrame(data)
-    
-    if db_df.empty:
-        db_df = pd.DataFrame(columns=["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"])
-    else:
-        db_df = db_df.astype(str)
-
-    ma = datetime.now().strftime("%Y-%m-%d")
-    
-    for _, row in df_napi.iterrows():
-        u_id = str(row.get('temp_id', '')).strip()
-        if not u_id or u_id in ['nan', 'None', '']: 
-            continue
-
-        u_nev = str(row.get('Ügyintéző', '')).strip()
-        u_cim = str(row.get('Cím', '')).strip()
-        u_tel = str(row.get('Telefon', '')).strip()
-        u_sorrend = str(row.get('Sorrend', '')).strip()
-        u_megj = str(row.get('Megjegyzés', '')).strip()
-
-        mask = db_df['ID'].astype(str) == u_id
-        if mask.any():
-            idx = db_df[mask].index[0]
-            db_df.at[idx, 'Név'] = u_nev
-            db_df.at[idx, 'Cím'] = u_cim
-            db_df.at[idx, 'Telefon'] = u_tel
-            db_df.at[idx, 'Preferált Sorrend'] = u_sorrend
-            db_df.at[idx, 'Megjegyzés'] = u_megj
-            db_df.at[idx, 'Utolsó Rendelés'] = ma
-        else:
-            new_row = {
-                "ID": u_id, "Név": u_nev, "Cím": u_cim, "Telefon": u_tel,
-                "Csoport": "", "Preferált Sorrend": u_sorrend, 
-                "Megjegyzés": u_megj, "Utolsó Rendelés": ma
-            }
-            db_df = pd.concat([db_df, pd.DataFrame([new_row])], ignore_index=True)
-
-    db_df = db_df.replace('nan', '').fillna("")
-    
-    final_list = [db_df.columns.values.tolist()] + db_df.values.tolist()
-    ws.clear()
-    ws.update('A1', final_list)
-    return len(df_napi)
-
-def adatok_visszatoltese_sheetrol(df_napi, sheet_id):
-    """
-    A Google Sheet 'Adatok' füléről visszatölti a korábban mentett ügyféladatokat,
-    frissíti a napi DataFrame-et (nevek, preferált sorrend, megjegyzések),
-    majd a beállított sorrend alapján rendezi a táblázatot.
-    """
-    import streamlit as st
-    import pandas as pd
-    
-    client = st.session_state.get('client')
-    if client is None: 
-        return df_napi
-        
-    try:
-        sh = client.open_by_key(sheet_id)
-        ws = sh.worksheet("Adatok")
-        db_df = pd.DataFrame(ws.get_all_records())
-        
-        if db_df.empty: 
-            return df_napi
-            
-        db_df['ID'] = db_df['ID'].astype(str).str.strip()
-        
-        if 'Original_Order' not in df_napi.columns:
-            df_napi['Original_Order'] = range(1, len(df_napi) + 1)
-
-        for i, row in df_napi.iterrows():
-            u_id = str(row.get('temp_id', '')).strip()
-            match = db_df[db_df['ID'] == u_id]
-            
-            if not match.empty:
-                s_nev = str(match.iloc[0]['Név']).strip()
-                if s_nev and s_nev.lower() != 'nan':
-                    df_napi.at[i, 'Ügyintéző'] = s_nev
-                
-                s_sorrend = str(match.iloc[0]['Preferált Sorrend']).strip()
-                if s_sorrend and s_sorrend.lower() != 'nan' and s_sorrend != "":
-                    try:
-                        df_napi.at[i, 'Sorrend'] = float(s_sorrend)
-                    except:
-                        pass
-                
-                for col in ['Csoport', 'Megjegyzés']:
-                    val = str(match.iloc[0].get(col, '')).strip()
-                    if val.lower() != 'nan':
-                        df_napi.at[i, col] = val
-        
-        df_napi['Sorrend'] = pd.to_numeric(df_napi['Sorrend'], errors='coerce')
-        df_napi['Sorrend'] = df_napi['Sorrend'].fillna(df_napi['Original_Order'])
-        
-        df_napi = df_napi.sort_values(by=['Sorrend'], ascending=[True])
-        
-        return df_napi
-    except Exception as e:
-        st.error(f"❌ Hiba a visszatöltésnél: {e}")
-        return df_napi
 
 def _tiszta_futar_lista_letoltes(sheet_id):
     """Biztonságosan letölti a futárok listáját a PIN kódos azonosításhoz."""

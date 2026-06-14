@@ -283,7 +283,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             white-space: nowrap;
         }
         
-        /* Egyedi vevő doboz a csoportosított kártyán belül */
+        /* Egyedi vevő doboz a csoportosított kártyán binnen */
         .customer-item {
             background-color: #F9FAFB;
             border: 1px solid #F3F4F6;
@@ -383,10 +383,42 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                         st.session_state[f"bepak_allapot_{idx}"] = True
                                         st.session_state[f"lada_szam_tarolt_{idx}"] = "1. láda"
                                         st.session_state[f"chk_{idx}"] = True
-                                        # Ezzel egy időben ne legyen kiszállítva a tétel
+                                        # Ezzel egy időben ne legyen kiszállítva a tétel a resetelt tiszta 0-s kezdéshez
                                         st.session_state[f"kiszallitva_{idx}"] = False
                                         st.session_state[f"kiszallitott_statusz_{idx}"] = "Folyamatban"
+                                        st.session_state[f"borravalo_{idx}"] = 0
+                                        if f"atvett_input_{idx}" in st.session_state:
+                                            st.session_state[f"atvett_input_{idx}"] = 0
+                                            
                                     st.session_state.kiszallitas_folyamatban = True
+                                    st.session_state['futar_borravalo'] = 0
+                                    
+                                    # Szinkronizáljuk a felhőt is 0 beszedett KP-val és 0 borravalóval a summary munkalapon!
+                                    if not st.session_state.get('teszt_uzemmod', False):
+                                        try:
+                                            kivalasztott = st.session_state.get('kivalasztott_datum', datetime.today().date())
+                                            api_datum_kulcs = kivalasztott.strftime("%Y-%m-%d") if isinstance(kivalasztott, datetime.date) else str(kivalasztott)
+                                            sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
+                                            ws_summary = sh_ugyfelkor.worksheet("Mobil_Summary")
+                                            summary_records = ws_summary.get_all_records()
+                                            
+                                            futar_keresett_clean = str(futar_neve).strip().lower()
+                                            existing_row_index = None
+                                            for r_idx, row in enumerate(summary_records, start=2):
+                                                r_date_str = str(row.get('Datum', '')).strip()
+                                                r_futar = str(row.get('Futar', '')).strip().lower()
+                                                if r_date_str == api_datum_kulcs and (r_futar == futar_keresett_clean or r_futar == "szűcs istván"):
+                                                    existing_row_index = r_idx
+                                                    break
+                                            
+                                            if existing_row_index:
+                                                # Frissítjük a sorban a Beszedett KP (H) és Borravaló (I) mezőket élesben nullára!
+                                                ws_summary.update_cell(existing_row_index, 8, 0)
+                                                ws_summary.update_cell(existing_row_index, 9, 0)
+                                                st.cache_data.clear()
+                                        except Exception as e_sh_reset:
+                                            st.write(f"⚠️ Nem sikerült a Google Sheets valós idejű szinkronizációja: {e_sh_reset}")
+                                            
                                     st.success("🎉 Összes tétel sikeresen bepakolva az 1. lábába! Indulhat a kiszállítás!")
                                     time.sleep(1.0)
                                     st.rerun()
@@ -402,7 +434,35 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     st.session_state[f"borravalo_{idx}"] = 0
                                     if f"atvett_input_{idx}" in st.session_state:
                                         st.session_state[f"atvett_input_{idx}"] = 0
+                                        
                                 st.session_state.kiszallitas_folyamatban = False
+                                st.session_state['futar_borravalo'] = 0
+                                
+                                # Google Sheets nullázása
+                                if not st.session_state.get('teszt_uzemmod', False):
+                                    try:
+                                        kivalasztott = st.session_state.get('kivalasztott_datum', datetime.today().date())
+                                        api_datum_kulcs = kivalasztott.strftime("%Y-%m-%d") if isinstance(kivalasztott, datetime.date) else str(kivalasztott)
+                                        sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
+                                        ws_summary = sh_ugyfelkor.worksheet("Mobil_Summary")
+                                        summary_records = ws_summary.get_all_records()
+                                        
+                                        futar_keresett_clean = str(futar_neve).strip().lower()
+                                        existing_row_index = None
+                                        for r_idx, row in enumerate(summary_records, start=2):
+                                            r_date_str = str(row.get('Datum', '')).strip()
+                                            r_futar = str(row.get('Futar', '')).strip().lower()
+                                            if r_date_str == api_datum_kulcs and (r_futar == futar_keresett_clean or r_futar == "szűcs istván"):
+                                                existing_row_index = r_idx
+                                                break
+                                        
+                                        if existing_row_index:
+                                            ws_summary.update_cell(existing_row_index, 8, 0)
+                                            ws_summary.update_cell(existing_row_index, 9, 0)
+                                            st.cache_data.clear()
+                                    except Exception as e_sh_reset:
+                                        st.write(f"⚠️ Nem sikerült a Google Sheets valós idejű szinkronizációja: {e_sh_reset}")
+                                        
                                 st.warning("🧹 Minden korábbi bepakolás sikeresen kiürítve!")
                                 time.sleep(1.0)
                                 st.rerun()
@@ -498,7 +558,6 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 
                                 # Ha van nap megjelölés, kiírjuk külön fejléc alá
                                 if day_title:
-                                    # Szombati tételekhez adunk egy kis pirosas-rózsaszínes kiemelést
                                     style_szoveg = "color: #DC2626; font-weight: bold;" if is_szombat else "color: #4B5563; font-weight: 500;"
                                     st.markdown(f'<div style="font-size: 11.5px; {style_szoveg} margin-top: 4px; margin-bottom: 2px;">{day_title}</div>', unsafe_allow_html=True)
 
@@ -507,7 +566,6 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 if found_items:
                                     badges_html = '<div style="margin-top: 2px; margin-bottom: 4px; display: flex; flex-wrap: wrap;">'
                                     for qty, code in found_items:
-                                        # Szombati kódok félkövérek (bold) az etikett alapján, a péntekiek normál vékonyak
                                         style_kaja = "font-weight: 900; background-color: #FEF2F2; color: #991B1B; border: 1px solid #FCA5A5;" if is_szombat else "font-weight: normal; background-color: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE;"
                                         badges_html += f'<span class="item-badge" style="{style_kaja}">{qty}x {code}</span>'
                                     badges_html += '</div>'
@@ -522,7 +580,6 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             bepakolt_kulcs = f"bepak_allapot_{idx}"
                             lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
 
-                            # JAVÍTÁS 2: Szigorú inicializáció a renderelés alatt is
                             if bepakolt_kulcs not in st.session_state:
                                 st.session_state[bepakolt_kulcs] = False
                             if lada_tarolt_kulcs not in st.session_state:
@@ -536,7 +593,6 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     st.session_state[f"bepak_allapot_{i}"] = False
                                     st.session_state[f"lada_szam_tarolt_{i}"] = None
 
-                            # JAVÍTÁS 3: Szigorú és biztonságos .get() lekérdezés KeyError védelemmel a lada_tarolt_kulcs-hoz!
                             tarolt_lada_ertek = st.session_state.get(lada_tarolt_kulcs, None)
                             label_text = f"🟢 Bepakolva ide: {tarolt_lada_ertek}" if tarolt_lada_ertek else f"⚪ Bepakolás a ládába ({vevo_nev})"
                             
@@ -841,6 +897,51 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 if st.button("✅ Cím sikeresen átadva", key=f"siker_{idx}", use_container_width=True, type="primary"):
                     st.session_state[f"borravalo_{idx}"] = szamitott_borravalo
                     st.session_state[f"kiszallitva_{idx}"] = True
+                    st.session_state[f"kiszallitott_statusz_{idx}"] = "Sikeres"
+                    
+                    # --- ÉLŐ FELHŐ-SZINKRONIZÁCIÓ KISZÁLLÍTÁSKOR ---
+                    # Minden egyes sikeres kézbesítés után újraírjuk az éles adatokat a Google Sheets-be!
+                    if not st.session_state.get('teszt_uzemmod', False):
+                        try:
+                            # 1. Összesítjük az átvett készpénzt és borravalót az eddig sikeresen kézbesített cégekből
+                            osszes_beszedett_kp_most = 0
+                            osszes_borravalo_most = 0
+                            for k in list(st.session_state.keys()):
+                                if k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres":
+                                    live_idx = k.split("_")[-1]
+                                    try:
+                                        osszes_beszedett_kp_most += int(st.session_state.get(f"atvett_input_{live_idx}", 0))
+                                        osszes_borravalo_most += int(st.session_state.get(f"borravalo_{live_idx}", 0))
+                                    except:
+                                        pass
+                            
+                            # 2. Megkeressük a mai elszámolás sorát
+                            kivalasztott = st.session_state.get('kivalasztott_datum', datetime.today().date())
+                            api_datum_kulcs = kivalasztott.strftime("%Y-%m-%d") if isinstance(kivalasztott, datetime.date) else str(kivalasztott)
+                            
+                            sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
+                            ws_summary = sh_ugyfelkor.worksheet("Mobil_Summary")
+                            summary_records = ws_summary.get_all_records()
+                            
+                            futar_keresett_clean = str(futar_neve).strip().lower()
+                            existing_row_index = None
+                            for r_idx, row in enumerate(summary_records, start=2):
+                                r_date_str = str(row.get('Datum', '')).strip()
+                                r_futar = str(row.get('Futar', '')).strip().lower()
+                                if r_date_str == api_datum_kulcs and (r_futar == futar_keresett_clean or r_futar == "szűcs istván"):
+                                    existing_row_index = r_idx
+                                    break
+                            
+                            if existing_row_index:
+                                # Élőben frissítjük a Google Sheets megfelelő oszlopait!
+                                # Beszedett_KP azaz a 8. oszlop, Borravaló azaz a 9. oszlop
+                                ws_summary.update_cell(existing_row_index, 8, osszes_beszedett_kp_most)
+                                ws_summary.update_cell(existing_row_index, 9, osszes_borravalo_most)
+                                st.cache_data.clear()
+                                st.toast("☁️ Pénzügyi adatok élőben szinkronizálva a felhőbe!")
+                        except Exception as e_live_sync:
+                            st.write(f"⚠️ Nem sikerült a Google Sheets valós idejű szinkronizációja: {e_live_sync}")
+                    
                     st.toast(f"🎉 {vevo_neve} sikeresen kézbesítve!")
                     st.rerun()
             
@@ -857,7 +958,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             
             if st.button("🔄 Teszt adatok törlése (Újraindítás)", use_container_width=True):
                 for k in list(st.session_state.keys()):
-                    if "kiszallitva_" in k or "lada_szam_tarolt_" in k or "borravalo_" in k or "atvett_input_" in k:
+                    if "kiszallitva_" in k or "lada_szam_tarolt_" in k or "borravalo_" in k or "atvett_input_" in k or "kiszallitott_statusz_" in k:
                         del st.session_state[k]
                 st.session_state['futar_borravalo'] = 0
                 st.rerun()

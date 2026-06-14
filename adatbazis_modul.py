@@ -469,9 +469,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         logger.info("🚀 Biztonságos, többfelhasználós szinkronizáció kész! Minden kolléga adata megőrizve.")
         st.success("🚀 Mobil terminál adatsorok (Adatok) sikeresen szinkronizálva a felhőbe!")
 
-        # JAVÍTÁS: A Mobil_Summary dupla írásának megszüntetése az átfedések elkerülésére.
-        # A Mobil_Summary-t innentől kizárólag és hajszálpontosan a nezetek_modul.py írja a valós Raklista alapján!
-            
     except Exception as e:
         logger.warning(f"A szinkronizáció megszakadt az 'Adatok' fül frissítésekor: {e}")
 

@@ -2,6 +2,7 @@
 import re
 import time
 import logging
+import pandas as pd
 from geopy.geocoders import Nominatim
 
 logger = logging.getLogger(__name__)

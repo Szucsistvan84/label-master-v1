@@ -56,18 +56,38 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         # 1. Mennyiségek lekérése a gyorsítótárazott summary-ből
         futar_keresett = str(futar_nev_kiir).strip().lower()
 
+        driver_records = []
         for s_row in summary_records:
             summary_futar = str(s_row.get('Futar', s_row.get('futar', ''))).strip().lower()
-            row_date = str(s_row.get('Datum', s_row.get('datum', ''))).strip()
+            if summary_futar == futar_keresett or summary_futar == "szűcs istván":
+                driver_records.append(s_row)
+
+        if driver_records:
+            matched_row = None
+            for row in driver_records:
+                row_date = str(row.get('Datum', row.get('datum', ''))).strip()
+                if row_date == kivalasztott_iso:
+                    matched_row = row
+                    break
             
-            # Ellenőrizzük a futárt és a dátumot is
-            if (summary_futar == futar_keresett or summary_futar == "szűcs istván") and row_date == kivalasztott_iso:
-                forgalmi_ertek = int(s_row.get('Forgalom_Osszes', s_row.get('Forgalom', 0)))
-                jutalek = int(s_row.get('Vart_Jutalek', s_row.get('Jutalék', 0)))
-                osszes_etel = int(s_row.get('Osszes_Etel', s_row.get('Terv_Darabszam', 0)))
-                osszes_megallo = int(s_row.get('Tervezett_Megallok', 0))
-                osszes_cim = int(s_row.get('Osszes_Cim', 0))
-                break
+            # JAVÍTÁS: Ha a kiválasztott dátumra (pl. ma vasárnap) nincs rekord, akkor fallbackelünk a legutolsó létező napra!
+            if not matched_row:
+                driver_records_sorted = sorted(
+                    driver_records, 
+                    key=lambda x: str(x.get('Datum', x.get('datum', ''))).strip(), 
+                    reverse=True
+                )
+                matched_row = driver_records_sorted[0]
+                most_recent_date_str = str(matched_row.get('Datum', matched_row.get('datum', ''))).strip()
+                # Beállítjuk a kiválasztott dátumot a legutóbbi sikeres feltöltés dátumára
+                st.session_state['kivalasztott_datum'] = datetime.datetime.strptime(most_recent_date_str, "%Y-%m-%d").date()
+
+            if matched_row:
+                forgalmi_ertek = int(matched_row.get('Forgalom_Osszes', matched_row.get('Forgalom', 0)))
+                jutalek = int(matched_row.get('Vart_Jutalek', matched_row.get('Jutalék', 0)))
+                osszes_etel = int(matched_row.get('Osszes_Etel', matched_row.get('Terv_Darabszam', 0)))
+                osszes_megallo = int(matched_row.get('Tervezett_Megallok', 0))
+                osszes_cim = int(matched_row.get('Osszes_Cim', 0))
 
         # Fallback ha a summary-ben még nincs rögzített adatunk
         if osszes_cim == 0:

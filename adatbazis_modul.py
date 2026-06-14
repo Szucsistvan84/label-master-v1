@@ -65,6 +65,7 @@ def load_sheet_data_cached(_client, sheet_id, worksheet_name):
 
 def save_df_to_sheet(client, sheet_id, worksheet_name, df, clear_sheet=True):
     """Biztonságosan felülírja vagy frissíti a Google Sheet adott fülét a DataFrame adataival"""
+    import pandas as pd
     try:
         sheet = client.open_by_key(sheet_id)
         worksheet = sheet.worksheet(worksheet_name)
@@ -86,6 +87,7 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     A koordinátákat átfuttatja a biztonsagos_koordinata_tisztito-n, és stringként 
     menti, hogy a Google Sheets ne nyelje le a tizedesvesszőket.
     """
+    import pandas as pd  # JAVÍTÁS: Biztonságos helyi import
     if df.empty:
         return df
         
@@ -134,6 +136,7 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
 
 def get_latest_week_from_master(sheet_id, client):
     """Kinyeri a legnagyobb hetet a 'wXX' formátumú szövegekből a megadott klienssel."""
+    import pandas as pd  # JAVÍTÁS: Biztonságos helyi import
     try:
         if client is None:
             return 2026, 0
@@ -165,6 +168,7 @@ def load_etlap_api_smart(_client, sheet_id, columns_trigger=None):
     Letölti az Etlap_API munkalapot a Google Sheets-ből a megadott klienssel. 
     Ha a 'columns_trigger' megváltozik, a Streamlit újra letölti!
     """
+    import pandas as pd  # JAVÍTÁS: Biztonságos helyi import
     try:
         if _client is None:
             return pd.DataFrame()
@@ -554,6 +558,7 @@ def sync_interfood_etlap(year, week, sheet_id):
     Letölti az Interfood étlapot az API-ból Excel formátumban,
     és feltölti a Google Sheets 'Etlap_API' munkalapjára.
     """
+    import pandas as pd  # JAVÍTÁS: Biztonságos helyi import
     api_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -630,7 +635,7 @@ def load_etlap_from_sheets(sheet_id):
     majd az adatokat strukturált indexként adja vissza/menti a session_state-be.
     """
     import streamlit as st
-    import pandas as pd
+    import pandas as pd  # JAVÍTÁS: Biztonságos helyi import
     
     client = st.session_state.get('client')
     if not client:
@@ -694,7 +699,7 @@ def load_etlap_from_sheets(sheet_id):
 def load_futar_from_sheets(sheet_id):
     """Betölti a futárok adatait a Google Sheet 'Futárok' lapjáról."""
     import streamlit as st
-    import pandas as pd
+    import pandas as pd  # JAVÍTÁS: Biztonságos helyi import
     import logging
     
     logger = logging.getLogger(__name__)
@@ -714,6 +719,7 @@ def load_futar_from_sheets(sheet_id):
 def save_futar_to_sheets(df, sheet_id):
     """Visszamenti a módosított futár adatokat a Google Sheet 'Futárok' lapjára."""
     import streamlit as st
+    import pandas as pd  # JAVÍTÁS: Biztonságos helyi import
     import logging
     
     logger = logging.getLogger(__name__)

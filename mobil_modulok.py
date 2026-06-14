@@ -231,9 +231,8 @@ def render_mobil_aruatvetel(client):
                 time.sleep(2.0)
                 st.rerun()
 
-
 def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
-    # --- FEJLESZTETT CSS AZ AUTOMATIKUS TÖRDELÉSHEZ ÉS MARGÓKHOZ ---
+    # --- FEJLESZTETT CSS AZ AUTOMATIKUS TÖRDELÉSHEZ ÉS COMPAKT ELRENDEZÉSHEZ ---
     st.markdown(
         """
         <style>
@@ -339,10 +338,29 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                     df_adatok['Sorrend'] = range(1, len(df_adatok) + 1)
                 df_adatok['Sorrend'] = pd.to_numeric(df_adatok['Sorrend'], errors='coerce').fillna(999).astype(int)
 
-                # 🔒 JÁRAT SZŰRÉS: Csak a futár által kiválasztott járatok jelenjenek meg!
+                # JAVÍTÁS: Intelligens, dinamikus helyettesítő járat lefejtő motor!
+                actual_filter_routes = []
+                futar_neve = st.session_state.get('user_nev', 'Szűcs István')
+                futar_neve_lower = str(futar_neve).strip().lower()
+
+                for j in valasztott_jaratok:
+                    if j in ["Mai Raklista", "Nincs elérhető járat", "Alapértelmezett Járat"]:
+                        # 1. Megnézzük az Adatok fülön, hogy melyik járatok vannak ehhez a futárhoz rendelve ma
+                        if 'Feldolgozó Futár' in df_adatok.columns:
+                            routes_from_data = df_adatok[df_adatok['Feldolgozó Futár'].astype(str).str.strip().str.lower() == futar_neve_lower]['Járat'].unique()
+                            actual_filter_routes.extend([str(r).strip() for r in routes_from_data if str(r).strip() != "" and str(r).lower() != "nan"])
+                        
+                        # 2. Ha az Adatok fül még üres, akkor az alapértelmezett profil járatokat vesszük elő (fallback)
+                        if not actual_filter_routes:
+                            actual_filter_routes.extend([str(r).strip() for r in st.session_state.get("user_jarat_lista", [])])
+                    else:
+                        actual_filter_routes.append(j)
+                actual_filter_routes = list(set(actual_filter_routes))
+
+                # 🔒 JÁRAT SZŰRÉS: Csak a futár járatcsoportjai alapján szűrjük az Adatok fület!
                 jarat_col_name = next((c for c in df_adatok.columns if 'járat' in c.lower() or 'jarat' in c.lower()), None)
                 if jarat_col_name:
-                    df_adatok_filtered = df_adatok[df_adatok[jarat_col_name].astype(str).str.strip().isin(valasztott_jaratok)].copy()
+                    df_adatok_filtered = df_adatok[df_adatok[jarat_col_name].astype(str).str.strip().isin(actual_filter_routes)].copy()
                 else:
                     df_adatok_filtered = df_adatok.copy()
 
@@ -470,12 +488,9 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             
                             sor_szam = st.session_state.get('idobelyeg_sor_index')
                             if sor_szam:
-                                idok_sheet.update_cell(sor_szam, 5, bepakolas_vege_ido)
+                                idok_sheet.update_cell(sor_szam, 6, bepakolas_vege_ido)
                             else:
                                 idok_sheet.append_row([mai_datum, jarat_szoveg, futar_neve, "", bepakolas_vege_ido])
-                            
-                            # JAVÍTÁS: Mivel új adatot írtunk a felhőbe, töröljük a gyorsítótárat az azonnali frissülésért!
-                            st.cache_data.clear()
                             
                             st.success(f"🎉 Bepakolás lezárva ({bepakolas_vege_ido})! Jó utat kívánunk! 🚚")
                             time.sleep(1.5)
@@ -524,10 +539,26 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         lat_oszlop = 'Latitude' if 'Latitude' in df_adatok.columns else 'Lat'
         lon_oszlop = 'Longitude' if 'Longitude' in df_adatok.columns else 'Lon'
 
+        # JAVÍTÁS: Virtuális járatnevek lefejtése a szűréshez valós járatszámokra a kiszállításnál is!
+        actual_filter_routes = []
+        futar_neve = st.session_state.get('user_nev', 'Szűcs István')
+        futar_neve_lower = str(futar_neve).strip().lower()
+
+        for j in valasztott_jaratok:
+            if j in ["Mai Raklista", "Nincs elérhető járat", "Alapértelmezett Járat"]:
+                if 'Feldolgozó Futár' in df_adatok.columns:
+                    routes_from_data = df_adatok[df_adatok['Feldolgozó Futár'].astype(str).str.strip().str.lower() == futar_neve_lower]['Járat'].unique()
+                    actual_filter_routes.extend([str(r).strip() for r in routes_from_data if str(r).strip() != "" and str(r).lower() != "nan"])
+                if not actual_filter_routes:
+                    actual_filter_routes.extend([str(r).strip() for r in st.session_state.get("user_jarat_lista", [])])
+            else:
+                actual_filter_routes.append(j)
+        actual_filter_routes = list(set(actual_filter_routes))
+
         # Szűrjük az adatokat a bejelentkezett járatokra a felesleges címek elkerülésére
         jarat_col_name = next((c for c in df_adatok.columns if 'járat' in c.lower() or 'jarat' in c.lower()), None)
         if jarat_col_name:
-            df_kiszallitas = df_adatok[df_adatok[jarat_col_name].astype(str).str.strip().isin(valasztott_jaratok)].copy()
+            df_kiszallitas = df_adatok[df_adatok[jarat_col_name].astype(str).str.strip().isin(actual_filter_routes)].copy()
         else:
             df_kiszallitas = df_adatok.copy()
 
@@ -657,9 +688,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                                 ws.update_cell(sheet_row, lat_col_idx, curr_lat)
                                 ws.update_cell(sheet_row, lon_col_idx, curr_lon)
                                 
-                                # JAVÍTÁS: Mivel frissült a pozíció a felhőben, ürítjük a cache-t!
                                 st.cache_data.clear()
-                                
                                 st.success("🎯 Pozíció sikeresen elmentve!")
                                 st.rerun()
                             except Exception as geo_err:
@@ -707,7 +736,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             break
             
         else:
-            # 🏆 Ha minden cím elfogyott, akkor összesítjük és véglegesítjük a borravalót
+            # 🏆 Ha minden cím elfogyott, akkor összesítjük és véglegenítjük a borravalót
             teljes_napi_borravalo = sum(int(st.session_state.get(f"borravalo_{idx}", 0)) for idx, _ in bepakolt_sorok)
             st.session_state['futar_borravalo'] = teljes_napi_borravalo
             
@@ -720,7 +749,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     if "kiszallitva_" in k or "lada_szam_tarolt_" in k or "borravalo_" in k or "atvett_input_" in k:
                         del st.session_state[k]
                 st.session_state['futar_borravalo'] = 0
-                st.cache_data.clear() # Gyorsítótár ürítése a teszt újraindításnál
                 st.rerun()
 
     except Exception as e:

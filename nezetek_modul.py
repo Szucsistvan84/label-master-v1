@@ -204,14 +204,14 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
 
     if is_admin:
         st.subheader("🛡️ Adminisztrációs Központ")
-        # JAVÍTÁS: Átadtuk a SHEET_ID-t elsőként és a clientet másodikként a definíció szerint!
+        # JAVÍTÁS: Átadjuk a helyes paraméter sorrendet: sheet_id, client -> SHEET_ID_MASTER, client
         ev_most, het_most = get_latest_week_from_master(SHEET_ID_MASTER, client)
         
         if het_most < 24:
             st.error(f"⚠️ Étlap figyelmeztetés: Csak a **{het_most}. hétig** van feltöltve!")
             if st.button("🔄 Master Frissítése a 24. hétig"):
                 with st.spinner("Szinkronizálás folyamatban..."):
-                    # JAVÍTÁS: Kivettük a felesleges client paramétert
+                    # JAVÍTÁS: Nincs client paraméter! (sheet_id, ev, start_het, end_het)
                     sync_master_database(SHEET_ID_MASTER, 2026, het_most + 1, 24)
                     st.success("Sikeres frissítés!")
                     st.rerun()
@@ -224,13 +224,13 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             end_w = st.number_input("Záró hét", min_value=1, max_value=52, value=17)
             if st.button("🚀 Master Adatbázis Építése"):
                 with st.spinner("Szinkronizálás..."):
-                    # JAVÍTÁS: Kivettük a felesleges client paramétert
+                    # JAVÍTÁS: Nincs client paraméter! (sheet_id, ev, start_het, end_het)
                     sync_master_database(SHEET_ID_MASTER, target_year, start_w, end_w)
                     st.success("Kész!")
 
         with st.expander("👤 Felhasználó Kezelés"):
             if 'futar_df' not in st.session_state:
-                # JAVÍTÁS: Kivettük a felesleges client paramétert
+                # JAVÍTÁS: Csak egy paramétert vár: sheet_id
                 st.session_state.futar_df = load_futar_from_sheets(SHEET_ID_UGYFELKOR)
 
             df_to_edit = st.session_state.futar_df.astype(str)
@@ -254,7 +254,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
 
             if st.button("💾 Módosítások mentése", key="save_users_btn"):
                 with st.spinner("Mentés..."):
-                    # JAVÍTÁS: Kivettük a felesleges client paramétert
+                    # JAVÍTÁS: Csak két paramétert vár: df, sheet_id
                     if save_futar_to_sheets(edited_df_users, SHEET_ID_UGYFELKOR):
                         st.session_state.futar_df = edited_df_users
                         st.success("Sikeres mentés!")
@@ -280,7 +280,7 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
     Feltöltött PDF-ek teljes körű feldolgozása, metaadat kinyerése, 
     Sheets szinkronizáció, statisztika és jutalékszámítás, valamint history logolás.
     """
-    # 💥 Régi PDF-ek törlése a memóriából
+    # Régi PDF-ek törlése a memóriából
     for key in ['ready_label_pdf', 'ready_manifest_pdf', 'ready_raklista_pdf']:
         if key in st.session_state:
             del st.session_state[key]
@@ -295,12 +295,12 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
         session_key = f"sync_{ev}_{het}"
         if session_key not in st.session_state:
             with st.spinner(f"Étlap szinkronizálása ({ev}/W{het})..."):
-                # JAVÍTÁS: Kivettük a felesleges client paramétert
+                # JAVÍTÁS: Nincs client paraméter! (year, week, sheet_id)
                 sync_interfood_etlap(ev, het, sheet_id)
                 st.session_state[session_key] = True
 
     with st.spinner("Étlap adatok beolvasása..."):
-        # JAVÍTÁS: Kivettük a felesleges client paramétert
+        # JAVÍTÁS: Csak egy paramétert vár: sheet_id
         etlap_adatok = load_etlap_from_sheets(sheet_id)
         st.session_state.etlap_adatok = etlap_adatok
 
@@ -343,7 +343,8 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
                 tartalek_jarat = None
             
             df_temp, m_df_friss = master_lista_szinkron(df_temp, ugyfelkor_sheet_id, client, jarat_szam=tartalek_jarat)
-            st.session_state.master_df = m_df_friss
+            # JAVÍTÁS: Nem írjuk felül a kaja master adatbázist (master_df), hanem az ugyfelkor_df-be mentjük!
+            st.session_state.ugyfelkor_df = m_df_friss
         
         st.session_state.mdf = df_temp
         
@@ -377,7 +378,8 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
             szamitott_osszes_etel = 0
             darab_col = None
             for c in df_temp.columns:
-                if 'darab' in c.lower() or 'adag' in c.lower() or 'mennyiseg' in c.lower() or 'db' in c.lower():
+                # JAVÍTÁS: Szélesebb spektrumú keresési kulcsszavak az adag/darab elkapásához
+                if any(x in c.lower() for x in ['darab', 'adag', 'mennyiseg', 'mennyiség', 'db', 'adagok', 'darabszám', 'darabszam']):
                     darab_col = c
                     break
                     
@@ -392,7 +394,8 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
             
             ertek_col = None
             for c in df_temp.columns:
-                if 'érték' in c.lower() or 'ertek' in c.lower() or 'forgalom' in c.lower() or 'összeg' in c.lower():
+                # JAVÍTÁS: Kibővítettük a forgalom/pénz oszlopok keresését "fizetendő" és "pénz" szavakkal is!
+                if any(x in c.lower() for x in ['érték', 'ertek', 'forgalom', 'összeg', 'fizetendő', 'fizetendo', 'pénz', 'penz', 'összesen', 'osszesen']):
                     ertek_col = c
                     break
                     
@@ -508,6 +511,11 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
     """Rendereli az asztali nézet fő munkaterületét (táblázat, térkép, mentések és letöltések)."""
     kivalasztott_datum = st.session_state.get('kivalasztott_datum', datetime.date.today())
 
+    # Mentjük a sheet ID-kat Streamlit állapotba is a független hívások megsegítésére
+    st.session_state['SHEET_ID_UGYFELKOR'] = SHEET_ID_UGYFELKOR
+    st.session_state['SHEET_ID_MASTER'] = SHEET_ID_MASTER
+    st.session_state['sheet_id'] = SHEET_ID_UGYFELKOR
+
     if is_admin and admin_funkcio == "🚚 Logisztikai Központ & Stand":
         if client:
             try:
@@ -572,7 +580,8 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
 
             # Térkép integráció
             with st.expander("🗺️ Útvonal megtekintése a térképen", expanded=False):
-                utvonal_terkep(df_napi=edited_df) 
+                # JAVÍTÁS: Átadjuk a SHEET_ID_UGYFELKOR-t a térképnek paraméterként, hogy ne hiányolja!
+                utvonal_terkep(df_napi=edited_df, sheet_id=SHEET_ID_UGYFELKOR) 
             
             st.subheader("🗄️ Ügyfélkör kezelése")
             gomb_col1, gomb_col2 = st.columns(2)
@@ -686,12 +695,18 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                 
                 etlap_api_df = st.session_state.get('etlap_api_df', None)
                 if etlap_api_df is not None:
-                    keresett_nap_szamokkal = "".join(filter(str.isdigit, api_kulcs))
+                    # JAVÍTÁS: Kivonjuk a hónapot és a napot (MMDD), hogy pontosan illeszkedjen az Etlap_API fejlécére (pl. "0612" vagy "06.12.")
+                    match_date = re.search(r'(\d{4})[-.](\d{2})[-.](\d{2})', api_kulcs)
+                    if match_date:
+                        keresett_mmdd = f"{match_date.group(2)}{match_date.group(3)}" # pl: "0612"
+                    else:
+                        keresett_mmdd = "".join(filter(str.isdigit, api_kulcs))[-4:] # Utolsó 4 számjegy fallback
+                        
                     napi_oszlop = None
                     for col in etlap_api_df.columns:
                         clean_col_name = str(col).replace('\r', '').replace('\n', ' ').strip()
                         col_szamok = "".join(filter(str.isdigit, clean_col_name))
-                        if keresett_nap_szamokkal and keresett_nap_szamokkal in col_szamok:
+                        if keresett_mmdd and keresett_mmdd in col_szamok:
                             napi_oszlop = col
                             break
                     

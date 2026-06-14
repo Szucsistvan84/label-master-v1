@@ -26,7 +26,7 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     """
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
-    Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel, vonalak nélkül.
+    Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel, precíz div-alapú elválasztóvonalakkal.
     """
     # Atombiztos CSS az oldalsáv zsugorítására a görgetés ellen és a felső üres tér eltüntetésére
     st.markdown(
@@ -70,7 +70,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             margin-bottom: 2px !important;
         }
         [data-testid="stSidebarUserContent"] hr {
-            display: none !important; /* Eltávolítja az összes beépített elválasztóvonalat is! */
+            display: none !important; /* Eltávolítja az összes beépített kiszámíthatatlan elválasztóvonalat */
             margin-top: 0px !important;
             margin-bottom: 0px !important;
         }
@@ -174,7 +174,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
 
     for k in list(st.session_state.keys()):
         if k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres":
-            # Lefejtjük az indexet
             idx = k.split("_")[-1]
             live_kesz_cimek += 1
             try:
@@ -183,8 +182,8 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             except:
                 pass
 
-    # --- 1. LÉPÉS UTÁNI PRECÍZ SEPARATOR (A Futár és a Haladásjelző között) ---
-    st.markdown("<hr style='margin: 10px 0; border: none; height: 1px; background-color: #E5E7EB;'>", unsafe_allow_html=True)
+    # --- 1. SEPARATOR DIV (A Futár adatai és a Haladásjelző között) ---
+    st.markdown("<div style='margin: 8px 0; border-top: 1px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 1. SZEKCIÓ: KISZÁLLÍTÁSI HALADÁS ---
     st.subheader("🏁 Kiszállítás Haladás")
@@ -192,8 +191,8 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     st.progress(haladas_szazalek)
     st.caption(f"Teljesítve: {live_kesz_cimek} / {osszes_cim} cím ({int(haladas_szazalek * 100)}%)")
     
-    # --- 2. LÉPÉS UTÁNI PRECÍZ SEPARATOR (A Haladásjelző és a Pénzügyek között) ---
-    st.markdown("<hr style='margin: 10px 0; border: none; height: 1px; background-color: #E5E7EB;'>", unsafe_allow_html=True)
+    # --- 2. SEPARATOR DIV (A Haladásjelző és a Pénzügyek között) ---
+    st.markdown("<div style='margin: 8px 0; border-top: 1px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 2. SZEKCIÓ: PÉNZÜGY & MENNYISÉG ---
     st.subheader("💰 Pénzügy & Mennyiség")
@@ -205,8 +204,8 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         st.metric("📦 Összes étel", f"{osszes_etel} adag")
         st.metric("💵 Rakományérték", f"{forgalmi_ertek:,} Ft".replace(",", " "))
         
-    # --- 3. LÉPÉS UTÁNI PRECÍZ SEPARATOR (A Pénzügyek és az Élő elszámolás között) ---
-    st.markdown("<hr style='margin: 10px 0; border: none; height: 1px; background-color: #E5E7EB;'>", unsafe_allow_html=True)
+    # --- 3. SEPARATOR DIV (A Pénzügyek és az Élő elszámolás között) ---
+    st.markdown("<div style='margin: 8px 0; border-top: 1px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 3. SZEKCIÓ: ÉLŐ SZÁLLÍTÁSI MÉRŐK ---
     st.subheader("💸 Élő Elszámolás")
@@ -217,15 +216,14 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     with col_l2:
         st.metric("💰 Gyűjtött borravaló", f"{live_borravalo:,} Ft".replace(",", " "))
 
-    # --- 4. LÉPÉS UTÁNI PRECÍZ SEPARATOR (Az Élő elszámolás és a Hibabejelentő között) ---
-    st.markdown("<hr style='margin: 10px 0; border: none; height: 1px; background-color: #E5E7EB;'>", unsafe_allow_html=True)
+    # --- 4. SEPARATOR DIV (Az Élő elszámolás és a Hibabejelentő között) ---
+    st.markdown("<div style='margin: 8px 0; border-top: 1px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 4. SZEKCIÓ: SÜRGŐS HIBAJELENTŐ ÚTKÖZBEN ---
     st.subheader("⚠️ Probléma az úton?")
     with st.expander("🚨 SÜRGŐS HIBAKÜLDÉS (Gyorsmenü)"):
         st.write("Sérült, elcserélt vagy hiányzó étel gyors bejelentése a központnak:")
         
-        # Lekérjük az Adatok fülről az összes mai aktív címet és megrendelt kódokat
         vevo_options = ["-- Válassz helyszínt / vevőt --"]
         vevo_items_map = {}
         
@@ -244,11 +242,19 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 else:
                     df_szurt = df_adatok_all
                 
+                # AUTOMATA MEMÓRIA-SZINKRONIZÁCIÓ: Ha a futár mobilján nincs betöltve az étlap, most lekérjük!
+                etlap = st.session_state.get('etlap_adatok', {})
+                if not etlap:
+                    try:
+                        etlap = load_etlap_from_sheets(SHEET_ID)
+                        st.session_state.etlap_adatok = etlap
+                    except:
+                        etlap = {}
+
                 # NÉV SZERINTI PONTOS ÉTELVÁLASZTÓ INTEGRÁCIÓJA
                 label_to_prefix = {"Hé": "H", "Ke": "K", "Sze": "S", "Csü": "C", "Pé": "P", "Szo": "Z"}
                 prefix_to_num = {"H": "1", "K": "2", "S": "3", "C": "4", "P": "5", "Z": "6"}
                 prefix_to_nev = {"H": "Hétfő", "K": "Kedd", "S": "Szerda", "C": "Csütörtök", "P": "Péntek", "Z": "Szombat"}
-                etlap = st.session_state.get('etlap_adatok', {})
 
                 for _, r in df_szurt.iterrows():
                     nev_val = str(r.get('Név', r.get('Nev', r.get('Ügyintéző', 'Névtelen')))).strip()
@@ -259,7 +265,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                     if label_szoveg not in vevo_options:
                         vevo_options.append(label_szoveg)
                     
-                    # Lefejtjük és név szerint pontosan feloldjuk az ételeket az Etlap_API alapján
                     vevo_kajak = ["-- Válassz érintett ételt --"]
                     day_parts = rendeles_val.split('|')
                     for part in day_parts:
@@ -281,7 +286,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                             num_prefix = prefix_to_num.get(prefix, "1")
                             sheets_key = f"{num_prefix}_{keresett_kod}"
                             
-                            info = etlap.get(sheets_key, {})
+                            info = etlap.get(sheets_key, {}) if etlap else {}
                             etel_nev = info.get('nev', 'Ismeretlen Étel')
                             day_name = prefix_to_nev.get(prefix, '')
                             
@@ -753,7 +758,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             <div style="font-size: 40px; margin-bottom: 10px;">👑🏆🍾</div>
             <h2 style="margin: 0; color: white; font-weight: bold; text-shadow: 1px 1px 3px rgba(0,0,0,0.3);">GRATULÁLUNK, {bonus_data['futar'].upper()}!</h2>
             <p style="font-size: 16px; margin: 10px 0 5px 0; text-shadow: 1px 1px 2px rgba(0,0,0,0.2);">
-                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke alcanzará a <b>{bonus_data['forgalom']:,} Ft</b>-ot!
+                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke alcanzó a <b>{bonus_data['forgalom']:,} Ft</b>-ot!
             </p>
             <div style="background-color: rgba(255,255,255,0.25); display: inline-block; padding: 10px 25px; border-radius: 50px; font-weight: bold; font-size: 18px; margin-top: 10px; border: 1px solid rgba(255,255,255,0.4);">
                 ⭐ EMELT BÓNUSZ SÁV: 14% JUTALÉK AKTIVÁLVA! ⭐

@@ -79,7 +79,7 @@ def render_mobil_aruatvetel(client):
         st.session_state.idobelyeg_sor_index = None
 
     # =========================================================================
-    # ÁLLAPOT 1: AZ ÁRÚÁTVÉTEL MÉG NINCS ELINDÍTVA
+    # ÁLLAPOT 1: AZ ÁRÚÁTVÉTEL ÉS IDŐMÉRÉS MÉG EL SINCS INDÍTVA
     # =========================================================================
     if not st.session_state.aruatvetel_folyamatban:
         st.info("💡 Pakolás előtt indítsd el az áruátvételt a pontos munkaidő-méréshez.")
@@ -98,7 +98,7 @@ def render_mobil_aruatvetel(client):
                 st.session_state.idobelyeg_sor_index = len(idok_sheet.get_all_values())
                 st.session_state.aruatvetel_folyamatban = True
                 
-                # JAVÍTÁS: Mivel írtunk a Google Sheets-be, töröljük a gyorsítótárat a friss adatokért!
+                # Mivel írtunk a Google Sheets-be, töröljük a gyorsítótárat a friss adatokért!
                 st.cache_data.clear()
                 
                 st.success(f"Áruátvétel elindítva a következő járatokhoz: {jaratok_szoveg} ({start_ido})")
@@ -183,7 +183,7 @@ def render_mobil_aruatvetel(client):
                                     hiany_db, tobblet_db, hiba_tipus, hiba_megj, futar_neve, "Feldolgozatlan"
                                 ])
                                 
-                                # JAVÍTÁS: Mivel új hibasor került be, töröljük a gyorsítótárat a frissülésért!
+                                # Töröljük a gyorsítótárat a frissülésért!
                                 st.cache_data.clear()
                                 
                                 st.success("Sikeresen rögzítve! ✅")
@@ -296,7 +296,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
         unsafe_allow_html=True
     )
 
-    st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
+    st.markdown("## 2. lépés: Címke és láda rendező (Címekre szedés)")
     st.caption("💡 Pakolás fordított sorrendben! A csoportosított címeket szedd egy szatyorba.")
 
     if 'mobil_lada_szam' not in st.session_state: st.session_state.mobil_lada_szam = 1
@@ -324,7 +324,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
         valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
         if valasztott_jaratok:
             
-            # JAVÍTÁS: Éles, korlátlan lekérés helyett a beépített cache-ből töltjük be az ügyfélkört!
+            # Éles, korlátlan lekérés helyett a beépített cache-ből töltjük be az ügyfélkört!
             df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok") 
             
             if not df_adatok.empty:
@@ -338,7 +338,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                     df_adatok['Sorrend'] = range(1, len(df_adatok) + 1)
                 df_adatok['Sorrend'] = pd.to_numeric(df_adatok['Sorrend'], errors='coerce').fillna(999).astype(int)
 
-                # JAVÍTÁS: Intelligens, dinamikus helyettesítő járat lefejtő motor!
+                # Intelligens, dinamikus helyettesítő járat lefejtő motor!
                 actual_filter_routes = []
                 futar_neve = st.session_state.get('user_nev', 'Szűcs István')
                 futar_neve_lower = str(futar_neve).strip().lower()
@@ -384,8 +384,13 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         show_card = False
                         for idx, row in df_addr.iterrows():
                             bepakolt_kulcs = f"bepak_allapot_{idx}"
+                            lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
+                            
+                            # JAVÍTÁS 1: Biztosítjuk, hogy a session state-ben mindenképp létrejöjjön a kulcs beolvasás előtt!
                             if bepakolt_kulcs not in st.session_state:
                                 st.session_state[bepakolt_kulcs] = False
+                            if lada_tarolt_kulcs not in st.session_state:
+                                st.session_state[lada_tarolt_kulcs] = None
                             
                             if not st.session_state[bepakolt_kulcs] or st.session_state.mutasd_bepakoltat:
                                 show_card = True
@@ -442,6 +447,12 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             bepakolt_kulcs = f"bepak_allapot_{idx}"
                             lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
 
+                            # JAVÍTÁS 2: Szigorú inicializáció a renderelés alatt is
+                            if bepakolt_kulcs not in st.session_state:
+                                st.session_state[bepakolt_kulcs] = False
+                            if lada_tarolt_kulcs not in st.session_state:
+                                st.session_state[lada_tarolt_kulcs] = None
+
                             def log_lada(i=idx):
                                 if st.session_state[f"chk_{i}"]:
                                     st.session_state[f"bepak_allapot_{i}"] = True
@@ -450,7 +461,10 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     st.session_state[f"bepak_allapot_{i}"] = False
                                     st.session_state[f"lada_szam_tarolt_{i}"] = None
 
-                            label_text = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[lada_tarolt_kulcs] else f"Bepakolás a ládába ({vevo_nev})"
+                            # JAVÍTÁS 3: Szigorú és biztonságos .get() lekérdezés KeyError védelemmel a lada_tarolt_kulcs-hoz!
+                            tarolt_lada_ertek = st.session_state.get(lada_tarolt_kulcs, None)
+                            label_text = f"Bepakolva: {tarolt_lada_ertek}" if tarolt_lada_ertek else f"Bepakolás a ládába ({vevo_nev})"
+                            
                             st.checkbox(label_text, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}", on_change=log_lada)
                             st.write("")
 

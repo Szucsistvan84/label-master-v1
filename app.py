@@ -35,6 +35,9 @@ setup_logging()
 logger = logging.getLogger(__name__)
 init_test_mode()
 
+# Kényszerített kód-frissítési jelző a modulok újratöltéséhez
+# UPDATE_TRIGGER_v3_2026_06_14_1815
+
 # --- GOOGLE SHEETS KLIENS INICIALIZÁLÁSA ---
 client = init_google_sheets()
 if 'client' not in st.session_state:

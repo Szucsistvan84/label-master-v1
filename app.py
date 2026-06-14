@@ -1,3 +1,13 @@
+# --- KÉNYSZERÍTETT MODUL HOT-RELOAD (GARANTÁLT FRISSÍTÉS) ---
+import sys
+import importlib
+
+modules_to_reload = ["mobil_modulok", "nezetek_modul", "adatbazis_modul", "geokodolo_modul"]
+for mod_name in modules_to_reload:
+    if mod_name in sys.modules:
+        importlib.reload(sys.modules[mod_name])
+# ------------------------------------------------------------
+
 # -*- coding: utf-8 -*-
 import streamlit as st
 

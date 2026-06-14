@@ -383,8 +383,11 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                         st.session_state[f"bepak_allapot_{idx}"] = True
                                         st.session_state[f"lada_szam_tarolt_{idx}"] = "1. láda"
                                         st.session_state[f"chk_{idx}"] = True
+                                        # Ezzel egy időben ne legyen kiszállítva a tétel
+                                        st.session_state[f"kiszallitva_{idx}"] = False
+                                        st.session_state[f"kiszallitott_statusz_{idx}"] = "Folyamatban"
                                     st.session_state.kiszallitas_folyamatban = True
-                                    st.success("🎉 Összes tétel sikeresen bepakolva az 1. ládába! Indulhat a kiszállítás!")
+                                    st.success("🎉 Összes tétel sikeresen bepakolva az 1. lábába! Indulhat a kiszállítás!")
                                     time.sleep(1.0)
                                     st.rerun()
                         with col_fast2:
@@ -393,6 +396,12 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     st.session_state[f"bepak_allapot_{idx}"] = False
                                     st.session_state[f"lada_szam_tarolt_{idx}"] = None
                                     st.session_state[f"chk_{idx}"] = False
+                                    # Kiszállítás és borravaló adatok teljes megsemmisítése
+                                    st.session_state[f"kiszallitva_{idx}"] = False
+                                    st.session_state[f"kiszallitott_statusz_{idx}"] = "Folyamatban"
+                                    st.session_state[f"borravalo_{idx}"] = 0
+                                    if f"atvett_input_{idx}" in st.session_state:
+                                        st.session_state[f"atvett_input_{idx}"] = 0
                                 st.session_state.kiszallitas_folyamatban = False
                                 st.warning("🧹 Minden korábbi bepakolás sikeresen kiürítve!")
                                 time.sleep(1.0)

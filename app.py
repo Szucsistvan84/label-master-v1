@@ -37,9 +37,13 @@ init_test_mode()
 
 # --- GOOGLE SHEETS KLIENS INICIALIZÁLÁSA ---
 client = init_google_sheets()
+if 'client' not in st.session_state:
+    st.session_state['client'] = client
 
 def main():
     global client  
+    if 'client' not in st.session_state or st.session_state['client'] is None:
+        st.session_state['client'] = client
 
     # --- ATOMBIZTOS CSS TRÜKKÖK (MOBIL ÉS DEKORÁCIÓS ELREJTÉSEK) ---
     st.markdown(
@@ -160,7 +164,7 @@ def main():
                             st.stop()
                     
                     talalt_futar = None
-                    for f in futarok:
+                    for f in futar_adatok:
                         sheet_jarat = str(f.get('Járat', f.get('Jarat', ''))).strip().lower()
                         sheet_pass = str(f.get('PIN_Kod', '')).replace("'", "").strip()
                         if sheet_pass.endswith('.0'):
@@ -204,7 +208,8 @@ def main():
                 st.session_state.etelek_master_df = m_df  
                 st.session_state.master_df = m_df 
                 
-                api_df = load_etlap_api_smart(SHEET_ID_MASTER, columns_trigger=jelenlegi_het_trigger)
+                # Átadjuk a client objektumot paraméterként a helyes API kommunikációhoz
+                api_df = load_etlap_api_smart(client, SHEET_ID_MASTER, columns_trigger=jelenlegi_het_trigger)
                 if api_df is not None:
                     st.session_state.etlap_api_df = api_df
             except Exception as e:
@@ -262,7 +267,8 @@ def main():
             
         # Oldalsáv kezelőszervek kirajzolása és az aktív funkció lekérése
         with st.sidebar:
-            admin_funkcio = render_desktop_sidebar_controls(SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE)
+            # Átadjuk a client objektumot paraméterként az asztali kezelőszerveknek is
+            admin_funkcio = render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE)
 
         # Főképernyő renderelése a választott menüpont alapján
         render_desktop_main_content(

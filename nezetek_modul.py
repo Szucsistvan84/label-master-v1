@@ -26,7 +26,7 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     """
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
-    Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel.
+    Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel, vonalak nélkül.
     """
     # Atombiztos CSS az oldalsáv zsugorítására a görgetés ellen és a felső üres tér eltüntetésére
     st.markdown(
@@ -70,8 +70,9 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             margin-bottom: 2px !important;
         }
         [data-testid="stSidebarUserContent"] hr {
-            margin-top: 4px !important;
-            margin-bottom: 4px !important;
+            display: none !important; /* Eltávolítja az összes beépített elválasztóvonalat is! */
+            margin-top: 0px !important;
+            margin-bottom: 0px !important;
         }
         /* Szöveges bejegyzések tömörítése */
         [data-testid="stSidebarUserContent"] p, [data-testid="stSidebarUserContent"] span {
@@ -182,7 +183,8 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             except:
                 pass
 
-    st.write("---")
+    # --- 1. LÉPÉS UTÁNI PRECÍZ SEPARATOR (A Futár és a Haladásjelző között) ---
+    st.markdown("<hr style='margin: 10px 0; border: none; height: 1px; background-color: #E5E7EB;'>", unsafe_allow_html=True)
 
     # --- 1. SZEKCIÓ: KISZÁLLÍTÁSI HALADÁS ---
     st.subheader("🏁 Kiszállítás Haladás")
@@ -190,7 +192,8 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     st.progress(haladas_szazalek)
     st.caption(f"Teljesítve: {live_kesz_cimek} / {osszes_cim} cím ({int(haladas_szazalek * 100)}%)")
     
-    st.write("---")
+    # --- 2. LÉPÉS UTÁNI PRECÍZ SEPARATOR (A Haladásjelző és a Pénzügyek között) ---
+    st.markdown("<hr style='margin: 10px 0; border: none; height: 1px; background-color: #E5E7EB;'>", unsafe_allow_html=True)
 
     # --- 2. SZEKCIÓ: PÉNZÜGY & MENNYISÉG ---
     st.subheader("💰 Pénzügy & Mennyiség")
@@ -202,7 +205,8 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         st.metric("📦 Összes étel", f"{osszes_etel} adag")
         st.metric("💵 Rakományérték", f"{forgalmi_ertek:,} Ft".replace(",", " "))
         
-    st.write("---")
+    # --- 3. LÉPÉS UTÁNI PRECÍZ SEPARATOR (A Pénzügyek és az Élő elszámolás között) ---
+    st.markdown("<hr style='margin: 10px 0; border: none; height: 1px; background-color: #E5E7EB;'>", unsafe_allow_html=True)
 
     # --- 3. SZEKCIÓ: ÉLŐ SZÁLLÍTÁSI MÉRŐK ---
     st.subheader("💸 Élő Elszámolás")
@@ -213,9 +217,10 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     with col_l2:
         st.metric("💰 Gyűjtött borravaló", f"{live_borravalo:,} Ft".replace(",", " "))
 
-    st.write("---")
+    # --- 4. LÉPÉS UTÁNI PRECÍZ SEPARATOR (Az Élő elszámolás és a Hibabejelentő között) ---
+    st.markdown("<hr style='margin: 10px 0; border: none; height: 1px; background-color: #E5E7EB;'>", unsafe_allow_html=True)
 
-    # --- 4. SZEKCIÓ: SÜRGŐS HIBAJELENTŐ ÚTKÖZBEN (KÖTELEZŐ LEÖRDÜLŐS INTEGRÁCIÓVAL!) ---
+    # --- 4. SZEKCIÓ: SÜRGŐS HIBAJELENTŐ ÚTKÖZBEN ---
     st.subheader("⚠️ Probléma az úton?")
     with st.expander("🚨 SÜRGŐS HIBAKÜLDÉS (Gyorsmenü)"):
         st.write("Sérült, elcserélt vagy hiányzó étel gyors bejelentése a központnak:")
@@ -239,7 +244,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 else:
                     df_szurt = df_adatok_all
                 
-                # --- JAVÍTÁS: NÉV SZERINTI PONTOS ÉTELVÁLASZTÓ INTEGRÁCIÓJA ---
+                # NÉV SZERINTI PONTOS ÉTELVÁLASZTÓ INTEGRÁCIÓJA
                 label_to_prefix = {"Hé": "H", "Ke": "K", "Sze": "S", "Csü": "C", "Pé": "P", "Szo": "Z"}
                 prefix_to_num = {"H": "1", "K": "2", "S": "3", "C": "4", "P": "5", "Z": "6"}
                 prefix_to_nev = {"H": "Hétfő", "K": "Kedd", "S": "Szerda", "C": "Csütörtök", "P": "Péntek", "Z": "Szombat"}
@@ -265,7 +270,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                                 prefix = pfx
                                 break
                         if not prefix:
-                            # Ha nincs megadva napi előtag (pl. egyszerűbb szöveges rendelés), akkor raw kódokat keresünk
                             found_codes = re.findall(ORDER_PAT, part)
                             for qty, code in found_codes:
                                 vevo_kajak.append(f"{qty}x [{code.strip().upper()}]")
@@ -281,7 +285,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                             etel_nev = info.get('nev', 'Ismeretlen Étel')
                             day_name = prefix_to_nev.get(prefix, '')
                             
-                            # Gyönyörű, név szerint pontos formázás
                             display_name = f"{qty}x [{code.strip().upper()}] — {etel_nev} ({day_name})"
                             vevo_kajak.append(display_name)
                     
@@ -296,7 +299,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         # Intelligens Cím / Vevő választó
         st_hiba_vevo_selected = st.selectbox("Melyik megállónál vagy?", options=vevo_options, key="sidebar_hiba_vevo_dropdown")
         
-        # Dinamikus Étel választó (Csak az adott vevő kajái jelennek meg név szerint!)
+        # Dinamikus Étel választó
         kaja_options_for_selected = ["-- Válassz érintett ételt --"]
         if st_hiba_vevo_selected != "-- Válassz helyszínt / vevőt --":
             kaja_options_for_selected = vevo_items_map.get(st_hiba_vevo_selected, ["-- Válassz érintett ételt --"])
@@ -317,7 +320,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                         hibak_sheet = client.open_by_key(SHEET_ID_UGYFELKOR).worksheet("Hibajelentések")
                         most_ido = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         
-                        # Elküldjük a precíz, név szerinti adatokat
                         hibak_sheet.append_row([
                             most_ido, 
                             futar_nev_kiir, 

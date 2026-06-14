@@ -639,7 +639,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                                 if k in st.session_state and st.session_state[k] is not None:
                                     try:
                                         df = st.session_state[k]
-                                        if not df.empty fraud and 'ID' in df.columns:
+                                        if not df.empty and 'ID' in df.columns:
                                             mask = df['ID'].astype(str) == str(current_id)
                                             if 'Név' in cols: df.loc[mask, 'Név'] = str(row['Név']).strip()
                                             if 'Cím' in cols: df.loc[mask, 'Cím'] = str(row['Cím']).strip()

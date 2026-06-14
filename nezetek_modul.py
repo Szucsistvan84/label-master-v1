@@ -26,47 +26,62 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     """
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
-    Szuper kompakt elrendezésben, dinamikus hibabejelentővel.
+    Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel.
     """
-    # Atombiztos CSS az oldalsáv zsugorítására a görgetés ellen
+    # Atombiztos CSS az oldalsáv zsugorítására a görgetés ellen és a felső üres tér eltüntetésére
     st.markdown(
         """
         <style>
-        /* Sidebar konténer optimalizálása */
-        [data-testid="stSidebarUserContent"] {
-            padding-top: 0.5rem !important;
-            padding-bottom: 0.5rem !important;
+        /* Sidebar felső óriási fehér sávjának eltüntetése */
+        div[data-testid="stSidebarUserContent"] {
+            padding-top: 0rem !important;
+            margin-top: -3.5rem !important; /* Felhúzza a tartalmat teljesen a tetejére */
         }
         /* Metric kártyák betűméretének és térközének radikális csökkentése */
         [data-testid="stSidebarUserContent"] [data-testid="stMetricValue"] {
-            font-size: 1.15rem !important;
+            font-size: 1.05rem !important;
             font-weight: 800 !important;
-            line-height: 1.1 !important;
+            line-height: 1.0 !important;
         }
         [data-testid="stSidebarUserContent"] [data-testid="stMetricLabel"] {
-            font-size: 0.72rem !important;
+            font-size: 0.68rem !important;
             font-weight: 600 !important;
-            line-height: 1.1 !important;
+            line-height: 1.0 !important;
             color: #4B5563 !important;
+            margin-bottom: 1px !important;
         }
         [data-testid="stSidebarUserContent"] [data-testid="stMetric"] {
-            padding: 1px !important;
-            margin-bottom: 2px !important;
+            padding: 0px !important;
+            margin-bottom: 1px !important;
+        }
+        /* Drasztikusan csökkentjük az összes függőleges elem közötti térközt */
+        [data-testid="stSidebarUserContent"] div[data-testid="stVerticalBlock"] {
+            gap: 0.2rem !important;
         }
         /* Fejlécek és sorközök finomítása */
         [data-testid="stSidebarUserContent"] h2 {
-            font-size: 1.25rem !important;
-            margin-top: 2px !important;
-            margin-bottom: 4px !important;
+            font-size: 1.15rem !important;
+            margin-top: 0px !important;
+            margin-bottom: 2px !important;
         }
         [data-testid="stSidebarUserContent"] h3 {
-            font-size: 0.95rem !important;
+            font-size: 0.85rem !important;
+            margin-top: 2px !important;
+            margin-bottom: 2px !important;
+        }
+        [data-testid="stSidebarUserContent"] hr {
             margin-top: 4px !important;
             margin-bottom: 4px !important;
         }
-        [data-testid="stSidebarUserContent"] hr {
-            margin-top: 6px !important;
-            margin-bottom: 6px !important;
+        /* Szöveges bejegyzések tömörítése */
+        [data-testid="stSidebarUserContent"] p, [data-testid="stSidebarUserContent"] span {
+            margin-top: 0px !important;
+            margin-bottom: 0px !important;
+            line-height: 1.1 !important;
+        }
+        /* Selectbox és beviteli mezők tömörítése */
+        [data-testid="stSidebarUserContent"] div[data-baseweb="select"] {
+            font-size: 0.8rem !important;
         }
         </style>
         """,
@@ -157,9 +172,10 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     live_borravalo = 0
 
     for k in list(st.session_state.keys()):
-        if k.startswith("kiszallitva_") and st.session_state[k] == True:
+        if k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres":
+            # Lefejtjük az indexet
+            idx = k.split("_")[-1]
             live_kesz_cimek += 1
-            idx = k.split("_")[1]
             try:
                 live_beszedett_kp += int(st.session_state.get(f"atvett_input_{idx}", 0))
                 live_borravalo += int(st.session_state.get(f"borravalo_{idx}", 0))
@@ -168,7 +184,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
 
     st.write("---")
 
-    # --- 1. SZEKCIÓ: KISZÁLLÍTÁSI HALADÁS (FELKERÜLT A LAP TETEJÉRE!) ---
+    # --- 1. SZEKCIÓ: KISZÁLLÍTÁSI HALADÁS ---
     st.subheader("🏁 Kiszállítás Haladás")
     haladas_szazalek = min(1.0, live_kesz_cimek / osszes_cim) if osszes_cim > 0 else 0.0
     st.progress(haladas_szazalek)
@@ -176,7 +192,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     
     st.write("---")
 
-    # --- 2. SZEKCIÓ: PÉNZÜGY & MENNYISÉG (CSÖKKENTETT SORKÖZÖKKEL) ---
+    # --- 2. SZEKCIÓ: PÉNZÜGY & MENNYISÉG ---
     st.subheader("💰 Pénzügy & Mennyiség")
     col_s1, col_s2 = st.columns(2)
     with col_s1:
@@ -201,7 +217,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
 
     # --- 4. SZEKCIÓ: SÜRGŐS HIBAJELENTŐ ÚTKÖZBEN (KÖTELEZŐ LEÖRDÜLŐS INTEGRÁCIÓVAL!) ---
     st.subheader("⚠️ Probléma az úton?")
-    with st.expander("🚨 SÜRGŐS HIBAKÜLDÉS (Pillanatok alatt)"):
+    with st.expander("🚨 SÜRGŐS HIBAKÜLDÉS (Gyorsmenü)"):
         st.write("Sérült, elcserélt vagy hiányzó étel gyors bejelentése a központnak:")
         
         # Lekérjük az Adatok fülről az összes mai aktív címet és megrendelt kódokat
@@ -223,6 +239,12 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 else:
                     df_szurt = df_adatok_all
                 
+                # --- JAVÍTÁS: NÉV SZERINTI PONTOS ÉTELVÁLASZTÓ INTEGRÁCIÓJA ---
+                label_to_prefix = {"Hé": "H", "Ke": "K", "Sze": "S", "Csü": "C", "Pé": "P", "Szo": "Z"}
+                prefix_to_num = {"H": "1", "K": "2", "S": "3", "C": "4", "P": "5", "Z": "6"}
+                prefix_to_nev = {"H": "Hétfő", "K": "Kedd", "S": "Szerda", "C": "Csütörtök", "P": "Péntek", "Z": "Szombat"}
+                etlap = st.session_state.get('etlap_adatok', {})
+
                 for _, r in df_szurt.iterrows():
                     nev_val = str(r.get('Név', r.get('Nev', r.get('Ügyintéző', 'Névtelen')))).strip()
                     cim_val = str(r.get('Cím', r.get('Cim', 'Ismeretlen cím'))).strip()
@@ -232,22 +254,49 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                     if label_szoveg not in vevo_options:
                         vevo_options.append(label_szoveg)
                     
-                    # Lefejtjük az adott vevőhöz tartozó étel kódokat
+                    # Lefejtjük és név szerint pontosan feloldjuk az ételeket az Etlap_API alapján
                     vevo_kajak = ["-- Válassz érintett ételt --"]
-                    found_codes = re.findall(ORDER_PAT, rendeles_val)
-                    for qty, code in found_codes:
-                        vevo_kajak.append(f"{qty}x {code.strip().upper()}")
-                    if not found_codes and rendeles_val:
+                    day_parts = rendeles_val.split('|')
+                    for part in day_parts:
+                        part = part.strip()
+                        prefix = ""
+                        for label, pfx in label_to_prefix.items():
+                            if f"{label}:" in part:
+                                prefix = pfx
+                                break
+                        if not prefix:
+                            # Ha nincs megadva napi előtag (pl. egyszerűbb szöveges rendelés), akkor raw kódokat keresünk
+                            found_codes = re.findall(ORDER_PAT, part)
+                            for qty, code in found_codes:
+                                vevo_kajak.append(f"{qty}x [{code.strip().upper()}]")
+                            continue
+                            
+                        found_codes = re.findall(ORDER_PAT, part)
+                        for qty, code in found_codes:
+                            keresett_kod = code.replace('*', '').strip().upper()
+                            num_prefix = prefix_to_num.get(prefix, "1")
+                            sheets_key = f"{num_prefix}_{keresett_kod}"
+                            
+                            info = etlap.get(sheets_key, {})
+                            etel_nev = info.get('nev', 'Ismeretlen Étel')
+                            day_name = prefix_to_nev.get(prefix, '')
+                            
+                            # Gyönyörű, név szerint pontos formázás
+                            display_name = f"{qty}x [{code.strip().upper()}] — {etel_nev} ({day_name})"
+                            vevo_kajak.append(display_name)
+                    
+                    if not day_parts and rendeles_val:
                         vevo_kajak.append(rendeles_val)
-                        
+                    
                     vevo_items_map[label_szoveg] = vevo_kajak
+                    
         except Exception as e_dropdown_build:
             st.sidebar.error(f"Dropdown hiba: {e_dropdown_build}")
 
         # Intelligens Cím / Vevő választó
         st_hiba_vevo_selected = st.selectbox("Melyik megállónál vagy?", options=vevo_options, key="sidebar_hiba_vevo_dropdown")
         
-        # Dinamikus Étel választó (Csak az adott vevő kajái jelennek meg!)
+        # Dinamikus Étel választó (Csak az adott vevő kajái jelennek meg név szerint!)
         kaja_options_for_selected = ["-- Válassz érintett ételt --"]
         if st_hiba_vevo_selected != "-- Válassz helyszínt / vevőt --":
             kaja_options_for_selected = vevo_items_map.get(st_hiba_vevo_selected, ["-- Válassz érintett ételt --"])
@@ -268,7 +317,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                         hibak_sheet = client.open_by_key(SHEET_ID_UGYFELKOR).worksheet("Hibajelentések")
                         most_ido = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         
-                        # Elküldjük a precíz adatokat
+                        # Elküldjük a precíz, név szerinti adatokat
                         hibak_sheet.append_row([
                             most_ido, 
                             futar_nev_kiir, 
@@ -647,7 +696,7 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
         st.info(f"📊 Aktuális napi összesített rakomány értéke: {szamitott_total_ertek:,} Ft".replace(",", " "))
         st.info(f"💵 Mai beszedendő készpénz (KP): {szamitott_kp_forgalom:,} Ft".replace(",", " "))
         st.info(f"📈 Eheti halmozott összesített forgalom eddig: {teljes_eheti_forgalom:,} Ft / 2 100 000 Ft".replace(",", " "))
-        st.success("🎉 A menettervek feldolgozása és a felhő szinkronizáció sikeresen megtörtént!")
+        st.success("🎉 A menettervek feldolgozása és a felhő szinkronizáció sikeresen megtént!")
 
 
 def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, admin_funkcio, is_admin):
@@ -702,7 +751,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             <div style="font-size: 40px; margin-bottom: 10px;">👑🏆🍾</div>
             <h2 style="margin: 0; color: white; font-weight: bold; text-shadow: 1px 1px 3px rgba(0,0,0,0.3);">GRATULÁLUNK, {bonus_data['futar'].upper()}!</h2>
             <p style="font-size: 16px; margin: 10px 0 5px 0; text-shadow: 1px 1px 2px rgba(0,0,0,0.2);">
-                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke alcanzó a <b>{bonus_data['forgalom']:,} Ft</b>-ot!
+                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke alcanzará a <b>{bonus_data['forgalom']:,} Ft</b>-ot!
             </p>
             <div style="background-color: rgba(255,255,255,0.25); display: inline-block; padding: 10px 25px; border-radius: 50px; font-weight: bold; font-size: 18px; margin-top: 10px; border: 1px solid rgba(255,255,255,0.4);">
                 ⭐ EMELT BÓNUSZ SÁV: 14% JUTALÉK AKTIVÁLVA! ⭐

@@ -1,80 +1,63 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
+
+# --- 1. STREAMLIT ALAPBEÁLLÍTÁS - Kötelezően mindenen kívül, a legelső sorban! ---
+st.set_page_config(page_title="Interfood Label Master", layout="wide")
+
+# --- Standard Python modulok importálása ---
 import pandas as pd
 import logging
+import os
 
-# --- SAJÁT, ÚJONNAN LÉTREHOZOTT MODULOK IMPORTÁLÁSA ---
-from geokodolo_modul import get_coordinates, biztonsagos_koordinata_tisztito
-from parser_modul import parse_interfood_pdf, extract_all_meta, load_all_names, merge_data
+# --- Globális konstansok ---
+LOG_FILE = "app.log"
+
+# --- SAJÁT MODULOK IMPORTÁLÁSA ---
+from parser_modul import merge_data
 from adatbazis_modul import (
-    get_gspread_client, load_sheet_data, save_df_to_sheet, SHEET_ID_MASTER, 
-    SHEET_ID_UGYFELKOR, kotelezo_ugyfelkor_formatum_tisztitas, 
-    get_latest_week_from_master, load_sheet_data_cached, load_etlap_api_smart, 
-    master_lista_szinkron, sync_interfood_etlap, load_etlap_from_sheets,
-    load_futar_from_sheets, save_futar_to_sheets, sync_master_database,
-    load_master_data, save_to_master, _tiszta_futar_lista_letoltes
+    SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, 
+    _tiszta_futar_lista_letoltes, load_etlap_api_smart
 )
-from stilus_modul import alkalmaz_mobil_status_bar, alkalmaz_tisztitott_felulet_css, alkalmaz_wolt_gomb_stilus, rendereld_wolt_ugyfel_kartya
 from vizualizacio import utvonal_terkep
-from utils import init_google_sheets, setup_logging, init_test_mode, check_user_role, clean_text
-from admin_modul import render_logisztikai_kozpont
-from nezetek_modul import render_mobil_sidebar_dashboard, render_desktop_sidebar_controls, process_uploaded_pdfs
+from utils import init_google_sheets, setup_logging, init_test_mode, check_user_role
 
-# --- KORÁBBI MOBIL ÉS NYOMTATÁS MODULOK BEHÚZÁSA ---
+# --- MOBIL NÉZETEK ÉS NYOMTATÁS BEHÚZÁSA ---
 from mobil_modulok import render_mobil_aruatvetel, render_mobil_bepakolas, render_mobil_kiszallitas
-from nyomtatas_modulok import create_label_pdf, create_manifest_pdf, create_raklista_pdf
 
-# ==============================================================================
-# 1. GLOBÁLIS KONFIGURÁCIÓK ÉS INICIALIZÁLÁSOK
-# ==============================================================================
+# --- KISZERVEZETT ÚJ NÉZET RENDEREK ---
+from nezetek_modul import (
+    render_mobil_sidebar_dashboard, 
+    render_desktop_sidebar_controls, 
+    process_uploaded_pdfs,
+    render_desktop_main_content
+)
 
-# --- LOGGOLÁS INICIALIZÁLÁSA (kiszervezve az utils-ba) ---
+# --- LOGGOLÁS ÉS TESZT ÜZEMMÓD INICIALIZÁLÁSA ---
 setup_logging()
 logger = logging.getLogger(__name__)
-
-# --- TESZT ÜZEMMÓD ÉS PARAMÉTEREK (kiszervezve az utils-ba) ---
 init_test_mode()
 
 # --- GOOGLE SHEETS KLIENS INICIALIZÁLÁSA ---
 client = init_google_sheets()
 
-# ==============================================================================
-# Innen mehet tovább az app.py törzse (UI elemek, oldalsáv, főlap, stb.)
-# ==============================================================================
-    
-# --- FŐ PROGRAMFUTÁS ---
 def main():
-    import pandas as pd
-    # 1. Streamlit alapbeállítás – Ennek KÖTELEZŐEN a legelsőnek kell lennie!
-    st.set_page_config(page_title="Interfood Label Master", layout="wide")
+    global client  
 
-    # --- JAVÍTOTT, ATOMBIZTOS MOBIL CSS TRÜKK ---
+    # --- ATOMBIZTOS CSS TRÜKKÖK (MOBIL ÉS DEKORÁCIÓS ELREJTÉSEK) ---
     st.markdown(
         """
         <style>
-        /* 1. AZ ALSÓ LÁBLÉC ÉS A HOZZÁ TARTOZÓ JELZÉSEK TELJES ELTÜNTETÉSE */
         footer {visibility: hidden !important; display: none !important;}
         [data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
-        
-        /* 2. A JOBB FELSŐ DEPLOY ÉS HAMBURGER MENÜ ELREJTÉSE */
         .stDeployButton {display: none !important;}
         #MainMenu {visibility: hidden !important; display: none !important;}
         [data-testid="stAppDeployButton"] {display: none !important;}
-        
-        /* 3. A LEGUTÁLATOSABB: A JOBB FELSŐ TOOLBAR (SÚGÓ, BEÁLLÍTÁSOK) ELTÜNTETÉSE */
         [data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
-        
-        /* 4. A FELSŐ DEKORÁCIÓS CSÍK JELZÉSE */
         [data-testid="stDecoration"] {display: none !important;}
-        
-        /* 5. A SIDEBAR GOMB VÉDELME ÉS KIEMELÉSE */
-        /* Biztosítjuk, hogy a bal felső nyitógomb látható és kattintható maradjon */
         [data-testid="stSidebarCollapseButton"] {
             visibility: visible !important;
             display: inline-flex !important;
         }
-
-        /* 6. MOBIL MARGÓK FINOMHANGOLÁSA */
         .block-container {
             padding-top: 2.5rem !important;
             padding-bottom: 0rem !important;
@@ -84,22 +67,13 @@ def main():
         unsafe_allow_html=True
     )
 
-    # 2. Globális elérés a gspread kliensnek
-    global client  
-
-    # 3. Az ID-k fix definiálása helyben
-    SHEET_ID = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o" 
-    UGYFELKOR_SHEET_ID = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
-    SHEET_ID_MASTER = SHEET_ID
-    SHEET_ID_UGYFELKOR = UGYFELKOR_SHEET_ID
-
-    # 4. Fontok regisztrálása a nyomtatáshoz
+    # Fontok regisztrálása a PDF-nyomtatáshoz
     from nyomtatas_modulok import register_fonts
     register_fonts()
 
-    # 5. Session State alapértékek biztonságos beállítása
+    # Session State alapértékek biztonságos beállítása
     if 'mdf' not in st.session_state: st.session_state.mdf = None
-    if 'meta_data' not in st.session_state: st.session_state.meta_data = []
+    if 'meta_data' not in st.session_state: st.session_state.meta_data = {}
     if 'weights' not in st.session_state: st.session_state.weights = {}
     if 'editor_key' not in st.session_state: st.session_state.editor_key = 0
     if 'c_n' not in st.session_state: st.session_state.c_n = "Szűcs István"
@@ -111,12 +85,12 @@ def main():
     if 'nevnapok_df' not in st.session_state: st.session_state.nevnapok_df = pd.DataFrame()
     if 'keresztnevek_df' not in st.session_state: st.session_state.keresztnevek_df = pd.DataFrame()
 
-    # 6. URL paraméterek lekérése
-    query_params = st.query_params
-    view = query_params.get("view", None)
-    url_jarat = query_params.get("jarat", "")
+    # URL paraméterek lekérése
+    view = st.query_params.get("view", None)
+    url_jarat = st.query_params.get("jarat", "")
+    url_teszt = st.query_params.get("test", "false") == "true"
 
-    # 7. BIZTONSÁGOS OKOSÍTÁS: Ha a parancsikon miatt nincs 'view' a linkben
+    # BIZTONSÁGOS REDIRECT: Ha a parancsikon miatt nincs 'view' paraméter a linkben
     if view is None:
         if 'edited_df' in st.session_state:
             view = "desktop"
@@ -133,54 +107,33 @@ def main():
                 if st.button("Asztali verzió megnyitása"):
                     st.query_params.update(view="desktop")
                     st.rerun()
-            return # Megállítjuk a futást
+            return
 
-    # 8. Logikai nézet beállítása a kód többi részének
     is_mobile_view = (view == "mobile")
 
-    # --- URL PARAMÉTEREK AUTOMATIKUS KIOLVASÁSA ---
-    # Kiolvassuk a linkből a járatot és a teszt módot, ha léteznek
-    url_jarat = st.query_params.get("jarat", "")
-    url_teszt = st.query_params.get("test", "false") == "true"
-
-    # 9. Beléptető rendszer / Biztonsági ellenőrzés
+    # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
         st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🎯 Label Master</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatokhoz</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:
             st.warning("🔒 Kérjük, add meg a járatszámodat és az egyedi jelszavadat!")
             
-            # AUTOMATIKUS KITÖLTÉS: Ha az URL-ben jött járat, azt rakjuk be alapértelmezettnek (value=url_jarat)
             jarat_input = st.text_input("JÁRATSZÁM (vagy Admin):", value=url_jarat, key="login_jarat_field", placeholder="Pl. 4002 vagy admin")
             password_input = st.text_input("JELSZÓ / KÓD:", type="password", key="login_password_field", placeholder="••••••••")
             
-            # TESZT ÜZEMMÓD EXTRA: Ha teszt linkről jött, kap egy gombot a szimulált belépéshez
+            # Teszt belépés jelszó nélkül (ha a linkben szerepel a test=true)
             if url_teszt and jarat_input:
                 st.info(f"🧪 Szimulált belépés észlelve a(z) {jarat_input} járathoz.")
                 if st.button("🧪 TESZT BELÉPÉS JELSZÓ NÉLKÜL", type="primary", use_container_width=True):
-                    
-                    # Szuperbiztos metaadat és futárnév lekérés
-                    meta_forras = st.session_state.get('meta_data')
-                    if not isinstance(meta_forras, dict): 
-                        meta_forras = {} # Ha None vagy nem szótár, kap egy üres szótárt
-                    
+                    meta_forras = st.session_state.get('meta_data', {})
                     pdf_futar_nev = meta_forras.get('futar_neve', meta_forras.get('futar', ''))
                     
-                    # Ha van név a PDF-ben (pl. Szűcs István), akkor azonnal azt használjuk,
-                    # ha nincs, akkor alapértelmezetten a te nevedet adjuk meg a teszthez
-                    if pdf_futar_nev:
-                        st.session_state.user_nev = pdf_futar_nev
-                    else:
-                        st.session_state.user_nev = "Szűcs István"
-                    
+                    st.session_state.user_nev = pdf_futar_nev if pdf_futar_nev else "Szűcs István"
                     st.session_state.bejelentkezve = True
-                    # Kezeljük a QR-kódból érkező járatokat listaként
                     st.session_state.user_jarat_lista = [j.strip() for j in str(jarat_input).split(",") if j.strip()]
                     st.session_state.user_szerep = "futar"
-                    
-                    st.success(f"🧪 Sikeres teszt belépés! Név: {st.session_state.user_nev}")
                     st.rerun()
 
             if st.button("🔑 BIZTONSÁGOS BELÉPÉS", use_container_width=True):
@@ -188,7 +141,7 @@ def main():
                     st.error("❌ Mindkét mező kitöltése kötelező!")
                 else:
                     with st.spinner("⏳ Kapcsolódás a biztonsági szerverhez..."):
-                        futar_adatok = _tiszta_futar_lista_letoltes(UGYFELKOR_SHEET_ID)
+                        futar_adatok = _tiszta_futar_lista_letoltes(SHEET_ID_UGYFELKOR)
                     
                     talalt_futar = None
                     tisztitott_input_jarat = str(jarat_input).strip().lower()
@@ -197,7 +150,6 @@ def main():
                     for f in futar_adatok:
                         sheet_jarat = str(f.get('Járat', f.get('Jarat', ''))).strip().lower()
                         sheet_pass = str(f.get('PIN_Kod', '')).replace("'", "").strip()
-                        
                         if sheet_pass.endswith('.0'):
                             sheet_pass = sheet_pass[:-2]
                         
@@ -208,82 +160,52 @@ def main():
                     if talalt_futar:
                         st.session_state.bejelentkezve = True
                         st.session_state.user_nev = talalt_futar.get('Név', 'Ismeretlen felhasználó')
-                        
-                        # Kezeljük a többszörös járatokat is a biztonság kedvéért (vesszővel elválasztva)
                         raw_jarat = str(talalt_futar.get('Járat', talalt_futar.get('Jarat', ''))).strip()
                         st.session_state.user_jarat_lista = [j.strip() for j in raw_jarat.split(",") if j.strip()]
-                        
                         st.session_state.user_szerep = str(talalt_futar.get('Szerep', 'futar')).strip().lower()
-                        
-                        if "login_jarat_field" in st.session_state: del st.session_state["login_jarat_field"]
-                        if "login_password_field" in st.session_state: del st.session_state["login_password_field"]
-                        
-                        st.success(f"Sikeres belépés! Üdvözlünk, {st.session_state.user_nev}!")
                         st.rerun()
                     else:
                         st.error("❌ Hibás járatszám vagy jelszó!")
         return
 
-    # 10. Alapértelmezett háttér adatbázisok betöltése (Csak sikeres bejelentkezés után fut le)
-    # --- AUTOMATIKUS IDŐUTAZÁS FIGYELŐ ÉS SESSION TISZTÍTÓ ---
+    # --- IDŐUTAZÁS FIGYELŐ ÉS ADATBÁZIS-INICIALIZÁLÓ MOTOR ---
     try:
-        client = gspread.authorize(get_google_sheets_creds())
         sheet = client.open_by_key(SHEET_ID)
         ws_etlap = sheet.worksheet("Etlap_API")
-        
-        # Villámgyorsan lekérjük csak a legelső sort a felhőből (a dátumokat)
         nyers_fejlec = ws_etlap.row_values(1) 
         jelenlegi_het_trigger = "-".join(nyers_fejlec)
         
-        # HA már van elmentett triggerünk, de az NEM egyezik a felhőben lévővel -> IDŐUTAZÁS TÖRTÉNT!
         if 'etlap_trigger_state' in st.session_state and st.session_state.etlap_trigger_state != jelenlegi_het_trigger:
-            # Teljes tisztítótűz: eldobjuk a beragadt régi heti session adatokat
             if 'etlap_api_df' in st.session_state: del st.session_state['etlap_api_df']
             if 'master_df' in st.session_state: del st.session_state['master_df']
             if 'etelek_master_df' in st.session_state: del st.session_state['etelek_master_df']
-            
-            st.session_state.etlap_trigger_state = jelenlegi_het_trigger
-        elif 'etlap_trigger_state' not in st.session_state:
-            st.session_state.etlap_trigger_state = jelenlegi_het_trigger
-            
-    except Exception as e:
-        # Ha a bejelentkezés még nem történt meg, vagy nincs net, kap egy ideiglenes triggert
+        st.session_state.etlap_trigger_state = jelenlegi_het_trigger
+    except:
         jelenlegi_het_trigger = "INITIAL"
 
-    # Most már az 'if' golyóálló: ha fent töröltük a session-t a hétváltás miatt, akkor kötelezően be fog lépni ide!
     if 'master_df' not in st.session_state or 'etlap_api_df' not in st.session_state:
-        with st.spinner("⏳ A Label Master adatbázisok inicializálása... Kérjük, várjon!"):
+        with st.spinner("⏳ A Label Master adatbázisok inicializálása..."):
             try:
-                # Mivel fent már megnyitottuk a sheet-et, nem kell újra authorizálni, használhatjuk a meglévőt
-                
-                # 1. Master Adatbázis betöltése
                 m_df = pd.DataFrame(sheet.worksheet("Master_Adatbazis").get_all_records())
                 m_df.columns = [col.strip().replace('\ufeff', '') for col in m_df.columns]
                 st.session_state.etelek_master_df = m_df  
                 st.session_state.master_df = m_df 
                 
-                # 2. Étlap API betöltése az okosított smart cache függvénnyel
                 api_df = load_etlap_api_smart(SHEET_ID, columns_trigger=jelenlegi_het_trigger)
-                
                 if api_df is not None:
                     st.session_state.etlap_api_df = api_df
-                    st.toast("✅ Alap adatbázisok sikeresen betöltve / frissítve!", icon="🔥")
-                else:
-                    raise Exception("Nem sikerült letölteni az Etlap_API-t.")
-                    
             except Exception as e:
-                st.warning(f"⚠️ Hiba a táblák betöltésekor: {e}")
+                st.warning(f"⚠️ Adatbázis hiba: {e}")
                 st.session_state.master_df = pd.DataFrame()
                 st.session_state.etlap_api_df = pd.DataFrame()
 
-    # Biztosítjuk, hogy a main() függvényen kívüli kódok is lássák a session_state-ben lévő adatokat
+    # Biztosítjuk a globális láthatóságot
     global etlap_api_df, etelek_master_df, master_df, ugyfelkor_df, mdf
     etlap_api_df = st.session_state.get('etlap_api_df', pd.DataFrame())
     etelek_master_df = st.session_state.get('etelek_master_df', pd.DataFrame())
     master_df = etelek_master_df
     ugyfelkor_df = st.session_state.get('ugyfelkor_df', pd.DataFrame())
     mdf = st.session_state.get('mdf', pd.DataFrame())
-
 
     # =========================================================================
     # 📱 1. ÁG: QR-KÓDOS MOBIL NÉZET
@@ -292,210 +214,14 @@ def main():
         st.title("📱 Futár Terminál")
         st.caption(f"Bejelentkezve: {st.session_state.user_nev}")
         
-        # ==============================================================================
-        # 📊 INTELIGENS FUTÁR MŰSZERFAL (GLOBÁLIS MOBIL SIDEBAR - ÉLŐ GOOGLE SHEETS)
-        # ==============================================================================
         with st.sidebar:
-            st.markdown("<h2 style='text-align: center; color: #1E3A8A;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
+            render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID)
             
-            # Alapadatok kiírása
-            futar_nev_kiir = st.session_state.get('user_nev', 'Ismeretlen Futár')
-            jarat_lista_kiir = st.session_state.get('user_jarat_lista', [])
-            jarat_szoveg_kiir = ", ".join(map(str, jarat_lista_kiir)) if jarat_lista_kiir else "Nincs"
-            
-            st.write(f"👤 **Futár:** {futar_nev_kiir}")
-            st.write(f"🚚 **Járat(ok):** {jarat_szoveg_kiir}")
-            st.write("---")
-
-            # --- ÉLŐ ADATOLVASÁS A GOOGLE SHEETS-BŐL ---
-            osszes_cim = 0
-            osszes_megallo = 0
-            osszes_etel = 0
-            forgalmi_ertek = 0
-            jutalek = 0
-
-            try:
-                # Megnyitjuk a Mobil_Raklista fület, amit az asztali oldal mentett el
-                sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR if 'SHEET_ID_UGYFELKOR' in locals() else SHEET_ID)
-                ws_raklista = sh_ugyfelkor.worksheet("Mobil_Raklista")
-                raklista_adatok = ws_raklista.get_all_records()
-                
-                if raklista_adatok:
-                    import pandas as pd
-                    df_mobil_calc = pd.DataFrame(raklista_adatok)
-                    df_mobil_calc.columns = [c.strip() for c in df_mobil_calc.columns]
-                    
-                    # Tisztítjuk a neveket a Sheets-ben és a sessionben is a biztos egyezéshez
-                    futar_keresett = str(futar_nev_kiir).strip().lower()
-                    df_mobil_calc['Futar_Kereso'] = df_mobil_calc['Jarat_ID / Futar'].astype(str).str.strip().str.lower()
-                    
-                    # Kis/nagybetű független szűrés
-                    df_sajat = df_mobil_calc[df_mobil_calc['Futar_Kereso'] == futar_keresett]
-                    
-                    # EXTRA BIZTONSÁGI HÁLÓ: Ha így is üres, de van "Szűcs István" a táblában
-                    if df_sajat.empty:
-                        felhasznalo_jaratai = [str(j).strip() for j in jarat_lista_kiir]
-                        if "4002" in felhasznalo_jaratai or "4002" == str(st.session_state.get('user_jarat', '')):
-                            df_sajat = df_mobil_calc[df_mobil_calc['Futar_Kereso'] == "szűcs istván"]
-
-                    if not df_sajat.empty:
-                        # 1. Ételek száma: dinamikusan a napi raklista adatokból
-                        osszes_etel = int(pd.to_numeric(df_sajat['Terv_Darabszam'], errors='coerce').sum())
-                        
-                        # 2. MEGÁLLÓK ÉS CÍMEK DINAMIKUS SZÁMÍTÁSA (Több járatot és helyettesítést is kezelve!)
-                        try:
-                            # Kiolvassuk az Adatok fület, pont úgy, ahogy a mobil kiszállítási modul teszi
-                            ws_adatok = sh_ugyfelkor.worksheet("Adatok")
-                            df_adatok_all = pd.DataFrame(ws_adatok.get_all_records())
-                            
-                            if not df_adatok_all.empty:
-                                # Egységesítjük az oszlopneveket space-ek nélkül
-                                df_adatok_all.columns = [str(c).strip() for c in df_adatok_all.columns]
-                                
-                                # Megkeressük a Járat oszlopot
-                                jarat_col_name = None
-                                for c in df_adatok_all.columns:
-                                    if 'járat' in c.lower() or 'jarat' in c.lower():
-                                        jarat_col_name = c
-                                        break
-                                
-                                # Lekérjük a session_state-ből az éppen aktív járatokat (lista)
-                                aktiv_jaratok = st.session_state.get('szurt_jaratok', [])
-                                if not aktiv_jaratok and 'jarat_id' in st.session_state:
-                                    aktiv_jaratok = [st.session_state['jarat_id']]
-                                
-                                # Stringgé alakítjuk a járatokat a pontos illesztéshez
-                                aktiv_jaratok_str = [str(j).strip() for j in aktiv_jaratok]
-                                
-                                if jarat_col_name and aktiv_jaratok_str:
-                                    # Kiszűrjük az ÖSSZES olyan sort, ami az aktív járatok valamelyikéhez tartozik
-                                    df_futar_cimei = df_adatok_all[df_adatok_all[jarat_col_name].astype(str).str.strip().isin(aktiv_jaratok_str)]
-                                    
-                                    if not df_futar_cimei.empty:
-                                        # Megkeressük a Cím oszlopot
-                                        cim_col_name = None
-                                        for c in df_futar_cimei.columns:
-                                            if 'cím' in c.lower() or 'cim' in c.lower():
-                                                cim_col_name = c
-                                                break
-                                        
-                                        if cim_col_name:
-                                            # Megálló: az egyedi fizikai címek száma
-                                            osszes_megallo = int(df_futar_cimei[cim_col_name].astype(str).str.strip().nunique())
-                                            # Cím: az összes leadandó rendelési sor száma ezen a járaton / járatokon
-                                            osszes_cim = len(df_futar_cimei)
-                                        else:
-                                            osszes_cim = len(df_futar_cimei)
-                                            osszes_megallo = osszes_cim
-                        except Exception as e_logisztika:
-                            pass
-                        
-                        # Végső vészhelyzeti fallback: ha a fenti számítás valamiért 0-át adna vissza
-                        if osszes_cim == 0:
-                            for c in df_sajat.columns:
-                                if 'cím' in c.lower() or 'cim' in c.lower():
-                                    osszes_megallo = int(df_sajat[c].nunique())
-                                    osszes_cim = len(df_sajat[c])
-                                    break
-                        
-                        # Alapértelmezett pénzügyi értékek
-                        forgalmi_ertek = 0
-                        jutalek = 0
-                        
-                        # 🚀 KÍSÉRLET A MAI PONTOS PÉNZÜGYI ADATOK KIOLVASÁSÁRA A GOOGLE SHEETS-BŐL
-                        try:
-                            ws_summary = sh_ugyfelkor.worksheet("Mobil_Summary")
-                            summary_records = ws_summary.get_all_records()
-                            
-                            for s_row in summary_records:
-                                summary_futar = str(s_row.get('Futar', s_row.get('futar', ''))).strip().lower()
-                                if summary_futar == "szűcs istván" or summary_futar == futar_keresett:
-                                    forgalmi_ertek = int(s_row.get('Forgalom', 0))
-                                    jutalek = int(s_row.get('Jutalek', s_row.get('Jutalék', 0)))
-                                    break
-                        except Exception as sheets_err:
-                            meta_forras = st.session_state.get('meta_data', {})
-                            if isinstance(meta_forras, dict) and meta_forras.get('total_ertek', 0) > 0:
-                                forgalmi_ertek = meta_forras.get('total_ertek', 0)
-                                jutalek = meta_forras.get('futar_jutalek', 0)
-            except Exception as e_global_dashboard:
-                # Ez a külső try lezárása, ami eddig hiányzott!
-                st.sidebar.error(f"⚠️ Műszerfal hiba: {e_global_dashboard}")
-
-            # --- METRIKÁK MEGJELENÍTÉSE A KÉPERNYŐN ---
-            st.subheader("💰 Pénzügy & Mennyiség")
-            col_s1, col_s2 = st.columns(2)
-            with col_s1:
-                st.metric("📍 Tervezett megállók", f"{osszes_megallo} db")
-                st.metric("🏠 Összes cím (ügyfél)", f"{osszes_cim} db")
-            with col_s2:
-                st.metric("📦 Összes étel", f"{osszes_etel} adag")
-                st.metric("💵 Forgalom", f"{forgalmi_ertek:,} Ft".replace(",", " "))
-                
-            # A jutalékot kitesszük teljes szélességben kiemelve
-            st.metric("⭐ Várható Jutalékod", f"{jutalek:,} Ft".replace(",", " "))
-                
-            st.write("---")
-
-            # --- 2. FOLYAMATJELZŐ (Kiszállítás haladása) ---
-            st.subheader("🏁 Kiszállítás Haladás")
-            
-            kesz_cimek_szama = 0
-            for k in st.session_state.keys():
-                if k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres":
-                    kesz_cimek_szama += 1
-                    
-            if osszes_cim > 0:
-                haladas_szazalek = min(1.0, kesz_cimek_szama / osszes_cim)
-            else:
-                haladas_szazalek = 0.0
-                
-            st.progress(haladas_szazalek)
-            st.caption(f"Teljesítve: {kesz_cimek_szama} / {osszes_cim} cím ({int(haladas_szazalek * 100)}%)")
-            st.write("---")
-
-            # --- 3. MENET KÖZBENI SÜRGŐS HIBABEJELENTŐ ---
-            st.subheader("⚠️ Probléma az úton?")
-            with st.expander("🚨 SÜRGŐS HIBABEJELENTÉS"):
-                st.write("Sérült, elcserélt vagy elhagyott étel esetén itt jelezheted a központnak:")
-                from datetime import datetime
-                
-                st_hiba_tipus = st.selectbox("Hiba jellege:", ["Sérült étel (kifolyt/kilyukadt)", "Elcserélt étel", "Hiányzó/Elhagyott étel"], key="sidebar_hiba_tipus")
-                st_hiba_vevo = st.text_input("Vevő neve / Címe:", placeholder="Pl. Kovács Péter, Fő utca 12.", key="sidebar_hiba_vevo")
-                st_hiba_leiras = st.text_area("Rövid leírás (Melyik étel?):", placeholder="Pl. A zóna rántott hús doboza elrepedt, kifolyt.", key="sidebar_hiba_leiras")
-                
-                if st.button("🚨 HIBA KÜLDÉSE A DISZPÉCSERNEK", type="primary", use_container_width=True, key="sidebar_hiba_submit_btn"):
-                    if not st_hiba_vevo or not st_hiba_leiras:
-                        st.error("❌ Kérlek, add meg a vevőt és a leírást!")
-                    else:
-                        is_test_mode = st.query_params.get("test", "false") == "true" or st.session_state.get('teszt_uzemmod', False)
-                        
-                        if is_test_mode:
-                            st.warning(f"🧪 **Teszt mód:** A hibát rögzítettük.")
-                        else:
-                            try:
-                                sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
-                                hibak_sheet = sh_ugyfelkor.worksheet("Hibajelentések")
-                                most_ido = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                hibak_sheet.append_row([most_ido, futar_nev_kiir, jarat_szoveg_kiir, st_hiba_tipus, st_hiba_vevo, st_hiba_leiras])
-                                st.success("✅ A hiba elküldve!")
-                            except Exception as e:
-                                st.error(f"Mentési hiba: {e}")
-
-        # ==============================================================================
-        # TAB-OK (FÜLEK) INDÍTÁSA
-        # ==============================================================================
         tab1, tab2, tab3 = st.tabs(["1. Áruátvétel 📦", "2. Címekre szedés 📥", "3. Kiszállítás 🚚"])
-        
-        # --- 1. TAB: ÁRUÁTVÉTEL (Bekötve a tiszta, különálló mobil_modulok.py-ból) ---
         with tab1:
             render_mobil_aruatvetel(client)
-            
-        # --- 2. TAB: CÍMEKRE SZEDÉS (KISZERVEZVE A MODULBA) ---
         with tab2:
             render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR)
-                
-        # --- 3. TAB: KISZÁLLÍTÁS (Most már az éles, térképes modul fut) ---
         with tab3:
             render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)
                 
@@ -507,514 +233,32 @@ def main():
     # 🖥️ 2. ÁG: TELJES ASZTALI / ADMINISZTRÁCIÓS NÉZET (INTEGRÁLT MENÜRENDSZER)
     # =========================================================================
     else:
-        # Felhasználói státusz panel az oldalsáv tetejére
         st.sidebar.markdown(f"### 👤 {st.session_state.user_nev}")
-        
         is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
         
         if is_admin:
             st.sidebar.success("⭐ Adminisztrátor Mód")
         else:
             if 'user_jarat_lista' in st.session_state and st.session_state.user_jarat_lista:
-                jaratok_szoveg = ", ".join(st.session_state.user_jarat_lista)
-                st.sidebar.caption(f"🚚 Aktív járatok: {jaratok_szoveg}")
-            else:
-                st.sidebar.caption("🚚 Nincs járat hozzárendelve")
+                st.sidebar.caption(f"🚚 Aktív járatok: {', '.join(st.session_state.user_jarat_lista)}")
             
         if st.sidebar.button("🚪 Kijelentkezés", key="desktop_logout"):
             st.session_state.bejelentkezve = False
-            if 'user_jarat_lista' in st.session_state:
-                del st.session_state.user_jarat_lista
+            if 'user_jarat_lista' in st.session_state: del st.session_state.user_jarat_lista
             st.rerun()
             
-        # Oldalsáv vezérlők
+        # Oldalsáv kezelőszervek kirajzolása és az aktív funkció lekérése
         with st.sidebar:
-            st.header("⚙️ Kezelés")
-            
-            # 🌟 ÚJ MENÜVÁLASZTÓ AZ ADMINOKNAK
-            if is_admin:
-                admin_funkcio = st.radio(
-                    "📌 Válassz funkciót:",
-                    ["📋 Raklista & Étlap Kezelés", "🚚 Logisztikai Központ & Stand"]
-                )
-            else:
-                admin_funkcio = "📋 Raklista & Étlap Kezelés"
-            
-            st.divider()
-            st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
-            st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
-            kivalasztott_datum = st.date_input("📅 Kiszállítás dátuma (Névnaphoz)")
-            
-            # ==================================================================
-            # 🧪 GLOBÁLIS TESZT ÜZEMMÓD KAPCSOLÓ (A Kezelés blokk alján)
-            # ==================================================================
-            st.divider()
-            
-            if 'teszt_uzemmod' not in st.session_state:
-                st.session_state.teszt_uzemmod = False
-                
-            st.session_state.teszt_uzemmod = st.toggle(
-                "🧪 TESZT ÜZEMMÓD (Nincs mentés)", 
-                value=st.session_state.teszt_uzemmod, 
-                help="Ha bekapcsolod, sem a PDF feldolgozás, sem a mobil terminál nem fog írni a Google Sheets-be!"
-            )
-            
-            if st.session_state.teszt_uzemmod:
-                st.warning("⚠️ Adatbázis mentés letiltva (Asztali + Mobil)!")
-            # ==================================================================
-            
-            st.divider()
+            admin_funkcio = render_desktop_sidebar_controls(SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE)
 
-            # ADMINISZTRÁCIÓS SZAKASZ (Csak jogosultaknak)
-            if is_admin:
-                st.subheader("🛡️ Adminisztrációs Központ")
-                ev_most, het_most = get_latest_week_from_master(SHEET_ID_MASTER)
-                
-                if het_most < 24:
-                    st.error(f"⚠️ Étlap figyelmeztetés: Csak a **{het_most}. hétig** van feltöltve!")
-                    if st.button("🔄 Master Frissítése a 24. hétig"):
-                        with st.spinner("Szinkronizálás folyamatban..."):
-                            sync_master_database(SHEET_ID_MASTER, 2026, het_most + 1, 24)
-                            st.success("Sikeres frissítés!")
-                            st.rerun()
-                else:
-                    st.success(f"✅ Étlapok naprakészek ({het_most}. hétig betöltve).")
+        # Főképernyő renderelése a választott menüpont alapján
+        render_desktop_main_content(
+            client=client,
+            SHEET_ID_MASTER=SHEET_ID_MASTER,
+            SHEET_ID_UGYFELKOR=SHEET_ID_UGYFELKOR,
+            admin_funkcio=admin_funkcio,
+            is_admin=is_admin
+        )
 
-                with st.expander("🛠 Master Adatbázis Karbantartás"):
-                    target_year = st.number_input("Év", min_value=2024, max_value=2030, value=2026)
-                    start_w = st.number_input("Kezdő hét", min_value=1, max_value=52, value=1)
-                    end_w = st.number_input("Záró hét", min_value=1, max_value=52, value=17)
-                    if st.button("🚀 Master Adatbázis Építése"):
-                        with st.spinner("Szinkronizálás..."):
-                            sync_master_database(SHEET_ID_MASTER, target_year, start_w, end_w)
-                            st.success("Kész!")
-
-                with st.expander("👤 Felhasználó Kezelés"):
-                    if 'futar_df' not in st.session_state:
-                        st.session_state.futar_df = load_futar_from_sheets(SHEET_ID_UGYFELKOR)
-
-                    df_to_edit = st.session_state.futar_df.astype(str)
-                    edited_df_users = st.data_editor(
-                        df_to_edit,
-                        column_config={
-                            "Szerep": st.column_config.SelectboxColumn(
-                                "Szerep",
-                                options=["futar", "admin", "superadmin"],
-                                required=True,
-                            ),
-                            "PIN_Kod": st.column_config.TextColumn(
-                                "PIN_Kod",
-                                required=True
-                            )
-                        },
-                        use_container_width=True,
-                        num_rows="dynamic",
-                        key="user_editor"
-                    )
-
-                    if st.button("💾 Módosítások mentése", key="save_users_btn"):
-                        with st.spinner("Mentés..."):
-                            if save_futar_to_sheets(edited_df_users, SHEET_ID_UGYFELKOR):
-                                st.session_state.futar_df = edited_df_users
-                                st.success("Sikeres mentés!")
-                                st.rerun()
-                            else:
-                                st.error("Hiba történt.")
-
-                with st.expander("💻 Fejlesztői eszközök"):
-                    if st.button("Log fájl mutatása", use_container_width=True):
-                        if os.path.exists(LOG_FILE):
-                            with open(LOG_FILE, "r", encoding="utf-8") as f:
-                                st.text_area("Naplóbejegyzések", "".join(f.readlines()[-100:]), height=200)
-                    if st.button("🗑️ Log törlése", use_container_width=True):
-                        if os.path.exists(LOG_FILE):
-                            os.remove(LOG_FILE)
-                            st.success("Napló törölve.")
-                st.divider()
-
-        # =========================================================================
-        # 🏛️ FŐKÉPERNYŐ MEGJELENÍTÉSE A MENÜVÁLASZTÁS ALAPJÁN
-        # =========================================================================
-        if is_admin and admin_funkcio == "🚚 Logisztikai Központ & Stand":
-            if client:
-                try:
-                    logisztika_sheet_objektum = client.open_by_key(UGYFELKOR_SHEET_ID)
-                    render_logisztikai_kozpont(logisztika_sheet_objektum)
-                except Exception as sheet_err:
-                    st.error(f"❌ Nem sikerült megnyitni a Google Táblázatot: {sheet_err}")
-            else:
-                st.error("❌ A Google Sheets kapcsolat nincs inicializálva! Ellenőrizd a beállításokat.")
-            
-        else:
-            # 📋 RAKLISTA GENERÁLÁS ÉS ÉTLAP KEZELÉS
-            st.subheader("📄 Új PDF-ek")
-            up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
-            
-            if up_files:
-                if st.button("🚀 FELDOLGOZÁS"):
-                    # Meghívjuk a kiszervezett, brutális erejű feldolgozó motort
-                    process_uploaded_pdfs(
-                        up_files=up_files,
-                        client=client,
-                        sheet_id=SHEET_ID,
-                        ugyfelkor_sheet_id=UGYFELKOR_SHEET_ID,
-                        kivalasztott_datum=kivalasztott_datum
-                    )
-
-            st.divider()
-
-# FŐABLAK MEGJELENÍTÉSE
-            if st.session_state.mdf is not None and not st.session_state.mdf.empty:
-                role = check_user_role()
-                df_view = st.session_state.mdf.copy()
-
-                if role == "futar":
-                    if 'Járat' in df_view.columns and 'user_jarat_lista' in st.session_state:
-                        df_view = df_view[df_view['Járat'].astype(str).isin([str(j) for j in st.session_state.user_jarat_lista])].copy()
-                
-                if df_view.empty:
-                    st.warning(f"✉️ Kedves {st.session_state.user_nev}! A mai napra nincsenek aktív címeid.")
-                else:
-                    if 'Sorrend' not in df_view.columns:
-                        df_view['Sorrend'] = range(1, len(df_view) + 1)
-                    
-                    df_view['Sorrend'] = pd.to_numeric(df_view['Sorrend'], errors='coerce').fillna(999.0).astype(float)
-
-                    for col in df_view.columns:
-                        if col != 'Sorrend':
-                            df_view[col] = df_view[col].astype(str).replace(['nan', 'None', '<NA>', '0.0', '0'], '')
-
-                    df_view = df_view.sort_values(by='Sorrend').reset_index(drop=True)
-
-                    preferred_order = ["Sorrend", "Ügyintéző", "Cím", "Telefon", "Pénz", "Rendelés", "Csoport", "Megjegyzés", "temp_id"]
-                    actual_cols = df_view.columns.tolist()
-                    final_column_order = [c for c in preferred_order if c in actual_cols] + [c for c in actual_cols if c not in preferred_order]
-                    df_view = df_view[final_column_order]
-                            
-                    # TÁBLÁZAT MEGJELENÍTÉSE
-                    edited_df = st.data_editor(
-                        df_view,
-                        column_order=final_column_order, 
-                        column_config={
-                            "Sorrend": st.column_config.NumberColumn(
-                                "Sorrend",
-                                help="Írj be tizedest (pl. 88.5) a beszúráshoz!",
-                                format="%.1f",
-                                step=0.1,
-                            ),
-                            "Csoport": st.column_config.TextColumn("Csoport"),
-                            "Pénz": st.column_config.TextColumn("Pénz"),
-                            "temp_id": None, 
-                        },
-                        num_rows="dynamic",
-                        key=f"editor_{st.session_state.editor_key}",
-                        use_container_width=True,
-                        hide_index=True
-                    )
-
-                    # TÉRKÉP MEGJELENÍTÉSE
-                    with st.expander("🗺️ Útvonal megtekintése a térképen", expanded=False):
-                        # Meghívjuk a kiszervezett függvényt, az edited_df-et (módosított napi listát) átadva
-                        utvonal_terkep(df_napi=edited_df) 
-                    
-                    st.subheader("🗄️ Ügyfélkör kezelése")
-                    gomb_col1, gomb_col2 = st.columns(2)
-
-                    with gomb_col1:
-                        if st.button("🔄 Sorrend frissítése és újrasorszámozás", use_container_width=True):
-                            logger.info("Ideiglenes napi sorrend újrarendezése a felületen...")
-                            edited_df['Sorrend'] = pd.to_numeric(edited_df['Sorrend'], errors='coerce').fillna(999)
-                            edited_df = edited_df.sort_values('Sorrend').reset_index(drop=True)
-                            edited_df['Sorrend'] = range(1, len(edited_df) + 1)
-                            st.session_state.mdf = edited_df
-                            st.session_state.editor_key += 1
-                            st.success("🔄 A sorrend frissítve! A térkép és a PDF-ek az új sorrendet követik.")
-                            st.rerun()
-
-                    with gomb_col2:
-                        if st.button("💾 Módosított adatok (Név, Megjegyzés, Telefon) mentése", use_container_width=True):
-                            logger.info("Adatmódosítások mentése a felhőbe tömeges frissítéssel...")
-                            try:
-                                sh = client.open_by_key(UGYFELKOR_SHEET_ID)
-                                ws_ugyfel = sh.worksheet("Ugyfelkor")
-                                
-                                teljes_adat = ws_ugyfel.get_all_values()
-                                if not teljes_adat:
-                                    st.error("❌ A Google Sheets táblázat üres vagy nem olvasható!")
-                                    st.stop()
-                                    
-                                fejlec = teljes_adat[0]
-                                
-                                id_idx = fejlec.index("ID") if "ID" in fejlec else 0
-                                nev_idx = fejlec.index("Név") if "Név" in fejlec else (fejlec.index("Nev") if "Nev" in fejlec else 1)
-                                cim_idx = fejlec.index("Cím") if "Cím" in fejlec else (fejlec.index("Cim") if "Cim" in fejlec else 2)
-                                tel_idx = fejlec.index("Telefon") if "Telefon" in fejlec else 5
-                                csop_idx = fejlec.index("Csoport") if "Csoport" in fejlec else 6
-                                megj_idx = fejlec.index("Megjegyzés") if "Megjegyzés" in fejlec else (fejlec.index("Megjegyzes") if "Megjegyzes" in fejlec else 7)
-                                utolso_idx = fejlec.index("Utolso_Rendeles") if "Utolso_Rendeles" in fejlec else None
-                                
-                                sheets_id_map = {str(teljes_adat[i][id_idx]).strip(): i for i in range(1, len(teljes_adat))}
-                                
-                                def tiszta_id_szoveg(val):
-                                    if pd.isna(val) or val == '': return ''
-                                    val_str = str(val).strip()
-                                    if val_str.endswith('.0'): val_str = val_str[:-2]
-                                    return val_str
-
-                                edited_df_clean = edited_df.copy()
-                                if 'ID' not in edited_df_clean.columns:
-                                    edited_df_clean = edited_df_clean.reset_index()
-                                    if 'index' in edited_df_clean.columns: edited_df_clean = edited_df_clean.rename(columns={'index': 'ID'})
-                                    elif 'level_0' in edited_df_clean.columns: edited_df_clean = edited_df_clean.rename(columns={'level_0': 'ID'})
-
-                                if 'ID' not in edited_df_clean.columns:
-                                    st.error("⚠️ Nem található 'ID' nevű oszlop a szerkesztett adatokban!")
-                                    st.stop()
-                                    
-                                edited_df_clean['ID'] = edited_df_clean['ID'].apply(tiszta_id_szoveg)
-                                módosult_darab = 0
-                                
-                                for _, row in edited_df_clean.iterrows():
-                                    current_id = row['ID']
-                                    if not current_id or current_id not in sheets_id_map: continue
-                                    
-                                    sor_mátrix_idx = sheets_id_map[current_id]
-                                    elerheto_oszlopok = row.index.tolist()
-                                    
-                                    if 'Név' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][nev_idx] = str(row['Név']).strip()
-                                    elif 'Nev' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][nev_idx] = str(row['Nev']).strip()
-                                    
-                                    if 'Cím' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][cim_idx] = str(row['Cím']).strip()
-                                    elif 'Cim' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][cim_idx] = str(row['Cim']).strip()
-                                    
-                                    if 'Telefon' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][tel_idx] = str(row['Telefon']).strip()
-                                    if 'Csoport' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][csop_idx] = str(row['Csoport']).strip()
-                                    
-                                    if 'Megjegyzés' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][megj_idx] = str(row['Megjegyzés']).strip()
-                                    elif 'Megjegyzes' in elerheto_oszlopok: teljes_adat[sor_mátrix_idx][megj_idx] = str(row['Megjegyzes']).strip()
-                                    
-                                    módosult_darab += 1
-                                    
-                                    for session_key in ['ugyfelkor_df', 'mdf', 'master_ugyfelkor_df']:
-                                        if session_key in st.session_state and st.session_state[session_key] is not None:
-                                            try:
-                                                df = st.session_state[session_key]
-                                                if not df.empty and 'ID' in df.columns:
-                                                    mask = df['ID'].astype(str) == str(current_id)
-                                                    if 'Név' in elerheto_oszlopok: df.loc[mask, 'Név'] = str(row['Név']).strip()
-                                                    if 'Cím' in elerheto_oszlopok: df.loc[mask, 'Cím'] = str(row['Cím']).strip()
-                                                    if 'Telefon' in elerheto_oszlopok: df.loc[mask, 'Telefon'] = str(row['Telefon']).strip()
-                                                    if 'Megjegyzés' in elerheto_oszlopok: df.loc[mask, 'Megjegyzés'] = str(row['Megjegyzés']).strip()
-                                            except:
-                                                pass
-
-                                if módosult_darab > 0:
-                                    df_teljes_tisztitasra = pd.DataFrame(teljes_adat[1:], columns=fejlec)
-                                    df_teljes_tisztitott = kotelezo_ugyfelkor_formatum_tisztitas(df_teljes_tisztitasra)
-                                    tiszta_mentendo_lista = [fejlec] + df_teljes_tisztitott.values.tolist()
-                                    
-                                    ws_ugyfel.update('A1', tiszta_mentendo_lista, value_input_option='RAW')
-                                    
-                                    if 'google_data_loaded' in st.session_state:
-                                        del st.session_state['google_data_loaded']
-                                        
-                                    st.success(f"🎉 Siker! Összesen {módosult_darab} ügyfél adatai formázva és elmentve a felhőbe, 1 API hívással!")
-                                    st.balloons()
-                                    st.rerun()
-                                else:
-                                    st.warning("A szerkesztett adatok ID-jai nem találhatók meg a törzslistában.")
-                            except Exception as e:
-                                st.error(f"Hiba történt a mentés során: {e}")
-
-                    st.divider()
-
-                    # PDF DOWNLOADS SECTION
-                    meta = st.session_state.meta_data if isinstance(st.session_state.meta_data, dict) else {}
-                    meta['datum_iso'] = str(kivalasztott_datum)
-                    jaratok_listaja = meta.get('jaratok', [])
-                    aktualis_jaratok = ", ".join(jaratok_listaja) if jaratok_listaja else "N/A"
-
-                    st.info(f"Észlelt járatok a PDF-ekből: **{aktualis_jaratok}** | Időpont: **{meta.get('ev', '')}. {meta.get('het', '')}. hét**")
-
-                    if 'napi_etlap_kodok' in st.session_state and st.session_state.napi_etlap_kodok:
-                        with st.expander("🍱 Aktuális étlap kódok"):
-                            kodok_lista = sorted(list(st.session_state.napi_etlap_kodok))
-                            cols = st.columns(5)
-                            for i, kod in enumerate(kodok_lista):
-                                cols[i % 5].code(kod)
-                    elif meta.get('ev') and meta.get('het'):
-                        st.caption("💡 Az étlap kódok automatikusan frissülnek a '🚀 FELDOLGOZÁS' gomb megnyomásakor.")
-
-                    # --- SORTÖRÉS-BIZTOS ÉTEL- ÉS KELLÉKKERESŐ DEBUGGER (FÁZIS 3) ---
-                    with st.expander("🔍 Kellék Kereső Debug Panel (Fázis 3)", expanded=True):
-                        import re  # REGEX IMPORTÁLÁSA A BIZTONSÁG KEDVÉÉRT
-                        api_kulcs = meta.get('api_datum_kulcs', 'NINCS')
-                        st.write(f"Kiválasztott API dátum kulcs: `{api_kulcs}`")
-                        
-                        if etlap_api_df is not None:
-                            keresett_nap_szamokkal = "".join(filter(str.isdigit, api_kulcs))
-                            napi_oszlop = None
-                            for col in etlap_api_df.columns:
-                                clean_col_name = str(col).replace('\r', '').replace('\n', ' ').strip()
-                                col_szamok = "".join(filter(str.isdigit, clean_col_name))
-                                
-                                if keresett_nap_szamokkal and keresett_nap_szamokkal in col_szamok:
-                                    napi_oszlop = col
-                                    break
-                            
-                            if napi_oszlop:
-                                st.success(f"✔ Megtalált napi oszlop (sortöréssel együtt): `{napi_oszlop.replace('\n', ' ')}`")
-                            else:
-                                st.error(f"❌ Nem található oszlop a(z) `{keresett_nap_szamokkal}` számokkal!")
-                                st.write("Rendelkezésre álló oszlopok nyers számai:")
-                                st.write({str(c).replace('\n', ' '): "".join(filter(str.isdigit, str(c))) for c in etlap_api_df.columns})
-                        else:
-                            st.error("Az Etlap_API táblázat nincs betöltve!")
-
-                        st.write("---")
-                        st.write("📌 **Ügyfelek ellenőrzése a megtisztított oszlop alapján:**")
-                        
-                        for idx, r in edited_df.dropna(subset=['Rendelés_Full']).iterrows():
-                            rendeles_szoveg = str(r.get('Rendelés_Full', ''))
-                            
-                            if '*' in rendeles_szoveg:
-                                st.write(f"**Ügyfél:** {r.get('Név', 'Névtelen')} (Sor: {idx}) ➔ Rendelés: `{rendeles_szoveg}`")
-                                
-                                tisztitott_szoveg = rendeles_szoveg.replace('|', ',').replace('Pé:', '').replace('Szo:', '')
-                                reszek = [x.strip() for x in tisztitott_szoveg.split(',') if x.strip()]
-                                
-                                for resz in reszek:
-                                    if '*' in resz:
-                                        kod_match = re.search(r'-([A-Z0-9]+)\*', resz.upper())
-                                        if not kod_match:
-                                            kod_match = re.search(r'([A-Z0-9]+)\*', resz.upper())
-                                            
-                                        if kod_match:
-                                            t_kod = kod_match.group(1).strip()
-                                            st.write(f"  • Észlelt csillagos kód: `{t_kod}`")
-                                            
-                                            if etlap_api_df is not None and napi_oszlop:
-                                                e_sor = etlap_api_df[etlap_api_df.iloc[:, 0].astype(str).str.strip().str.startswith(t_kod, na=False)]
-                                                
-                                                if not e_sor.empty:
-                                                    etel_nev = str(e_sor.iloc[0][napi_oszlop]).strip()
-                                                    tisztitott_nev = clean_text(etel_nev)
-                                                    st.write(f"    ➔ 🍲 API Ételnév: `{etel_nev}`")
-                                                    st.write(f"    ➔ 🧹 Tisztított név: `{tisztitott_nev}`")
-                                                    
-                                                    if master_df is not None:
-                                                        m_row = master_df[master_df['Tisztított Név'] == tisztitott_nev]
-                                                        if not m_row.empty:
-                                                            kellek = m_row.iloc[0].get('Kellék', 'ÜRES')
-                                                            st.success(f"    ➔ 🎉 **MEGTALÁLT KELLÉK: {kellek}**")
-                                                        else:
-                                                            st.error(f"    ➔ ❌ Nem található ez a név a Master_Adatbazisban!")
-                                                else:
-                                                    st.error(f"    ➔ ❌ A(z) `{t_kod}` kód nincs az API táblázatban!")
-
-                    # 🚀 1. LÉPÉS: Dokumentumok generálása
-                    st.write("")
-                    if st.button("🚀 DOKUMENTUMOK ÉS RAKLISTA GENERÁLÁSA", type="primary", use_container_width=True):
-                        with st.spinner("⏳ PDF-ek generálása és adatok szinkronizálása folyamatban..."):
-                            if 'nevnapok_df' not in st.session_state or st.session_state.nevnapok_df.empty:
-                                st.session_state.nevnapok_df = pd.DataFrame()
-                                st.session_state.keresztnevek_df = pd.DataFrame()
-
-                            try:
-                                label_pdf_buf = create_label_pdf(
-                                    edited_df, st.session_state.c_n, st.session_state.c_p, meta, 
-                                    st.session_state.etelek_master_df, st.session_state.nevnapok_df, 
-                                    st.session_state.keresztnevek_df, st.session_state.etlap_api_df
-                                )
-                                st.session_state['ready_label_pdf'] = label_pdf_buf.getvalue() if label_pdf_buf else None
-                                
-                                manifest_pdf_buf = create_manifest_pdf(edited_df, st.session_state.c_n, meta)
-                                st.session_state['ready_manifest_pdf'] = manifest_pdf_buf.getvalue() if manifest_pdf_buf else None
-                                
-                                raklista_pdf_buf = create_raklista_pdf(edited_df, aktualis_jaratok, meta, client.open_by_key(SHEET_ID_UGYFELKOR))
-                                st.session_state['ready_raklista_pdf'] = raklista_pdf_buf.getvalue() if raklista_pdf_buf else None
-                                
-                                st.success("✅ Minden dokumentum sikeresen elkészült és a Google Sheets frissítve!")
-                            except Exception as pdf_err:
-                                st.error(f"❌ Hiba történt a PDF-ek generálása közben: {pdf_err}")
-
-                    # 🚀 2. LÉPÉS: Letöltő gombok
-                    if st.session_state.get('ready_label_pdf') and st.session_state.get('ready_manifest_pdf') and st.session_state.get('ready_raklista_pdf'):
-                        st.write("### 📥 Elkészült fájlok letöltése:")
-                        dl_c1, dl_c2, dl_c3 = st.columns(3)
-                        
-                        dl_c1.download_button(
-                            "📄 ETIKETTEK LETÖLTÉSE", 
-                            data=st.session_state['ready_label_pdf'],
-                            file_name="etikettek.pdf", 
-                            mime="application/pdf",
-                            use_container_width=True
-                        )
-                        
-                        dl_c2.download_button(
-                            "📋 MENETTERV LETÖLTÉSE", 
-                            data=st.session_state['ready_manifest_pdf'],
-                            file_name="menetterv.pdf", 
-                            mime="application/pdf",
-                            use_container_width=True
-                        )
-                        
-                        dl_c3.download_button(
-                            "📊 RAKLISTA LETÖLTÉSE", 
-                            data=st.session_state['ready_raklista_pdf'],
-                            file_name="raklista.pdf", 
-                            mime="application/pdf",
-                            use_container_width=True
-                        )
-
-                    # --- QR-KÓD GENERÁLÁS ---
-                    st.write("---")
-                    st.subheader("📱 Mobil Terminál Indítása")
-                    
-                    alap_url = "https://interfood-menetterv-etikett-generator.streamlit.app" 
-                    jarat_id = ""
-                    
-                    meta_forras = st.session_state.get('meta_data', {})
-                    jarat_lista = meta_forras.get('jaratok', [])
-                    
-                    if jarat_lista:
-                        jarat_id = ",".join(str(j) for j in jarat_lista)
-                    
-                    if not jarat_id:
-                        if 'valasztott_jarat' in st.session_state:
-                            jarat_id = str(st.session_state.valasztott_jarat)
-                    
-                    if st.session_state.get('teszt_uzemmod', False):
-                        mobil_link = f"{alap_url}/?view=mobile&jarat={jarat_id}&test=true"
-                    else:
-                        mobil_link = f"{alap_url}/?view=mobile&jarat={jarat_id}"
-                    
-                    import qrcode
-                    from io import BytesIO
-                    
-                    qr = qrcode.QRCode(version=1, box_size=10, border=4)
-                    qr.add_data(mobil_link)
-                    qr.make(fit=True)
-                    img = qr.make_image(fill_color="black", back_color="white")
-                    
-                    buf = BytesIO()
-                    img.save(buf, format="PNG")
-                    byte_im = buf.getvalue()
-                    
-                    qr_col1, qr_col2 = st.columns([2, 1])
-                    with qr_col1:
-                        if st.session_state.get('teszt_uzemmod', False):
-                            st.warning("🧪 **A QR-kód TESZT ÜZEMMÓDRA van felkészítve!** A telefonod nem fog éles adatokat módosítani.")
-                        
-                        st.markdown(f"""
-                        💡 **Szkenneld be ezt a QR-kódot a telefonoddal**, hogy megnyisd a **Futár Terminált**!
-                        * Automatikusan a mobilra optimalizált nézet fog megnyílni.
-                        * A futár azonnal eléri az áruátvételt és a ládázást a **{jarat_id}** járathoz.
-                        * Direkt link: [{mobil_link}]({mobil_link})
-                        """)
-                    with qr_col2:
-                        st.image(byte_im, caption="Szkenneld be a mobil nézethez", width=180)
-
-# EZT KIVETTEM A SZÉLRE, ÍGY MÁR TÖKÉLETES:
 if __name__ == "__main__":
     main()

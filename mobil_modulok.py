@@ -4,7 +4,8 @@ import pandas as pd
 import time
 import urllib.parse
 import re
-from datetime import datetime
+import datetime
+from datetime import datetime as dt
 from streamlit_js_eval import get_geolocation
 
 # --- KAPCSOLÓDÓ CACHED OLVASÓ IMPORTÁLÁSA A KVÓTAVÉDELEMHÉZ ---
@@ -22,6 +23,43 @@ DAY_PREFIX_MAP = {
     "Pé": "Péntek",
     "Szo": "Szombat"
 }
+
+# ISO nap sorszámok a pontos dátumszámításhoz
+DAY_TO_ISO = {
+    "Hétfő": 1,
+    "Kedd": 2,
+    "Szerda": 3,
+    "Csütörtök": 4,
+    "Péntek": 5,
+    "Szombat": 6,
+    "Vasárnap": 7
+}
+
+def get_day_with_exact_date(day_name):
+    """
+    Kiszámolja az aktuális feldolgozott hét alapján a nap pontos naptári dátumát.
+    Pl. "Szombat" -> "📅 Szombat (jún. 13.):"
+    """
+    try:
+        meta = st.session_state.get('meta_data', {})
+        year_val = meta.get('ev')
+        week_val = meta.get('het')
+        if year_val and week_val:
+            year = int(year_val)
+            week = int(week_val)
+            iso_day = DAY_TO_ISO.get(day_name)
+            if iso_day:
+                import datetime as dt_lib
+                date_obj = dt_lib.date.fromisocalendar(year, week, iso_day)
+                months_hu = {
+                    1: "jan.", 2: "febr.", 3: "márc.", 4: "ápr.", 5: "máj.", 6: "jún.",
+                    7: "júl.", 8: "aug.", 9: "szept.", 10: "okt.", 11: "nov.", 12: "dec."
+                }
+                month_str = months_hu.get(date_obj.month, f"{date_obj.month:02d}.")
+                return f"📅 {day_name} ({month_str} {date_obj.day}.):"
+    except:
+        pass
+    return f"📅 {day_name}:"
 
 def parse_order_by_days(rendeles_szoveg):
     """
@@ -50,7 +88,6 @@ def parse_order_by_days(rendeles_szoveg):
                     day_groups[clean_day] = []
                 day_groups[clean_day].extend(found_items)
         else:
-            # Fallback, ha nincs nap megjelölve
             found_items = re.findall(ORDER_PAT, part)
             if found_items:
                 if "Egyéb" not in day_groups:
@@ -130,7 +167,7 @@ def render_mobil_aruatvetel(client):
     if not st.session_state.aruatvetel_folyamatban:
         st.info("💡 Pakolás előtt indítsd el az áruátvételt a pontos munkaidő-méréshez.")
         if st.button("🚀 ÁRUÁTVÉTEL INDÍTÁSA", use_container_width=True, type="primary", key="futar_start_btn"):
-            most = datetime.now()
+            most = dt.now()
             start_ido = most.strftime("%H:%M:%S")
             mai_datum = most.strftime("%Y-%m-%d")
             
@@ -216,7 +253,7 @@ def render_mobil_aruatvetel(client):
                             try:
                                 sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
                                 hibak_sheet = sh_ugyfelkor.worksheet("Logisztikai_Hibak")
-                                most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                most_hiba = dt.now().strftime("%Y-%m-%d %H:%M:%S")
                                 if hiba_tipus == "Többlet (Többet kaptunk)":
                                     fokategoria = "ÁRUÁTVÉTELI TÖBBLET"
                                     hiany_db, tobblet_db = 0, int(hiba_db)
@@ -242,7 +279,7 @@ def render_mobil_aruatvetel(client):
 
             # ⏱️ ÁRUÁTVÉTEL RÖGZÍTÉSE
             if st.button("⏱️ ÁRUÁTVÉTEL VÉGE (Idő rögzítése)", use_container_width=True, type="secondary", key="futar_end_btn"):
-                most = datetime.now()
+                most = dt.now()
                 end_ido = most.strftime("%H:%M:%S")
                 
                 try:
@@ -278,26 +315,26 @@ def render_mobil_aruatvetel(client):
                 st.rerun()
 
 def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
-    # --- FEJLESZTETT CSS AZ AUTOMATIKUS TÖRDELÉSHEZ, COMPAKT ELRENDEZÉSHEZ ÉS NAGYOBB BETŰKHÖZ ---
+    # --- FEJLESZTETT CSS AZ AUTOMATIKUS TÖRDELÉSHEZ, NAGYOBB BETŰKHÖZ ÉS EXTRA KOMPAKT ELRENDEZÉSHEZ ---
     st.markdown(
         """
         <style>
         /* Szuper kompakt margóbeállítások mobilon */
         .block-container {
-            padding-top: 1rem !important;
-            padding-bottom: 1.5rem !important;
-            padding-left: 0.5rem !important;
-            padding-right: 0.5rem !important;
+            padding-top: 0.5rem !important;
+            padding-bottom: 0.8rem !important;
+            padding-left: 0.4rem !important;
+            padding-right: 0.4rem !important;
         }
         
-        /* Összepréselt kártya nagyobb betűkkel és jobb térközzel */
+        /* Összepréselt kártya a felesleges fehér sávok ellen */
         .grouped-card {
             background-color: #FFFFFF;
             border: 1px solid #D1D5DB;
-            border-radius: 14px;
-            padding: 12px;
-            margin-bottom: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+            border-radius: 12px;
+            padding: 8px 10px;
+            margin-bottom: 5px; /* Szigorú, minimális térköz */
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         }
         
         /* Sárga bónusz tipp banner a közös megállóknak */
@@ -305,27 +342,42 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
             border: 1px solid #FCD34D;
             color: #92400E;
-            padding: 8px 12px;
-            border-radius: 10px;
+            padding: 6px 10px;
+            border-radius: 8px;
             font-size: 13px;
             font-weight: bold;
-            margin-bottom: 10px;
+            margin-bottom: 6px;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
         
-        /* Auto-wrap, nagyobb, látványos pilleszerű badges */
-        .item-badge {
+        /* Normál (Hétköznapi / Pénteki) tétel pille - NEM félkövér */
+        .item-badge-weekday {
             display: inline-block;
             background-color: #EFF6FF;
             color: #1E40AF;
             border: 1px solid #BFDBFE;
-            padding: 4px 10px;
-            border-radius: 14px;
+            padding: 3px 8px;
+            border-radius: 12px;
             margin: 2px;
-            font-size: 13.5px;
-            font-weight: bold;
+            font-size: 13px;
+            font-weight: 500; /* Medium, de nem félkövér! */
+            white-space: nowrap;
+        }
+        
+        /* Hétvégi (Szombati) tétel pille - HATÁROZOTTAN FÉLKÖVÉR és elegáns rózsaszínes háttér */
+        .item-badge-weekend {
+            display: inline-block;
+            background-color: #FFF1F2;
+            color: #9F1239;
+            border: 1px solid #FECDD3;
+            padding: 3px 8px;
+            border-radius: 12px;
+            margin: 2px;
+            font-size: 13px;
+            font-weight: 800; /* Erősen félkövér! */
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
             white-space: nowrap;
         }
         
@@ -333,9 +385,15 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
         .customer-item {
             background-color: #F9FAFB;
             border: 1px solid #E5E7EB;
-            border-radius: 10px;
-            padding: 10px;
-            margin-bottom: 8px;
+            border-radius: 8px;
+            padding: 6px 8px;
+            margin-bottom: 4px; /* Szigorú, minimális térköz a vevők között */
+        }
+        
+        /* Szorosabb térköz a checkboxoknak */
+        .stCheckbox {
+            margin-bottom: 0px !important;
+            padding-bottom: 0px !important;
         }
         </style>
         """,
@@ -432,7 +490,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             bepakolt_kulcs = f"bepak_allapot_{idx}"
                             lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
                             
-                            # JAVÍTÁS 1: Biztosítjuk, hogy a session state-ben mindenképp létrejöjjön a kulcs beolvasás előtt!
+                            # Biztosítjuk, hogy a session state-ben mindenképp létrejöjjön a kulcs beolvasás előtt!
                             if bepakolt_kulcs not in st.session_state:
                                 st.session_state[bepakolt_kulcs] = False
                             if lada_tarolt_kulcs not in st.session_state:
@@ -447,7 +505,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         # --- CSOPORTOSÍTOTT KÁRTYA KIÍRÁSA ---
                         st.markdown(f"""
                         <div class="grouped-card">
-                            <div style="font-size: 16px; font-weight: bold; color: #1E3A8A; margin-bottom: 4px;">📍 Megálló: {addr}</div>
+                            <div style="font-size: 15.5px; font-weight: bold; color: #1E3A8A; margin-bottom: 4px;">📍 Megálló: {addr}</div>
                         """, unsafe_allow_html=True)
 
                         # Bónusz tipp, ha több csomag is megy az adott címre
@@ -467,30 +525,36 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             
                             st.markdown(f"""
                             <div class="customer-item">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                    <span style="font-size: 15px; font-weight: bold; color: #374151;">👤 {vevo_nev}</span>
-                                    <span style="font-size: 13px; background-color: #E5E7EB; color: #374151; padding: 2px 6px; border-radius: 4px; font-weight: bold;">🏷️ Címke #{címke_szama}</span>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                    <span style="font-size: 14.5px; font-weight: bold; color: #374151;">👤 {vevo_nev}</span>
+                                    <span style="font-size: 12.5px; background-color: #E5E7EB; color: #374151; padding: 1px 5px; border-radius: 4px; font-weight: bold;">🏷️ Címke #{címke_szama}</span>
                                 </div>
                             """, unsafe_allow_html=True)
 
                             if megj and megj != "nan" and megj != "":
-                                st.markdown(f'<div style="font-size: 13.5px; color: #D97706; font-style: italic; margin-bottom: 4px;">📝 Megjegyzés: {megj}</div>', unsafe_allow_html=True)
+                                st.markdown(f'<div style="font-size: 12.5px; color: #D97706; font-style: italic; margin-bottom: 3px;">📝 Megjegyzés: {megj}</div>', unsafe_allow_html=True)
 
                             # --- ÉTELEK NAP SZERINTI CSOPORTOSÍTÁSA ---
                             day_groups = parse_order_by_days(rendeles_szoveg)
                             
                             if day_groups:
-                                badges_html = '<div style="margin-top: 6px; margin-bottom: 6px;">'
+                                badges_html = '<div style="margin-top: 4px; margin-bottom: 4px;">'
                                 for day, items in day_groups.items():
-                                    badges_html += f'<div style="font-size: 13px; font-weight: bold; color: #4B5563; margin-top: 6px; margin-bottom: 2px;">📅 {day}:</div>'
-                                    badges_html += '<div style="display: flex; flex-wrap: wrap; gap: 4px;">'
+                                    is_weekend = (day in ["Szombat", "Vasárnap"])
+                                    badge_class = "item-badge-weekend" if is_weekend else "item-badge-weekday"
+                                    exact_day_title = get_day_with_exact_date(day)
+                                    
+                                    # Címkének megfelelő formázás: Hétvégi tétel bold, hétköznapi normál
+                                    bold_style = "font-weight: bold;" if is_weekend else "font-weight: normal; color: #4B5563;"
+                                    badges_html += f'<div style="font-size: 13.5px; {bold_style} margin-top: 4px; margin-bottom: 2px;">{exact_day_title}</div>'
+                                    badges_html += '<div style="display: flex; flex-wrap: wrap; gap: 2px;">'
                                     for qty, code in items:
-                                        badges_html += f'<span class="item-badge">{qty}x {code}</span>'
+                                        badges_html += f'<span class="{badge_class}">{qty}x {code}</span>'
                                     badges_html += '</div>'
                                 badges_html += '</div>'
                                 st.markdown(badges_html, unsafe_allow_html=True)
                             elif rendeles_szoveg and rendeles_szoveg != "nan" and rendeles_szoveg != "":
-                                st.markdown(f'<div style="font-size: 13px; color: #4B5563;">📋 {rendeles_szoveg}</div>', unsafe_allow_html=True)
+                                st.markdown(f'<div style="font-size: 12.5px; color: #4B5563;">📋 {rendeles_szoveg}</div>', unsafe_allow_html=True)
 
                             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -498,7 +562,6 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             bepakolt_kulcs = f"bepak_allapot_{idx}"
                             lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
 
-                            # JAVÍTÁS 2: Szigorú inicializáció a renderelés alatt is
                             if bepakolt_kulcs not in st.session_state:
                                 st.session_state[bepakolt_kulcs] = False
                             if lada_tarolt_kulcs not in st.session_state:
@@ -512,15 +575,12 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     st.session_state[f"bepak_allapot_{i}"] = False
                                     st.session_state[f"lada_szam_tarolt_{i}"] = None
 
-                            # JAVÍTÁS 3: Szigorú és biztonságos .get() lekérdezés KeyError védelemmel a lada_tarolt_kulcs-hoz!
                             tarolt_lada_ertek = st.session_state.get(lada_tarolt_kulcs, None)
                             label_text = f"Bepakolva: {tarolt_lada_ertek}" if tarolt_lada_ertek else f"Bepakolás a ládába ({vevo_nev})"
                             
                             st.checkbox(label_text, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}", on_change=log_lada)
-                            st.write("")
 
                         st.markdown('</div>', unsafe_allow_html=True)
-                        st.write("---")
 
                 # Kártyák kirajzolása
                 render_kartyak(df_adatok_filtered, rendezett_cimek)
@@ -528,7 +588,6 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                 # ==============================================================================
                 # 🏁 BEPAKOLÁS LEZÁRÁSA
                 # ==============================================================================
-                st.write("")
                 st.write("---")
                 st.subheader("🏁 Bepakolás Lezárása")
                 st.info("Ha minden címet berendeztél a ládákba, zárd le a fázist az induláshoz!")
@@ -545,7 +604,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
                             idok_sheet = sh_ugyfelkor.worksheet("Mobil_Idobelyegek")
                             
-                            most = datetime.now()
+                            most = dt.now()
                             bepakolas_vege_ido = most.strftime("%H:%M:%S")
                             mai_datum = most.strftime("%Y-%m-%d")
                             futar_neve = st.session_state.get('user_nev', 'Ismeretlen Futár')
@@ -675,15 +734,20 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 # --- 🛒 KOSÁR TARTALMA (Pill stílusban leképezve a kiszállításnál is!) ---
                 if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "" and str(row[rendeles_oszlop]).strip() != "nan":
                     st.markdown("📦 **Átadandó termékek:**")
-                    
                     day_groups = parse_order_by_days(str(row[rendeles_oszlop]).strip())
                     if day_groups:
-                        badges_html = '<div style="margin-top: 6px; margin-bottom: 6px;">'
+                        badges_html = '<div style="margin-top: 4px; margin-bottom: 4px;">'
                         for day, items in day_groups.items():
-                            badges_html += f'<div style="font-size: 13px; font-weight: bold; color: #4B5563; margin-top: 6px; margin-bottom: 2px;">📅 {day}:</div>'
-                            badges_html += '<div style="display: flex; flex-wrap: wrap; gap: 4px;">'
+                            is_weekend = (day in ["Szombat", "Vasárnap"])
+                            badge_class = "item-badge-weekend" if is_weekend else "item-badge-weekday"
+                            exact_day_title = get_day_with_exact_date(day)
+                            
+                            # Címkének megfelelő formázás a kiszállításnál is
+                            bold_style = "font-weight: bold;" if is_weekend else "font-weight: normal; color: #4B5563;"
+                            badges_html += f'<div style="font-size: 13.5px; {bold_style} margin-top: 4px; margin-bottom: 2px;">{exact_day_title}</div>'
+                            badges_html += '<div style="display: flex; flex-wrap: wrap; gap: 2px;">'
                             for qty, code in items:
-                                badges_html += f'<span class="item-badge">{qty}x {code}</span>'
+                                badges_html += f'<span class="{badge_class}">{qty}x {code}</span>'
                             badges_html += '</div>'
                         badges_html += '</div>'
                         st.markdown(badges_html, unsafe_allow_html=True)

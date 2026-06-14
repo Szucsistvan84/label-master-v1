@@ -168,7 +168,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                     except Exception as e:
                         st.error(f"Mentési hiba: {e}")
 
-
 def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE):
     """Rendereli az asztali nézet adminisztrációs és vezérlési oldalsávját."""
     st.header("⚙️ Kezelés")
@@ -274,7 +273,6 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
                     
     return admin_funkcio
 
-
 def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivalasztott_datum):
     """
     Feltöltött PDF-ek teljes körű feldolgozása, metaadat kinyerése, 
@@ -335,6 +333,8 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
 
     if all_rows:
         df_temp = merge_data(all_rows)
+        df_temp.columns = [c.strip() for c in df_temp.columns] # Minden oszlopfejlécet megtisztítunk a szóközöktől!
+
         with st.spinner("Ügyféladatok szinkronizálása..."):
             mentett_meta = st.session_state.get('meta_data', None)
             if mentett_meta and isinstance(mentett_meta, dict) and mentett_meta.get('jaratok'):
@@ -375,32 +375,39 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
             else:
                 st.warning("⚠️ A feltöltött adatokban nem található 'Cím' oszlop, a megállók száma 0 lett.")
 
+            # JAVÍTÁS: Sokkal robusztusabb adagszámítás közvetlenül a Rendelés oszlop szövegeiből (pl. "2-A1*" -> 2 adag)
             szamitott_osszes_etel = 0
-            darab_col = None
-            for c in df_temp.columns:
-                # JAVÍTÁS: Szélesebb spektrumú keresési kulcsszavak az adag/darab elkapásához
-                if any(x in c.lower() for x in ['darab', 'adag', 'mennyiseg', 'mennyiség', 'db', 'adagok', 'darabszám', 'darabszam']):
-                    darab_col = c
-                    break
-                    
-            if darab_col:
-                szamitott_osszes_etel = int(pd.to_numeric(df_temp[darab_col], errors='coerce').sum())
+            rendeles_col_nev = 'Rendelés_Full' if 'Rendelés_Full' in df_temp.columns else ('Rendelés' if 'Rendelés' in df_temp.columns else None)
+            
+            if rendeles_col_nev:
+                for _, r in df_temp.iterrows():
+                    r_szoveg = str(r.get(rendeles_col_nev, '')).strip()
+                    darabok = re.findall(r'(\d+)-', r_szoveg)
+                    if darabok:
+                        szamitott_osszes_etel += sum(int(d) for d in darabok)
+                    else:
+                        if r_szoveg and r_szoveg.lower() != 'none' and r_szoveg != '':
+                            szamitott_osszes_etel += 1
             else:
-                st.warning("⚠️ Nem található darabszám vagy adag oszlop, az ételek száma 0 lett.")
+                st.warning("⚠️ Nem található rendelési oszlop az adagok kiszámításához.")
 
+            # JAVÍTÁS: Szuper stabil pénzügyi oszlopkeresés és regex alapú összegzés
             szamitott_total_ertek = 0
             szamitott_kp_forgalom = 0
             szamitott_borravalo = int(st.session_state.get('futar_borravalo', 0))
             
             ertek_col = None
-            for c in df_temp.columns:
-                # JAVÍTÁS: Kibővítettük a forgalom/pénz oszlopok keresését "fizetendő" és "pénz" szavakkal is!
-                if any(x in c.lower() for x in ['érték', 'ertek', 'forgalom', 'összeg', 'fizetendő', 'fizetendo', 'pénz', 'penz', 'összesen', 'osszesen']):
-                    ertek_col = c
+            possible_money_cols = ['pénz', 'penz', 'fizetendő', 'fizetendo', 'forgalom', 'érték', 'ertek', 'összeg', 'osszeg', 'összesen', 'osszesen']
+            for col in df_temp.columns:
+                col_clean = str(col).strip().lower()
+                if any(m in col_clean for m in possible_money_cols):
+                    ertek_col = col
                     break
                     
             if ertek_col:
-                szamitott_total_ertek = int(pd.to_numeric(df_temp[ertek_col], errors='coerce').sum())
+                # Eltávolítunk minden nem számjegy karaktert (pl. "Ft", szóközök, tizedespontok), és összegezzük
+                clean_series = df_temp[ertek_col].astype(str).str.replace(r'[^0-9-]', '', regex=True)
+                szamitott_total_ertek = int(pd.to_numeric(clean_series, errors='coerce').fillna(0).sum())
                 szamitott_kp_forgalom = szamitott_total_ertek
             else:
                 st.error("❌ Nem sikerült kiszámítani a napi forgalmat (hiányzó érték oszlop)! A pénzügyi mutatók 0-zva lettek.")
@@ -408,7 +415,7 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
         except Exception as e_calc:
             st.error(f"⚠️ Hiba történt a statisztikák kiszámítása közben: {e_calc}")
             api_datum_kulcs = str(kivalasztott_datum)
-            aktualis_futar = str(st.session_state.get('user_nev', 'Szűcs István'))
+            aktualis_futar = str(st.session_state.get('user_nev', 'Szűcs István')).strip()
             jarat_szoveg = "Hiba"
             szamitott_osszes_megallo = szamitott_osszes_cim = szamitott_osszes_etel = 0
             szamitott_total_ertek = szamitott_kp_forgalom = szamitott_borravalo = 0
@@ -505,7 +512,6 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
             st.session_state.aktiv_jaratok = feltoltott_jaratok
         
         st.success("🎉 A menettervek feldolgozása és a felhő szinkronizáció sikeresen megtörtént!")
-
 
 def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, admin_funkcio, is_admin):
     """Rendereli az asztali nézet fő munkaterületét (táblázat, térkép, mentések és letöltések)."""

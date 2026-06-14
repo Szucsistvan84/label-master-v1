@@ -431,6 +431,8 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
             
             eheti_eddigi_forgalom = 0
             existing_row_index = None
+            existing_beszedett_kp = 0
+            existing_borravalo = 0
             
             for idx, row in enumerate(summary_records, start=2):
                 r_date_str = str(row.get('Datum', '')).strip()
@@ -442,6 +444,9 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
                         if het_kezdete <= r_dt <= het_vege:
                             if r_date_str == api_datum_kulcs:
                                 existing_row_index = idx
+                                # JAVÍTÁS: Lekérjük a Google Sheets-ben már meglévő, mobil által beküldött valós KP és borravaló adatokat!
+                                existing_beszedett_kp = int(pd.to_numeric(row.get('Beszedett_KP', 0), errors='coerce'))
+                                existing_borravalo = int(pd.to_numeric(row.get('Borravalo', 0), errors='coerce'))
                             else:
                                 eheti_eddigi_forgalom += int(pd.to_numeric(row.get('Forgalom_Osszes', 0), errors='coerce'))
                     except:
@@ -476,18 +481,19 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
             'osszes_cim': szamitott_osszes_cim,
             'osszes_etel': szamitott_osszes_etel,
             'total_ertek': szamitott_total_ertek,
-            'kp_forgalom': szamitott_kp_forgalom,
-            'borravalo': szamitott_borravalo,
+            'kp_forgalom': existing_beszedett_kp,  # JAVÍTÁS: A valós, mobil által beküldött KP-t tartjuk a memóriában (nap elején 0)!
+            'borravalo': existing_borravalo,        # JAVÍTÁS: A valós borravalót tartjuk a memóriában (nap elején 0)!
             'futar_jutalek': szamitott_jutalek
         })
 
         # --- GOOGLE SHEETS MENTÉS / UPDATE ---
         if not st.session_state.get('teszt_uzemmod', False):
             try:
+                # JAVÍTÁS: A Beszedett_KP és a Borravalo nap elején 0-ról indul, de újra-feldolgozáskor megőrzi a már beküldött összeget!
                 uj_adat_sor = [
                     api_datum_kulcs, aktualis_futar, jarat_szoveg,
                     int(szamitott_osszes_megallo), int(szamitott_osszes_cim), int(szamitott_osszes_etel),
-                    int(szamitott_total_ertek), int(szamitott_kp_forgalom), int(szamitott_borravalo), int(szamitott_jutalek)
+                    int(szamitott_total_ertek), int(existing_beszedett_kp), int(existing_borravalo), int(szamitott_jutalek)
                 ]
                 
                 if existing_row_index:

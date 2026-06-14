@@ -1,9 +1,14 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import time
 import urllib.parse
+import re
 from datetime import datetime
 from streamlit_js_eval import get_geolocation
+
+# --- Szigorú illesztés a rendelési kódokhoz (pl: 1-A1* vagy 4-S2) ---
+ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 
 def render_mobil_aruatvetel(client):
     """
@@ -42,9 +47,9 @@ def render_mobil_aruatvetel(client):
                         df_adatok.columns = [c.strip() for c in df_adatok.columns]
                         if 'Feldolgozó Futár' in df_adatok.columns:
                             df_szurt = df_adatok[df_adatok['Feldolgozó Futár'] == futar_neve]
-                            jaratok = [str(j) for j in df_szurt['Járat'].unique() if str(j).strip() != ""]
+                            jaratok = [str(j).strip() for j in df_szurt['Járat'].unique() if str(j).strip() != ""]
                         else:
-                            jaratok = [str(j) for j in df_adatok['Járat'].unique() if str(j).strip() != ""]
+                            jaratok = [str(j).strip() for j in df_adatok['Járat'].unique() if str(j).strip() != ""]
                 except:
                     jaratok = ["Alapértelmezett Járat"]
         else:
@@ -161,7 +166,7 @@ def render_mobil_aruatvetel(client):
                         if st.session_state.get('teszt_uzemmod', False):
                             st.warning("🧪 **Teszt üzemmód aktív mobilon is!** A hibabejelentést sikeresen szimuláltuk, de a Google Sheets-be (Logisztikai_Hibak) NEM mentettünk semmit.")
                         else:
-                            # ÉLES MENTÉS (A jól működő eredeti kódod)
+                            # ÉLES MENTÉS
                             try:
                                 hibak_sheet = sh_ugyfelkor.worksheet("Logisztikai_Hibak")
                                 most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -184,7 +189,7 @@ def render_mobil_aruatvetel(client):
 
             st.write("---")
 
-            # ⏱️ ÁRUÁTVÉTEL RÖGZÍTÉSE (Csak elmenti az időt, nem kényszerít Tab-váltásra)
+            # ⏱️ ÁRUÁTVÉTEL RÖGZÍTÉSE
             if st.button("⏱️ ÁRUÁTVÉTEL VÉGE (Idő rögzítése)", use_container_width=True, type="secondary", key="futar_end_btn"):
                 most = datetime.now()
                 end_ido = most.strftime("%H:%M:%S")
@@ -195,7 +200,7 @@ def render_mobil_aruatvetel(client):
                     sor_szam = st.session_state.idobelyeg_sor_index
                     
                     if sor_szam:
-                        idok_sheet.update_cell(sor_szam, 5, end_ido)
+                        idok_sheet.update_cell(sor_szam, 4, end_ido)
                     
                     st.success(f"✅ Áruátvétel sikeresen lezárva: {end_ido}. Most már átválthatsz a Címekre szedés fülre!")
                 except Exception as e:
@@ -219,25 +224,82 @@ def render_mobil_aruatvetel(client):
                 time.sleep(2.0)
                 st.rerun()
 
-# --- 1. ADATOK GYORSÍTÓTÁRA (CACHE) ---
-# Ez gondoskodik róla, hogy ne töltsön másodpercekig a Google Sheets minden kattintásnál.
-# ttl=600 azt jelenti, hogy 10 percig a memóriából dolgozik, utána frissít automatikusan.
 @st.cache_data(ttl=600)
-def get_mobil_adatok_cached(_client, sheet_id):  # <- Ide került az alsó vonal!
+def get_mobil_adatok_cached(_client, sheet_id):
     sh = _client.open_by_key(sheet_id)
     return pd.DataFrame(sh.worksheet("Adatok").get_all_records())
 
-# --- 2. A GYORSÍTOTT MOBIL FÜGGVÉNY (ÁTALAKÍTOTT VERZIÓ) ---
 def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
-    # --- FŐ TARTALOM HIERARCHIA ---
+    # --- FEJLESZTETT CSS AZ AUTOMATIKUS TÖRDELÉSHEZ ÉS MARGÓKHOZ ---
+    st.markdown(
+        """
+        <style>
+        /* Szuper kompakt margóbeállítások mobilon */
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 1.5rem !important;
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+        }
+        
+        /* Összepréselt kártya a felesleges fehér sávok ellen */
+        .grouped-card {
+            background-color: #FFFFFF;
+            border: 1px solid #E5E7EB;
+            border-radius: 12px;
+            padding: 10px;
+            margin-bottom: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        
+        /* Sárga bónusz tipp banner a közös megállóknak */
+        .group-tip {
+            background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
+            border: 1px solid #FCD34D;
+            color: #92400E;
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        /* Auto-wrap, gyönyörűen tördelhető pilleszerű badges */
+        .item-badge {
+            display: inline-block;
+            background-color: #EFF6FF;
+            color: #1E40AF;
+            border: 1px solid #BFDBFE;
+            padding: 2px 6px;
+            border-radius: 12px;
+            margin: 2px;
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        
+        /* Egyedi vevő doboz a csoportosított kártyán belül */
+        .customer-item {
+            background-color: #F9FAFB;
+            border: 1px solid #F3F4F6;
+            border-radius: 8px;
+            padding: 8px;
+            margin-bottom: 6px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     st.markdown("## 2. lépés: Címekre szedés (Bepakolás)")
     st.caption("💡 Pakolás fordított sorrendben! A csoportosított címeket szedd egy szatyorba.")
 
-    # --- VEZÉRLÉS VISSZATÉTELE A MODUL TETEJÉRE (SIDEBAR HELYETT) ---
     if 'mobil_lada_szam' not in st.session_state: st.session_state.mobil_lada_szam = 1
     if "mutasd_bepakoltat" not in st.session_state: st.session_state.mutasd_bepakoltat = False
 
-    # Három oszlopba rendezzük a gombokat és a kijelzőt, hogy mobilon tökéletesen mutasson
     col_info, col_gomb1, col_gomb2 = st.columns([1, 1.2, 1.2])
     
     with col_info:
@@ -254,13 +316,11 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             st.session_state.mutasd_bepakoltat = not st.session_state.mutasd_bepakoltat
             st.rerun()
             
-    st.write("---") # Elválasztó vonal a vezérlés és a kártyák között
+    st.write("---") 
 
     try:
         valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
         if valasztott_jaratok:
-            
-            # --- ITT MEGHÍVJUK A JAVÍTOTT FÜGGVÉNYT ---
             df_adatok = get_mobil_adatok_cached(client, SHEET_ID_UGYFELKOR) 
             
             if not df_adatok.empty:
@@ -269,41 +329,97 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                 nev_oszlop = 'Név' if 'Név' in df_adatok.columns else df_adatok.columns[1]
                 rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_adatok.columns else ('Kosár' if 'Kosár' in df_adatok.columns else None)
                 
-                # Szűrés (Ha van rá szükség) és Fordított sorrend
-                df_forditott = df_adatok.iloc[::-1].copy()
-                
-                # --- AZ ÖSSZES SOR FELDOLGOZÁSA EGYENKÉNT (Szigorú számozás) ---
-                osszes_megallo = len(df_forditott)
-                
-                # St.fragment-be zárjuk a kártyákat, így a pipálás csak ezen a blokkon belül fut le villámgyorsan
-                @st.fragment
-                def render_kartyak(df_lista):
-                    for i, (idx, row) in enumerate(df_lista.iterrows()):
-                        megallo_sorszam = osszes_megallo - i
-                        aktualis_cim = str(row[cim_oszlop]).strip()
-                        aktualis_megj = str(row.get('Megjegyzés', '')).strip()
+                # Biztosítjuk a Sorrend (etikett sorszám) oszlop meglétét
+                if 'Sorrend' not in df_adatok.columns:
+                    df_adatok['Sorrend'] = range(1, len(df_adatok) + 1)
+                df_adatok['Sorrend'] = pd.to_numeric(df_adatok['Sorrend'], errors='coerce').fillna(999).astype(int)
 
-                        # Állapotkezelés (egyetlen sorhoz)
-                        bepakolt_kulcs = f"bepak_allapot_{idx}"
-                        lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
-                        if bepakolt_kulcs not in st.session_state:
-                            st.session_state[bepakolt_kulcs] = False
-                            st.session_state[lada_tarolt_kulcs] = None
+                # 🔒 JÁRAT SZŰRÉS: Csak a futár által kiválasztott járatok jelenjenek meg!
+                jarat_col_name = next((c for c in df_adatok.columns if 'járat' in c.lower() or 'jarat' in c.lower()), None)
+                if jarat_col_name:
+                    df_adatok_filtered = df_adatok[df_adatok[jarat_col_name].astype(str).str.strip().isin(valasztott_jaratok)].copy()
+                else:
+                    df_adatok_filtered = df_adatok.copy()
+
+                if df_adatok_filtered.empty:
+                    st.info("ℹ️ Nincsenek bepakolandó címek a járatodhoz.")
+                    return
+
+                # --- FORDÍTOTT SORRENDŰ CSOPORTOSÍTÁS ---
+                # Kiszámoljuk az egyedi címek legmagasabb Sorrendjét, és csökkenő sorrendbe rendezzük a fordított pakolásért
+                addr_max_sorrend = df_adatok_filtered.groupby(cim_oszlop)['Sorrend'].max().reset_index()
+                addr_max_sorrend = addr_max_sorrend.sort_values(by='Sorrend', ascending=False)
+                rendezett_cimek = addr_max_sorrend[cim_oszlop].tolist()
+
+                # St.fragment az azonnali, villanásmentes checkbox pipálásokért
+                @st.fragment
+                def render_kartyak(df_lista, cimek):
+                    for addr_idx, addr in enumerate(cimek):
+                        # Leszűrjük a címhez tartozó összes megrendelést (etikett sorszám alapján rendezve)
+                        df_addr = df_lista[df_lista[cim_oszlop] == addr].sort_values(by='Sorrend', ascending=False)
                         
-                        # Ha el van rejtve, folytatás (skip)
-                        if st.session_state[bepakolt_kulcs] and not st.session_state.mutasd_bepakoltat:
+                        # Ellenőrizzük, hogy a csoportból van-e olyan elem, amit még meg kell jelenítenünk
+                        show_card = False
+                        for idx, row in df_addr.iterrows():
+                            bepakolt_kulcs = f"bepak_allapot_{idx}"
+                            if bepakolt_kulcs not in st.session_state:
+                                st.session_state[bepakolt_kulcs] = False
+                            
+                            if not st.session_state[bepakolt_kulcs] or st.session_state.mutasd_bepakoltat:
+                                show_card = True
+
+                        if not show_card:
                             continue
 
-                        with st.container(border=True):
-                            st.markdown(f"### 📦 {megallo_sorszam}. Címke")
-                            st.markdown(f"📍 **Cím:** {aktualis_cim}")
-                            if aktualis_megj: st.warning(f"📝 **Megjegyzés:** {aktualis_megj}")
+                        # --- CSOPORTOSÍTOTT KÁRTYA KIÍRÁSA ---
+                        st.markdown(f"""
+                        <div class="grouped-card">
+                            <div style="font-size: 13.5px; font-weight: bold; color: #1E3A8A; margin-bottom: 4px;">📍 Megálló: {addr}</div>
+                        """, unsafe_allow_html=True)
+
+                        # Bónusz tipp, ha több csomag is megy az adott címre
+                        if len(df_addr) > 1:
+                            st.markdown(f"""
+                            <div class="group-tip">
+                                💡 Tipp: Erre a címre {len(df_addr)} db rendelés megy! Szedheted őket egy közös szatyorba.
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                        # A címhez tartozó vevők és rendeléseik kilistázása a kártyán belül
+                        for idx, row in df_addr.iterrows():
+                            vevo_nev = str(row[nev_oszlop]).strip()
+                            címke_szama = row['Sorrend']
+                            megj = str(row.get('Megjegyzés', '')).strip()
+                            rendeles_szoveg = str(row[rendeles_oszlop]).strip() if rendeles_oszlop else ""
                             
-                            st.write(f"👤 **Név:** {row[nev_oszlop]}")
-                            if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "":
-                                st.markdown(f"📋 **Rendelés:**\n```\n{row[rendeles_oszlop]}\n```")
-                            
-                            # Checkbox logika (Nincs st.rerun(), így azonnali és villanásmentes)
+                            st.markdown(f"""
+                            <div class="customer-item">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <span style="font-size: 12px; font-weight: bold; color: #374151;">👤 {vevo_nev}</span>
+                                    <span style="font-size: 11px; background-color: #E5E7EB; color: #374151; padding: 1px 5px; border-radius: 4px; font-weight: bold;">🏷️ Címke #{címke_szama}</span>
+                                </div>
+                            """, unsafe_allow_html=True)
+
+                            if megj and megj != "nan" and megj != "":
+                                st.markdown(f'<div style="font-size: 11px; color: #D97706; font-style: italic; margin-bottom: 4px;">📝 Megjegyzés: {megj}</div>', unsafe_allow_html=True)
+
+                            # Ételek pilleszerű tördelése és badges rajzolása
+                            found_items = re.findall(ORDER_PAT, rendeles_szoveg)
+                            if found_items:
+                                badges_html = '<div style="margin-top: 4px; margin-bottom: 4px;">'
+                                for qty, code in found_items:
+                                    badges_html += f'<span class="item-badge">{qty}x {code}</span>'
+                                badges_html += '</div>'
+                                st.markdown(badges_html, unsafe_allow_html=True)
+                            elif rendeles_szoveg and rendeles_szoveg != "nan" and rendeles_szoveg != "":
+                                st.markdown(f'<div style="font-size: 11.5px; color: #4B5563;">📋 {rendeles_szoveg}</div>', unsafe_allow_html=True)
+
+                            st.markdown('</div>', unsafe_allow_html=True)
+
+                            # Checkbox kezelése a vevő alá rendelve
+                            bepakolt_kulcs = f"bepak_allapot_{idx}"
+                            lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
+
                             def log_lada(i=idx):
                                 if st.session_state[f"chk_{i}"]:
                                     st.session_state[f"bepak_allapot_{i}"] = True
@@ -312,15 +428,18 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     st.session_state[f"bepak_allapot_{i}"] = False
                                     st.session_state[f"lada_szam_tarolt_{i}"] = None
 
-                            label = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[lada_tarolt_kulcs] else "Bepakolás a ládába"
-                            st.checkbox(label, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}", on_change=log_lada)
-                            st.write("---")
-                
+                            label_text = f"Bepakolva: {st.session_state[lada_tarolt_kulcs]}" if st.session_state[lada_tarolt_kulcs] else f"Bepakolás a ládába ({vevo_nev})"
+                            st.checkbox(label_text, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}", on_change=log_lada)
+                            st.write("")
+
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        st.write("---")
+
                 # Kártyák kirajzolása
-                render_kartyak(df_forditott)
+                render_kartyak(df_adatok_filtered, rendezett_cimek)
                 
                 # ==============================================================================
-                # 🔥 ÚJ FUNKCIÓ: 2. LÉPÉS LEZÁRÁSA ÉS INDULÁS A CÍMEKRE
+                # 🏁 BEPAKOLÁS LEZÁRÁSA
                 # ==============================================================================
                 st.write("")
                 st.write("---")
@@ -328,17 +447,13 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                 st.info("Ha minden címet berendeztél a ládákba, zárd le a fázist az induláshoz!")
                 
                 if st.button("📦 LÁDÁZÁS ÉS BEPAKOLÁS KÉSZ (Indulás)", use_container_width=True, type="primary", key="futar_bepakolas_kesz_btn"):
-                    
-                    # 1. Állapot átírása, hogy a 3. lépés (Kiszállítás) fül aktívvá váljon
                     st.session_state.kiszallitas_folyamatban = True
                     
-                    # 2. TESZT ÜZEMMÓD ELLENŐRZÉSE
                     if st.session_state.get('teszt_uzemmod', False) or st.query_params.get("test", "false") == "true":
-                        st.warning("🧪 **Teszt üzemmód aktív!** A bepakolás lezárását sikeresen szimuláltuk, a kiszállítás fül megnyílt. A Google Sheets-be NEM mentettünk időbélyeget.")
+                        st.warning("🧪 **Teszt üzemmód aktív!** A bepakolás lezárását sikeresen szimuláltuk. A Google Sheets-be NEM mentettünk időbélyeget.")
                         time.sleep(2.0)
                         st.rerun()
                     else:
-                        # ÉLES IDŐBÉLYEGZŐ MENTÉS A GOOGLE TABLES-BE
                         try:
                             sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
                             idok_sheet = sh_ugyfelkor.worksheet("Mobil_Idobelyegek")
@@ -349,12 +464,10 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             futar_neve = st.session_state.get('user_nev', 'Ismeretlen Futár')
                             jarat_szoveg = ", ".join(map(str, valasztott_jaratok))
                             
-                            # Megpróbáljuk frissíteni az 1. lépésben már létrehozott időbélyeg-sort
                             sor_szam = st.session_state.get('idobelyeg_sor_index')
                             if sor_szam:
-                                idok_sheet.update_cell(sor_szam, 6, bepakolas_vege_ido)
+                                idok_sheet.update_cell(sor_szam, 5, bepakolas_vege_ido)
                             else:
-                                # Ha valamiért nem volt meg a sor indexe, új sort fűzünk hozzá
                                 idok_sheet.append_row([mai_datum, jarat_szoveg, futar_neve, "", bepakolas_vege_ido])
                             
                             st.success(f"🎉 Bepakolás lezárva ({bepakolas_vege_ido})! Jó utat kívánunk! 🚚")
@@ -371,8 +484,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             st.info("ℹ️ Válaszd ki a járatodat az 1. fülön!")
     except Exception as e:
         st.error(f"Hiba a betöltéskor: {e}")
-        
-# --- 3. LÉPÉS: KISZÁLLÍTÁS MODUL ---
+
 def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
     st.markdown("## 🚚 3. lépés: Kiszállítás és Elszámolás")
     st.caption("💡 Mindig a soron következő legfrissebb címet látod. Használd a gyorsgombokat!")
@@ -395,7 +507,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         tel_oszlop = 'Telefon' if 'Telefon' in df_adatok.columns else 'Tel'
         rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_adatok.columns else ('Kosár' if 'Kosár' in df_adatok.columns else None)
         
-        # Pénz oszlop intelligens detektálása az adatokból
         penz_oszlop = None
         for c in df_adatok.columns:
             if 'pénz' in c.lower() or 'penz' in c.lower() or 'fizet' in c.lower() or 'tartozas' in c.lower() or 'összeg' in c.lower():
@@ -405,7 +516,12 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         lat_oszlop = 'Latitude' if 'Latitude' in df_adatok.columns else 'Lat'
         lon_oszlop = 'Longitude' if 'Longitude' in df_adatok.columns else 'Lon'
 
-        df_kiszallitas = df_adatok.copy()
+        # Szűrjük az adatokat a bejelentkezett járatokra a felesleges címek elkerülésére
+        jarat_col_name = next((c for c in df_adatok.columns if 'járat' in c.lower() or 'jarat' in c.lower()), None)
+        if jarat_col_name:
+            df_kiszallitas = df_adatok[df_adatok[jarat_col_name].astype(str).str.strip().isin(valasztott_jaratok)].copy()
+        else:
+            df_kiszallitas = df_adatok.copy()
 
         bepakolt_sorok = []
         for idx, row in df_kiszallitas.iterrows():
@@ -452,10 +568,18 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 if aktualis_megj and aktualis_megj != "nan": 
                     st.warning(f"📝 **Megjegyzés:** {aktualis_megj}")
                 
-                # --- 🛒 KOSÁR TARTALMA ---
+                # --- 🛒 KOSÁR TARTALMA (Pill stílusban leképezve a kiszállításnál is!) ---
                 if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "" and str(row[rendeles_oszlop]).strip() != "nan":
                     st.markdown("📦 **Átadandó termékek:**")
-                    st.code(str(row[rendeles_oszlop]).strip(), language="text")
+                    found_items = re.findall(ORDER_PAT, str(row[rendeles_oszlop]).strip())
+                    if found_items:
+                        badges_html = '<div style="margin-top: 4px; margin-bottom: 8px;">'
+                        for qty, code in found_items:
+                            badges_html += f'<span class="item-badge">{qty}x {code}</span>'
+                        badges_html += '</div>'
+                        st.markdown(badges_html, unsafe_allow_html=True)
+                    else:
+                        st.code(str(row[rendeles_oszlop]).strip(), language="text")
                 
                 # --- 🗺️ OPENSTREETMAP BEÁGYAZÁS ---
                 if saved_lat and saved_lon and saved_lat != "nan" and saved_lon != "nan":
@@ -536,7 +660,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 st.write("---")
                 
                 # --- 💰 INTELLIGENS BORRAVALÓ SZÁMÍTÁS ---
-                # Megpróbáljuk kinyerni a kért összeget a táblázatból számmá alakítva
                 elovart_osszeg = 0
                 if penz_oszlop:
                     nyers_penz = str(row[penz_oszlop]).replace("Ft", "").replace(" ", "").replace("\xa0", "").strip()
@@ -556,7 +679,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     key=f"atvett_input_{idx}"
                 )
                 
-                # Borravaló számítása a te logikád alapján: Kapott - Elvárt
+                # Borravaló számítása: Kapott - Elvárt
                 szamitott_borravalo = 0
                 if atvett_osszeg > elovart_osszeg:
                     szamitott_borravalo = atvett_osszeg - elovart_osszeg
@@ -566,7 +689,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
                 # --- LEZÁRÁS ---
                 if st.button("✅ Cím sikeresen átadva", key=f"siker_{idx}", use_container_width=True, type="primary"):
-                    # Elmentjük a borravalót a memóriába a cím indexével
                     st.session_state[f"borravalo_{idx}"] = szamitott_borravalo
                     st.session_state[f"kiszallitva_{idx}"] = True
                     st.toast(f"🎉 {vevo_neve} sikeresen kézbesítve!")

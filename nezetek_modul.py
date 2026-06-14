@@ -12,7 +12,8 @@ from adatbazis_modul import (
     get_latest_week_from_master, sync_master_database, 
     load_futar_from_sheets, save_futar_to_sheets,
     load_etlap_from_sheets, sync_interfood_etlap, master_lista_szinkron,
-    kotelezo_ugyfelkor_formatum_tisztitas
+    kotelezo_ugyfelkor_formatum_tisztitas,
+    load_sheet_data_cached  # JAVÍTÁS: Importáljuk a golyóálló cached olvasót!
 )
 from nyomtatas_modulok import create_label_pdf, create_manifest_pdf, create_raklista_pdf
 from vizualizacio import utvonal_terkep
@@ -44,38 +45,34 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     jutalek = 0
 
     try:
-        sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
+        # JAVÍTÁS: Megszüntetjük a 429-es hiba fő forrását, az oldalsáv sem végez többé közvetlen Google API hívásokat!
+        summary_records_df = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Mobil_Summary")
+        summary_records = summary_records_df.to_dict('records') if not summary_records_df.empty else []
         
         # Lekérjük a mai aktív vagy beállított dátumot
         kivalasztott = st.session_state.get('kivalasztott_datum', datetime.date.today())
         kivalasztott_iso = kivalasztott.strftime("%Y-%m-%d") if isinstance(kivalasztott, datetime.date) else str(kivalasztott)
 
-        # 1. Mennyiségek lekérése a Mobil_Summary-ből (Raklista alapján számított adatsorok)
-        try:
-            ws_summary = sh_ugyfelkor.worksheet("Mobil_Summary")
-            summary_records = ws_summary.get_all_records()
-            futar_keresett = str(futar_nev_kiir).strip().lower()
+        # 1. Mennyiségek lekérése a gyorsítótárazott summary-ből
+        futar_keresett = str(futar_nev_kiir).strip().lower()
 
-            for s_row in summary_records:
-                summary_futar = str(s_row.get('Futar', s_row.get('futar', ''))).strip().lower()
-                row_date = str(s_row.get('Datum', s_row.get('datum', ''))).strip()
-                
-                # Ellenőrizzük a futárt és a dátumot is
-                if (summary_futar == futar_keresett or summary_futar == "szűcs istván") and row_date == kivalasztott_iso:
-                    forgalmi_ertek = int(s_row.get('Forgalom_Osszes', s_row.get('Forgalom', 0)))
-                    jutalek = int(s_row.get('Vart_Jutalek', s_row.get('Jutalék', 0)))
-                    osszes_etel = int(s_row.get('Osszes_Etel', s_row.get('Terv_Darabszam', 0)))
-                    osszes_megallo = int(s_row.get('Tervezett_Megallok', 0))
-                    osszes_cim = int(s_row.get('Osszes_Cim', 0))
-                    break
-        except Exception as e_sum_load:
-            logger.warning(f"Nem sikerült a summary-ből tölteni a műszerfalat: {e_sum_load}")
+        for s_row in summary_records:
+            summary_futar = str(s_row.get('Futar', s_row.get('futar', ''))).strip().lower()
+            row_date = str(s_row.get('Datum', s_row.get('datum', ''))).strip()
+            
+            # Ellenőrizzük a futárt és a dátumot is
+            if (summary_futar == futar_keresett or summary_futar == "szűcs istván") and row_date == kivalasztott_iso:
+                forgalmi_ertek = int(s_row.get('Forgalom_Osszes', s_row.get('Forgalom', 0)))
+                jutalek = int(s_row.get('Vart_Jutalek', s_row.get('Jutalék', 0)))
+                osszes_etel = int(s_row.get('Osszes_Etel', s_row.get('Terv_Darabszam', 0)))
+                osszes_megallo = int(s_row.get('Tervezett_Megallok', 0))
+                osszes_cim = int(s_row.get('Osszes_Cim', 0))
+                break
 
         # Fallback ha a summary-ben még nincs rögzített adatunk
         if osszes_cim == 0:
             try:
-                ws_adatok = sh_ugyfelkor.worksheet("Adatok")
-                df_adatok_all = pd.DataFrame(ws_adatok.get_all_records())
+                df_adatok_all = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
                 
                 if not df_adatok_all.empty:
                     df_adatok_all.columns = [str(c).strip() for c in df_adatok_all.columns]
@@ -138,6 +135,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                         hibak_sheet = client.open_by_key(SHEET_ID_UGYFELKOR).worksheet("Hibajelentések")
                         most_ido = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         hibak_sheet.append_row([most_ido, futar_nev_kiir, jarat_szoveg_kiir, st_hiba_tipus, st_hiba_vevo, st_hiba_leiras])
+                        st.cache_data.clear() # Gyorsítótár ürítése
                         st.success("✅ A hiba elküldve!")
                     except Exception as e:
                         st.error(f"Mentési hiba: {e}")
@@ -186,6 +184,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             if st.button("🔄 Master Frissítése a 24. hétig"):
                 with st.spinner("Szinkronizálás folyamatban..."):
                     sync_master_database(SHEET_ID_MASTER, 2026, het_most + 1, 24)
+                    st.cache_data.clear() # Gyorsítótár ürítése a sikeres szinkron után
                     st.success("Sikeres frissítés!")
                     st.rerun()
         else:
@@ -198,6 +197,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             if st.button("🚀 Master Adatbázis Építése"):
                 with st.spinner("Szinkronizálás..."):
                     sync_master_database(SHEET_ID_MASTER, target_year, start_w, end_w)
+                    st.cache_data.clear() # Gyorsítótár ürítése a generálás végén
                     st.success("Kész!")
 
         with st.expander("👤 Felhasználó Kezelés"):
@@ -227,6 +227,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
                 with st.spinner("Mentés..."):
                     if save_futar_to_sheets(edited_df_users, SHEET_ID_UGYFELKOR):
                         st.session_state.futar_df = edited_df_users
+                        st.cache_data.clear() # Gyorsítótár ürítése a sikeres mentés után
                         st.success("Sikeres mentés!")
                         st.rerun()
                     else:
@@ -313,7 +314,6 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
                 tartalek_jarat = None
             
             df_temp, m_df_friss = master_lista_szinkron(df_temp, ugyfelkor_sheet_id, client, jarat_szam=tartalek_jarat)
-            # JAVÍTÁS: Nem írjuk felül a kaja master adatbázist (master_df), hanem az ugyfelkor_df-be mentjük!
             st.session_state.ugyfelkor_df = m_df_friss
         
         st.session_state.mdf = df_temp
@@ -508,6 +508,9 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
                 st.error(f"⚠️ Nem sikerült az adatok feltöltése a Google Sheets-be: {sheets_error}")
         else:
             st.info("🧪 Teszt üzemmód aktív: A mentés átugorva.")
+            
+        # JAVÍTÁS: Mivel új adatokat írtunk a Google Sheets-be, töröljük a gyorsítótárat, hogy a többi fül is azonnal az új számokat lássa!
+        st.cache_data.clear()
             
         if feltoltott_jaratok:
             st.session_state.aktiv_jaratok = feltoltott_jaratok

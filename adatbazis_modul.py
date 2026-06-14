@@ -50,6 +50,7 @@ def get_gspread_client():
 @st.cache_data(ttl=300, show_spinner="Adatbázisok szinkronizálása...")
 def load_sheet_data_cached(_client, sheet_id, worksheet_name):
     """Gyorsítótárazott táblázat beolvasás UNFORMATTED és fallback opciókkal."""
+    import pandas as pd  # JAVÍTÁS: Helyi import a cache-környezet elszigeteltsége miatt!
     try:
         sheet = _client.open_by_key(sheet_id)
         worksheet = sheet.worksheet(worksheet_name)
@@ -216,7 +217,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         except ValueError:
             return ""
 
-    # --- 1. LÉPÉS: TÖRZSLISTA BEOLVASÁSA ÉS TISÍTÁSA ---
+    # --- 1. LÉPÉS: TÖRZSLISTA BEOLVASÁSA ÉS TISZTÍTÁSA ---
     try:
         sh = client.open_by_key(sheet_id)
         ws_ugyfel = sh.worksheet("Ugyfelkor")

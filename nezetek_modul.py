@@ -13,7 +13,7 @@ from adatbazis_modul import (
     load_futar_from_sheets, save_futar_to_sheets,
     load_etlap_from_sheets, sync_interfood_etlap, master_lista_szinkron,
     kotelezo_ugyfelkor_formatum_tisztitas,
-    load_sheet_data_cached  # JAVÍTÁS: Importáljuk a golyóálló cached olvasót!
+    load_sheet_data_cached  # Golyóálló cached olvasó a Google API kvótavédelemhez
 )
 from nyomtatas_modulok import create_label_pdf, create_manifest_pdf, create_raklista_pdf
 from vizualizacio import utvonal_terkep
@@ -26,18 +26,62 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     """
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
-    A Raklista alapján számított valós napi forgalmi és jutalék adatokat jeleníti meg.
+    Szuper kompakt elrendezésben, dinamikus hibabejelentővel.
     """
+    # Atombiztos CSS az oldalsáv zsugorítására a görgetés ellen
+    st.markdown(
+        """
+        <style>
+        /* Sidebar konténer optimalizálása */
+        [data-testid="stSidebarUserContent"] {
+            padding-top: 0.5rem !important;
+            padding-bottom: 0.5rem !important;
+        }
+        /* Metric kártyák betűméretének és térközének radikális csökkentése */
+        [data-testid="stSidebarUserContent"] [data-testid="stMetricValue"] {
+            font-size: 1.15rem !important;
+            font-weight: 800 !important;
+            line-height: 1.1 !important;
+        }
+        [data-testid="stSidebarUserContent"] [data-testid="stMetricLabel"] {
+            font-size: 0.72rem !important;
+            font-weight: 600 !important;
+            line-height: 1.1 !important;
+            color: #4B5563 !important;
+        }
+        [data-testid="stSidebarUserContent"] [data-testid="stMetric"] {
+            padding: 1px !important;
+            margin-bottom: 2px !important;
+        }
+        /* Fejlécek és sorközök finomítása */
+        [data-testid="stSidebarUserContent"] h2 {
+            font-size: 1.25rem !important;
+            margin-top: 2px !important;
+            margin-bottom: 4px !important;
+        }
+        [data-testid="stSidebarUserContent"] h3 {
+            font-size: 0.95rem !important;
+            margin-top: 4px !important;
+            margin-bottom: 4px !important;
+        }
+        [data-testid="stSidebarUserContent"] hr {
+            margin-top: 6px !important;
+            margin-bottom: 6px !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     st.markdown("<h2 style='text-align: center; color: #1E3A8A;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
     
     futar_nev_kiir = st.session_state.get('user_nev', 'Ismeretlen Futár')
     jarat_lista_kiir = st.session_state.get('user_jarat_lista', [])
     jarat_szoveg_kiir = ", ".join(map(str, jarat_lista_kiir)) if jarat_lista_kiir else "Nincs"
     
-    st.write(f"👤 **Futár:** {futar_nev_kiir}")
-    st.write(f"🚚 **Járat(ok):** {jarat_szoveg_kiir}")
-    st.write("---")
+    st.write(f"👤 **Futár:** {futar_nev_kiir} | 🚚 **Járat:** {jarat_szoveg_kiir}")
 
+    # --- INICIALIZÁLÁS ---
     osszes_cim = 0
     osszes_megallo = 0
     osszes_etel = 0
@@ -45,15 +89,13 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     jutalek = 0
 
     try:
-        # JAVÍTÁS: Megszüntetjük a 429-es hiba fő forrását, az oldalsáv sem végez többé közvetlen Google API hívásokat!
+        sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
         summary_records_df = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Mobil_Summary")
         summary_records = summary_records_df.to_dict('records') if not summary_records_df.empty else []
         
-        # Lekérjük a mai aktív vagy beállított dátumot
         kivalasztott = st.session_state.get('kivalasztott_datum', datetime.date.today())
         kivalasztott_iso = kivalasztott.strftime("%Y-%m-%d") if isinstance(kivalasztott, datetime.date) else str(kivalasztott)
 
-        # 1. Mennyiségek lekérése a gyorsítótárazott summary-ből
         futar_keresett = str(futar_nev_kiir).strip().lower()
 
         driver_records = []
@@ -70,7 +112,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                     matched_row = row
                     break
             
-            # JAVÍTÁS: Ha a kiválasztott dátumra (pl. ma vasárnap) nincs rekord, akkor fallbackelünk a legutolsó létező napra!
             if not matched_row:
                 driver_records_sorted = sorted(
                     driver_records, 
@@ -79,7 +120,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 )
                 matched_row = driver_records_sorted[0]
                 most_recent_date_str = str(matched_row.get('Datum', matched_row.get('datum', ''))).strip()
-                # Beállítjuk a kiválasztott dátumot a legutóbbi sikeres feltöltés dátumára
                 st.session_state['kivalasztott_datum'] = datetime.datetime.strptime(most_recent_date_str, "%Y-%m-%d").date()
 
             if matched_row:
@@ -93,7 +133,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         if osszes_cim == 0:
             try:
                 df_adatok_all = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
-                
                 if not df_adatok_all.empty:
                     df_adatok_all.columns = [str(c).strip() for c in df_adatok_all.columns]
                     jarat_col_name = next((c for c in df_adatok_all.columns if 'járat' in c.lower() or 'jarat' in c.lower()), None)
@@ -112,51 +151,133 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     except Exception as e_global_dashboard:
         st.sidebar.error(f"⚠️ Műszerfal hiba: {e_global_dashboard}")
 
-    # Statisztikai kártyák megjelenítése
+    # Összesítjük a telefonon ténylegesen sikeresnek jelölt és beszedett összegeket
+    live_kesz_cimek = 0
+    live_beszedett_kp = 0
+    live_borravalo = 0
+
+    for k in list(st.session_state.keys()):
+        if k.startswith("kiszallitva_") and st.session_state[k] == True:
+            live_kesz_cimek += 1
+            idx = k.split("_")[1]
+            try:
+                live_beszedett_kp += int(st.session_state.get(f"atvett_input_{idx}", 0))
+                live_borravalo += int(st.session_state.get(f"borravalo_{idx}", 0))
+            except:
+                pass
+
+    st.write("---")
+
+    # --- 1. SZEKCIÓ: KISZÁLLÍTÁSI HALADÁS (FELKERÜLT A LAP TETEJÉRE!) ---
+    st.subheader("🏁 Kiszállítás Haladás")
+    haladas_szazalek = min(1.0, live_kesz_cimek / osszes_cim) if osszes_cim > 0 else 0.0
+    st.progress(haladas_szazalek)
+    st.caption(f"Teljesítve: {live_kesz_cimek} / {osszes_cim} cím ({int(haladas_szazalek * 100)}%)")
+    
+    st.write("---")
+
+    # --- 2. SZEKCIÓ: PÉNZÜGY & MENNYISÉG (CSÖKKENTETT SORKÖZÖKKEL) ---
     st.subheader("💰 Pénzügy & Mennyiség")
     col_s1, col_s2 = st.columns(2)
     with col_s1:
         st.metric("📍 Tervezett megállók", f"{osszes_megallo} db")
-        st.metric("🏠 Összes cím (ügyfél)", f"{osszes_cim} db")
+        st.metric("🏠 Összes cím (vevő)", f"{osszes_cim} db")
     with col_s2:
         st.metric("📦 Összes étel", f"{osszes_etel} adag")
-        st.metric("💵 Forgalom", f"{forgalmi_ertek:,} Ft".replace(",", " "))
+        st.metric("💵 Rakományérték", f"{forgalmi_ertek:,} Ft".replace(",", " "))
         
-    st.metric("⭐ Várható Jutalékod", f"{jutalek:,} Ft".replace(",", " "))
     st.write("---")
 
-    # Kiszállítási haladás folyamatjelző
-    st.subheader("🏁 Kiszállítás Haladás")
-    kesz_cimek_szama = sum(1 for k in st.session_state.keys() if k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres")
-    
-    haladas_szazalek = min(1.0, kesz_cimek_szama / osszes_cim) if osszes_cim > 0 else 0.0
-    st.progress(haladas_szazalek)
-    st.caption(f"Teljesítve: {kesz_cimek_szama} / {osszes_cim} cím ({int(haladas_szazalek * 100)}%)")
+    # --- 3. SZEKCIÓ: ÉLŐ SZÁLLÍTÁSI MÉRŐK ---
+    st.subheader("💸 Élő Elszámolás")
+    col_l1, col_l2 = st.columns(2)
+    with col_l1:
+        st.metric("💵 Beszedett KP aznap", f"{live_beszedett_kp:,} Ft".replace(",", " "))
+        st.metric("⭐ Várható Jutalékod", f"{jutalek:,} Ft".replace(",", " "))
+    with col_l2:
+        st.metric("💰 Gyűjtött borravaló", f"{live_borravalo:,} Ft".replace(",", " "))
+
     st.write("---")
 
-    # Sürgős hibajelentés útközben
+    # --- 4. SZEKCIÓ: SÜRGŐS HIBAJELENTŐ ÚTKÖZBEN (KÖTELEZŐ LEÖRDÜLŐS INTEGRÁCIÓVAL!) ---
     st.subheader("⚠️ Probléma az úton?")
-    with st.expander("🚨 SÜRGŐS HIBABEJELENTÉS"):
-        st.write("Sérült, elcserélt vagy elhagyott étel esetén itt jelezheted a központnak:")
+    with st.expander("🚨 SÜRGŐS HIBAKÜLDÉS (Pillanatok alatt)"):
+        st.write("Sérült, elcserélt vagy hiányzó étel gyors bejelentése a központnak:")
         
+        # Lekérjük az Adatok fülről az összes mai aktív címet és megrendelt kódokat
+        vevo_options = ["-- Válassz helyszínt / vevőt --"]
+        vevo_items_map = {}
+        
+        try:
+            df_adatok_all = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
+            if not df_adatok_all.empty:
+                df_adatok_all.columns = [str(c).strip() for c in df_adatok_all.columns]
+                
+                # Csak azokat a vevőket listázzuk ki, akik a futár aktív járataiban szerepelnek
+                futar_keresett_clean = str(futar_nev_kiir).strip().lower()
+                aktiv_jaratok = [str(j).strip() for j in jarat_lista_kiir]
+                
+                jarat_col_name = next((c for c in df_adatok_all.columns if 'járat' in c.lower() or 'jarat' in c.lower()), None)
+                if jarat_col_name and aktiv_jaratok:
+                    df_szurt = df_adatok_all[df_adatok_all[jarat_col_name].astype(str).str.strip().isin(aktiv_jaratok)]
+                else:
+                    df_szurt = df_adatok_all
+                
+                for _, r in df_szurt.iterrows():
+                    nev_val = str(r.get('Név', r.get('Nev', r.get('Ügyintéző', 'Névtelen')))).strip()
+                    cim_val = str(r.get('Cím', r.get('Cim', 'Ismeretlen cím'))).strip()
+                    rendeles_val = str(r.get('Rendelés', r.get('Rendeles', ''))).strip()
+                    
+                    label_szoveg = f"{nev_val} ({cim_val})"
+                    if label_szoveg not in vevo_options:
+                        vevo_options.append(label_szoveg)
+                    
+                    # Lefejtjük az adott vevőhöz tartozó étel kódokat
+                    vevo_kajak = ["-- Válassz érintett ételt --"]
+                    found_codes = re.findall(ORDER_PAT, rendeles_val)
+                    for qty, code in found_codes:
+                        vevo_kajak.append(f"{qty}x {code.strip().upper()}")
+                    if not found_codes and rendeles_val:
+                        vevo_kajak.append(rendeles_val)
+                        
+                    vevo_items_map[label_szoveg] = vevo_kajak
+        except Exception as e_dropdown_build:
+            st.sidebar.error(f"Dropdown hiba: {e_dropdown_build}")
+
+        # Intelligens Cím / Vevő választó
+        st_hiba_vevo_selected = st.selectbox("Melyik megállónál vagy?", options=vevo_options, key="sidebar_hiba_vevo_dropdown")
+        
+        # Dinamikus Étel választó (Csak az adott vevő kajái jelennek meg!)
+        kaja_options_for_selected = ["-- Válassz érintett ételt --"]
+        if st_hiba_vevo_selected != "-- Válassz helyszínt / vevőt --":
+            kaja_options_for_selected = vevo_items_map.get(st_hiba_vevo_selected, ["-- Válassz érintett ételt --"])
+            
+        st_hiba_kaja_selected = st.selectbox("Melyik étellel van gond?", options=kaja_options_for_selected, key="sidebar_hiba_kaja_dropdown")
         st_hiba_tipus = st.selectbox("Hiba jellege:", ["Sérült étel (kifolyt/kilyukadt)", "Elcserélt étel", "Hiányzó/Elhagyott étel"], key="sidebar_hiba_tipus")
-        st_hiba_vevo = st.text_input("Vevő neve / Címe:", placeholder="Pl. Kovács Péter, Fő utca 12.", key="sidebar_hiba_vevo")
-        st_hiba_leiras = st.text_area("Rövid leírás (Melyik étel?):", placeholder="Pl. A zóna rántott hús doboza elrepedt, kifolyt.", key="sidebar_hiba_leiras")
+        st_hiba_leiras = st.text_area("Rövid kiegészítés (opcionális):", placeholder="Pl. a doboz teteje elrepedt.", key="sidebar_hiba_leiras")
         
         if st.button("🚨 HIBA KÜLDÉSE A DISZPÉCSERNEK", type="primary", use_container_width=True, key="sidebar_hiba_submit_btn"):
-            if not st_hiba_vevo or not st_hiba_leiras:
-                st.error("❌ Kérlek, add meg a vevőt és a leírást!")
+            if st_hiba_vevo_selected == "-- Válassz helyszínt / vevőt --" or st_hiba_kaja_selected == "-- Válassz érintett ételt --":
+                st.error("❌ Kérlek, válaszd ki a vevőt és a sérült ételt is a listából!")
             else:
                 is_test_mode = st.query_params.get("test", "false") == "true" or st.session_state.get('teszt_uzemmod', False)
                 if is_test_mode:
-                    st.warning("🧪 **Teszt mód:** A hibát rögzítettük.")
+                    st.warning("🧪 **Teszt mód:** A hibát sikeresen szimuláltuk.")
                 else:
                     try:
                         hibak_sheet = client.open_by_key(SHEET_ID_UGYFELKOR).worksheet("Hibajelentések")
                         most_ido = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        hibak_sheet.append_row([most_ido, futar_nev_kiir, jarat_szoveg_kiir, st_hiba_tipus, st_hiba_vevo, st_hiba_leiras])
-                        st.cache_data.clear() # Gyorsítótár ürítése
-                        st.success("✅ A hiba elküldve!")
+                        
+                        # Elküldjük a precíz adatokat
+                        hibak_sheet.append_row([
+                            most_ido, 
+                            futar_nev_kiir, 
+                            jarat_szoveg_kiir, 
+                            st_hiba_tipus, 
+                            st_hiba_vevo_selected, 
+                            f"Étel: {st_hiba_kaja_selected} | Leírás: {st_hiba_leiras}"
+                        ])
+                        st.success("✅ A hiba sikeresen rögzítve! A diszpécserek azonnal értesültek róla.")
                     except Exception as e:
                         st.error(f"Mentési hiba: {e}")
 
@@ -196,7 +317,6 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
 
     if is_admin:
         st.subheader("🛡️ Adminisztrációs Központ")
-        # JAVÍTÁS: Átadjuk a helyes paraméter sorrendet: sheet_id, client -> SHEET_ID_MASTER, client
         ev_most, het_most = get_latest_week_from_master(SHEET_ID_MASTER, client)
         
         if het_most < 24:
@@ -204,7 +324,6 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             if st.button("🔄 Master Frissítése a 24. hétig"):
                 with st.spinner("Szinkronizálás folyamatban..."):
                     sync_master_database(SHEET_ID_MASTER, 2026, het_most + 1, 24)
-                    st.cache_data.clear() # Gyorsítótár ürítése a sikeres szinkron után
                     st.success("Sikeres frissítés!")
                     st.rerun()
         else:
@@ -217,7 +336,6 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             if st.button("🚀 Master Adatbázis Építése"):
                 with st.spinner("Szinkronizálás..."):
                     sync_master_database(SHEET_ID_MASTER, target_year, start_w, end_w)
-                    st.cache_data.clear() # Gyorsítótár ürítése a generálás végén
                     st.success("Kész!")
 
         with st.expander("👤 Felhasználó Kezelés"):
@@ -247,7 +365,6 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
                 with st.spinner("Mentés..."):
                     if save_futar_to_sheets(edited_df_users, SHEET_ID_UGYFELKOR):
                         st.session_state.futar_df = edited_df_users
-                        st.cache_data.clear() # Gyorsítótár ürítése a sikeres mentés után
                         st.success("Sikeres mentés!")
                         st.rerun()
                     else:
@@ -451,8 +568,6 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
             
             eheti_eddigi_forgalom = 0
             existing_row_index = None
-            existing_beszedett_kp = 0
-            existing_borravalo = 0
             
             for idx, row in enumerate(summary_records, start=2):
                 r_date_str = str(row.get('Datum', '')).strip()
@@ -464,9 +579,6 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
                         if het_kezdete <= r_dt <= het_vege:
                             if r_date_str == api_datum_kulcs:
                                 existing_row_index = idx
-                                # JAVÍTÁS: Lekérjük a Google Sheets-ben már meglévő, mobil által beküldött valós KP és borravaló adatokat!
-                                existing_beszedett_kp = int(pd.to_numeric(row.get('Beszedett_KP', 0), errors='coerce'))
-                                existing_borravalo = int(pd.to_numeric(row.get('Borravalo', 0), errors='coerce'))
                             else:
                                 eheti_eddigi_forgalom += int(pd.to_numeric(row.get('Forgalom_Osszes', 0), errors='coerce'))
                     except:
@@ -501,19 +613,18 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
             'osszes_cim': szamitott_osszes_cim,
             'osszes_etel': szamitott_osszes_etel,
             'total_ertek': szamitott_total_ertek,
-            'kp_forgalom': existing_beszedett_kp,  # JAVÍTÁS: A valós, mobil által beküldött KP-t tartjuk a memóriában (nap elején 0)!
-            'borravalo': existing_borravalo,        # JAVÍTÁS: A valós borravalót tartjuk a memóriában (nap elején 0)!
+            'kp_forgalom': szamitott_kp_forgalom,
+            'borravalo': szamitott_borravalo,
             'futar_jutalek': szamitott_jutalek
         })
 
         # --- GOOGLE SHEETS MENTÉS / UPDATE ---
         if not st.session_state.get('teszt_uzemmod', False):
             try:
-                # JAVÍTÁS: A Beszedett_KP és a Borravalo nap elején 0-ról indul, de újra-feldolgozáskor megőrzi a már beküldött összeget!
                 uj_adat_sor = [
                     api_datum_kulcs, aktualis_futar, jarat_szoveg,
                     int(szamitott_osszes_megallo), int(szamitott_osszes_cim), int(szamitott_osszes_etel),
-                    int(szamitott_total_ertek), int(existing_beszedett_kp), int(existing_borravalo), int(szamitott_jutalek)
+                    int(szamitott_total_ertek), int(szamitott_kp_forgalom), int(szamitott_borravalo), int(szamitott_jutalek)
                 ]
                 
                 if existing_row_index:
@@ -528,9 +639,6 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
                 st.error(f"⚠️ Nem sikerült az adatok feltöltése a Google Sheets-be: {sheets_error}")
         else:
             st.info("🧪 Teszt üzemmód aktív: A mentés átugorva.")
-            
-        # JAVÍTÁS: Mivel új adatokat írtunk a Google Sheets-be, töröljük a gyorsítótárat, hogy a többi fül is azonnal az új számokat lássa!
-        st.cache_data.clear()
             
         if feltoltott_jaratok:
             st.session_state.aktiv_jaratok = feltoltott_jaratok
@@ -594,7 +702,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             <div style="font-size: 40px; margin-bottom: 10px;">👑🏆🍾</div>
             <h2 style="margin: 0; color: white; font-weight: bold; text-shadow: 1px 1px 3px rgba(0,0,0,0.3);">GRATULÁLUNK, {bonus_data['futar'].upper()}!</h2>
             <p style="font-size: 16px; margin: 10px 0 5px 0; text-shadow: 1px 1px 2px rgba(0,0,0,0.2);">
-                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke elérte a <b>{bonus_data['forgalom']:,} Ft</b>-ot!
+                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke alcanzó a <b>{bonus_data['forgalom']:,} Ft</b>-ot!
             </p>
             <div style="background-color: rgba(255,255,255,0.25); display: inline-block; padding: 10px 25px; border-radius: 50px; font-weight: bold; font-size: 18px; margin-top: 10px; border: 1px solid rgba(255,255,255,0.4);">
                 ⭐ EMELT BÓNUSZ SÁV: 14% JUTALÉK AKTIVÁLVA! ⭐

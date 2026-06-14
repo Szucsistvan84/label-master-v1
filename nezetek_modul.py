@@ -28,27 +28,26 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
     Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel, precíz div-alapú elválasztóvonalakkal.
     """
-    # Atombiztos CSS az oldalsáv zsugorítására a görgetés ellen és a felső üres tér eltüntetésére
-    st.markdown(
+    #    st.markdown(
         """
         <style>
-        /* Sidebar felső óriási fehér sávjának eltüntetése */
+        /* Sidebar felső óriási fehér sávjának esztétikus, megengedőbb eltüntetése */
         div[data-testid="stSidebarUserContent"] {
-            padding-top: 0rem !important;
-            margin-top: -3.5rem !important; /* Felhúzza a tartalmat teljesen a tetejére */
+            padding-top: 0.8rem !important; /* Hagyunk egy kis lélegzetvételnyi helyet a tetején */
+            margin-top: -2.2rem !important; /* Nem húzzuk fel teljesen a halálba, így nem csúszik rá a gombokra */
         }
         /* Metric kártyák betűméretének és térközének radikális csökkentése */
         [data-testid="stSidebarUserContent"] [data-testid="stMetricValue"] {
             font-size: 1.05rem !important;
             font-weight: 800 !important;
-            line-height: 1.0 !important;
+            line-height: 1.1 !important;
         }
         [data-testid="stSidebarUserContent"] [data-testid="stMetricLabel"] {
             font-size: 0.68rem !important;
             font-weight: 600 !important;
-            line-height: 1.0 !important;
+            line-height: 1.1 !important;
             color: #4B5563 !important;
-            margin-bottom: 1px !important;
+            margin-bottom: 2px !important;
         }
         [data-testid="stSidebarUserContent"] [data-testid="stMetric"] {
             padding: 0px !important;
@@ -56,17 +55,17 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         }
         /* Drasztikusan csökkentjük az összes függőleges elem közötti térközt */
         [data-testid="stSidebarUserContent"] div[data-testid="stVerticalBlock"] {
-            gap: 0.2rem !important;
+            gap: 0.3rem !important;
         }
         /* Fejlécek és sorközök finomítása */
         [data-testid="stSidebarUserContent"] h2 {
             font-size: 1.15rem !important;
             margin-top: 0px !important;
-            margin-bottom: 2px !important;
+            margin-bottom: 4px !important;
         }
         [data-testid="stSidebarUserContent"] h3 {
             font-size: 0.85rem !important;
-            margin-top: 2px !important;
+            margin-top: 4px !important;
             margin-bottom: 2px !important;
         }
         [data-testid="stSidebarUserContent"] hr {
@@ -78,7 +77,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         [data-testid="stSidebarUserContent"] p, [data-testid="stSidebarUserContent"] span {
             margin-top: 0px !important;
             margin-bottom: 0px !important;
-            line-height: 1.1 !important;
+            line-height: 1.2 !important;
         }
         /* Selectbox és beviteli mezők tömörítése */
         [data-testid="stSidebarUserContent"] div[data-baseweb="select"] {
@@ -89,7 +88,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         unsafe_allow_html=True
     )
 
-    st.markdown("<h2 style='text-align: center; color: #1E3A8A;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #1E3A8A; margin-bottom: 6px;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
     
     futar_nev_kiir = st.session_state.get('user_nev', 'Ismeretlen Futár')
     jarat_lista_kiir = st.session_state.get('user_jarat_lista', [])
@@ -183,7 +182,8 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 pass
 
     # --- 1. SEPARATOR DIV (A Futár adatai és a Haladásjelző között) ---
-    st.markdown("<div style='margin: 8px 0; border-top: 1px solid #E5E7EB;'></div>", unsafe_allow_html=True)
+    # JAVÍTÁS: Tágasabb és biztonságosabb margó a rácsúszás elkerülésére!
+    st.markdown("<div style='margin: 18px 0 12px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 1. SZEKCIÓ: KISZÁLLÍTÁSI HALADÁS ---
     st.subheader("🏁 Kiszállítás Haladás")
@@ -192,7 +192,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     st.caption(f"Teljesítve: {live_kesz_cimek} / {osszes_cim} cím ({int(haladas_szazalek * 100)}%)")
     
     # --- 2. SEPARATOR DIV (A Haladásjelző és a Pénzügyek között) ---
-    st.markdown("<div style='margin: 8px 0; border-top: 1px solid #E5E7EB;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 2. SZEKCIÓ: PÉNZÜGY & MENNYISÉG ---
     st.subheader("💰 Pénzügy & Mennyiség")
@@ -205,7 +205,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         st.metric("💵 Rakományérték", f"{forgalmi_ertek:,} Ft".replace(",", " "))
         
     # --- 3. SEPARATOR DIV (A Pénzügyek és az Élő elszámolás között) ---
-    st.markdown("<div style='margin: 8px 0; border-top: 1px solid #E5E7EB;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 3. SZEKCIÓ: ÉLŐ SZÁLLÍTÁSI MÉRŐK ---
     st.subheader("💸 Élő Elszámolás")
@@ -217,7 +217,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         st.metric("💰 Gyűjtött borravaló", f"{live_borravalo:,} Ft".replace(",", " "))
 
     # --- 4. SEPARATOR DIV (Az Élő elszámolás és a Hibabejelentő között) ---
-    st.markdown("<div style='margin: 8px 0; border-top: 1px solid #E5E7EB;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 4. SZEKCIÓ: SÜRGŐS HIBAJELENTŐ ÚTKÖZBEN ---
     st.subheader("⚠️ Probléma az úton?")

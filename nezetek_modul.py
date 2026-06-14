@@ -172,7 +172,11 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     live_borravalo = 0
 
     for k in list(st.session_state.keys()):
-        if k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres":
+        # UNIFIKÁLT BIZTONSÁGI SZŰRŐ: mind a kiszallitva_ (új), mind a kiszallitott_statusz_ (régi) kulcsokat figyeli!
+        delivered_by_bool = k.startswith("kiszallitva_") and st.session_state[k] is True
+        delivered_by_status = k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres"
+        
+        if delivered_by_bool or delivered_by_status:
             idx = k.split("_")[-1]
             live_kesz_cimek += 1
             try:

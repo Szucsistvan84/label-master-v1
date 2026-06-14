@@ -1,13 +1,3 @@
-# --- KÉNYSZERÍTETT MODUL HOT-RELOAD (GARANTÁLT FRISSÍTÉS) ---
-import sys
-import importlib
-
-modules_to_reload = ["mobil_modulok", "nezetek_modul", "adatbazis_modul", "geokodolo_modul"]
-for mod_name in modules_to_reload:
-    if mod_name in sys.modules:
-        importlib.reload(sys.modules[mod_name])
-# ------------------------------------------------------------
-
 # -*- coding: utf-8 -*-
 import streamlit as st
 
@@ -129,7 +119,7 @@ def main():
     # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
         st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🎯 Label Master</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a system használatához</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:
@@ -142,6 +132,11 @@ def main():
             if url_teszt and jarat_input:
                 st.info(f"🧪 Szimulált belépés észlelve a(z) {jarat_input} járathoz.")
                 if st.button("🧪 TESZT BELÉPÉS JELSZÓ NÉLKÜL", type="primary", use_container_width=True):
+                    # --- TISZTA LAP: Korábbi session kulcsok kisöprése ---
+                    for k in list(st.session_state.keys()):
+                        if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
+                            st.session_state.pop(k, None)
+                    
                     meta_forras = st.session_state.get('meta_data', {})
                     pdf_futar_nev = meta_forras.get('futar_neve', meta_forras.get('futar', ''))
                     
@@ -160,6 +155,10 @@ def main():
                     
                     # --- FEJLESZTŐI VÉSZBEJÁRAT ---
                     if tisztitott_input_jarat == "admin" and tisztitott_input_pass == "admin123":
+                        # --- TISZTA LAP: Korábbi session kulcsok kisöprése ---
+                        for k in list(st.session_state.keys()):
+                            if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
+                                st.session_state.pop(k, None)
                         st.session_state.bejelentkezve = True
                         st.session_state.user_nev = "Rendszergazda (Vészbejárat)"
                         st.session_state.user_jarat_lista = ["4002"]
@@ -188,6 +187,10 @@ def main():
                             break
                     
                     if talalt_futar:
+                        # --- TISZTA LAP: Korábbi session kulcsok kisöprése ---
+                        for k in list(st.session_state.keys()):
+                            if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
+                                st.session_state.pop(k, None)
                         st.session_state.bejelentkezve = True
                         st.session_state.user_nev = talalt_futar.get('Név', 'Ismeretlen felhasználó')
                         raw_jarat = str(talalt_futar.get('Járat', talalt_futar.get('Jarat', ''))).strip()
@@ -257,6 +260,10 @@ def main():
             render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)
                 
         if st.button("🚪 Kijelentkezés", key="mob_logout"):
+            # --- TISZTA LAP KIJELENTKEZÉSKOR ---
+            for k in list(st.session_state.keys()):
+                if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
+                    st.session_state.pop(k, None)
             st.session_state.bejelentkezve = False
             st.rerun()
 
@@ -274,6 +281,10 @@ def main():
                 st.sidebar.caption(f"🚚 Aktív járatok: {', '.join(st.session_state.user_jarat_lista)}")
             
         if st.sidebar.button("🚪 Kijelentkezés", key="desktop_logout"):
+            # --- TISZTA LAP KIJELENTKEZÉSKOR ---
+            for k in list(st.session_state.keys()):
+                if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
+                    st.session_state.pop(k, None)
             st.session_state.bejelentkezve = False
             if 'user_jarat_lista' in st.session_state: del st.session_state.user_jarat_lista
             st.rerun()

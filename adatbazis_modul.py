@@ -47,7 +47,7 @@ def get_gspread_client():
 @st.cache_data(ttl=300, show_spinner="Adatbázisok szinkronizálása...")
 def load_sheet_data_cached(_client, sheet_id, worksheet_name):
     """Gyorsítótárazott táblázat beolvasás UNFORMATTED és fallback opciókkal."""
-    import pandas as pd  # JAVÍTÁS: Belső import a Streamlit cache-szál biztonságáért!
+    import pandas as pd  # Belső import a Streamlit cache-szál biztonságáért!
     try:
         sheet = _client.open_by_key(sheet_id)
         worksheet = sheet.worksheet(worksheet_name)
@@ -62,7 +62,7 @@ def load_sheet_data_cached(_client, sheet_id, worksheet_name):
 
 def save_df_to_sheet(client, sheet_id, worksheet_name, df, clear_sheet=True):
     """Biztonságosan felülírja vagy frissíti a Google Sheet adott fülét a DataFrame adataival"""
-    import pandas as pd  # JAVÍTÁS: Belső import
+    import pandas as pd
     try:
         sheet = client.open_by_key(sheet_id)
         worksheet = sheet.worksheet(worksheet_name)
@@ -84,7 +84,7 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     A koordinátákat átfuttatja a biztonsagos_koordinata_tisztito-n, és stringként 
     menti, hogy a Google Sheets ne nyelje le a tizedesvesszőket.
     """
-    import pandas as pd  # JAVÍTÁS: Belső import
+    import pandas as pd
     if df.empty:
         return df
         
@@ -133,7 +133,7 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
 
 def get_latest_week_from_master(sheet_id, client):
     """Kinyeri a legnagyobb hetet a 'wXX' formátumú szövegekből a megadott klienssel."""
-    import pandas as pd  # JAVÍTÁS: Belső import
+    import pandas as pd
     try:
         if client is None:
             return 2026, 0
@@ -165,7 +165,7 @@ def load_etlap_api_smart(_client, sheet_id, columns_trigger=None):
     Letölti az Etlap_API munkalapot a Google Sheets-ből a megadott klienssel. 
     Ha a 'columns_trigger' megváltozik, a Streamlit újra letölti!
     """
-    import pandas as pd  # JAVÍTÁS: Belső import a cache környezethez
+    import pandas as pd
     try:
         if _client is None:
             return pd.DataFrame()
@@ -208,15 +208,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
             s = s.split('-')[-1]
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
-
-    def biztonsagos_float(val):
-        if val is None or str(val).strip() in ["", "None", "nan", "NaN", "-", "'"]:
-            return ""
-        try:
-            val_clean = str(val).replace(",", ".").replace("'", "").strip()
-            return float(val_clean)
-        except ValueError:
-            return ""
 
     # --- 1. LÉPÉS: TÖRZSLISTA BEOLVASÁSA ÉS TISZTÍTÁSA ---
     try:
@@ -478,71 +469,8 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         logger.info("🚀 Biztonságos, többfelhasználós szinkronizáció kész! Minden kolléga adata megőrizve.")
         st.success("🚀 Mobil terminál adatsorok (Adatok) sikeresen szinkronizálva a felhőbe!")
 
-        # --- STATISZTIKA MENTÉS A MOBIL_SUMMARY LAPRA ---
-        try:
-            ws_summary = sh.worksheet("Mobil_Summary")
-            osszes_etel = 0
-            if 'Rendelés' in df_uj_adatok.columns:
-                for _, r in df_uj_adatok.iterrows():
-                    r_szoveg = str(r.get('Rendelés', ''))
-                    darabok = re.findall(r'(\d+)-', r_szoveg)
-                    osszes_etel += sum(int(d) for d in darabok) if darabok else (1 if r_szoveg.strip() and r_szoveg.lower() != 'none' else 0)
-
-            forgalom_osszes = 0
-            if 'Fizetendő' in df_uj_adatok.columns:
-                f_sor = df_uj_adatok['Fizetendő'].astype(str).str.replace(r'[^0-9]', '', regex=True)
-                forgalom_osszes = int(pd.to_numeric(f_sor, errors='coerce').fillna(0).sum())
-
-            try:
-                datum_obj = datetime.strptime(szallitas_napja, "%Y-%m-%d")
-                aktualis_ev, aktualis_het, _ = datum_obj.isocalendar()
-            except:
-                aktualis_ev, aktualis_het = datetime.now().isocalendar()[0], datetime.now().isocalendar()[1]
-
-            eddigi_heti_forgalom = 0
-            summary_records = ws_summary.get_all_records()
-            
-            if summary_records:
-                df_sum_history = pd.DataFrame(summary_records)
-                df_sum_history.columns = [str(c).strip() for c in df_sum_history.columns]
-                
-                d_col = next((c for c in df_sum_history.columns if 'dátum' in c.lower() or 'datum' in c.lower()), df_sum_history.columns[0])
-                f_col = next((c for c in df_sum_history.columns if 'futár' in c.lower() or 'futar' in c.lower()), df_sum_history.columns[1])
-                p_col = next((c for c in df_sum_history.columns if 'forgalom' in c.lower() or 'bevétel' in c.lower()), df_sum_history.columns[6])
-
-                df_futar_history = df_sum_history[df_sum_history[f_col].astype(str).str.strip() == aktualis_futar_nev.strip()]
-                
-                for _, hist_row in df_futar_history.iterrows():
-                    hist_date_str = str(hist_row[d_col]).strip()
-                    try:
-                        hist_dt = datetime.strptime(hist_date_str, "%Y-%m-%d")
-                        h_ev, h_het, _ = hist_dt.isocalendar()
-                        if h_ev == aktualis_ev and h_het == aktualis_het:
-                            hist_money = str(hist_row[p_col]).replace(' ', '').replace('Ft', '').strip()
-                            hist_money = "".join(filter(str.isdigit, hist_money))
-                            if hist_money.isdigit():
-                                eddigi_heti_forgalom += int(hist_money)
-                    except:
-                        continue
-
-            teljes_heti_volumen = eddigi_heti_forgalom + forgalom_osszes
-            if teljes_heti_volumen >= 2100000:
-                jutalek_szazalek = 0.14
-                st.info(f"🚀 Gratuláció! A heti összesített forgalom ({teljes_heti_volumen:,} Ft) átlépte a limitet. 14%-os emelt jutalék érvényes!")
-            else:
-                jutalek_szazalek = 0.13
-                st.info(f"📊 Aktuális heti összesített forgalom: {teljes_heti_volumen:,} Ft (Alap 13%-os sáv).")
-
-            vart_jutalek = int(forgalom_osszes * jutalek_szazalek)
-            jaratok_str = ", ".join(df_uj_adatok['Járat'].astype(str).unique())
-
-            summary_row = [szallitas_napja, aktualis_futar_nev, jaratok_str, len(df_uj_adatok), len(df_uj_adatok), osszes_etel, forgalom_osszes, 0, 0, vart_jutalek]
-            ws_summary.append_row(summary_row)
-            st.success(f"📈 Napi rekord rögzítve a heti elszámolás alapján ({jutalek_szazalek*100}% jutalékkal: {vart_jutalek:,} Ft)!")
-            
-        except Exception as e_sum:
-            logger.error(f"Hiba a Mobil_Summary mentésekor: {e_sum}")
-            st.warning(f"⚠️ A statisztikai összefoglalót nem sikerült rögzíteni: {e_sum}")
+        # JAVÍTÁS: A Mobil_Summary dupla írásának megszüntetése az átfedések elkerülésére.
+        # A Mobil_Summary-t innentől kizárólag és hajszálpontosan a nezetek_modul.py írja a valós Raklista alapján!
             
     except Exception as e:
         logger.warning(f"A szinkronizáció megszakadt az 'Adatok' fül frissítésekor: {e}")
@@ -555,7 +483,7 @@ def sync_interfood_etlap(year, week, sheet_id):
     Letölti az Interfood étlapot az API-ból Excel formátumban,
     és feltölti a Google Sheets 'Etlap_API' munkalapjára.
     """
-    import pandas as pd  # JAVÍTÁS: Belső import
+    import pandas as pd
     api_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -632,7 +560,7 @@ def load_etlap_from_sheets(sheet_id):
     majd az adatokat strukturált indexként adja vissza/menti a session_state-be.
     """
     import streamlit as st
-    import pandas as pd  # JAVÍTÁS: Belső import
+    import pandas as pd
     
     client = st.session_state.get('client')
     if not client:
@@ -696,7 +624,7 @@ def load_etlap_from_sheets(sheet_id):
 def load_futar_from_sheets(sheet_id):
     """Betölti a futárok adatait a Google Sheet 'Futárok' lapjáról."""
     import streamlit as st
-    import pandas as pd  # JAVÍTÁS: Belső import
+    import pandas as pd
     import logging
     
     logger = logging.getLogger(__name__)
@@ -716,7 +644,7 @@ def load_futar_from_sheets(sheet_id):
 def save_futar_to_sheets(df, sheet_id):
     """Visszamenti a módosított futár adatokat a Google Sheet 'Futárok' lapjára."""
     import streamlit as st
-    import pandas as pd  # JAVÍTÁS: Belső import
+    import pandas as pd
     import logging
     
     logger = logging.getLogger(__name__)
@@ -740,7 +668,7 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
     és csak az új ételeket fűzi hozzá, megőrizve a korábbi kellékeket.
     """
     import streamlit as st
-    import pandas as pd  # JAVÍTÁS: Belső import
+    import pandas as pd
     import requests
     from io import BytesIO
     from utils import clean_text
@@ -851,7 +779,7 @@ def sync_ugyfelkor_fel(df_napi, sheet_id):
     Ha az ID már létezik, frissíti az adatokat, ha új, akkor hozzáfűzi.
     """
     import streamlit as st
-    import pandas as pd  # JAVÍTÁS: Belső import
+    import pandas as pd
     from datetime import datetime
 
     client = st.session_state.get('client')
@@ -917,7 +845,7 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id):
     majd a beállított sorrend alapján rendezi a táblázatot.
     """
     import streamlit as st
-    import pandas as pd  # JAVÍTÁS: Belső import
+    import pandas as pd
     
     client = st.session_state.get('client')
     if client is None: 
@@ -970,7 +898,7 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id):
 def _tiszta_futar_lista_letoltes(sheet_id):
     """Biztonságosan letölti a futárok listáját a PIN kódos azonosításhoz."""
     import streamlit as st
-    import pandas as pd  # JAVÍTÁS: Belső import
+    import pandas as pd
     
     client = st.session_state.get('client')
     if client is None:

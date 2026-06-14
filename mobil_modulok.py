@@ -4,124 +4,15 @@ import pandas as pd
 import time
 import urllib.parse
 import re
-import datetime
-from datetime import datetime as dt
+from datetime import datetime
 from streamlit_js_eval import get_geolocation
 
-# --- STREAMING_CHUNK: Importing cached readers for quota protection ---
+# --- KAPCSOLÓDÓ CACHED OLVASÓ IMPORTÁLÁSA A KVÓTAVÉDELEMHÉZ ---
 from adatbazis_modul import load_sheet_data_cached, SHEET_ID_UGYFELKOR
 
 # --- Szigorú illesztés a rendelési kódokhoz (pl: 1-A1* vagy 4-S2) ---
 ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 
-# Nap előtagok barátságos feloldása
-DAY_PREFIX_MAP = {
-    "Hé": "Hétfő",
-    "Ke": "Kedd",
-    "Sze": "Szerda",
-    "Csü": "Csütörtök",
-    "Pé": "Péntek",
-    "Szo": "Szombat"
-}
-
-# ISO nap sorszámok a pontos dátumszámításhoz
-DAY_TO_ISO = {
-    "Hétfő": 1,
-    "Kedd": 2,
-    "Szerda": 3,
-    "Csütörtök": 4,
-    "Péntek": 5,
-    "Szombat": 6,
-    "Vasárnap": 7
-}
-
-# --- STREAMING_CHUNK: Dynamic exact date calculator ---
-def get_day_with_exact_date(day_name):
-    """
-    Kiszámolja az aktuális feldolgozott hét alapján a nap pontos naptári dátumát.
-    Pl. "Szombat" -> "📅 Szombat (jún. 13.):"
-    """
-    try:
-        meta = st.session_state.get('meta_data', {})
-        year_val = meta.get('ev')
-        week_val = meta.get('het')
-        
-        # Fallback a jelenlegi naptári hétre, ha a session_state üres (mobil nézet elszigeteltsége miatt)
-        if not year_val or not week_val:
-            today = datetime.date.today()
-            year_val, week_val, _ = today.isocalendar()
-            
-        if year_val and week_val:
-            year = int(year_val)
-            week = int(week_val)
-            iso_day = DAY_TO_ISO.get(day_name)
-            if iso_day:
-                import datetime as dt_lib
-                date_obj = dt_lib.date.fromisocalendar(year, week, iso_day)
-                months_hu = {
-                    1: "jan.", 2: "febr.", 3: "márc.", 4: "ápr.", 5: "máj.", 6: "jún.",
-                    7: "júl.", 8: "aug.", 9: "szept.", 10: "okt.", 11: "nov.", 12: "dec."
-                }
-                month_str = months_hu.get(date_obj.month, f"{date_obj.month:02d}.")
-                return f"🗓️ {day_name} ({month_str} {date_obj.day}.):"
-    except:
-        pass
-    return f"🗓️ {day_name}:"
-
-# --- STREAMING_CHUNK: Helper parser to group items by days ---
-def parse_order_by_days(rendeles_szoveg):
-    """
-    Intelligensen napok szerint csoportosítja a rendelési tételeket.
-    Visszaad egy szótárt: {"Péntek": [("1", "M")], "Szombat": [("1", "M")]}
-    """
-    day_groups = {}
-    if not rendeles_szoveg or str(rendeles_szoveg).strip() == "" or str(rendeles_szoveg).lower() == "nan":
-        return day_groups
-        
-    parts = str(rendeles_szoveg).split('|')
-    for part in parts:
-        part = part.strip()
-        if not part:
-            continue
-            
-        # Megkeressük az előtagot, pl: "Pé:" vagy "Szo:"
-        prefix_match = re.match(r'^([^:]+)\s*:', part)
-        if prefix_match:
-            raw_prefix = prefix_match.group(1).strip()
-            clean_day = DAY_PREFIX_MAP.get(raw_prefix, raw_prefix)
-            content_part = part[prefix_match.end():]
-            found_items = re.findall(ORDER_PAT, content_part)
-            if found_items:
-                if clean_day not in day_groups:
-                    day_groups[clean_day] = []
-                day_groups[clean_day].extend(found_items)
-        else:
-            found_items = re.findall(ORDER_PAT, part)
-            if found_items:
-                if "Egyéb" not in day_groups:
-                    day_groups["Egyéb"] = []
-                day_groups["Egyéb"].extend(found_items)
-                
-    return day_groups
-
-# --- STREAMING_CHUNK: Helper calculator for total item count ---
-def get_total_items_count(rendeles_szoveg):
-    """
-    Kiszámolja egy rendelési szövegből a megrendelt ételek teljes darabszámát az önellenőrzéshez.
-    """
-    if not rendeles_szoveg or str(rendeles_szoveg).strip() == "" or str(rendeles_szoveg).lower() == "nan":
-        return 0
-    day_groups = parse_order_by_days(rendeles_szoveg)
-    total_qty = 0
-    for day, items in day_groups.items():
-        for qty, code in items:
-            try:
-                total_qty += int(qty)
-            except:
-                pass
-    return total_qty
-
-# --- STREAMING_CHUNK: Rendering the bulk receiving page (Tab 1) ---
 def render_mobil_aruatvetel(client):
     """
     Ömlesztett áruátvétel oldal golyóálló Google Sheets API gyorsítótárral.
@@ -133,15 +24,19 @@ def render_mobil_aruatvetel(client):
     df_sajat_raklista_init = pd.DataFrame()
 
     try:
+        # JAVÍTÁS: Közvetlen olvasás helyett a gyorsítótárból olvassuk be a Raklistát a 429-es hibák ellen!
         df_raklista_init = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Mobil_Raklista")
         
         if not df_raklista_init.empty:
             df_raklista_init.columns = [c.strip() for c in df_raklista_init.columns]
+            
+            # 🔒 Szűrés a bejelentkezett futárra
             df_sajat_raklista_init = df_raklista_init[df_raklista_init['Jarat_ID / Futar'] == futar_neve]
             
             if not df_sajat_raklista_init.empty:
                 jaratok = ["Mai Raklista"]
             else:
+                # Tartalék terv: ha nincs még saját raklistája, a cached Adatok fület nézzük meg
                 try:
                     df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
                     if not df_adatok.empty:
@@ -160,6 +55,7 @@ def render_mobil_aruatvetel(client):
         st.error(f"❌ Nem sikerült elérni a Google Sheets-et: {e}")
         return
 
+    # 🔄 TÖBBJÁRATOS JAVÍTÁS: Dinamikus multiselect
     if not jaratok:
         jaratok = ["Nincs elérhető járat"]
         
@@ -176,15 +72,19 @@ def render_mobil_aruatvetel(client):
 
     st.write("---")
 
+    # Session State állapotok inicializálása
     if "aruatvetel_folyamatban" not in st.session_state:
         st.session_state.aruatvetel_folyamatban = False
     if "idobelyeg_sor_index" not in st.session_state:
         st.session_state.idobelyeg_sor_index = None
 
+    # =========================================================================
+    # ÁLLAPOT 1: AZ ÁRÚÁTVÉTEL ÉS IDŐMÉRÉS MÉG EL SINCS INDÍTVA
+    # =========================================================================
     if not st.session_state.aruatvetel_folyamatban:
         st.info("💡 Pakolás előtt indítsd el az áruátvételt a pontos munkaidő-méréshez.")
         if st.button("🚀 ÁRUÁTVÉTEL INDÍTÁSA", use_container_width=True, type="primary", key="futar_start_btn"):
-            most = dt.now()
+            most = datetime.now()
             start_ido = most.strftime("%H:%M:%S")
             mai_datum = most.strftime("%Y-%m-%d")
             
@@ -198,6 +98,7 @@ def render_mobil_aruatvetel(client):
                 st.session_state.idobelyeg_sor_index = len(idok_sheet.get_all_values())
                 st.session_state.aruatvetel_folyamatban = True
                 
+                # Mivel írtunk a Google Sheets-be, töröljük a gyorsítótárat a friss adatokért!
                 st.cache_data.clear()
                 
                 st.success(f"Áruátvétel elindítva a következő járatokhoz: {jaratok_szoveg} ({start_ido})")
@@ -206,12 +107,19 @@ def render_mobil_aruatvetel(client):
             except Exception as e:
                 st.error(f"Hiba a Mobil_Idobelyegek írásakor az Ügyfélkör Sheetbe: {e}")
 
+    # =========================================================================
+    # ÁLLAPOT 2: DEPOZÁS (CSAK AZ ÖMLESZTETT ÁRUÁTVÉTEL ÉS HIBÁK)
+    # =========================================================================
     else:
         jaratok_szoveg = ", ".join(map(str, valasztott_jaratok))
         
+        # Ha még nem zárták le a depót, akkor az Áruátvétel fázis fut
         if not st.session_state.get("kiszallitas_folyamatban", False):
             st.warning(f"🔄 Áruátvétel és depózás folyamatban... ({jaratok_szoveg})")
             
+            # -----------------------------------------------------------------
+            # 1. LÉPÉS: ÖMLESZTETT ÁRUÁTVÉTEL CHK-LISTA
+            # -----------------------------------------------------------------
             st.markdown("## 1. lépés: Ömlesztett áruátvétel")
             if 'df_sajat_raklista_init' in locals() and not df_sajat_raklista_init.empty:
                 st.caption(f"Üdv, {futar_neve}! Ellenőrizd a darabszámokat a konyhai sorrend alapján:")
@@ -228,6 +136,7 @@ def render_mobil_aruatvetel(client):
 
             st.write("---")
             
+            # HIBABEJELENTÉS
             with st.expander("🚨 HIÁNYZIK / SÉRÜLT / TÖBBLET VAN? (Bejelentés)"):
                 all_etelek_display = [""]
                 all_etelek_mapping = {}
@@ -253,13 +162,15 @@ def render_mobil_aruatvetel(client):
                 
                 if st.button("⚠️ HIBA BEKÜLDÉSE AZ ADMINNAK", use_container_width=True, key="mob_hiba_submit"):
                     if hiba_etel != "":
+                        # --- TESZT ÜZEMMÓD ELLENŐRZÉSE ---
                         if st.session_state.get('teszt_uzemmod', False):
                             st.warning("🧪 **Teszt üzemmód aktív mobilon is!** A hibabejelentést sikeresen szimuláltuk, de a Google Sheets-be (Logisztikai_Hibak) NEM mentettünk semmit.")
                         else:
+                            # ÉLES MENTÉS
                             try:
                                 sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
                                 hibak_sheet = sh_ugyfelkor.worksheet("Logisztikai_Hibak")
-                                most_hiba = dt.now().strftime("%Y-%m-%d %H:%M:%S")
+                                most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 if hiba_tipus == "Többlet (Többet kaptunk)":
                                     fokategoria = "ÁRUÁTVÉTELI TÖBBLET"
                                     hiany_db, tobblet_db = 0, int(hiba_db)
@@ -272,7 +183,9 @@ def render_mobil_aruatvetel(client):
                                     hiany_db, tobblet_db, hiba_tipus, hiba_megj, futar_neve, "Feldolgozatlan"
                                 ])
                                 
+                                # Töröljük a gyorsítótárat a frissülésért!
                                 st.cache_data.clear()
+                                
                                 st.success("Sikeresen rögzítve! ✅")
                             except Exception as e:
                                 st.error(f"Hiba a mentésnél: {e}")
@@ -281,8 +194,9 @@ def render_mobil_aruatvetel(client):
 
             st.write("---")
 
+            # ⏱️ ÁRUÁTVÉTEL RÖGZÍTÉSE
             if st.button("⏱️ ÁRUÁTVÉTEL VÉGE (Idő rögzítése)", use_container_width=True, type="secondary", key="futar_end_btn"):
-                most = dt.now()
+                most = datetime.now()
                 end_ido = most.strftime("%H:%M:%S")
                 
                 try:
@@ -293,11 +207,14 @@ def render_mobil_aruatvetel(client):
                     if sor_szam:
                         idok_sheet.update_cell(sor_szam, 4, end_ido)
                     
-                    st.cache_data.clear()
+                    st.cache_data.clear() # Gyorsítótár törlése a sikeres lezárás után
                     st.success(f"✅ Áruátvétel sikeresen lezárva: {end_ido}. Most már átválthatsz a Címekre szedés fülre!")
                 except Exception as e:
                     st.error(f"Hiba az áruátvétel lezárásakor: {e}")
 
+        # -----------------------------------------------------------------
+        # 3. LÉPÉS: KISZÁLLÍTÁS
+        # -----------------------------------------------------------------
         else:
             st.markdown("## 3. lépés: Kiszállítás folyamatban... 🚗💨")
             st.info(f"Sikeresen elindultál a következő járatokkal: {jaratok_szoveg}")
@@ -308,34 +225,33 @@ def render_mobil_aruatvetel(client):
                 st.session_state.aruatvetel_folyamatban = False
                 st.session_state.kiszallitas_folyamatban = False
                 st.session_state.idobelyeg_sor_index = None
-                st.cache_data.clear()
+                st.cache_data.clear() # Gyorsítótár törlése a műszak végén
                 st.balloons()
                 st.success("Műszak sikeresen lezárva! Pihenj egyet! 😊")
                 time.sleep(2.0)
                 st.rerun()
 
-# --- STREAMING_CHUNK: Styling and rendering the packing page (Tab 2) ---
 def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
-    # --- FEJLESZTETT CSS AZ AUTOMATIKUS TÖRDELÉSHEZ, NAGYOBB BETŰKHÖZ ÉS EXTRA KOMPAKT ELRENDEZÉSHEZ ---
+    # --- FEJLESZTETT CSS AZ AUTOMATIKUS TÖRDELÉSHEZ ÉS COMPAKT ELRENDEZÉSHEZ ---
     st.markdown(
         """
         <style>
         /* Szuper kompakt margóbeállítások mobilon */
         .block-container {
-            padding-top: 0.5rem !important;
-            padding-bottom: 0.8rem !important;
-            padding-left: 0.4rem !important;
-            padding-right: 0.4rem !important;
+            padding-top: 1rem !important;
+            padding-bottom: 1.5rem !important;
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
         }
         
         /* Összepréselt kártya a felesleges fehér sávok ellen */
         .grouped-card {
             background-color: #FFFFFF;
-            border: 1px solid #D1D5DB;
+            border: 1px solid #E5E7EB;
             border-radius: 12px;
-            padding: 8px 10px;
-            margin-bottom: 5px; /* Szigorú, minimális térköz */
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            padding: 10px;
+            margin-bottom: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
         
         /* Sárga bónusz tipp banner a közös megállóknak */
@@ -345,56 +261,35 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             color: #92400E;
             padding: 6px 10px;
             border-radius: 8px;
-            font-size: 13px;
+            font-size: 11px;
             font-weight: bold;
-            margin-bottom: 6px;
+            margin-bottom: 8px;
             display: flex;
             align-items: center;
             gap: 6px;
         }
         
-        /* Normál (Hétköznapi / Pénteki) tétel pille - NEM félkövér */
-        .item-badge-weekday {
+        /* Auto-wrap, gyönyörűen tördelhető pilleszerű badges */
+        .item-badge {
             display: inline-block;
             background-color: #EFF6FF;
             color: #1E40AF;
             border: 1px solid #BFDBFE;
-            padding: 3px 8px;
+            padding: 2px 6px;
             border-radius: 12px;
             margin: 2px;
-            font-size: 13px;
-            font-weight: 500; /* Medium, de nem félkövér! */
+            font-size: 11px;
+            font-weight: bold;
             white-space: nowrap;
         }
         
-        /* Hétvégi (Szombati) tétel pille - HATÁROZOTTAN FÉLKÖVÉR és elegáns rózsaszínes háttér */
-        .item-badge-weekend {
-            display: inline-block;
-            background-color: #FFF1F2;
-            color: #9F1239;
-            border: 1px solid #FECDD3;
-            padding: 3px 8px;
-            border-radius: 12px;
-            margin: 2px;
-            font-size: 13px;
-            font-weight: 800; /* Erősen félkövér! */
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-            white-space: nowrap;
-        }
-        
-        /* Egyedi vevő doboz a csoportosított kártyán binnen */
+        /* Egyedi vevő doboz a csoportosított kártyán belül */
         .customer-item {
             background-color: #F9FAFB;
-            border: 1px solid #E5E7EB;
+            border: 1px solid #F3F4F6;
             border-radius: 8px;
-            padding: 6px 8px;
-            margin-bottom: 4px; /* Szigorú, minimális térköz a vevők között */
-        }
-        
-        /* Szorosabb térköz a toggle gomboknak */
-        .stToggle {
-            margin-bottom: 0px !important;
-            padding-bottom: 0px !important;
+            padding: 8px;
+            margin-bottom: 6px;
         }
         </style>
         """,
@@ -429,6 +324,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
         valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
         if valasztott_jaratok:
             
+            # Éles, korlátlan lekérés helyett a beépített cache-ből töltjük be az ügyfélkört!
             df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok") 
             
             if not df_adatok.empty:
@@ -437,26 +333,31 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                 nev_oszlop = 'Név' if 'Név' in df_adatok.columns else df_adatok.columns[1]
                 rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_adatok.columns else ('Kosár' if 'Kosár' in df_adatok.columns else None)
                 
+                # Biztosítjuk a Sorrend (etikett sorszám) oszlop meglétét
                 if 'Sorrend' not in df_adatok.columns:
                     df_adatok['Sorrend'] = range(1, len(df_adatok) + 1)
                 df_adatok['Sorrend'] = pd.to_numeric(df_adatok['Sorrend'], errors='coerce').fillna(999).astype(int)
 
+                # Intelligens, dinamikus helyettesítő járat lefejtő motor!
                 actual_filter_routes = []
                 futar_neve = st.session_state.get('user_nev', 'Szűcs István')
                 futar_neve_lower = str(futar_neve).strip().lower()
 
                 for j in valasztott_jaratok:
                     if j in ["Mai Raklista", "Nincs elérhető járat", "Alapértelmezett Járat"]:
+                        # 1. Megnézzük az Adatok fülön, hogy melyik járatok vannak ehhez a futárhoz rendelve ma
                         if 'Feldolgozó Futár' in df_adatok.columns:
                             routes_from_data = df_adatok[df_adatok['Feldolgozó Futár'].astype(str).str.strip().str.lower() == futar_neve_lower]['Járat'].unique()
                             actual_filter_routes.extend([str(r).strip() for r in routes_from_data if str(r).strip() != "" and str(r).lower() != "nan"])
                         
+                        # 2. Ha az Adatok fül még üres, akkor az alapértelmezett profil járatokat vesszük elő (fallback)
                         if not actual_filter_routes:
                             actual_filter_routes.extend([str(r).strip() for r in st.session_state.get("user_jarat_lista", [])])
                     else:
                         actual_filter_routes.append(j)
                 actual_filter_routes = list(set(actual_filter_routes))
 
+                # 🔒 JÁRAT SZŰRÉS: Csak a futár járatcsoportjai alapján szűrjük az Adatok fület!
                 jarat_col_name = next((c for c in df_adatok.columns if 'járat' in c.lower() or 'jarat' in c.lower()), None)
                 if jarat_col_name:
                     df_adatok_filtered = df_adatok[df_adatok[jarat_col_name].astype(str).str.strip().isin(actual_filter_routes)].copy()
@@ -467,15 +368,48 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                     st.info("ℹ️ Nincsenek bepakolandó címek a járatodhoz.")
                     return
 
+                # ==============================================================================
+                # ⚙️ DETEKTÁLT ADMIN / SUPERADMIN FEJLESZTŐI GYORSPANEL (FAST-TESTING)
+                # ==============================================================================
+                if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
+                    with st.expander("🛠️ ADMIN TESZTELŐ PANEL (Gyors Bepakolás)", expanded=True):
+                        st.markdown(f"**Kedves {futar_neve}!** Ezt a panelt csak te látod adminisztrátorként a tesztelés megkönnyítésére.")
+                        
+                        col_fast1, col_fast2 = st.columns(2)
+                        with col_fast1:
+                            if st.button("⚡ ÖSSZES CÍM BEPAKOLÁSA AZONNAL", type="primary", use_container_width=True, key="admin_fast_pack_btn"):
+                                with st.spinner("⏳ Minden tétel bepakolása folyamatban..."):
+                                    for idx in df_adatok_filtered.index:
+                                        st.session_state[f"bepak_allapot_{idx}"] = True
+                                        st.session_state[f"lada_szam_tarolt_{idx}"] = "1. láda"
+                                        st.session_state[f"chk_{idx}"] = True
+                                    st.session_state.kiszallitas_folyamatban = True
+                                    st.success("🎉 Összes tétel sikeresen bepakolva az 1. ládába! Indulhat a kiszállítás!")
+                                    time.sleep(1.0)
+                                    st.rerun()
+                        with col_fast2:
+                            if st.button("🧹 BEPAKOLÁSOK RESETÁLÁSA", type="secondary", use_container_width=True, key="admin_fast_reset_btn"):
+                                for idx in df_adatok_filtered.index:
+                                    st.session_state[f"bepak_allapot_{idx}"] = False
+                                    st.session_state[f"lada_szam_tarolt_{idx}"] = None
+                                    st.session_state[f"chk_{idx}"] = False
+                                st.session_state.kiszallitas_folyamatban = False
+                                st.warning("🧹 Minden korábbi bepakolás sikeresen kiürítve!")
+                                time.sleep(1.0)
+                                st.rerun()
+                        st.write("")
+
                 # --- FORDÍTOTT SORRENDŰ CSOPORTOSÍTÁS ---
+                # Kiszámoljuk az egyedi címek legmagasabb Sorrendjét, és csökkenő sorrendbe rendezzük a fordított pakolásért
                 addr_max_sorrend = df_adatok_filtered.groupby(cim_oszlop)['Sorrend'].max().reset_index()
                 addr_max_sorrend = addr_max_sorrend.sort_values(by='Sorrend', ascending=False)
                 rendezett_cimek = addr_max_sorrend[cim_oszlop].tolist()
 
-                # --- STREAMING_CHUNK: Rendering packing card groups safely ---
+                # St.fragment az azonnali, villanásmentes checkbox pipálásokért
                 @st.fragment
                 def render_kartyak(df_lista, cimek):
                     for addr_idx, addr in enumerate(cimek):
+                        # Leszűrjük a címhez tartozó megrendeléseket, és fordított etikett sorrendbe állítjuk
                         df_addr = df_lista[df_lista[cim_oszlop] == addr].sort_values(by='Sorrend', ascending=False)
                         
                         show_card = False
@@ -483,6 +417,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             bepakolt_kulcs = f"bepak_allapot_{idx}"
                             lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
                             
+                            # JAVÍTÁS 1: Biztosítjuk, hogy a session state-ben mindenképp létrejöjjön a kulcs beolvasás előtt!
                             if bepakolt_kulcs not in st.session_state:
                                 st.session_state[bepakolt_kulcs] = False
                             if lada_tarolt_kulcs not in st.session_state:
@@ -494,11 +429,13 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         if not show_card:
                             continue
 
+                        # --- CSOPORTOSÍTOTT KÁRTYA KIÍRÁSA ---
                         st.markdown(f"""
                         <div class="grouped-card">
-                            <div style="font-size: 15.5px; font-weight: bold; color: #1E3A8A; margin-bottom: 4px;">📍 Megálló: {addr}</div>
+                            <div style="font-size: 16px; font-weight: bold; color: #1E3A8A; margin-bottom: 4px;">📍 Megálló: {addr}</div>
                         """, unsafe_allow_html=True)
 
+                        # Bónusz tipp, ha több csomag is megy az adott címre
                         if len(df_addr) > 1:
                             st.markdown(f"""
                             <div class="group-tip">
@@ -506,51 +443,77 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             </div>
                             """, unsafe_allow_html=True)
 
+                        # A címhez tartozó vevők és rendeléseik kilistázása a kártyán belül
                         for idx, row in df_addr.iterrows():
                             vevo_nev = str(row[nev_oszlop]).strip()
                             címke_szama = row['Sorrend']
                             megj = str(row.get('Megjegyzés', '')).strip()
-                            rendeles_szoveg = str(row[rendeles_oszlop]).strip() if rendeles_oszlop else ""
+                            rendeles_val = str(row[rendeles_oszlop]).strip() if rendeles_oszlop else ""
                             
-                            # JAVÍTÁS 1: Hajszálpontos tételszám összesítő kiszámítása a címkéhez
-                            total_items_count = get_total_items_count(rendeles_szoveg)
-                            
+                            # Kiszámoljuk az adott címkén lévő tételek teljes darabszámát önellenőrzéshez
+                            tetel_darabszam = 0
+                            found_items_count = re.findall(ORDER_PAT, rendeles_val)
+                            if found_items_count:
+                                tetel_darabszam = sum(int(qty) for qty, _ in found_items_count)
+                            else:
+                                tetel_darabszam = 1 if rendeles_val != "" and rendeles_val.lower() != "nan" else 0
+
                             st.markdown(f"""
                             <div class="customer-item">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
-                                    <span style="font-size: 14.5px; font-weight: bold; color: #374151;">👤 {vevo_nev}</span>
-                                    <span style="font-size: 12.5px; background-color: #E5E7EB; color: #374151; padding: 1px 5px; border-radius: 4px; font-weight: bold;">🏷️ Címke #{címke_szama} | 📦 {total_items_count} db</span>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <span style="font-size: 13.5px; font-weight: bold; color: #374151;">👤 {vevo_nev}</span>
+                                    <span style="font-size: 11.5px; background-color: #E5E7EB; color: #374151; padding: 2px 6px; border-radius: 6px; font-weight: bold;">
+                                        🏷️ Címke #{címke_szama} | 📦 {tetel_darabszam} db
+                                    </span>
                                 </div>
                             """, unsafe_allow_html=True)
 
                             if megj and megj != "nan" and megj != "":
-                                st.markdown(f'<div style="font-size: 12.5px; color: #D97706; font-style: italic; margin-bottom: 3px;">📝 Megjegyzés: {megj}</div>', unsafe_allow_html=True)
+                                st.markdown(f'<div style="font-size: 11.5px; color: #D97706; font-style: italic; margin-bottom: 4px;">📝 Megjegyzés: {megj}</div>', unsafe_allow_html=True)
 
-                            day_groups = parse_order_by_days(rendeles_szoveg)
-                            
-                            if day_groups:
-                                badges_html = '<div style="margin-top: 4px; margin-bottom: 4px;">'
-                                for day, items in day_groups.items():
-                                    is_weekend = (day in ["Szombat", "Vasárnap"])
-                                    badge_class = "item-badge-weekend" if is_weekend else "item-badge-weekday"
-                                    exact_day_title = get_day_with_exact_date(day)
-                                    
-                                    bold_style = "font-weight: bold;" if is_weekend else "font-weight: normal; color: #4B5563;"
-                                    badges_html += f'<div style="font-size: 13.5px; {bold_style} margin-top: 4px; margin-bottom: 2px;">{exact_day_title}</div>'
-                                    badges_html += '<div style="display: flex; flex-wrap: wrap; gap: 2px;">'
-                                    for qty, code in items:
-                                        badges_html += f'<span class="{badge_class}">{qty}x {code}</span>'
+                            # --- NAPOK SZERINTI CSOPORTOSÍTÁS ÉS ETIKETT-HŰ BETŰFORMÁZÁS ---
+                            day_parts = rendeles_val.split('|')
+                            for part in day_parts:
+                                part = part.strip()
+                                if not part: continue
+                                
+                                # Megnézzük, hogy melyik naphoz tartoznak az ételek
+                                is_szombat = "Szo:" in part or "Szombat:" in part
+                                day_title = ""
+                                if "Hé:" in part: day_title = "🗓️ Hétfő:"
+                                elif "Ke:" in part: day_title = "🗓️ Kedd:"
+                                elif "Sze:" in part: day_title = "🗓️ Szerda:"
+                                elif "Csü:" in part: day_title = "🗓️ Csütörtök:"
+                                elif "Pé:" in part: day_title = "🗓️ Péntek:"
+                                elif "Szo:" in part: day_title = "📆 Szombat (Hétvége):"
+                                
+                                # Ha van nap megjelölés, kiírjuk külön fejléc alá
+                                if day_title:
+                                    # Szombati tételekhez adunk egy kis pirosas-rózsaszínes kiemelést
+                                    style_szoveg = "color: #DC2626; font-weight: bold;" if is_szombat else "color: #4B5563; font-weight: 500;"
+                                    st.markdown(f'<div style="font-size: 11.5px; {style_szoveg} margin-top: 4px; margin-bottom: 2px;">{day_title}</div>', unsafe_allow_html=True)
+
+                                # Ételek pilleszerű tördelése és badges rajzolása (Etikett-hű vékony vs bold formázással!)
+                                found_items = re.findall(ORDER_PAT, part)
+                                if found_items:
+                                    badges_html = '<div style="margin-top: 2px; margin-bottom: 4px; display: flex; flex-wrap: wrap;">'
+                                    for qty, code in found_items:
+                                        # Szombati kódok félkövérek (bold) az etikett alapján, a péntekiek normál vékonyak
+                                        style_kaja = "font-weight: 900; background-color: #FEF2F2; color: #991B1B; border: 1px solid #FCA5A5;" if is_szombat else "font-weight: normal; background-color: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE;"
+                                        badges_html += f'<span class="item-badge" style="{style_kaja}">{qty}x {code}</span>'
                                     badges_html += '</div>'
-                                badges_html += '</div>'
-                                st.markdown(badges_html, unsafe_allow_html=True)
-                            elif rendeles_szoveg and rendeles_szoveg != "nan" and rendeles_szoveg != "":
-                                st.markdown(f'<div style="font-size: 12.5px; color: #4B5563;">📋 {rendeles_szoveg}</div>', unsafe_allow_html=True)
+                                    st.markdown(badges_html, unsafe_allow_html=True)
+                                elif part and part != "nan" and part != "":
+                                    style_plain = "font-weight: bold; color: #991B1B;" if is_szombat else "font-weight: normal; color: #4B5563;"
+                                    st.markdown(f'<div style="font-size: 12px; {style_plain}">📋 {part}</div>', unsafe_allow_html=True)
 
                             st.markdown('</div>', unsafe_allow_html=True)
 
+                            # Checkbox kezelése a vevő alá rendelve
                             bepakolt_kulcs = f"bepak_allapot_{idx}"
                             lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
 
+                            # JAVÍTÁS 2: Szigorú inicializáció a renderelés alatt is
                             if bepakolt_kulcs not in st.session_state:
                                 st.session_state[bepakolt_kulcs] = False
                             if lada_tarolt_kulcs not in st.session_state:
@@ -564,16 +527,23 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     st.session_state[f"bepak_allapot_{i}"] = False
                                     st.session_state[f"lada_szam_tarolt_{i}"] = None
 
-                            # JAVÍTÁS 2: Szuper látványos, zöld-visszajelzésű st.toggle használata a checkbox helyett
+                            # JAVÍTÁS 3: Szigorú és biztonságos .get() lekérdezés KeyError védelemmel a lada_tarolt_kulcs-hoz!
                             tarolt_lada_ertek = st.session_state.get(lada_tarolt_kulcs, None)
                             label_text = f"🟢 Bepakolva ide: {tarolt_lada_ertek}" if tarolt_lada_ertek else f"⚪ Bepakolás a ládába ({vevo_nev})"
                             
                             st.toggle(label_text, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}", on_change=log_lada)
+                            st.write("")
 
                         st.markdown('</div>', unsafe_allow_html=True)
+                        st.write("---")
 
+                # Kártyák kirajzolása
                 render_kartyak(df_adatok_filtered, rendezett_cimek)
                 
+                # ==============================================================================
+                # 🏁 BEPAKOLÁS LEZÁRÁSA
+                # ==============================================================================
+                st.write("")
                 st.write("---")
                 st.subheader("🏁 Bepakolás Lezárása")
                 st.info("Ha minden címet berendeztél a ládákba, zárd le a fázist az induláshoz!")
@@ -590,7 +560,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
                             idok_sheet = sh_ugyfelkor.worksheet("Mobil_Idobelyegek")
                             
-                            most = dt.now()
+                            most = datetime.now()
                             bepakolas_vege_ido = most.strftime("%H:%M:%S")
                             mai_datum = most.strftime("%Y-%m-%d")
                             futar_neve = st.session_state.get('user_nev', 'Ismeretlen Futár')
@@ -617,7 +587,6 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
     except Exception as e:
         st.error(f"Hiba a betöltéskor: {e}")
 
-# --- STREAMING_CHUNK: Rendering delivery page (Tab 3) ---
 def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
     st.markdown("## 🚚 3. lépés: Kiszállítás és Elszámolás")
     st.caption("💡 Mindig a soron következő legfrissebb címet látod. Használd a gyorsgombokat!")
@@ -628,6 +597,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             st.info("ℹ️ Válaszd ki a járatodat az 1. fülön!")
             return
 
+        # JAVÍTÁS: Éles hívások helyett a gyorsítótárból töltjük be az Adatokat a 429-es hiba elkerülésére!
         df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
         
         if df_adatok.empty:
@@ -649,6 +619,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         lat_oszlop = 'Latitude' if 'Latitude' in df_adatok.columns else 'Lat'
         lon_oszlop = 'Longitude' if 'Longitude' in df_adatok.columns else 'Lon'
 
+        # JAVÍTÁS: Virtuális járatnevek lefejtése a szűréshez valós járatszámokra a kiszállításnál is!
         actual_filter_routes = []
         futar_neve = st.session_state.get('user_nev', 'Szűcs István')
         futar_neve_lower = str(futar_neve).strip().lower()
@@ -664,6 +635,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 actual_filter_routes.append(j)
         actual_filter_routes = list(set(actual_filter_routes))
 
+        # Szűrjük az adatokat a bejelentkezett járatokra a felesleges címek elkerülésére
         jarat_col_name = next((c for c in df_adatok.columns if 'járat' in c.lower() or 'jarat' in c.lower()), None)
         if jarat_col_name:
             df_kiszallitas = df_adatok[df_adatok[jarat_col_name].astype(str).str.strip().isin(actual_filter_routes)].copy()
@@ -718,24 +690,37 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 # --- 🛒 KOSÁR TARTALMA (Pill stílusban leképezve a kiszállításnál is!) ---
                 if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "" and str(row[rendeles_oszlop]).strip() != "nan":
                     st.markdown("📦 **Átadandó termékek:**")
-                    day_groups = parse_order_by_days(str(row[rendeles_oszlop]).strip())
-                    if day_groups:
-                        badges_html = '<div style="margin-top: 4px; margin-bottom: 4px;">'
-                        for day, items in day_groups.items():
-                            is_weekend = (day in ["Szombat", "Vasárnap"])
-                            badge_class = "item-badge-weekend" if is_weekend else "item-badge-weekday"
-                            exact_day_title = get_day_with_exact_date(day)
+                    
+                    # Napi darabolás
+                    day_parts = str(row[rendeles_oszlop]).strip().split('|')
+                    for part in day_parts:
+                        part = part.strip()
+                        if not part: continue
+                        
+                        is_szombat = "Szo:" in part or "Szombat:" in part
+                        day_title = ""
+                        if "Hé:" in part: day_title = "🗓️ Hétfő:"
+                        elif "Ke:" in part: day_title = "🗓️ Kedd:"
+                        elif "Sze:" in part: day_title = "🗓️ Szerda:"
+                        elif "Csü:" in part: day_title = "🗓️ Csütörtök:"
+                        elif "Pé:" in part: day_title = "🗓️ Péntek:"
+                        elif "Szo:" in part: day_title = "📆 Szombat (Hétvége):"
+                        
+                        if day_title:
+                            style_szoveg = "color: #DC2626; font-weight: bold;" if is_szombat else "color: #4B5563; font-weight: 500;"
+                            st.markdown(f'<div style="font-size: 11.5px; {style_szoveg} margin-top: 4px; margin-bottom: 2px;">{day_title}</div>', unsafe_allow_html=True)
                             
-                            bold_style = "font-weight: bold;" if is_weekend else "font-weight: normal; color: #4B5563;"
-                            badges_html += f'<div style="font-size: 13.5px; {bold_style} margin-top: 4px; margin-bottom: 2px;">{exact_day_title}</div>'
-                            badges_html += '<div style="display: flex; flex-wrap: wrap; gap: 2px;">'
-                            for qty, code in items:
-                                badges_html += f'<span class="{badge_class}">{qty}x {code}</span>'
+                        found_items = re.findall(ORDER_PAT, part)
+                        if found_items:
+                            badges_html = '<div style="margin-top: 2px; margin-bottom: 6px; display: flex; flex-wrap: wrap;">'
+                            for qty, code in found_items:
+                                style_kaja = "font-weight: 900; background-color: #FEF2F2; color: #991B1B; border: 1px solid #FCA5A5;" if is_szombat else "font-weight: normal; background-color: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE;"
+                                badges_html += f'<span class="item-badge" style="{style_kaja}">{qty}x {code}</span>'
                             badges_html += '</div>'
-                        badges_html += '</div>'
-                        st.markdown(badges_html, unsafe_allow_html=True)
-                    else:
-                        st.code(str(row[rendeles_oszlop]).strip(), language="text")
+                            st.markdown(badges_html, unsafe_allow_html=True)
+                        elif part and part != "nan" and part != "":
+                            style_plain = "font-weight: bold; color: #991B1B;" if is_szombat else "font-weight: normal; color: #4B5563;"
+                            st.markdown(f'<div style="font-size: 12px; {style_plain}">📋 {part}</div>', unsafe_allow_html=True)
                 
                 # --- 🗺️ OPENSTREETMAP BEÁGYAZÁS ---
                 if saved_lat and saved_lon and saved_lat != "nan" and saved_lon != "nan":
@@ -750,6 +735,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     height=230
                 )
 
+                # --- AKCIÓGOMBOK ---
                 col_tel, col_gps = st.columns(2)
                 
                 with col_tel:
@@ -777,6 +763,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
                 st.write("")
                 
+                # --- 🎯 KOORDINÁTA JAVÍTÁS / MENTÉS ---
                 with st.expander("🎯 Pontatlan a pozíció? Kapu rögzítése"):
                     st.write("Állj meg a kapu előtt a kocsival, és mentsd el a pontos koordinátákat a jövőre nézve.")
                     loc = get_geolocation()
@@ -813,6 +800,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
                 st.write("---")
                 
+                # --- 💰 INTELLIGENS BORRAVALÓ SZÁMÍTÁS ---
                 elovart_osszeg = 0
                 if penz_oszlop:
                     nyers_penz = str(row[penz_oszlop]).replace("Ft", "").replace(" ", "").replace("\xa0", "").strip()
@@ -823,6 +811,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                         
                 st.markdown(f"💵 **Fizetendő összeg:** `{elovart_osszeg:,} Ft`" if elovart_osszeg > 0 else "💵 **Fizetendő összeg:** `Nincs megadva (0 Ft)`")
                 
+                # Input mező az átvett összegnek
                 atvett_osszeg = st.number_input(
                     "💰 Ügyféltől átvett készpénz (Ft):",
                     min_value=0,
@@ -831,6 +820,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     key=f"atvett_input_{idx}"
                 )
                 
+                # Borravaló számítása: Kapott - Elvárt
                 szamitott_borravalo = 0
                 if atvett_osszeg > elovart_osszeg:
                     szamitott_borravalo = atvett_osszeg - elovart_osszeg
@@ -838,6 +828,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 elif atvett_osszeg < elovart_osszeg and atvett_osszeg > 0:
                     st.warning(f"⚠️ Figyelem! Kevesebb pénzt kaptál, mint a számla összege ({elovart_osszeg - atvett_osszeg:,} Ft hiány)!")
 
+                # --- LEZÁRÁS ---
                 if st.button("✅ Cím sikeresen átadva", key=f"siker_{idx}", use_container_width=True, type="primary"):
                     st.session_state[f"borravalo_{idx}"] = szamitott_borravalo
                     st.session_state[f"kiszallitva_{idx}"] = True
@@ -847,6 +838,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             break
             
         else:
+            # 🏆 Ha minden cím elfogyott, akkor összesítjük és véglegenítjük a borravalót
             teljes_napi_borravalo = sum(int(st.session_state.get(f"borravalo_{idx}", 0)) for idx, _ in bepakolt_sorok)
             st.session_state['futar_borravalo'] = teljes_napi_borravalo
             

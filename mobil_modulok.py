@@ -44,6 +44,12 @@ def get_day_with_exact_date(day_name):
         meta = st.session_state.get('meta_data', {})
         year_val = meta.get('ev')
         week_val = meta.get('het')
+        
+        # Fallback a jelenlegi naptári hétre, ha a session_state üres (mobil nézet elszigeteltsége miatt)
+        if not year_val or not week_val:
+            today = datetime.date.today()
+            year_val, week_val, _ = today.isocalendar()
+            
         if year_val and week_val:
             year = int(year_val)
             week = int(week_val)
@@ -56,10 +62,10 @@ def get_day_with_exact_date(day_name):
                     7: "júl.", 8: "aug.", 9: "szept.", 10: "okt.", 11: "nov.", 12: "dec."
                 }
                 month_str = months_hu.get(date_obj.month, f"{date_obj.month:02d}.")
-                return f"📅 {day_name} ({month_str} {date_obj.day}.):"
+                return f"🗓️ {day_name} ({month_str} {date_obj.day}.):"
     except:
         pass
-    return f"📅 {day_name}:"
+    return f"🗓️ {day_name}:"
 
 def parse_order_by_days(rendeles_szoveg):
     """
@@ -381,7 +387,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             white-space: nowrap;
         }
         
-        /* Egyedi vevő doboz a csoportosított kártyán belül */
+        /* Egyedi vevő doboz a csoportosított kártyán binnen */
         .customer-item {
             background-color: #F9FAFB;
             border: 1px solid #E5E7EB;

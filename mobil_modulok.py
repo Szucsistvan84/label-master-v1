@@ -13,6 +13,52 @@ from adatbazis_modul import load_sheet_data_cached, SHEET_ID_UGYFELKOR
 # --- Szigorú illesztés a rendelési kódokhoz (pl: 1-A1* vagy 4-S2) ---
 ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 
+# Nap előtagok barátságos feloldása
+DAY_PREFIX_MAP = {
+    "Hé": "Hétfő",
+    "Ke": "Kedd",
+    "Sze": "Szerda",
+    "Csü": "Csütörtök",
+    "Pé": "Péntek",
+    "Szo": "Szombat"
+}
+
+def parse_order_by_days(rendeles_szoveg):
+    """
+    Intelligensen napok szerint csoportosítja a rendelési tételeket.
+    Visszaad egy szótárt: {"Péntek": [("1", "M")], "Szombat": [("1", "M")]}
+    """
+    day_groups = {}
+    if not rendeles_szoveg or str(rendeles_szoveg).strip() == "" or str(rendeles_szoveg).lower() == "nan":
+        return day_groups
+        
+    parts = str(rendeles_szoveg).split('|')
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+            
+        # Megkeressük az előtagot, pl: "Pé:" vagy "Szo:"
+        prefix_match = re.match(r'^([^:]+)\s*:', part)
+        if prefix_match:
+            raw_prefix = prefix_match.group(1).strip()
+            clean_day = DAY_PREFIX_MAP.get(raw_prefix, raw_prefix)
+            content_part = part[prefix_match.end():]
+            found_items = re.findall(ORDER_PAT, content_part)
+            if found_items:
+                if clean_day not in day_groups:
+                    day_groups[clean_day] = []
+                day_groups[clean_day].extend(found_items)
+        else:
+            # Fallback, ha nincs nap megjelölve
+            found_items = re.findall(ORDER_PAT, part)
+            if found_items:
+                if "Egyéb" not in day_groups:
+                    day_groups["Egyéb"] = []
+                day_groups["Egyéb"].extend(found_items)
+                
+    return day_groups
+
 def render_mobil_aruatvetel(client):
     """
     Ömlesztett áruátvétel oldal golyóálló Google Sheets API gyorsítótárral.
@@ -232,7 +278,7 @@ def render_mobil_aruatvetel(client):
                 st.rerun()
 
 def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
-    # --- FEJLESZTETT CSS AZ AUTOMATIKUS TÖRDELÉSHEZ ÉS COMPAKT ELRENDEZÉSHEZ ---
+    # --- FEJLESZTETT CSS AZ AUTOMATIKUS TÖRDELÉSHEZ, COMPAKT ELRENDEZÉSHEZ ÉS NAGYOBB BETŰKHÖZ ---
     st.markdown(
         """
         <style>
@@ -244,14 +290,14 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             padding-right: 0.5rem !important;
         }
         
-        /* Összepréselt kártya a felesleges fehér sávok ellen */
+        /* Összepréselt kártya nagyobb betűkkel és jobb térközzel */
         .grouped-card {
             background-color: #FFFFFF;
-            border: 1px solid #E5E7EB;
-            border-radius: 12px;
-            padding: 10px;
-            margin-bottom: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            border: 1px solid #D1D5DB;
+            border-radius: 14px;
+            padding: 12px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.06);
         }
         
         /* Sárga bónusz tipp banner a közös megállóknak */
@@ -259,26 +305,26 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
             border: 1px solid #FCD34D;
             color: #92400E;
-            padding: 6px 10px;
-            border-radius: 8px;
-            font-size: 11px;
+            padding: 8px 12px;
+            border-radius: 10px;
+            font-size: 13px;
             font-weight: bold;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
         }
         
-        /* Auto-wrap, gyönyörűen tördelhető pilleszerű badges */
+        /* Auto-wrap, nagyobb, látványos pilleszerű badges */
         .item-badge {
             display: inline-block;
             background-color: #EFF6FF;
             color: #1E40AF;
             border: 1px solid #BFDBFE;
-            padding: 2px 6px;
-            border-radius: 12px;
+            padding: 4px 10px;
+            border-radius: 14px;
             margin: 2px;
-            font-size: 11px;
+            font-size: 13.5px;
             font-weight: bold;
             white-space: nowrap;
         }
@@ -286,10 +332,10 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
         /* Egyedi vevő doboz a csoportosított kártyán belül */
         .customer-item {
             background-color: #F9FAFB;
-            border: 1px solid #F3F4F6;
-            border-radius: 8px;
-            padding: 8px;
-            margin-bottom: 6px;
+            border: 1px solid #E5E7EB;
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 8px;
         }
         </style>
         """,
@@ -401,7 +447,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         # --- CSOPORTOSÍTOTT KÁRTYA KIÍRÁSA ---
                         st.markdown(f"""
                         <div class="grouped-card">
-                            <div style="font-size: 13.5px; font-weight: bold; color: #1E3A8A; margin-bottom: 4px;">📍 Megálló: {addr}</div>
+                            <div style="font-size: 16px; font-weight: bold; color: #1E3A8A; margin-bottom: 4px;">📍 Megálló: {addr}</div>
                         """, unsafe_allow_html=True)
 
                         # Bónusz tipp, ha több csomag is megy az adott címre
@@ -422,24 +468,29 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             st.markdown(f"""
                             <div class="customer-item">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                    <span style="font-size: 12px; font-weight: bold; color: #374151;">👤 {vevo_nev}</span>
-                                    <span style="font-size: 11px; background-color: #E5E7EB; color: #374151; padding: 1px 5px; border-radius: 4px; font-weight: bold;">🏷️ Címke #{címke_szama}</span>
+                                    <span style="font-size: 15px; font-weight: bold; color: #374151;">👤 {vevo_nev}</span>
+                                    <span style="font-size: 13px; background-color: #E5E7EB; color: #374151; padding: 2px 6px; border-radius: 4px; font-weight: bold;">🏷️ Címke #{címke_szama}</span>
                                 </div>
                             """, unsafe_allow_html=True)
 
                             if megj and megj != "nan" and megj != "":
-                                st.markdown(f'<div style="font-size: 11px; color: #D97706; font-style: italic; margin-bottom: 4px;">📝 Megjegyzés: {megj}</div>', unsafe_allow_html=True)
+                                st.markdown(f'<div style="font-size: 13.5px; color: #D97706; font-style: italic; margin-bottom: 4px;">📝 Megjegyzés: {megj}</div>', unsafe_allow_html=True)
 
-                            # Ételek pilleszerű tördelése és badges rajzolása
-                            found_items = re.findall(ORDER_PAT, rendeles_szoveg)
-                            if found_items:
-                                badges_html = '<div style="margin-top: 4px; margin-bottom: 4px;">'
-                                for qty, code in found_items:
-                                    badges_html += f'<span class="item-badge">{qty}x {code}</span>'
+                            # --- ÉTELEK NAP SZERINTI CSOPORTOSÍTÁSA ---
+                            day_groups = parse_order_by_days(rendeles_szoveg)
+                            
+                            if day_groups:
+                                badges_html = '<div style="margin-top: 6px; margin-bottom: 6px;">'
+                                for day, items in day_groups.items():
+                                    badges_html += f'<div style="font-size: 13px; font-weight: bold; color: #4B5563; margin-top: 6px; margin-bottom: 2px;">📅 {day}:</div>'
+                                    badges_html += '<div style="display: flex; flex-wrap: wrap; gap: 4px;">'
+                                    for qty, code in items:
+                                        badges_html += f'<span class="item-badge">{qty}x {code}</span>'
+                                    badges_html += '</div>'
                                 badges_html += '</div>'
                                 st.markdown(badges_html, unsafe_allow_html=True)
                             elif rendeles_szoveg and rendeles_szoveg != "nan" and rendeles_szoveg != "":
-                                st.markdown(f'<div style="font-size: 11.5px; color: #4B5563;">📋 {rendeles_szoveg}</div>', unsafe_allow_html=True)
+                                st.markdown(f'<div style="font-size: 13px; color: #4B5563;">📋 {rendeles_szoveg}</div>', unsafe_allow_html=True)
 
                             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -624,11 +675,16 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 # --- 🛒 KOSÁR TARTALMA (Pill stílusban leképezve a kiszállításnál is!) ---
                 if rendeles_oszlop and str(row[rendeles_oszlop]).strip() != "" and str(row[rendeles_oszlop]).strip() != "nan":
                     st.markdown("📦 **Átadandó termékek:**")
-                    found_items = re.findall(ORDER_PAT, str(row[rendeles_oszlop]).strip())
-                    if found_items:
-                        badges_html = '<div style="margin-top: 4px; margin-bottom: 8px;">'
-                        for qty, code in found_items:
-                            badges_html += f'<span class="item-badge">{qty}x {code}</span>'
+                    
+                    day_groups = parse_order_by_days(str(row[rendeles_oszlop]).strip())
+                    if day_groups:
+                        badges_html = '<div style="margin-top: 6px; margin-bottom: 6px;">'
+                        for day, items in day_groups.items():
+                            badges_html += f'<div style="font-size: 13px; font-weight: bold; color: #4B5563; margin-top: 6px; margin-bottom: 2px;">📅 {day}:</div>'
+                            badges_html += '<div style="display: flex; flex-wrap: wrap; gap: 4px;">'
+                            for qty, code in items:
+                                badges_html += f'<span class="item-badge">{qty}x {code}</span>'
+                            badges_html += '</div>'
                         badges_html += '</div>'
                         st.markdown(badges_html, unsafe_allow_html=True)
                     else:

@@ -7,28 +7,25 @@ import re
 from datetime import datetime
 from streamlit_js_eval import get_geolocation
 
+# --- KAPCSOLÓDÓ CACHED OLVASÓ IMPORTÁLÁSA A KVÓTAVÉDELEMHÉZ ---
+from adatbazis_modul import load_sheet_data_cached, SHEET_ID_UGYFELKOR
+
 # --- Szigorú illesztés a rendelési kódokhoz (pl: 1-A1* vagy 4-S2) ---
 ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 
 def render_mobil_aruatvetel(client):
     """
-    client: Az app.py-ból átadott, már hitelesített gspread kliens
+    Ömlesztett áruátvétel oldal golyóálló Google Sheets API gyorsítótárral.
     """
     st.subheader("📦 Ömlesztett áruátvétel")
     
-    # Pontos Google Sheet ID-k a konfigurációdból
-    SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
-    SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
-    
-    # 1. JÁRAT ÉS FUTÁR AZONOSÍTÁS
     futar_neve = st.session_state.get('user_nev', 'Te (Teszt Üzemmód)')
     jaratok = []
     df_sajat_raklista_init = pd.DataFrame()
 
     try:
-        sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
-        raklista_sheet = sh_ugyfelkor.worksheet("Mobil_Raklista")
-        df_raklista_init = pd.DataFrame(raklista_sheet.get_all_records())
+        # JAVÍTÁS: Közvetlen olvasás helyett a gyorsítótárból olvassuk be a Raklistát a 429-es hibák ellen!
+        df_raklista_init = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Mobil_Raklista")
         
         if not df_raklista_init.empty:
             df_raklista_init.columns = [c.strip() for c in df_raklista_init.columns]
@@ -39,10 +36,9 @@ def render_mobil_aruatvetel(client):
             if not df_sajat_raklista_init.empty:
                 jaratok = ["Mai Raklista"]
             else:
-                # Tartalék terv: ha nincs még saját raklistája, megnézzük a nyers Adatok fület
+                # Tartalék terv: ha nincs még saját raklistája, a cached Adatok fület nézzük meg
                 try:
-                    adatok_sheet = sh_ugyfelkor.worksheet("Adatok")
-                    df_adatok = pd.DataFrame(adatok_sheet.get_all_records())
+                    df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
                     if not df_adatok.empty:
                         df_adatok.columns = [c.strip() for c in df_adatok.columns]
                         if 'Feldolgozó Futár' in df_adatok.columns:
@@ -101,6 +97,10 @@ def render_mobil_aruatvetel(client):
                 
                 st.session_state.idobelyeg_sor_index = len(idok_sheet.get_all_values())
                 st.session_state.aruatvetel_folyamatban = True
+                
+                # JAVÍTÁS: Mivel írtunk a Google Sheets-be, töröljük a gyorsítótárat a friss adatokért!
+                st.cache_data.clear()
+                
                 st.success(f"Áruátvétel elindítva a következő járatokhoz: {jaratok_szoveg} ({start_ido})")
                 time.sleep(1.0)
                 st.rerun()
@@ -168,6 +168,7 @@ def render_mobil_aruatvetel(client):
                         else:
                             # ÉLES MENTÉS
                             try:
+                                sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
                                 hibak_sheet = sh_ugyfelkor.worksheet("Logisztikai_Hibak")
                                 most_hiba = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 if hiba_tipus == "Többlet (Többet kaptunk)":
@@ -181,6 +182,10 @@ def render_mobil_aruatvetel(client):
                                     most_hiba, hiba_melyik_jarat, fokategoria, "N/A", hiba_etel, 
                                     hiany_db, tobblet_db, hiba_tipus, hiba_megj, futar_neve, "Feldolgozatlan"
                                 ])
+                                
+                                # JAVÍTÁS: Mivel új hibasor került be, töröljük a gyorsítótárat a frissülésért!
+                                st.cache_data.clear()
+                                
                                 st.success("Sikeresen rögzítve! ✅")
                             except Exception as e:
                                 st.error(f"Hiba a mentésnél: {e}")
@@ -202,6 +207,7 @@ def render_mobil_aruatvetel(client):
                     if sor_szam:
                         idok_sheet.update_cell(sor_szam, 4, end_ido)
                     
+                    st.cache_data.clear() # Gyorsítótár törlése a sikeres lezárás után
                     st.success(f"✅ Áruátvétel sikeresen lezárva: {end_ido}. Most már átválthatsz a Címekre szedés fülre!")
                 except Exception as e:
                     st.error(f"Hiba az áruátvétel lezárásakor: {e}")
@@ -219,15 +225,12 @@ def render_mobil_aruatvetel(client):
                 st.session_state.aruatvetel_folyamatban = False
                 st.session_state.kiszallitas_folyamatban = False
                 st.session_state.idobelyeg_sor_index = None
+                st.cache_data.clear() # Gyorsítótár törlése a műszak végén
                 st.balloons()
                 st.success("Műszak sikeresen lezárva! Pihenj egyet! 😊")
                 time.sleep(2.0)
                 st.rerun()
 
-@st.cache_data(ttl=600)
-def get_mobil_adatok_cached(_client, sheet_id):
-    sh = _client.open_by_key(sheet_id)
-    return pd.DataFrame(sh.worksheet("Adatok").get_all_records())
 
 def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
     # --- FEJLESZTETT CSS AZ AUTOMATIKUS TÖRDELÉSHEZ ÉS MARGÓKHOZ ---
@@ -321,7 +324,9 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
     try:
         valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
         if valasztott_jaratok:
-            df_adatok = get_mobil_adatok_cached(client, SHEET_ID_UGYFELKOR) 
+            
+            # JAVÍTÁS: Éles, korlátlan lekérés helyett a beépített cache-ből töltjük be az ügyfélkört!
+            df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok") 
             
             if not df_adatok.empty:
                 df_adatok.columns = [c.strip() for c in df_adatok.columns]
@@ -355,10 +360,9 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                 @st.fragment
                 def render_kartyak(df_lista, cimek):
                     for addr_idx, addr in enumerate(cimek):
-                        # Leszűrjük a címhez tartozó összes megrendelést (etikett sorszám alapján rendezve)
+                        # Leszűrjük a címhez tartozó megrendeléseket, és fordított etikett sorrendbe állítjuk
                         df_addr = df_lista[df_lista[cim_oszlop] == addr].sort_values(by='Sorrend', ascending=False)
                         
-                        # Ellenőrizzük, hogy a csoportból van-e olyan elem, amit még meg kell jelenítenünk
                         show_card = False
                         for idx, row in df_addr.iterrows():
                             bepakolt_kulcs = f"bepak_allapot_{idx}"
@@ -470,6 +474,9 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             else:
                                 idok_sheet.append_row([mai_datum, jarat_szoveg, futar_neve, "", bepakolas_vege_ido])
                             
+                            # JAVÍTÁS: Mivel új adatot írtunk a felhőbe, töröljük a gyorsítótárat az azonnali frissülésért!
+                            st.cache_data.clear()
+                            
                             st.success(f"🎉 Bepakolás lezárva ({bepakolas_vege_ido})! Jó utat kívánunk! 🚚")
                             time.sleep(1.5)
                             st.rerun()
@@ -495,7 +502,8 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             st.info("ℹ️ Válaszd ki a járatodat az 1. fülön!")
             return
 
-        df_adatok = get_mobil_adatok_cached(client, SHEET_ID_UGYFELKOR)
+        # JAVÍTÁS: Éles hívások helyett a gyorsítótárból töltjük be az Adatokat a 429-es hiba elkerülésére!
+        df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
         
         if df_adatok.empty:
             st.error("Az Adatok munkalap üres!")
@@ -649,7 +657,9 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                                 ws.update_cell(sheet_row, lat_col_idx, curr_lat)
                                 ws.update_cell(sheet_row, lon_col_idx, curr_lon)
                                 
+                                # JAVÍTÁS: Mivel frissült a pozíció a felhőben, ürítjük a cache-t!
                                 st.cache_data.clear()
+                                
                                 st.success("🎯 Pozíció sikeresen elmentve!")
                                 st.rerun()
                             except Exception as geo_err:
@@ -710,6 +720,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     if "kiszallitva_" in k or "lada_szam_tarolt_" in k or "borravalo_" in k or "atvett_input_" in k:
                         del st.session_state[k]
                 st.session_state['futar_borravalo'] = 0
+                st.cache_data.clear() # Gyorsítótár ürítése a teszt újraindításnál
                 st.rerun()
 
     except Exception as e:

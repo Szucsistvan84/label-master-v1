@@ -204,15 +204,15 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
 
     if is_admin:
         st.subheader("🛡️ Adminisztrációs Központ")
-        # JAVÍTÁS: Átadjuk a client objektumot!
-        ev_most, het_most = get_latest_week_from_master(client, SHEET_ID_MASTER)
+        # JAVÍTÁS: Átadtuk a SHEET_ID-t elsőként és a clientet másodikként a definíció szerint!
+        ev_most, het_most = get_latest_week_from_master(SHEET_ID_MASTER, client)
         
         if het_most < 24:
             st.error(f"⚠️ Étlap figyelmeztetés: Csak a **{het_most}. hétig** van feltöltve!")
             if st.button("🔄 Master Frissítése a 24. hétig"):
                 with st.spinner("Szinkronizálás folyamatban..."):
-                    # JAVÍTÁS: Átadjuk a client objektumot!
-                    sync_master_database(client, SHEET_ID_MASTER, 2026, het_most + 1, 24)
+                    # JAVÍTÁS: Kivettük a felesleges client paramétert
+                    sync_master_database(SHEET_ID_MASTER, 2026, het_most + 1, 24)
                     st.success("Sikeres frissítés!")
                     st.rerun()
         else:
@@ -224,14 +224,14 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             end_w = st.number_input("Záró hét", min_value=1, max_value=52, value=17)
             if st.button("🚀 Master Adatbázis Építése"):
                 with st.spinner("Szinkronizálás..."):
-                    # JAVÍTÁS: Átadjuk a client objektumot!
-                    sync_master_database(client, SHEET_ID_MASTER, target_year, start_w, end_w)
+                    # JAVÍTÁS: Kivettük a felesleges client paramétert
+                    sync_master_database(SHEET_ID_MASTER, target_year, start_w, end_w)
                     st.success("Kész!")
 
         with st.expander("👤 Felhasználó Kezelés"):
             if 'futar_df' not in st.session_state:
-                # JAVÍTÁS: Átadjuk a client objektumot!
-                st.session_state.futar_df = load_futar_from_sheets(client, SHEET_ID_UGYFELKOR)
+                # JAVÍTÁS: Kivettük a felesleges client paramétert
+                st.session_state.futar_df = load_futar_from_sheets(SHEET_ID_UGYFELKOR)
 
             df_to_edit = st.session_state.futar_df.astype(str)
             edited_df_users = st.data_editor(
@@ -254,8 +254,8 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
 
             if st.button("💾 Módosítások mentése", key="save_users_btn"):
                 with st.spinner("Mentés..."):
-                    # JAVÍTÁS: Átadjuk a client objektumot!
-                    if save_futar_to_sheets(client, edited_df_users, SHEET_ID_UGYFELKOR):
+                    # JAVÍTÁS: Kivettük a felesleges client paramétert
+                    if save_futar_to_sheets(edited_df_users, SHEET_ID_UGYFELKOR):
                         st.session_state.futar_df = edited_df_users
                         st.success("Sikeres mentés!")
                         st.rerun()
@@ -295,13 +295,13 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
         session_key = f"sync_{ev}_{het}"
         if session_key not in st.session_state:
             with st.spinner(f"Étlap szinkronizálása ({ev}/W{het})..."):
-                # JAVÍTÁS: Átadjuk a client objektumot!
-                sync_interfood_etlap(client, ev, het, sheet_id)
+                # JAVÍTÁS: Kivettük a felesleges client paramétert
+                sync_interfood_etlap(ev, het, sheet_id)
                 st.session_state[session_key] = True
 
     with st.spinner("Étlap adatok beolvasása..."):
-        # JAVÍTÁS: Átadjuk a client objektumot!
-        etlap_adatok = load_etlap_from_sheets(client, sheet_id)
+        # JAVÍTÁS: Kivettük a felesleges client paramétert
+        etlap_adatok = load_etlap_from_sheets(sheet_id)
         st.session_state.etlap_adatok = etlap_adatok
 
         napi_kodok = set()

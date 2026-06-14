@@ -10,7 +10,7 @@ from gspread_dataframe import set_with_dataframe
 from geokodolo_modul import biztonsagos_koordinata_tisztito
 from io import BytesIO
 
-logger = logging.getLogger(__name__)
+logger = logging.get_logger(__name__)
 
 # --- FIX SHEET ID-K A BIZTONSÁGI MENTÉSBŐL ---
 SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o" 
@@ -30,12 +30,12 @@ def get_gspread_client():
     # A Streamlit secrets-ből vagy a helyi környezetből olvassa be a hitelesítést
     try:
         if "gcp_service_account" in gspread.io.os.environ:
-            # Ha környezeti változóban van (pl. Streamlit Cloud)
+            # If on cloud environment
             import json
             info = json.loads(gspread.io.os.environ["gcp_service_account"])
             creds = Credentials.from_service_account_info(info, scopes=scopes)
         else:
-            # Helyi teszteléshez a gyári st.secrets-ből (ha elérhető)
+            # Local testing with Streamlit secrets
             import streamlit as st
             creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
             
@@ -89,7 +89,7 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
         
     df_clean = df.copy()
     
-    # 1. ID kényszerítése tiszta 6 jegyű szöveggé (levágva a .0-át ha float lenne)
+    # 1. ID kényszerítése tiszta 6 jegyű szöveggé
     if 'ID' in df_clean.columns:
         df_clean['ID'] = df_clean['ID'].astype(str).apply(
             lambda x: "".join(filter(str.isdigit, x.split('.')[0])).strip()
@@ -101,16 +101,10 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     if 'Cím' in df_clean.columns:
         df_clean['Cím'] = df_clean['Cím'].astype(str).str.strip()
         
-    # =========================================================================
-    # 🔥 JAVÍTOTT 3. PONT: Koordináták precíziós tisztítása és mentése
-    # =========================================================================
+    # 3. Koordináták precíziós tisztítása és mentése
     for col in ['Lat', 'Lon']:
         if col in df_clean.columns:
-            # Első lépés: átengedjük a te okos, levágás-biztos tisztító függvényeden
             df_clean[col] = df_clean[col].apply(biztonsagos_koordinata_tisztito)
-            
-            # Második lépés (Google Sheets trükk): Szöveggé alakítjuk a kapott tiszta float számot.
-            # Így a gspread tizedespontos stringként küldi be, és a Sheets nem fogja eltüntetni a pontot!
             df_clean[col] = df_clean[col].apply(lambda x: f"{x}" if x is not None and not pd.isna(x) else "")
             
     # 4. Telefon, Csoport, Megjegyzés, Utolso_Rendeles tisztítása stringgé (nan-ok eltávolítása)
@@ -127,10 +121,8 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
         df_clean['Rendeles_Szam'] = df_clean['Rendeles_Szam'].astype(str).str.replace(r'[^0-9-]', '', regex=True)
         df_clean['Rendeles_Szam'] = pd.to_numeric(df_clean['Rendeles_Szam'], errors='coerce').fillna(0).astype(int)
         
-    # Minden üres/hiányzó értéket üres stringre cserélünk a Sheets kompatibilitás miatt
     df_clean = df_clean.fillna("")
 
-    # 🔥 EZT A KÉT SORT ADD HOZZÁ A RETURN ELŐTT:
     if 'Lat' in df_clean.columns:
         df_clean['Lat'] = df_clean['Lat'].astype(str)
     if 'Lon' in df_clean.columns:
@@ -199,14 +191,12 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     from geopy.geocoders import Nominatim
     import re
     
-    # Importáljuk a modul saját függvényeit a belső hívásokhoz
     from geokodolo_modul import biztonsagos_koordinata_tisztito
     
     logger = logging.getLogger(__name__)
-    logger.info("🧬 Master lista szinkronizálása elindult az új struktúra alapján (Kvótavédelemmel)...")
+    logger.info("🧬 Master lista szinkronizálása elindult az új struktúra alapján (Kvötavédelemmel)...")
     master_df = pd.DataFrame()
 
-    # Golyóálló ID tisztító függvény
     def tiszta_id_konverzio(x):
         if pd.isna(x) or x == "":
             return ""
@@ -216,7 +206,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
 
-    # Biztonságos float konvertáló helyi szinten is
     def biztonsagos_float(val):
         if val is None or str(val).strip() in ["", "None", "nan", "NaN", "-", "'"]:
             return ""
@@ -231,7 +220,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         sh = client.open_by_key(sheet_id)
         ws_ugyfel = sh.worksheet("Ugyfelkor")
         
-        # Az adatbazis_modul-on belüli cache-elt beolvasást hívjuk meg!
         master_df = load_sheet_data_cached(client, sheet_id, "Ugyfelkor")
         
         if master_df.empty:
@@ -269,7 +257,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     st.info("🔄 Ügyfélkör adatbázis aktualizálása és koordináták ellenőrzése...")
     
     try:
-        # Lokális koordináta helyreállító a pont nélküli számokhoz
         def kényszeritett_koordinata_tisztito(val):
             if pd.isna(val) or str(val).strip() in ["", "0", "0.0", "None", "nan", "NaN"]:
                 return ""
@@ -278,7 +265,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                 s = s[:2] + "." + s[2:]
             return s
 
-        # Lokális golyóálló címtisztító
         def kényszeritett_cim_tisztito(nyers_szoveg):
             if not nyers_szoveg:
                 return ""
@@ -288,7 +274,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
             s = re.split(r'(?i)\s+(fszt|fsz|emelet|em|ajtó|ajto|lh|lph).*$', s)[0]
             return s.strip().rstrip(',').rstrip('.')
 
-        # Táblázatban lévő koordináták megmentése
         if not master_df.empty:
             master_df = kotelezo_ugyfelkor_formatum_tisztitas(master_df)
             if 'Lat' in master_df.columns:
@@ -572,14 +557,12 @@ def sync_interfood_etlap(year, week, sheet_id):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    # 🟢 KVÓTAVÉDELMI PAJZS: Ha ebben a munkamenetben ez a hét már megvolt, átugorjuk
     cache_key = f"sync_done_{year}_{week}"
     if st.session_state.get(cache_key, False):
         logging.info(f"Interfood étlap szinkron ({year}/W{week}) ebből a munkamenetből már megvolt, átugrás.")
         return True
     
     try:
-        # 1. LÉPÉS: Letöltés megkísérlése
         st.info(f"🔮 Kapcsolódás az API-hoz: {api_url}")
         response = requests.get(api_url, headers=headers, timeout=15)
         
@@ -588,14 +571,12 @@ def sync_interfood_etlap(year, week, sheet_id):
             st.stop()
             return False
 
-        # 2. LÉPÉS: Tartalom ellenőrzése
         content = response.content
         if len(content) < 100:
             st.error("Az API válasza túl rövid, valószínűleg nem egy Excel fájlt kaptunk.")
             st.stop()
             return False
 
-        # 3. LÉPÉS: Excel feldolgozás
         try:
             df = pd.read_excel(BytesIO(content))
         except Exception as ex_err:
@@ -604,7 +585,6 @@ def sync_interfood_etlap(year, week, sheet_id):
             st.stop()
             return False
 
-        # 4. LÉPÉS: Google Sheets feltöltés (A st.session_state kliens alapján)
         client = st.session_state.get('client')
         if not client:
             st.error("❌ Google Sheets kliens nem érhető el! Nem sikerült a hitelesítés.")
@@ -621,7 +601,6 @@ def sync_interfood_etlap(year, week, sheet_id):
         worksheet.clear()
         set_with_dataframe(worksheet, df)
         
-        # 🟢 SIKERMENTÉS
         st.session_state[cache_key] = True
         st.toast(f"Sikeres szinkron: {year}/W{week}", icon="✅")
         return True
@@ -643,8 +622,6 @@ def sync_interfood_etlap(year, week, sheet_id):
         st.warning("A program futása megállt a hiba miatt. Másold ki a fenti adatokat!")
         st.stop()
 
-# adatbazis_modul.py kiegészítése
-
 def load_etlap_from_sheets(sheet_id):
     """
     Beolvassa a Google Sheets 'Etlap' és 'Etlap_API' fülét,
@@ -653,7 +630,6 @@ def load_etlap_from_sheets(sheet_id):
     import streamlit as st
     import pandas as pd
     
-    # Használjuk a központi, már hitelesített klienst
     client = st.session_state.get('client')
     if not client:
         st.error("❌ Google Sheets kapcsolat nem érhető el a load_etlap_from_sheets funkcióban!")
@@ -662,9 +638,6 @@ def load_etlap_from_sheets(sheet_id):
     try:
         sheet = client.open_by_key(sheet_id)
         
-        # =========================================================================
-        # 1. Az 'Etlap' fül beolvasása (Kategóriák és Konyhai Sorrend)
-        # =========================================================================
         kategoria_index = {}
         try:
             kat_worksheet = sheet.worksheet("Etlap")
@@ -685,9 +658,6 @@ def load_etlap_from_sheets(sheet_id):
             st.warning(f"⚠️ Az 'Etlap' munkalap beolvasása sikertelen, de az árakat betöltöm. Hiba: {kat_err}")
             st.session_state['kategoria_adatok'] = {}
 
-        # =========================================================================
-        # 2. Az 'Etlap_API' fül beolvasása (Napok szerinti Étlap és Árak)
-        # =========================================================================
         worksheet = sheet.worksheet("Etlap_API")
         data = worksheet.get_all_values()
         df = pd.DataFrame(data)
@@ -704,7 +674,7 @@ def load_etlap_from_sheets(sheet_id):
                     nev = str(df.iloc[i, nap_idx]).strip()
                     ar = ""
                     if i + 1 < len(df):
-                        ar = str(df.iloc[i + 1, nap_idx]).strip()
+                        ar = str(df.iloc[i + 1, nap_idx]).strip().replace('Ft', '').replace(' ', '')
                     
                     if nev and nev.lower() != "nan" and nev != "":
                         kulcs = f"{nap_idx}_{kod}"
@@ -718,8 +688,6 @@ def load_etlap_from_sheets(sheet_id):
     except Exception as e:
         st.error(f"❌ Hiba az étlap beolvasásakor a Sheets-ből: {e}")
         return {}
-
-# adatbazis_modul.py kiegészítése
 
 def load_futar_from_sheets(sheet_id):
     """Betölti a futárok adatait a Google Sheet 'Futárok' lapjáról."""
@@ -755,7 +723,6 @@ def save_futar_to_sheets(df, sheet_id):
     try:
         sheet = client.open_by_key(sheet_id).worksheet("Futárok")
         sheet.clear()
-        # Az adatok visszaírása
         sheet.update([df.columns.values.tolist()] + df.values.tolist())
         return True
     except Exception as e:
@@ -771,9 +738,8 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
     import pandas as pd
     import requests
     from io import BytesIO
-    from utils import clean_text  # Beimportáljuk a kiszervezett tisztítót
+    from utils import clean_text
     
-    # Használjuk a központi, már hitelesített klienst
     client = st.session_state.get('client')
     if not client:
         st.error("❌ Google Sheets kapcsolat nem érhető el a sync_master_database funkcióban!")
@@ -782,9 +748,7 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
     try:
         try:
             worksheet = sheet.open_by_key(sheet_id).worksheet("Master_Adatbazis")
-            # 1. LÉPÉS: Beolvassuk a MÁR MEGLÉVŐ adatokat a Sheet-ről
             existing_data = worksheet.get_all_records()
-            # Szótárba rendezzük a meglévőket a 'Tisztított Név' alapján
             master_dict = {
                 str(row['Tisztított Név']): {
                     "Eredeti Név": row.get('Eredeti Név', ''),
@@ -795,13 +759,11 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
             }
             st.info(f"ℹ️ Meglévő adatbázis betöltve: {len(master_dict)} étel.")
         except Exception:
-            # Ha nincs még ilyen fül, létrehozzuk
             sheet_obj = client.open_by_key(sheet_id)
             worksheet = sheet_obj.add_worksheet(title="Master_Adatbazis", rows="5000", cols="10")
             master_dict = {}
             st.info("ℹ️ Új Master_Adatbazis fül létrehozva.")
 
-        # 2. LÉPÉS: Új adatok begyűjtése az API-ból
         for het in range(start_het, end_het + 1):
             st.write(f"🔄 {ev}/{het}. hét feldolgozása...")
             url = f"https://ia.interfood.hu/api/v3/excel-export?year={ev}&week={het}"
@@ -828,12 +790,10 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
                                 kod_ar_par = f"{alap_kod}:{ar} (w{het})"
                                 
                                 if tiszta_nev in master_dict:
-                                    # HA MÁR MEG VAN: Csak a gyakoriságot és esetleg az új kódot adjuk hozzá
                                     master_dict[tiszta_nev]['Gyakoriság'] += 1
                                     if kod_ar_par not in master_dict[tiszta_nev]['KodAr_List']:
                                         master_dict[tiszta_nev]['KodAr_List'].append(kod_ar_par)
                                 else:
-                                    # HA ÚJ: Létrehozzuk az új bejegyzést
                                     master_dict[tiszta_nev] = {
                                         "Eredeti Név": eredeti_nev.replace('*', '').strip(),
                                         "KodAr_List": [kod_ar_par],
@@ -843,12 +803,11 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
             else:
                 st.warning(f"Nem sikerült letölteni: {ev}/{het}")
 
-        # 3. LÉPÉS: Az összesített (régi + új) adatok visszaírása
         output_rows = [["Tisztított Név", "Eredeti Név", "Kódok és Árak", "Kellék", "Gyakoriság"]]
         for tiszta, adat in master_dict.items():
             output_rows.append([
                 tiszta,
-                value_escaped := adat["Eredeti Név"],
+                adat["Eredeti Név"],
                 ", ".join(adat["KodAr_List"]),
                 adat["Kellék"],
                 adat["Gyakoriság"]
@@ -862,8 +821,6 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
     except Exception as e:
         st.error(f"Hiba a Master szinkron során: {e}")
         return False
-
-# adatbazis_modul.py kiegészítése
 
 def load_master_data():
     """Betölti a hosszú távú memóriát a helyi CSV fájlból."""
@@ -879,12 +836,9 @@ def save_to_master(current_df):
     import pandas as pd
     
     master_df = load_master_data()
-    # Összefűzzük a mait a régivel, az új adatok felülírják a régit az ID alapján
     updated_master = pd.concat([master_df, current_df[['Ügyfélkód', 'Ügyintéző', 'Cím', 'Telefonszám', 'Megjegyzés']]])
     updated_master = updated_master.drop_duplicates(subset=['Ügyfélkód'], keep='last')
     updated_master.to_csv("master_data.csv", index=False)
-
-# adatbazis_modul.py kiegészítése
 
 def sync_ugyfelkor_fel(df_napi, sheet_id):
     """
@@ -895,7 +849,6 @@ def sync_ugyfelkor_fel(df_napi, sheet_id):
     import pandas as pd
     from datetime import datetime
 
-    # Központi gspread kliens lekérése
     client = st.session_state.get('client')
     if client is None:
         return 0
@@ -907,7 +860,6 @@ def sync_ugyfelkor_fel(df_napi, sheet_id):
         ws = sh.add_worksheet(title="Adatok", rows="1000", cols="10")
         ws.append_row(["ID", "Név", "Cím", "Telefon", "Csoport", "Preferált Sorrend", "Megjegyzés", "Utolsó Rendelés"])
 
-    # Adatok beolvasása és szöveggé kényszerítése a típusgyötrődések ellen
     data = ws.get_all_records()
     db_df = pd.DataFrame(data)
     
@@ -932,8 +884,6 @@ def sync_ugyfelkor_fel(df_napi, sheet_id):
         mask = db_df['ID'].astype(str) == u_id
         if mask.any():
             idx = db_df[mask].index[0]
-            
-            # Frissítés
             db_df.at[idx, 'Név'] = u_nev
             db_df.at[idx, 'Cím'] = u_cim
             db_df.at[idx, 'Telefon'] = u_tel
@@ -941,7 +891,6 @@ def sync_ugyfelkor_fel(df_napi, sheet_id):
             db_df.at[idx, 'Megjegyzés'] = u_megj
             db_df.at[idx, 'Utolsó Rendelés'] = ma
         else:
-            # Új sor hozzáadása
             new_row = {
                 "ID": u_id, "Név": u_nev, "Cím": u_cim, "Telefon": u_tel,
                 "Csoport": "", "Preferált Sorrend": u_sorrend, 
@@ -949,15 +898,12 @@ def sync_ugyfelkor_fel(df_napi, sheet_id):
             }
             db_df = pd.concat([db_df, pd.DataFrame([new_row])], ignore_index=True)
 
-    # Nyers nan-ok takarítása mentés előtt
     db_df = db_df.replace('nan', '').fillna("")
     
     final_list = [db_df.columns.values.tolist()] + db_df.values.tolist()
     ws.clear()
     ws.update('A1', final_list)
     return len(df_napi)
-
-# adatbazis_modul.py kiegészítése
 
 def adatok_visszatoltese_sheetrol(df_napi, sheet_id):
     """
@@ -968,7 +914,6 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id):
     import streamlit as st
     import pandas as pd
     
-    # Központi gspread kliens lekérése
     client = st.session_state.get('client')
     if client is None: 
         return df_napi
@@ -983,7 +928,6 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id):
             
         db_df['ID'] = db_df['ID'].astype(str).str.strip()
         
-        # Eredeti sorrend rögzítése, ha még nincs
         if 'Original_Order' not in df_napi.columns:
             df_napi['Original_Order'] = range(1, len(df_napi) + 1)
 
@@ -992,12 +936,10 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id):
             match = db_df[db_df['ID'] == u_id]
             
             if not match.empty:
-                # Név frissítése
                 s_nev = str(match.iloc[0]['Név']).strip()
                 if s_nev and s_nev.lower() != 'nan':
                     df_napi.at[i, 'Ügyintéző'] = s_nev
                 
-                # Sorrend frissítése a Sheet-ről
                 s_sorrend = str(match.iloc[0]['Preferált Sorrend']).strip()
                 if s_sorrend and s_sorrend.lower() != 'nan' and s_sorrend != "":
                     try:
@@ -1005,25 +947,20 @@ def adatok_visszatoltese_sheetrol(df_napi, sheet_id):
                     except:
                         pass
                 
-                # Csoport és Megjegyzés frissítése
                 for col in ['Csoport', 'Megjegyzés']:
                     val = str(match.iloc[0].get(col, '')).strip()
                     if val.lower() != 'nan':
                         df_napi.at[i, col] = val
         
-        # A 999-es hiba elkerülése: ha nincs a Sheet-en sorrend, maradjon az Original_Order
         df_napi['Sorrend'] = pd.to_numeric(df_napi['Sorrend'], errors='coerce')
         df_napi['Sorrend'] = df_napi['Sorrend'].fillna(df_napi['Original_Order'])
         
-        # RENDEZÉS: Csak a Sorrend számít!
         df_napi = df_napi.sort_values(by=['Sorrend'], ascending=[True])
         
         return df_napi
     except Exception as e:
         st.error(f"❌ Hiba a visszatöltésnél: {e}")
         return df_napi
-
-# adatbazis_modul.py kiegészítése
 
 def _tiszta_futar_lista_letoltes(sheet_id):
     """Biztonságosan letölti a futárok listáját a PIN kódos azonosításhoz."""
@@ -1036,11 +973,11 @@ def _tiszta_futar_lista_letoltes(sheet_id):
         
     try:
         sh = client.open_by_key(sheet_id)
-        # Feltételezzük, hogy a Futárok vagy első fülön vannak az adatok
-        ws = sh.get_worksheet(0) 
+        try:
+            ws = sh.worksheet("Futárok")
+        except Exception:
+            ws = sh.get_worksheet(0) 
         return ws.get_all_records()
     except Exception as e:
         st.error(f"Hiba a futár lista letöltésekor: {e}")
         return []
-
-

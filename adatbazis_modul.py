@@ -10,7 +10,8 @@ from gspread_dataframe import set_with_dataframe
 from geokodolo_modul import biztonsagos_koordinata_tisztito
 from io import BytesIO
 
-logger = logging.get_logger(__name__)
+# JAVÍTÁS: getLogger használata get_logger helyett
+logger = logging.getLogger(__name__)
 
 # --- FIX SHEET ID-K A BIZTONSÁGI MENTÉSBŐL ---
 SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o" 
@@ -215,7 +216,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         except ValueError:
             return ""
 
-    # --- 1. LÉPÉS: TÖRZSLISTA BEOLVASÁSA ÉS TISZTÍTÁSA ---
+    # --- 1. LÉPÉS: TÖRZSLISTA BEOLVASÁSA ÉS TISÍTÁSA ---
     try:
         sh = client.open_by_key(sheet_id)
         ws_ugyfel = sh.worksheet("Ugyfelkor")

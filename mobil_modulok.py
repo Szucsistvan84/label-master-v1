@@ -79,7 +79,7 @@ def render_mobil_aruatvetel(client):
         st.session_state.idobelyeg_sor_index = None
 
     # =========================================================================
-    # ÁLLAPOT 1: AZ ÁRÚÁTVÉTEL ÉS IDŐMÉRÉS MÉG EL SINCS INDÍTVA
+    # ÁLLAPOT 1: AZ ÁRÚÁTVÉTEL ÉS IDŐMÉRÉS ÉG EL SINCS INDÍTVA
     # =========================================================================
     if not st.session_state.aruatvetel_folyamatban:
         st.info("💡 Pakolás előtt indítsd el az áruátvételt a pontos munkaidő-méréshez.")
@@ -283,7 +283,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             white-space: nowrap;
         }
         
-        /* Egyedi vevő doboz a csoportosított kártyán binnen */
+        /* Egyedi vevő doboz a csoportosított kártyán belül */
         .customer-item {
             background-color: #F9FAFB;
             border: 1px solid #F3F4F6;
@@ -363,6 +363,10 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                     df_adatok_filtered = df_adatok[df_adatok[jarat_col_name].astype(str).str.strip().isin(actual_filter_routes)].copy()
                 else:
                     df_adatok_filtered = df_adatok.copy()
+
+                # 🔒 SZIGORÚ FUTÁR SZŰRÉS (MULTI-USER VÉDELEM): Csak a saját futár adatsorait láthassuk!
+                if 'Feldolgozó Futár' in df_adatok_filtered.columns:
+                    df_adatok_filtered = df_adatok_filtered[df_adatok_filtered['Feldolgozó Futár'].astype(str).str.strip().str.lower() == futar_neve_lower]
 
                 if df_adatok_filtered.empty:
                     st.info("ℹ️ Nincsenek bepakolandó címek a járatodhoz.")
@@ -583,15 +587,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             if bepakolt_kulcs not in st.session_state:
                                 st.session_state[bepakolt_kulcs] = False
                             if lada_tarolt_kulcs not in st.session_state:
-                                st.session_state[lada_tarolt_kulcs] = None
-
-                            def log_lada(i=idx):
-                                if st.session_state[f"chk_{i}"]:
-                                    st.session_state[f"bepak_allapot_{i}"] = True
-                                    st.session_state[f"lada_szam_tarolt_{i}"] = f"{st.session_state.mobil_lada_szam}. láda"
-                                else:
-                                    st.session_state[f"bepak_allapot_{i}"] = False
-                                    st.session_state[f"lada_szam_tarolt_{i}"] = None
+                                East_lada_tarolt_kulcs = None
 
                             tarolt_lada_ertek = st.session_state.get(lada_tarolt_kulcs, None)
                             label_text = f"🟢 Bepakolva ide: {tarolt_lada_ertek}" if tarolt_lada_ertek else f"⚪ Bepakolás a ládába ({vevo_nev})"
@@ -711,6 +707,10 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             df_kiszallitas = df_adatok[df_adatok[jarat_col_name].astype(str).str.strip().isin(actual_filter_routes)].copy()
         else:
             df_kiszallitas = df_adatok.copy()
+
+        # 🔒 FUTÁR SZŰRÉS (MULTI-USER VÉDELEM): Csak a bejelentkezett futár saját adatsorait láthassuk!
+        if 'Feldolgozó Futár' in df_kiszallitas.columns:
+            df_kiszallitas = df_kiszallitas[df_kiszallitas['Feldolgozó Futár'].astype(str).str.strip().str.lower() == futar_neve_lower]
 
         bepakolt_sorok = []
         for idx, row in df_kiszallitas.iterrows():
@@ -882,7 +882,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             if saved_lat and saved_lon and saved_lat != "nan" and saved_lon != "nan":
                 embed_url = f"https://www.google.com/maps/search/?api=1&query={saved_lat},{saved_lon}&zoom=16&layers=M"
             else:
-                clean_address = f"{aktualis_cim}, Hungary"
+                clean_address = f"{aktualis_cim, Hungary}"
                 encoded_osm = urllib.parse.quote(clean_address)
                 embed_url = f"https://maps.google.com/maps?q={encoded_osm}&zoom=16&layers=M"
             

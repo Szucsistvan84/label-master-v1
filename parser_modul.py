@@ -31,7 +31,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
         for pg in pdf.pages:
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
             
-            # --- 1. USER-ALAPÚ ZSENIÁLIS LÁBLÉC-SOROMPÓ RADAR ---
+            # --- USER-ALAPÚ ZSENIÁLIS LÁBLÉC-SOROMPÓ RADAR ---
             footer_line_top = pg.height # Alapértelmezett lezárás a lap alja
             for w in words:
                 txt = w['text'].lower()
@@ -174,6 +174,14 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         prefix = next((v for k, v in nap_prefix_map.items() if k in detect_day), "S")
                         full_id = f"{prefix}-{full_id.split('-')[-1]}"
 
+                    # --- JAVÍTÁS: Definiáljuk a row_words és a x40/x52_5 szélességeket a cím és telefon kinyeréshez! ---
+                    W = page.width
+                    x40 = (40 / 88) * W
+                    x52_5 = (52.5 / 88) * W
+                    
+                    y_anchor = (anchor['top'] + anchor['bottom']) / 2
+                    row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
+
                     # --- TELEFON KINYERÉSE (Mindig egy vonalban van az anchorral) ---
                     tel_words_local = sorted([w for w in line_words if x_min_tel <= (w['x0'] + w['x1'])/2 < x_max_tel], key=lambda w: w['top'])
                     phone_val = ""
@@ -191,7 +199,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         # Fallback a hagyományos sáv-alapú keresésre, ha eltérés lenne a darabszámban
                         money_val = "0Ft"
                         for pm in page_moneys:
-                            if y_top <= pm['top'] < y_bottom + 12: # pici átfedést engedünk lefelé
+                            if y_top <= pm['top'] < y_bottom + 12: # pici átfedünk lefelé
                                 money_val = pm['val']
                                 break
 
@@ -412,7 +420,8 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     full_note = re.sub(r'\|\s*[,. ]+', '| ', full_note)
                     full_note = re.sub(r'[,. ]+\s*\|', ' |', full_note)
                     full_note = re.sub(r'(\|[ \t]*)+', ' | ', full_note)
-                    full_note = re.sub(r'\s+', ' ', full_note).strip(" ,.-/|*")
+                    full_note = re.sub(r'\s+', ' ', full_note)
+                    full_note = full_note.strip(" ,.-/|*")
                     
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
                     full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
@@ -476,10 +485,10 @@ def extract_all_meta(pdf_files):
             nap_szoveg_kulcs = next((k for k in nap_szamok if k in nap_tisztitott), None)
             
             if nap_szoveg_kulcs:
-                nap_szama = nap_szamok[nap_szoveg_kulcs]
+                map_num = nap_szamok[nap_szoveg_kulcs]
                 target_year = int(all_meta['ev'])
                 target_week = int(all_meta['het'])
-                kalkulalt_datum = datetime.strptime(f"{target_year}-{target_week}-{nap_szama}", "%G-%V-%u")
+                kalkulalt_datum = datetime.strptime(f"{target_year}-{target_week}-{map_num}", "%G-%V-%u")
                 all_meta['datum_iso'] = kalkulalt_datum.strftime("%Y-%m-%d")
                 all_meta['api_datum_kulcs'] = kalkulalt_datum.strftime("%Y.%m.%d.")
         except Exception as e:

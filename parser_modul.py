@@ -160,8 +160,9 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
                     row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
 
-                    # --- 2. TELEFON ÉS PÉNZ (PONTOZÁST TISZTÍTÓ LOGIKÁVAL) ---
-                    tel_money_words = sorted([w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5], key=lambda w: w['top'])
+                    # --- 2. TELEFON ÉS PÉNZ (PONTOZÁST TISZTÍTÓ LOGIKÁVAL - JAVÍTVA SORCSÚSZÁS ELLEN) ---
+                    # row_words helyett line_words-ből gyűjtünk, hogy a csúszott sorok se essenek ki!
+                    tel_money_words = sorted([w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5], key=lambda w: w['top'])
                     
                     phone_val, money_val = "", "0Ft"
                     if tel_money_words:

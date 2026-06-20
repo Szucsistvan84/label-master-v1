@@ -31,11 +31,16 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
         for pg in pdf.pages:
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
             
+            # Határoló koordináták előkészítése a lap szélessége alapján
+            W = pg.width
+            x40 = (40 / 88) * W
+            x52_5 = (52.5 / 88) * W
+            
             # Megkeressük a lapon lévő horgonyokat (Sorszám-ragadás elleni védelemmel)
             page_anchors = [w for w in words if re.search(r'\b[A-Za-z0-9]{1,3}-\d{5,7}\b', w['text'])]
             page_anchors.sort(key=lambda x: x['top'])
             
-            # --- DINAMIKUS HORGONY-VÉDELMŰ LÁBLÉC-SOROMPÓ RADAR ---
+            # --- DINAMIKUS HORGONY-VÉDELMŰ LÁBLÉC-SOROMPÓ RADAR (ASCII RÉSZSTRING ALAPÚ) ---
             footer_line_top = pg.height # Alapértelmezett lezárás a lap alja
             
             # Szigorú határérték: csak a legutolsó érvényes horgony ALATT keresünk láblécet, így rövid lapon is tökéletes!
@@ -43,8 +48,8 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
             
             for w in words:
                 txt = w['text'].lower()
-                # Ékezet- és kódolás-immunis szűrés az összesítő sorra, kizárólag a legutolsó ügyfél alatt!
-                if any(tag in txt for tag in ["összesítés", "osszesites", "csilagozott", "csillagozott", "kiegészítő", "kiegeszito", "összesen", "osszesen"]) and w['top'] > last_anchor_top:
+                # Ékezet- és kódolás-immunis szűrő az összesítő sorra, kizárólag a legutolsó ügyfél alatt!
+                if any(tag in txt for tag in ["szes", "csil", "csill", "kieg", "nyomt", "oldal", "menet", "vege", "vége"]) and w['top'] > last_anchor_top:
                     if w['top'] < footer_line_top:
                         footer_line_top = w['top']
             
@@ -157,10 +162,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         prefix = next((v for k, v in nap_prefix_map.items() if k in detect_day), "S")
                         full_id = f"{prefix}-{full_id.split('-')[-1]}"
 
-                    W = page.width
-                    x40 = (40 / 88) * W
-                    x52_5 = (52.5 / 88) * W
-                    
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
                     row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
 
@@ -261,9 +262,9 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
 
-                    # --- GOLYÓÁLLÓ, LINE-BY-LINE OSZLOP ALAPÚ CÍM ÉS MEGJEGYZÉS EXTRAKCIÓ ---
-                    # 1. Kigyűjtjük a szavakat szigorúan az Ügyfél / Cím oszlopból (v_lines[1] és v_lines[2] között)
-                    col2_words = sorted([w for w in line_words if v_lines[1] <= (w['x0'] + w['x1'])/2 < v_lines[2]], key=lambda x: (x['top'], x['x0']))
+                    # --- GOLYÓÁLLÓ, LINE-BY-LINE OSZLOP ALAPÚ CÍM ÉS MEGJEGYZÉS EXTRAKCIÓ (KITÁGÍTOTT HATÁROKKAL) ---
+                    # 1. Kigyűjtjük a szavakat az Ügyfél / Cím oszlop teljes szélességében (v_lines[1] és x40 között)
+                    col2_words = sorted([w for w in line_words if v_lines[1] <= (w['x0'] + w['x1'])/2 < x40], key=lambda x: (x['top'], x['x0']))
                     
                     # 2. Csoportosítjuk őket fizikai sorokba (5 pixeles függőleges tűréssel)
                     col2_lines = []

@@ -118,6 +118,33 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     if 'Lon' in df_clean.columns: df_clean['Lon'] = df_clean['Lon'].astype(str)
     return df_clean
 
+def iterativ_gps_kereso(cim, geolocator):
+    import time
+    import re
+    tisztitott_cim = str(cim).strip().rstrip(',').rstrip('.')
+    # Alapvető zavaró írásjelek leszedése a hasábelcsúszások ellen
+    tisztitott_cim = re.sub(r'[\(\)\$\*]', '', tisztitott_cim)
+    words = tisztitott_cim.split()
+    
+    while len(words) >= 2:
+        proba_cim = " ".join(words).strip().rstrip(',').rstrip('.')
+        
+        # Biztonsági fék: ne engedjük, hogy csak az irányítószám + város maradjon meg utca nélkül
+        teszt_szoveg = re.sub(r'^\d{4}\s+', '', proba_cim).strip()
+        if len(teszt_szoveg.split()) < 2:
+            # Ha már csak a városnév maradt (pl. "Debrecen"), megszakítjuk, mert az túl pontatlan lenne
+            break
+            
+        try:
+            time.sleep(1.2) # API Rate limit betartása
+            location = geolocator.geocode(proba_cim, timeout=8)
+            if location:
+                return str(round(location.latitude, 6)), str(round(location.longitude, 6)), proba_cim
+        except Exception:
+            pass
+        words.pop() # Peeling: Levágjuk a legutolsó szót, és futunk egy újabb kört
+    return None, None, None
+
 def get_latest_week_from_master(sheet_id, client):
     import pandas as pd
     try:
@@ -174,23 +201,29 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
 
+    # --- JAVÍTÁS 1: ÉLŐ (CACHE-MENTES) BEOLVASÁS TRANZAKCIÓKHOZ A DUPLIKÁLÓDÁS ELLEN ---
     try:
         sh = client.open_by_key(sheet_id)
         ws_ugyfel = sh.worksheet("Ugyfelkor")
-        master_df = load_sheet_data_cached(client, sheet_id, "Ugyfelkor")
-        if master_df.empty:
-            master_df = pd.DataFrame(columns=['ID', 'Név', 'Cím', 'Lat', 'Lon', 'Telefon', 'Csoport', 'Megjegyzés', 'Utolso_Rendeles', 'Osszertek', 'Rendeles_Szam'])
-        master_df.columns = [c.strip() for c in master_df.columns]
-        if 'ID' in master_df.columns:
-            master_df['ID'] = master_df['ID'].astype(str).str.strip().apply(lambda x: x.split('.')[0] if x.endswith('.0') else x)
-            master_df['ID'] = master_df['ID'].apply(tiszta_id_konverzio)
-        if 'Lat' in master_df.columns: master_df['Lat'] = master_df['Lat'].apply(biztonsagos_koordinata_tisztito)
-        if 'Lon' in master_df.columns: master_df['Lon'] = master_df['Lon'].apply(biztonsagos_koordinata_tisztito)
-        st.session_state.ugyfelkor_df = master_df.copy()
-        st.session_state.mdf = master_df.copy()
+        try:
+            records = ws_ugyfel.get_all_records(value_render_option='UNFORMATTED_VALUE')
+        except Exception as e:
+            records = ws_ugyfel.get_all_records()
+        master_df = pd.DataFrame(records)
     except Exception as e:
-        st.error(f"❌ Hiba a törzslista elérésekor: {e}")
+        st.error(f"❌ Hiba a törzslista elérésekor (Google Sheets hiba): {e}")
+        # Abortálunk, hogy ne írjunk üres/sérült adatot a táblára!
         return df_napi, pd.DataFrame()
+
+    master_df.columns = [c.strip() for c in master_df.columns]
+    if 'ID' in master_df.columns:
+        master_df['ID'] = master_df['ID'].astype(str).str.strip().apply(lambda x: x.split('.')[0] if x.endswith('.0') else x)
+        master_df['ID'] = master_df['ID'].apply(tiszta_id_konverzio)
+    if 'Lat' in master_df.columns: master_df['Lat'] = master_df['Lat'].apply(biztonsagos_koordinata_tisztito)
+    if 'Lon' in master_df.columns: master_df['Lon'] = master_df['Lon'].apply(biztonsagos_koordinata_tisztito)
+    
+    st.session_state.ugyfelkor_df = master_df.copy()
+    st.session_state.mdf = master_df.copy()
 
     st.info("🔄 Ügyfélkör adatbázis aktualizálása és koordináták ellenőrzése...")
     try:
@@ -199,14 +232,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
             s = str(val).replace(",", ".").replace(" ", "").strip().lstrip("'")
             if "." not in s and len(s) >= 6: s = s[:2] + "." + s[2:]
             return s
-
-        def kényszeritett_cim_tisztito(nyers_szoveg):
-            if not nyers_szoveg: return ""
-            s = re.sub(r'\(.*?\)', '', str(nyers_szoveg)).strip()
-            s = s.replace('$', '').strip()
-            s = re.sub(r'\.?\s+\d+/\d+.*$', '', s)
-            s = re.split(r'(?i)\s+(fszt|fsz|emelet|em|ajtó|ajto|lh|lph).*$', s)[0]
-            return s.strip().rstrip(',').rstrip('.')
 
         if not master_df.empty:
             master_df = kotelezo_ugyfelkor_formatum_tisztitas(master_df)
@@ -218,8 +243,10 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         új_koordináta_számláló = 0
         geolocator_helyi = Nominatim(user_agent="Interfood_Express_Delivery_App_v3_2026")
         
+        # --- JAVÍTÁS 2: SZIGORÚ O(1)-es SZETT-ALAPÚ ÖSSZEHASONLÍTÁS A TÍPUSHIBA DUPLIKÁCIÓK ELLEN ---
+        existing_ids = set(master_df['ID'].astype(str).tolist()) if not master_df.empty else set()
+
         for idx, row in df_napi.iterrows():
-            # --- TISZTA ID-ALAPÚ ÖSSZEHASONLÍTÁS A DUPLIKÁCIÓK ELLEN (Golyóálló módon) ---
             u_id = tiszta_id_konverzio(row['ID'])
             if not u_id or u_id == "" or u_id == "nan": continue
             mai_rendeles_erteke = 0
@@ -230,9 +257,9 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
             
             van_koordinata = False
             lat_clean, lon_clean = "", ""
-            if not master_df.empty and 'ID' in master_df.columns:
-                if u_id in master_df['ID'].values:
-                    talalat = master_df[master_df['ID'] == u_id]
+            if u_id in existing_ids:
+                talalat = master_df[master_df['ID'].astype(str) == u_id]
+                if not talalat.empty:
                     lat_str = kényszeritett_koordinata_tisztito(talalat.iloc[0].get('Lat'))
                     lon_str = kényszeritett_koordinata_tisztito(talalat.iloc[0].get('Lon'))
                     if lat_str != "" and lon_str != "":
@@ -240,30 +267,24 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                         lon_clean = lon_str
                         van_koordinata = True
             
+            # --- ITERATÍV ADATBÁZIS-ALAPÚ GPS HÁMOZÓ MOTOR ---
             if not van_koordinata:
                 nev = row.get('Ügyintéző', row.get('Név', row.get('Nev', 'Ismeretlen név')))
                 eredeti_cim = str(row.get('Cím', row.get('Cim', '')))
-                keresesi_cim = kényszeritett_cim_tisztito(eredeti_cim)
-                st.info(f"📍 GPS koordináta keresése: {nev}...")
-                lat, lon = None, None
-                try:
-                    time.sleep(1.3)
-                    location = geolocator_helyi.geocode(keresesi_cim, timeout=10)
-                    if location: lat, lon = location.latitude, location.longitude
-                    else:
-                        vágott_cim_iranyitoszam_nelkul = re.sub(r'^\d{4}\s+', '', keresesi_cim).strip()
-                        location_vágott = geolocator_helyi.geocode(vágott_cim_iranyitoszam_nelkul, timeout=10)
-                        if location_vágott: lat, lon = location_vágott.latitude, location_vágott.longitude
-                except Exception as e_geo:
-                    lat, lon = None, None
-                if lat is not None and lon is not None:
-                    lat_clean = str(round(float(lat), 6))
-                    lon_clean = str(round(float(lon), 6))
-                    st.success(f"🎯 GPS sikeresen megvan: {nev} -> ({lat_clean}, {lon_clean})")
+                st.info(f"📍 GPS koordináta keresése: {nev} (Kiinduló cím: {eredeti_cim})...")
+                
+                lat, lon, sikeres_szint = iterativ_gps_kereso(eredeti_cim, geolocator_helyi)
+                
+                if lat and lon:
+                    lat_clean = lat
+                    lon_clean = lon
+                    st.success(f"🎯 GPS sikeresen megvan: {nev} -> ({lat_clean}, {lon_clean}) [Találat: {sikeres_szint}]")
                     új_koordináta_számláló += 1
+                else:
+                    st.warning(f"⚠️ Nem található pontos GPS koordináta: {nev} (Cím: {eredeti_cim})")
 
-            if not master_df.empty and u_id in master_df['ID'].values:
-                idx_ugyfel = master_df[master_df['ID'] == u_id].index[0]
+            if u_id in existing_ids:
+                idx_ugyfel = master_df[master_df['ID'].astype(str) == u_id].index[0]
                 try:
                     jelenlegi_ertek = int(float(str(master_df.at[idx_ugyfel, 'Osszertek']).strip() or 0))
                     jelenlegi_szam = int(float(str(master_df.at[idx_ugyfel, 'Rendeles_Szam']).strip() or 0))
@@ -283,6 +304,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                     'Utolso_Rendeles': szallitas_napja, 'Osszertek': mai_rendeles_erteke, 'Rendeles_Szam': 1
                 }
                 master_df = pd.concat([master_df, pd.DataFrame([uj_sor])], ignore_index=True)
+                existing_ids.add(u_id)
 
         master_df['Lat'] = master_df['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
         master_df['Lon'] = master_df['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
@@ -290,12 +312,73 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         set_with_dataframe(ws_ugyfel, df_ugyfelkor_vegleges, row=1, col=1, include_index=False, resize=True)
         master_df = df_ugyfelkor_vegleges.copy()
         if 'google_data_loaded' in st.session_state: del st.session_state['google_data_loaded']
-    except Exception as e_full_process:
-        st.error(f"❌ Nem sikerült az ügyfélkör automatikus frissítése: {e_full_process}")
+            # Próba C (Fallback 2): Irányítószám mentesítés (kerületi zavarok ellen)
+            if lat is None:
+                try:
+                    iranyitoszam_nelkuli_cim = re.sub(r'^\d{4}\s+', '', keresesi_cim).strip()
+                    time.sleep(1.2)
+                    location = geolocator_helyi.geocode(iranyitoszam_nelkuli_cim, timeout=8)
+                    if location:
+                        lat, lon = location.latitude, location.longitude
+                except:
+                    pass
+                    
+            # Próba D (Fallback 3 - Utca szintű mentőöv): Legalább az utcára vigyen oda, ne a semmibe!
+            if lat is None:
+                try:
+                    utca_minta = r'(?i)\b(utca|út|ut|u|tér|ter|sétány|setany|sor|köz|koz|körút|korut|krt)\b'
+                    utca_match = re.search(utca_minta, keresesi_cim)
+                    if utca_match:
+                        csak_utca_cim = keresesi_cim[:utca_match.end()].strip()
+                        time.sleep(1.2)
+                        location = geolocator_helyi.geocode(csak_utca_cim, timeout=8)
+                        if location:
+                            lat, lon = location.latitude, location.longitude
+                except:
+                    pass
+
+            # Eredmény kiértékelése
+            if lat is not None and lon is not None:
+                lat_clean = str(round(float(lat), 6))
+                lon_clean = str(round(float(lon), 6))
+                st.success(f"🎯 GPS sikeresen megvan: {nev} -> ({lat_clean}, {lon_clean})")
+                új_koordináta_számláló += 1
+            else:
+                st.warning(f"⚠️ Nem található pontos GPS koordináta: {nev} (Cím: {eredeti_cim})")
+
+        if u_id in existing_ids:
+            idx_ugyfel = master_df[master_df['ID'].astype(str) == u_id].index[0]
+            try:
+                jelenlegi_ertek = int(float(str(master_df.at[idx_ugyfel, 'Osszertek']).strip() or 0))
+                jelenlegi_szam = int(float(str(master_df.at[idx_ugyfel, 'Rendeles_Szam']).strip() or 0))
+            except:
+                jelenlegi_ertek, jelenlegi_szam = 0, 0
+            master_df.at[idx_ugyfel, 'Osszertek'] = jelenlegi_ertek + mai_rendeles_erteke
+            master_df.at[idx_ugyfel, 'Rendeles_Szam'] = jelenlegi_szam + 1
+            master_df.at[idx_ugyfel, 'Utolso_Rendeles'] = szallitas_napja
+            master_df.at[idx_ugyfel, 'Lat'] = str(lat_clean)
+            master_df.at[idx_ugyfel, 'Lon'] = str(lon_clean)
+        else:
+            uj_sor = {
+                'ID': u_id, 'Név': row.get('Név', row.get('Ügyintéző', 'Ismeretlen Ügyfél')),
+                'Cím': row.get('Cím', row.get('Cim', '')), 'Lat': str(lat_clean), 'Lon': str(lon_clean),
+                'Telefon': str(row.get('Telefon', '')), 'Csoport': str(row.get('Csoport', '')),
+                'Megjegyzés': str(row.get('Megjegyzés', row.get('Megjegyzes', ''))),
+                'Utolso_Rendeles': szallitas_napja, 'Osszertek': mai_rendeles_erteke, 'Rendeles_Szam': 1
+            }
+            master_df = pd.concat([master_df, pd.DataFrame([uj_sor])], ignore_index=True)
+            existing_ids.add(u_id)
+
+    master_df['Lat'] = master_df['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
+    master_df['Lon'] = master_df['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
+    df_ugyfelkor_vegleges = kotelezo_ugyfelkor_formatum_tisztitas(master_df)
+    set_with_dataframe(ws_ugyfel, df_ugyfelkor_vegleges, row=1, col=1, include_index=False, resize=True)
+    master_df = df_ugyfelkor_vegleges.copy()
+    if 'google_data_loaded' in st.session_state: del st.session_state['google_data_loaded']
+except Exception as e_full_process:
+    st.error(f"❌ Nem sikerült az ügyfélkör automatikus frissítése: {e_full_process}")
         
     if not master_df.empty:
-        # --- PREFEKTUSI JAVÍTÁS A DUPLIKÁCIÓK ELLENI SZINKRONHOZ ---
-        # Ideiglenesen megtisztítjuk a napi ID oszlopot a merge művelethez
         df_napi['temp_clean_id'] = df_napi['ID'].apply(tiszta_id_konverzio)
         master_df['temp_clean_id'] = master_df['ID'].apply(tiszta_id_konverzio)
         
@@ -305,7 +388,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
             if c in master_df.columns and c not in df_napi.columns: 
                 b_cols.append(c)
                 
-        # Összeillesztés a tiszta id alapján (figyelve a duplikációkra)
         merged_df = df_napi.merge(master_df[b_cols].drop_duplicates('temp_clean_id'), on='temp_clean_id', how='left')
         df_napi = merged_df.drop(columns=['temp_clean_id'])
         master_df = master_df.drop(columns=['temp_clean_id'])

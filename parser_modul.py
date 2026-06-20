@@ -123,29 +123,9 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         name_line_index = idx
                         break
 
-                # Szétválogatás
-                reszleg_ceg_lista = []
-                hosszu_megj_lista = []
-
-                for idx, l_strip in enumerate(lines):
-                    if any(x in l_strip for x in ["Debrecen", "Ebes", "Hajdú", "Nyomtatva:"]): 
-                        continue
-                    if re.search(PHONE_PAT, l_strip) or re.search(MONEY_PAT, l_strip):
-                        continue
-
-                    if idx == name_line_index:
-                        maradek = l_strip.replace(current_id, "").replace(local_customer_name, "").strip()
-                        if len(maradek) > 1:
-                            if maradek[0].islower():
-                                hosszu_megj_lista.append(maradek)
-                            else:
-                                reszleg_ceg_lista.append(maradek)
-                    else:
-                        hosszu_megj_lista.append(l_strip)
-
                 customer_name = local_customer_name
             
-                # Csak a szigorú sáv szavait nézzük a telefonhoz
+                # Csak a szigorú sáv szavait nézzük
                 line_words = [w for w in words if y_top <= w['top'] < y_bottom]
                 
                 def get_col_text(x_min, x_max):
@@ -313,24 +293,67 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                 break
                         address = " ".join(address_parts).strip(" ,.|/-")
 
-                    # --- MEGJEGYZÉS KINYERÉSE (STRIKTEN AZ ÜGYFÉL OSZLOPBÓL - ZÉRÓ BLEEDING) ---
-                    # Csak azokat a szavakat gyűjtjük össze, amelyek az Ügyfél oszlopban (v_lines[1] és v_lines[2] között) vannak.
-                    col2_words = sorted([w for w in line_words if v_lines[1] <= (w['x0'] + w['x1'])/2 < v_lines[2]], key=lambda x: (x['top'], x['x0']))
-                    col2_text = " ".join([w['text'] for w in col2_words]).strip()
+                    # --- DICSŐSÉGES MEGJEGYZÉS RADAR (ZIP-CODE ANCHOR LOCK VISSZAÁLLÍTÁSA) ---
+                    # A szigorúan szeletelt line_words sáv szavait rendezzük és egybefüggő szöveggé olvassuk össze
+                    line_words_sorted = sorted(line_words, key=lambda x: (round(x['top'] / 3) * 3, x['x0']))
+                    full_block_text = " ".join([w['text'] for w in line_words_sorted])
                     
-                    # Eltávolítjuk a vevő ID-t és a nevet, hogy csak a tiszta megjegyzés maradjon meg
-                    clean_comment = col2_text
-                    if current_id:
-                        clean_comment = clean_comment.replace(current_id, "")
-                    if local_customer_name:
-                        for word in local_customer_name.split():
-                            if len(word) > 1:
-                                clean_comment = re.sub(rf'\b{re.escape(word)}\b', '', clean_comment, flags=re.IGNORECASE)
-                    
-                    megjegyzes = clean_comment.strip(" ,.-/|*").strip()
-                    megjegyzes = re.sub(r'\s+', ' ', megjegyzes)
+                    id_pattern = r'[A-Za-z0-9]{1,3}-\d{5,7}'
+                    id_match_context = re.search(id_pattern, full_block_text)
+                    working_context = full_block_text[id_match_context.start():] if id_match_context else full_block_text
 
-                    # Megjegyzés tisztítása
+                    megj_resz_1 = "" 
+                    megj_resz_2 = "" 
+
+                    clean_context = re.sub(ORDER_PAT, '', working_context)
+                    clean_context = re.sub(MONEY_PAT, '', clean_context)
+                    if 'phone_val' in locals() and phone_val:
+                        clean_context = clean_context.replace(phone_val, "")
+
+                    addr_zip_match = re.search(r'\b\d{4}\b', address)
+                    if addr_zip_match:
+                        target_zip = addr_zip_match.group(0)
+                        zip_match = re.search(rf'\b{target_zip}\b', clean_context)
+                    else:
+                        zip_match = re.search(r'\b\d{4}\b', clean_context)
+
+                    if zip_match:
+                        pre_zip = clean_context[:zip_match.start()].replace(full_id, "").strip()
+                        if pre_zip:
+                            if "/" in pre_zip:
+                                megj_resz_1 = pre_zip.split("/")[0].strip()
+                            else:
+                                t_megj = pre_zip
+                                if admin_name:
+                                    for w in admin_name.split():
+                                        if len(w) > 2:
+                                            t_megj = re.sub(rf'\b{re.escape(w)}\b', '', t_megj, flags=re.IGNORECASE)
+                                megj_resz_1 = t_megj.strip()
+
+                    if address in clean_context:
+                        anchor_pos = clean_context.find(address) + len(address)
+                        after_address = clean_context[anchor_pos:].strip()
+                        end_m = re.search(re.escape(phone_val), after_address) if phone_val else None
+                        megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
+
+                    all_notes = []
+                    if megj_resz_1.strip():
+                        all_notes.append(megj_resz_1.strip())
+                    if megj_resz_2.strip():
+                        all_notes.append(megj_resz_2.strip())
+
+                    seen = set()
+                    final_parts = []
+                    for n in all_notes:
+                        n_clean = n.strip()
+                        if not n_clean: continue
+                        if n_clean.lower() not in seen:
+                            final_parts.append(n_clean)
+                            seen.add(n_clean.lower())
+
+                    clean_customer = " | ".join(final_parts)
+
+                    # Megjegyzés tisztítása és sallangtalanítása
                     junk_list_customer = [
                         "Csilagozott betűnél kiegészítő is van!!!",
                         "Csilagozott betűnél kiegészítő is van",
@@ -338,7 +361,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         "Csillagozott betűnél kiegészítő is van"
                     ]
                     
-                    clean_customer = megjegyzes
                     for junk in junk_list_customer:
                         clean_customer = clean_customer.replace(junk, "")
 
@@ -398,10 +420,11 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         if not final_note_parts or e_clean.lower() != final_note_parts[0].lower():
                             final_note_parts.append(e_clean)
                     
+                    # Összefűzés a kért " | " separatorral
                     full_note = " | ".join(final_note_parts)
                     
                     # Emese kapukód mentőöve (ha üres maradt, de a radar máshol látna kapukódot)
-                    if not clean_customer or len(clean_customer.strip()) < 3:
+                    if not full_note or len(full_note.strip()) < 3:
                         raw_comment_parts = []
                         kk_match = re.search(r'\b(kcs|kk|kapukód|kapukod|kulcs)\b.*?(\d+[a-zA-Z0-9]*)', line_text_full, flags=re.IGNORECASE)
                         if kk_match:
@@ -409,45 +432,45 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                             raw_comment_parts.append(line_text_full[start_pos : kk_match.end() + 15].strip(" ,.-/|*"))
                         
                         if raw_comment_parts:
-                            clean_customer = " | ".join(raw_comment_parts)
+                            full_note = " | ".join(raw_comment_parts)
                             if admin_name:
-                                clean_customer = re.sub(rf'\b{re.escape(admin_name)}\b', '', clean_customer, flags=re.IGNORECASE)
+                                full_note = re.sub(rf'\b{re.escape(admin_name)}\b', '', full_note, flags=re.IGNORECASE)
                                 for name_part in admin_name.split():
                                     if len(name_part) > 2:
-                                        clean_customer = re.sub(rf'\b{re.escape(name_part)}\b', '', clean_customer, flags=re.IGNORECASE)
-                            clean_customer = re.sub(ORDER_PAT, '', clean_customer)
-                            clean_customer = re.sub(MONEY_PAT, '', clean_customer)
-                            clean_customer = re.sub(r'\s+', ' ', clean_customer).strip(" ,.-/|*")
+                                        full_note = re.sub(rf'\b{re.escape(name_part)}\b', '', full_note, flags=re.IGNORECASE)
+                            full_note = re.sub(ORDER_PAT, '', full_note)
+                            full_note = re.sub(MONEY_PAT, '', full_note)
+                            full_note = re.sub(r'\s+', ' ', full_note).strip(" ,.-/|*")
 
-                    clean_customer = re.sub(r'(Összesítés:|Csillagozott|Összesen:).*', '', clean_customer, flags=re.IGNORECASE)
+                    full_note = re.sub(r'(Összesítés:|Csillagozott|Összesen:).*', '', full_note, flags=re.IGNORECASE)
 
                     for num in ["20", "30", "70", "06"]:
-                        clean_customer = clean_customer.replace(f"| {num} |", "|")
-                        clean_customer = clean_customer.replace(f"|{num}|", "|")
-                        clean_customer = clean_customer.replace(f"| {num}", "|")
-                        clean_customer = clean_customer.replace(f"{num} |", "|")
+                        full_note = full_note.replace(f"| {num} |", "|")
+                        full_note = full_note.replace(f"|{num}|", "|")
+                        full_note = full_note.replace(f"| {num}", "|")
+                        full_note = full_note.replace(f"{num} |", "|")
                     
-                    clean_customer = re.sub(r'\b(20|30|70|06)\b(?!\s*/|\s*\d)', '', clean_customer)
+                    full_note = re.sub(r'\b(20|30|70|06)\b(?!\s*/|\s*\d)', '', full_note)
 
-                    if "|" in clean_customer:
-                        parts = [p.strip() for p in clean_customer.split("|")]
+                    if "|" in full_note:
+                        parts = [p.strip() for p in full_note.split("|")]
                         if len(parts) > 1 and parts[1].lower().startswith(parts[0].lower()):
                             parts[1] = parts[1][len(parts[0]):].strip()
-                        clean_customer = " | ".join(dict.fromkeys([p for p in parts if p]))
+                        full_note = " | ".join(dict.fromkeys([p for p in parts if p]))
 
-                    clean_customer = re.sub(r'([ ,.]*[,.][ ,.]*){2,}', ' ', clean_customer)
-                    clean_customer = re.sub(r'\|\s*[,. ]+', '| ', clean_customer)
-                    clean_customer = re.sub(r'[,. ]+\s*\|', ' |', clean_customer)
-                    clean_customer = re.sub(r'(\|[ \t]*)+', ' | ', clean_customer)
-                    clean_customer = re.sub(r'\s+', ' ', clean_customer)
-                    clean_customer = clean_customer.strip(" ,.-/|*")
+                    full_note = re.sub(r'([ ,.]*[,.][ ,.]*){2,}', ' ', full_note)
+                    full_note = re.sub(r'\|\s*[,. ]+', '| ', full_note)
+                    full_note = re.sub(r'[,. ]+\s*\|', ' |', full_note)
+                    full_note = re.sub(r'(\|[ \t]*)+', ' | ', full_note)
+                    full_note = re.sub(r'\s+', ' ', full_note)
+                    full_note = full_note.strip(" ,.-/|*")
                     
                     mapping = {"H": "Hé", "K": "Ke", "S": "Sze", "C": "Csü", "P": "Pé", "Z": "Szo"}
                     full_rendeles_text = f"{mapping.get(prefix, '')}: {rendeles_str}" if rendeles_str else ""
 
                     rows.append({
                         "ID": full_id, "Ügyintéző": admin_name, "Cím": address, "Telefon": phone_val,
-                        "Pénz": money_val, "Rendelés": rendeles_str, "Megjegyzés": clean_customer,
+                        "Pénz": money_val, "Rendelés": rendeles_str, "Megjegyzés": full_note,
                         "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
                         "Rendelés_Full": full_rendeles_text, "temp_id": full_id.split('-')[-1],
                         "Prefix": prefix, "Csoport": current_group_id if 'current_group_id' in locals() else 0

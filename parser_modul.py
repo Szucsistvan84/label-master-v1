@@ -41,15 +41,18 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
         for pg in pdf.pages:
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
             
-            # --- GOLYÓÁLLÓ LÁBLÉC-SOROMPÓ (MINDEN OLDALON AKTÍVAN LEZÁR) ---
-            footer_elements = []
-            for w in words:
-                txt = w['text']
-                # Kibővítettük a keresést az Oldal, Nyomtatta és Menetlevél szavakra is a lap alján (alsó 40%)
-                if any(tag in txt for tag in ["Összesítés", "Csilagozott", "Csillagozott", "Összesen", "Nyomtatta", "Oldal", "Menetlevél"]) and w['top'] > pg.height * 0.6:
-                    footer_elements.append(w)
+            # --- USER-ALAPÚ ZSENIÁLIS LÁBLÉC-CEILING RADAR ---
+            footer_line_top = pg.height # Alapértelmezetten a lap alja
             
-            page_cutoff = min([w['top'] for w in footer_elements]) - 2 if footer_elements else pg.height
+            for w in words:
+                txt = w['text'].lower()
+                # Megkeressük az "Összesítés: Csilagozott betűnél kiegészítő is van!!! Összesen:" sor elemeit
+                if any(tag in txt for tag in ["összesítés", "osszesites", "csilagozott", "csillagozott", "kiegészítő", "kiegeszito", "összesen", "osszesen"]) and w['top'] > pg.height * 0.6:
+                    if w['top'] < footer_line_top:
+                        footer_line_top = w['top']
+            
+            # A pontosan megtalált lábléc-sor teteje határolja le az utolsó ügyfelet!
+            page_cutoff = footer_line_top - 4 if footer_line_top < pg.height else pg.height - 20
 
             # Horgonyok gyűjtése (Sorszám-ragadás elleni védelemmel)
             anchors = [w for w in words if re.search(r'\b[A-Za-z0-9]{1,3}-\d{5,7}\b', w['text'])]
@@ -57,13 +60,13 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
             for i, anchor in enumerate(anchors):
                 if anchor['top'] >= page_cutoff: continue
 
-                # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA (AIRTIGHT GRID SLICING - NINCS ÁTFEDÉS) ---
-                y_top = max(0, anchor['top'] - 6) # -12 helyett szigorúan -6, kizárva az előző ügyfelet
+                # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA (AIRTIGHT PARTITIONING - ZÉRO ÁTFEDÉS) ---
+                y_top = anchor['top'] - 4 # Szigorúan az ügyfél saját horgonyánál kezdünk felül
                 
                 if i + 1 < len(anchors):
-                    y_bottom = anchors[i+1]['top'] - 3 # +5 helyett szigorúan -3, kizárva a következő ügyfelet
+                    y_bottom = anchors[i+1]['top'] - 4 # Szigorúan a következő ügyfél horgonya előtt zárunk le alul
                 else:
-                    y_bottom = page_cutoff - 3 # A lábléc felett szigorúan lezár, nem rántja be az összesítőt!
+                    y_bottom = page_cutoff # Szigorúan a detektált lábléc-sor felett zárunk le az utolsó sorban!
                 
                 if y_bottom <= y_top: 
                     y_bottom = y_top + 60 
@@ -115,7 +118,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 megj_resz_2 = " | ".join(hosszu_megj_lista)
                 customer_name = local_customer_name
             
-                # line_words-t is pontosan ugyanebben a szigorúan elszeparált sávban gyűjtjük!
+                # A line_words-t is pontosan ugyanebben a szigorúan elszeparált sávban gyűjtjük!
                 line_words = [w for w in words if y_top <= w['top'] < y_bottom]
                 
                 def get_col_text(x_min, x_max):
@@ -159,8 +162,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
                     row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
 
-                    # --- 2. TELEFON ÉS PÉNZ (ZÉRÓ VÉRZÉS - AIRTIGHT SEPARATION) ---
-                    # A szigorúan szeletelt line_words-ből dolgozunk, így kizárt a szomszédos sorok beolvasása!
+                    # --- 2. TELEFON ÉS PÉNZ (LÉGMENTES SZÉTVÁLASZTÁS) ---
                     tel_money_words = sorted([w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5], key=lambda w: w['top'])
                     
                     phone_val, money_val = "", "0Ft"

@@ -12,6 +12,7 @@ from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
+# --- GLOBÁLIS SHEETS KONSTANSOK ---
 SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o" 
 SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
@@ -51,6 +52,26 @@ def load_sheet_data_cached(_client, sheet_id, worksheet_name):
     except Exception as e:
         logger.error(f"Hiba a táblázat beolvasásakor ({worksheet_name}): {e}")
         return pd.DataFrame()
+
+def _tiszta_futar_lista_letoltes(sheet_id):
+    """
+    Biztonságosan letölti és tiszta szótár-listaként visszaadja a regisztrált futárok listáját.
+    Ez a függvény felel az app.py beléptető rendszerének zökkenőmentes kiszolgálásáért.
+    """
+    import pandas as pd
+    import streamlit as st
+    client = st.session_state.get('client')
+    if not client: 
+        return []
+    try:
+        sheet = client.open_by_key(sheet_id).worksheet("Futárok")
+        df = pd.DataFrame(sheet.get_all_records())
+        if df.empty:
+            return []
+        return df.to_dict('records')
+    except Exception as e:
+        logger.error(f"Hiba a futár lista letöltésekor: {e}")
+        return []
 
 def save_df_to_sheet(client, sheet_id, worksheet_name, df, clear_sheet=True):
     import pandas as pd

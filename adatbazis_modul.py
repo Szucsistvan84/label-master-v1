@@ -16,6 +16,10 @@ SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o"
 SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
 def get_gspread_client():
+    """
+    Létrehozza és visszaadja a gspread klienst a hitelesítő adatok alapján.
+    Fejlesztői környezetben a helyi környezeti változókból, Streamlit Cloudon pedig a secrets-ből dolgozik.
+    """
     scopes = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/spreadsheets",
@@ -39,6 +43,9 @@ def get_gspread_client():
 
 @st.cache_data(ttl=300, show_spinner="Adatbázisok szinkronizálása...")
 def load_sheet_data_cached(_client, sheet_id, worksheet_name):
+    """
+    Biztonságos, gyorsítótárazott táblázatbeolvasó a Google Sheets API kvóták kímélése érdekében.
+    """
     import pandas as pd
     try:
         sheet = _client.open_by_key(sheet_id)
@@ -53,6 +60,9 @@ def load_sheet_data_cached(_client, sheet_id, worksheet_name):
         return pd.DataFrame()
 
 def _tiszta_futar_lista_letoltes(sheet_id):
+    """
+    Letölti és visszaadja a regisztrált futárok listáját az ellenőrzéshez.
+    """
     import pandas as pd
     import streamlit as st
     client = st.session_state.get('client')
@@ -69,6 +79,9 @@ def _tiszta_futar_lista_letoltes(sheet_id):
         return []
 
 def save_df_to_sheet(client, sheet_id, worksheet_name, df, clear_sheet=True):
+    """
+    DataFrame objektumot ment a megadott Google Sheets fülre.
+    """
     import pandas as pd
     try:
         sheet = client.open_by_key(sheet_id)
@@ -83,6 +96,10 @@ def save_df_to_sheet(client, sheet_id, worksheet_name, df, clear_sheet=True):
         return False
 
 def kotelezo_ugyfelkor_formatum_tisztitas(df):
+    """
+    Szigorú oszlopformázó és adattisztító motor az Ugyfelkor munkalaphoz.
+    Eltávolítja a felesleges karaktereket, javítja a típusokat és koordinátákat.
+    """
     import pandas as pd
     if df.empty: return df
     df_clean = df.copy()
@@ -119,13 +136,16 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     return df_clean
 
 def iterativ_gps_kereso(cim, geolocator):
+    """
+    Zseniális iteratív GPS peeling (hámozó) motor kibővített magyar címrövidítés feloldással.
+    Ha nem találja a teljes címet, szavanként hámozza lefelé, amíg értelmes utcaszintű találatot kap.
+    """
     import time
     import re
     tisztitott_cim = str(cim).strip().rstrip(',').rstrip('.')
-    # Alapvető zavaró írásjelek leszedése a hasábelcsúszások ellen
     tisztitott_cim = re.sub(r'[\(\)\$\*]', '', tisztitott_cim)
     
-    # --- NULLADIK LÉPÉS: MAGYAR CÍMRÖVIDÍTÉSEK AUTOMATIKUS KIBONTÁSA (Zseniális Peeling-Előfutár) ---
+    # --- CSODÁLATOS ÚJ KIEGÉSZÍTÉS: CÍMRÖVIDÍTÉSEK AUTOMATIKUS KIBONTÁSA ---
     abbrev_map = {
         r'\bu\b\.?': 'utca',
         r'\bkrt\b\.?': 'körút',
@@ -162,10 +182,13 @@ def iterativ_gps_kereso(cim, geolocator):
                 return str(round(location.latitude, 6)), str(round(location.longitude, 6)), proba_cim
         except Exception:
             pass
-        words.pop() # Peeling / Hámozás
+        words.pop() # Hámozás: Levágjuk a legutolsó szót, ha sikertelen volt a kör
     return None, None, None
 
 def get_latest_week_from_master(sheet_id, client):
+    """
+    Lekéri a legutolsó feltöltött hét számát a Master adatbázisból.
+    """
     import pandas as pd
     try:
         if client is None: return 2026, 0
@@ -188,6 +211,9 @@ def get_latest_week_from_master(sheet_id, client):
 
 @st.cache_data(show_spinner="Étlap API frissítése a felhőből...")
 def load_etlap_api_smart(_client, sheet_id, columns_trigger=None):
+    """
+    Gyorsítótárazott étlap API olvasó.
+    """
     import pandas as pd
     try:
         if _client is None: return pd.DataFrame()
@@ -201,6 +227,10 @@ def load_etlap_api_smart(_client, sheet_id, columns_trigger=None):
         return pd.DataFrame()
 
 def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
+    """
+    Összehangolja a napi PDF-ből beolvasott adatokat az Ugyfelkor törzslistával.
+    Élő (cache-mentes) olvasással véd a duplikáció ellen, és automatikusan geokódol az iteratív hámozóval.
+    """
     import pandas as pd
     import streamlit as st
     import logging
@@ -221,7 +251,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
 
-    # ÉLŐ (CACHE-MENTES) BEOLVASÁS TRANZAKCIÓKHOZ A DUPLIKÁLÓDÁS ELLEN
+    # --- ÉLŐ (CACHE-MENTES) BEOLVASÁS A TRANZAKCIÓS BIZTONSÁGÉRT ---
     try:
         sh = client.open_by_key(sheet_id)
         ws_ugyfel = sh.worksheet("Ugyfelkor")
@@ -262,7 +292,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         új_koordináta_számláló = 0
         geolocator_helyi = Nominatim(user_agent="Interfood_Express_Delivery_App_v3_2026")
         
-        # SZIGORÚ O(1)-es SZETT-ALAPÚ ÖSSZEHASONLÍTÁS A TÍPUSHIBA DUPLIKÁCIÓK ELLEN
+        # SZIGORÚ O(1)-es SZETT-ALAPÚ ÖSSZEHASONLÍTÁS A DUPLIKÁCIÓK ELLEN
         existing_ids = set(master_df['ID'].astype(str).tolist()) if not master_df.empty else set()
 
         for idx, row in df_napi.iterrows():
@@ -327,7 +357,9 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
 
         master_df['Lat'] = master_df['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
         master_df['Lon'] = master_df['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
-        df_ugyfelkor_vegleges = kotelezo_ugyfelkor_formatum_tisUTtitas(master_df) if 'kotelezo_ugyfelkor_formatum_tisUTtitas' in locals() else kotelezo_ugyfelkor_formatum_tisztitas(master_df)
+        
+        # JAVÍTVA: Csak a tiszta függvényt hívjuk meg névütközési elgépelés nélkül
+        df_ugyfelkor_vegleges = kotelezo_ugyfelkor_formatum_tisztitas(master_df)
         set_with_dataframe(ws_ugyfel, df_ugyfelkor_vegleges, row=1, col=1, include_index=False, resize=True)
         master_df = df_ugyfelkor_vegleges.copy()
         if 'google_data_loaded' in st.session_state: del st.session_state['google_data_loaded']
@@ -391,6 +423,9 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     return df_napi, master_df
 
 def sync_interfood_etlap(year, week, sheet_id):
+    """
+    Közvetlenül az Interfood API-ból húzza be a heti árakat, és elmenti az Etlap_API munkalapra.
+    """
     import pandas as pd
     api_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -412,6 +447,9 @@ def sync_interfood_etlap(year, week, sheet_id):
         return False
 
 def load_etlap_from_sheets(sheet_id):
+    """
+    Betölti az étlap adatokat és az egyedi kategóriarendet a Google Sheetsből.
+    """
     import pandas as pd
     client = st.session_state.get('client')
     try:
@@ -449,6 +487,9 @@ def load_etlap_from_sheets(sheet_id):
         return {}
 
 def load_futar_from_sheets(sheet_id):
+    """
+    Betölti a regisztrált futárok listáját az ellenőrzéshez.
+    """
     import pandas as pd
     client = st.session_state.get('client')
     if not client: return pd.DataFrame()
@@ -458,6 +499,9 @@ def load_futar_from_sheets(sheet_id):
     except: return pd.DataFrame()
 
 def save_futar_to_sheets(df, sheet_id):
+    """
+    Frissíti a futárok állományát a Google Táblázatban.
+    """
     client = st.session_state.get('client')
     try:
         sheet = client.open_by_key(sheet_id).worksheet("Futárok")
@@ -467,6 +511,9 @@ def save_futar_to_sheets(df, sheet_id):
     except: return False
 
 def sync_master_database(sheet_id, ev, start_het, end_het):
+    """
+    Frissíti a Master Étlap Adatbázist az adott hetek összesített adatai alapján.
+    """
     import pandas as pd
     import requests
     from io import BytesIO

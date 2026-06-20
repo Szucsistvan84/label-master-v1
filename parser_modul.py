@@ -160,7 +160,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
                     row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
 
-                    # --- 2. TELEFON ÉS PÉNZ (PONTOZÁST TISZTÍTÓ LOGIKÁVAL - JAVÍTVA SORCSÚSZÁS ELLEN) ---
+                    # --- 2. TELEFON ÉS PÉNZ (INTELLIGENS KÜLÖNVÁLASZTÁS ÉS TISZTÍTÁS) ---
                     # row_words helyett line_words-ből gyűjtünk, hogy a csúszott sorok se essenek ki!
                     tel_money_words = sorted([w for w in line_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5], key=lambda w: w['top'])
                     
@@ -174,20 +174,28 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         
                         full_text_area = top_text + " " + bottom_text
                         
-                        # Felkészítjük a regexet a perjel utáni pontra és szóközre is
+                        # A) Telefon kinyerése a teljes területről
                         phone_match = re.search(r'(\d{1,2}/[\.\s]*\d+)', full_text_area)
                         if phone_match:
-                            # Eltávolítjuk a szóközöket és a pontokat is a telefonszámból
                             phone_val = phone_match.group(1).replace(" ", "").replace(".", "")
                         else:
                             phone_val = ""
                         
-                        money_match = re.search(r'(-?\s*\d[\d\s]*)\s*Ft', bottom_text if bottom_text else top_text)
+                        # B) Pénzösszeg kinyerése (Csak az anyagi sorból, kizárva a telefonszám részeit!)
+                        # Ha a telefonszám benne maradt a szövegben, töröljük belőle a pénzvizsgálat előtt!
+                        szurt_money_text = full_text_area
+                        if phone_match:
+                            szurt_money_text = szurt_comment = re.sub(r'\d{1,2}/[\.\s]*\d+', '', full_text_area)
+
+                        money_match = re.search(r'(-?\s*\d[\d\s]*)\s*Ft', szurt_context if 'szurt_context' in locals() else szurt_money_text if 'szurt_money_text' in locals() else szurt_dot if 'szurt_dot' in locals() else szurt_text_area if 'szurt_text_area' in locals() else (bottom_text if bottom_text else top_text))
+                        # Ha van explicit Ft jelölés
+                        money_match = re.search(r'(-?\s*\d[\d\s]*)\s*Ft', szurt_money_text)
                         if money_match:
                             raw_money = money_match.group(1).replace(" ", "")
                             money_val = f"{raw_money}Ft"
                         else:
-                            last_num = re.search(r'(-?\s*\d+)$', (bottom_text.strip() if bottom_text else top_text.strip()))
+                            # Fallback tiszta számra (pl. "0") a telefonmentes rész legvégén
+                            last_num = re.search(r'([-\u2013\u2014\u2212]?\s*\d+)$', szurt_money_text.strip())
                             if last_num:
                                 money_val = f"{last_num.group(1).replace(' ', '')}Ft"
                             else:

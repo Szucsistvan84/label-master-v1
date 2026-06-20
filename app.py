@@ -4,6 +4,16 @@ import streamlit as st
 # --- 1. STREAMLIT ALAPBEÁLLÍTÁS - Kötelezően mindenen kívül, a legelső sorban! ---
 st.set_page_config(page_title="Interfood Label Master", layout="wide")
 
+# --- KÉNYSZERÍTETT MODUL HOT-RELOAD (GARANTÁLT FRISSÍTÉS - HOZZÁADVA PARSER_MODUL) ---
+import sys
+import importlib
+
+modules_to_reload = ["parser_modul", "mobil_modulok", "nezetek_modul", "adatbazis_modul", "geokodolo_modul"]
+for mod_name in modules_to_reload:
+    if mod_name in sys.modules:
+        importlib.reload(sys.modules[mod_name])
+# -----------------------------------------------------------------------------------
+
 # --- Standard Python modulok importálása ---
 import pandas as pd
 import logging
@@ -36,7 +46,7 @@ logger = logging.getLogger(__name__)
 init_test_mode()
 
 # Kényszerített kód-frissítési jelző a modulok újratöltéséhez
-# UPDATE_TRIGGER_v3_2026_06_14_1815
+# UPDATE_TRIGGER_v4_2026_06_20_2015
 
 # --- GOOGLE SHEETS KLIENS INICIALIZÁLÁSA ---
 client = init_google_sheets()
@@ -101,7 +111,7 @@ def main():
             view = "desktop"
         else:
             st.markdown("### 📱 Interfood Futár Terminál")
-            st.info("A parancsikonról indítottad az alkalmazást. Kattints az alábbi gombra a folytatáshoz:")
+            st.info("A parancsikonról indítottad an alkalmazást. Kattints az alábbi gombra a folytatáshoz:")
             
             if st.button("🚀 MOBIL TERMINÁL INDÍTÁSA", use_container_width=True, type="primary"):
                 st.query_params.update(view="mobile")

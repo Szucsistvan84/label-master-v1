@@ -31,12 +31,12 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     st.markdown(
         """
         <style>
-        /* Sidebar felső óriási fehér sávjának esztétikus, megengedőbb eltüntetése */
+        /* Sidebar felső sáv finomítása */
         div[data-testid="stSidebarUserContent"] {
-            padding-top: 0.8rem !important; /* Hagyunk egy kis lélegzetvételnyi helyet a tetején */
-            margin-top: -2.2rem !important; /* Nem húzzuk fel teljesen a halálba, így nem csúszik rá a gombokra */
+            padding-top: 0.8rem !important;
+            margin-top: -2.2rem !important;
         }
-        /* Metric kártyák betűméretének és térközének radikális csökkentése */
+        /* Metric kártyák tömörítése */
         [data-testid="stSidebarUserContent"] [data-testid="stMetricValue"] {
             font-size: 1.05rem !important;
             font-weight: 800 !important;
@@ -53,11 +53,9 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             padding: 0px !important;
             margin-bottom: 1px !important;
         }
-        /* Drasztikusan csökkentjük az összes függőleges elem közötti térközt */
         [data-testid="stSidebarUserContent"] div[data-testid="stVerticalBlock"] {
             gap: 0.3rem !important;
         }
-        /* Fejlécek és sorközök finomítása */
         [data-testid="stSidebarUserContent"] h2 {
             font-size: 1.15rem !important;
             margin-top: 0px !important;
@@ -69,17 +67,15 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             margin-bottom: 2px !important;
         }
         [data-testid="stSidebarUserContent"] hr {
-            display: none !important; /* Eltávolítja az összes beépített kiszámíthatatlan elválasztóvonalat */
+            display: none !important;
             margin-top: 0px !important;
             margin-bottom: 0px !important;
         }
-        /* Szöveges bejegyzések tömörítése */
         [data-testid="stSidebarUserContent"] p, [data-testid="stSidebarUserContent"] span {
             margin-top: 0px !important;
             margin-bottom: 0px !important;
             line-height: 1.2 !important;
         }
-        /* Selectbox és beviteli mezők tömörítése */
         [data-testid="stSidebarUserContent"] div[data-baseweb="select"] {
             font-size: 0.8rem !important;
         }
@@ -96,7 +92,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     
     st.write(f"👤 **Futár:** {futar_nev_kiir} | 🚚 **Járat:** {jarat_szoveg_kiir}")
 
-    # --- INICIALIZÁLÁS ---
+    # Alapértelmezett elszámolási mérők
     osszes_cim = 0
     osszes_megallo = 0
     osszes_etel = 0
@@ -141,32 +137,27 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 forgalmi_ertek = int(matched_row.get('Forgalom_Osszes', matched_row.get('Forgalom', 0)))
                 jutalek = int(matched_row.get('Vart_Jutalek', matched_row.get('Jutalék', 0)))
                 osszes_etel = int(matched_row.get('Osszes_Etel', matched_row.get('Terv_Darabszam', 0)))
-                osszes_megallo = int(matched_row.get('Tervezett_Megallok', 0))
-                osszes_cim = int(matched_row.get('Osszes_Cim', 0))
+                osszes_megallo = int(matched_row.get('Tervezett_Megallok', matched_row.get('Tervezett_Megallok', 0)))
+                osszes_cim = int(matched_row.get('Osszes_Cim', matched_row.get('Osszes_Cim', 0)))
+            
+            if not matched_row:
+                try:
+                    df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
+                    if not df_adatok.empty:
+                        df_adatok.columns = [c.strip() for c in df_adatok.columns]
+                        if 'Feldolgozó Futár' in df_adatok.columns:
+                            df_szurt = df_adatok[df_adatok['Feldolgozó Futár'] == futar_nev_kiir]
+                            osszes_cim = len(df_szurt['Cím'].unique())
+                except:
+                    pass
+        else:
+            st.error("A Mobil_Summary munkalap teljesen üres!")
+            return
+    except Exception as e:
+        st.error(f"❌ Nem sikerült elérni a Google Sheets-et: {e}")
+        return
 
-        # Fallback ha a summary-ben még nincs rögzített adatunk
-        if osszes_cim == 0:
-            try:
-                df_adatok_all = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
-                if not df_adatok_all.empty:
-                    df_adatok_all.columns = [str(c).strip() for c in df_adatok_all.columns]
-                    jarat_col_name = next((c for c in df_adatok_all.columns if 'járat' in c.lower() or 'jarat' in c.lower()), None)
-                    aktiv_jaratok = [str(j).strip() for j in jarat_lista_kiir]
-                    
-                    if jarat_col_name and aktiv_jaratok:
-                        df_futar_cimei = df_adatok_all[df_adatok_all[jarat_col_name].astype(str).str.strip().isin(aktiv_jaratok)]
-                        if not df_futar_cimei.empty:
-                            cim_col_name = next((c for c in df_futar_cimei.columns if 'cím' in c.lower() or 'cim' in c.lower()), None)
-                            if cim_col_name:
-                                osszes_megallo = int(df_futar_cimei[cim_col_name].astype(str).str.strip().nunique())
-                                osszes_cim = len(df_futar_cimei)
-            except:
-                pass
-                
-    except Exception as e_global_dashboard:
-        st.sidebar.error(f"⚠️ Műszerfal hiba: {e_global_dashboard}")
-
-    # Összesítjük a telefonon ténylegesen sikeresnek jelölt és beszedett összegeket
+    # Élő kiszállítási mérők a Session State-ből
     live_kesz_cimek = 0
     live_beszedett_kp = 0
     live_borravalo = 0
@@ -308,7 +299,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         
         if st.button("🚨 HIBA KÜLDÉSE A DISZPÉCSERNEK", type="primary", use_container_width=True, key="sidebar_hiba_submit_btn"):
             if st_hiba_vevo_selected == "-- Válassz helyszínt / vevőt --" or st_hiba_kaja_selected == "-- Válassz érintett ételt --":
-                st.error("❌ Kérlek, válaszd ki a vevőt és a sérült ételt is a listából!")
+                st.error("❌ Kérlek, válaszd ki a vevőt és a sérült ételt भी a listából!")
             else:
                 is_test_mode = st.query_params.get("test", "false") == "true" or st.session_state.get('teszt_uzemmod', False)
                 if is_test_mode:
@@ -552,16 +543,18 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
     st.session_state['SHEET_ID_MASTER'] = SHEET_ID_MASTER
     st.session_state['sheet_id'] = SHEET_ID_UGYFELKOR
 
+    # --- SIKERES JUTALÉKÜNNEPLŐ KÁRTYA (AAA KONTRASZTÚ FORMÁZÁSSAL) ---
+    # Megszünteti a Streamlit böngészős CSS miatti "fehér alapon fehér szöveg" hibát
     if st.session_state.get('show_weekly_bonus_celebration'):
         bonus_data = st.session_state['show_weekly_bonus_celebration']
         st.markdown(f"""
-        <div style="background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%); padding: 25px; border-radius: 15px; text-align: center; color: white; margin-bottom: 25px; box-shadow: 0 10px 20px rgba(0,0,0,0.15); border: 2px solid #FFDF00; position: relative; overflow: hidden;">
-            <div style="font-size: 40px; margin-bottom: 10px;">👑🏆🍾</div>
-            <h2 style="margin: 0; color: white; font-weight: bold; text-shadow: 1px 1px 3px rgba(0,0,0,0.3);">GRATULÁLUNK, {bonus_data['futar'].upper()}!</h2>
-            <p style="font-size: 16px; margin: 10px 0 5px 0; text-shadow: 1px 1px 2px rgba(0,0,0,0.2);">
-                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke elérte a <b>{bonus_data['forgalom']:,} Ft</b>-ot!
+        <div style="background: #FFFBEB !important; background: linear-gradient(135deg, #FEF3C7 0%, #FCD34D 100%) !important; padding: 25px !important; border-radius: 15px !important; text-align: center !important; color: #78350F !important; margin-bottom: 25px !important; box-shadow: 0 10px 20px rgba(120,53,15,0.12) !important; border: 2px solid #F59E0B !important; position: relative !important; overflow: hidden !important; font-family: sans-serif !important;">
+            <div style="font-size: 40px !important; margin-bottom: 10px !important; line-height: 1 !important;">👑🏆🍾</div>
+            <h2 style="margin: 0 0 10px 0 !important; color: #78350F !important; font-weight: 900 !important; font-size: 24px !important; border: none !important; line-height: 1.2 !important; text-shadow: none !important; font-family: sans-serif !important;">GRATULÁLUNK, {bonus_data['futar'].upper()}!</h2>
+            <p style="font-size: 16px !important; margin: 10px 0 12px 0 !important; color: #78350F !important; font-weight: bold !important; line-height: 1.4 !important; text-shadow: none !important; font-family: sans-serif !important;">
+                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke elérte a <b style="color: #B45309 !important; font-size: 18px !important; font-weight: 900 !important;">{bonus_data['forgalom']:,} Ft</b>-ot!
             </p>
-            <div style="background-color: rgba(255,255,255,0.25); display: inline-block; padding: 10px 25px; border-radius: 50px; font-weight: bold; font-size: 18px; margin-top: 10px; border: 1px solid rgba(255,255,255,0.4);">
+            <div style="background-color: rgba(120, 53, 15, 0.08) !important; display: inline-block !important; padding: 10px 25px !important; border-radius: 50px !important; font-weight: 800 !important; font-size: 15px !important; margin-top: 5px !important; border: 1.5px solid #78350F !important; color: #78350F !important; letter-spacing: 0.5px !important; font-family: sans-serif !important;">
                 ⭐ EMELT BÓNUSZ SÁV: 14% JUTALÉK AKTIVÁLVA! ⭐
             </div>
         </div>
@@ -669,8 +662,14 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
 
             st.write("---")
             st.subheader("📱 Mobil Terminál")
-            mobil_link = f"https://interfood-menetterv-etikett-generator.streamlit.app/?view=mobile&jarat={','.join(meta.get('jaratok', []))}"
-            if st.session_state.get('teszt_uzemmod', False): mobil_link += "&test=true"
+            alap_url = "https://interfood-menetterv-etikett-generator.streamlit.app"
+            jarat_id = ",".join(str(j) for j in meta.get('jaratok', [])) if meta.get('jaratok') else ""
+            if not jarat_id and 'valasztott_jarat' in st.session_state:
+                jarat_id = str(st.session_state.valasztott_jarat)
+            
+            mobil_link = f"{alap_url}/?view=mobile&jarat={jarat_id}"
+            if st.session_state.get('teszt_uzemmod', False):
+                mobil_link += "&test=true"
             
             import qrcode
             from io import BytesIO
@@ -678,8 +677,20 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             qr.add_data(mobil_link)
             qr.make(fit=True)
             img = qr.make_image(fill_color="black", back_color="white")
+            
             buf = BytesIO()
             img.save(buf, format="PNG")
+            byte_im = buf.getvalue()
             
-            st.image(buf.getvalue(), caption="Szkenneld be a mobil nézethez", width=180)
-            st.markdown(f"Direkt link: [{mobil_link}]({mobil_link})")
+            qr_col1, qr_col2 = st.columns([2, 1])
+            with qr_col1:
+                if st.session_state.get('teszt_uzemmod', False):
+                    st.warning("🧪 **A QR-kód TESZT ÜZEMMÓDRA van felkészítve!**")
+                st.markdown(f"""
+                💡 **Szkenneld be ezt a QR-kódot a telefonoddal**, hogy megnyisd a **Futár Terminált**!
+                * A futár azonnal eléri a mobil terminált.
+                * Nincs papír, nincs elírás.
+                Direkt link: [{mobil_link}]({mobil_link})
+                """)
+            with qr_col2:
+                st.image(byte_im, width=150)

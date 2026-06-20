@@ -12,7 +12,6 @@ from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
-# --- GLOBÁLIS SHEETS KONSTANSOK ---
 SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o" 
 SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
@@ -54,10 +53,6 @@ def load_sheet_data_cached(_client, sheet_id, worksheet_name):
         return pd.DataFrame()
 
 def _tiszta_futar_lista_letoltes(sheet_id):
-    """
-    Biztonságosan letölti és tiszta szótár-listaként visszaadja a regisztrált futárok listáját.
-    Ez a függvény felel az app.py beléptető rendszerének zökkenőmentes kiszolgálásáért.
-    """
     import pandas as pd
     import streamlit as st
     client = st.session_state.get('client')
@@ -224,7 +219,8 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         geolocator_helyi = Nominatim(user_agent="Interfood_Express_Delivery_App_v3_2026")
         
         for idx, row in df_napi.iterrows():
-            u_id = str(row['ID']).strip()
+            # --- TISZTA ID-ALAPÚ ÖSSZEHASONLÍTÁS A DUPLIKÁCIÓK ELLEN (Golyóálló módon) ---
+            u_id = tiszta_id_konverzio(row['ID'])
             if not u_id or u_id == "" or u_id == "nan": continue
             mai_rendeles_erteke = 0
             if 'Fizetendő' in row and pd.notna(row['Fizetendő']):
@@ -298,11 +294,22 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         st.error(f"❌ Nem sikerült az ügyfélkör automatikus frissítése: {e_full_process}")
         
     if not master_df.empty:
+        # --- PREFEKTUSI JAVÍTÁS A DUPLIKÁCIÓK ELLENI SZINKRONHOZ ---
+        # Ideiglenesen megtisztítjuk a napi ID oszlopot a merge művelethez
+        df_napi['temp_clean_id'] = df_napi['ID'].apply(tiszta_id_konverzio)
+        master_df['temp_clean_id'] = master_df['ID'].apply(tiszta_id_konverzio)
+        
         df_napi = df_napi.drop(columns=['Lat', 'Lon'], errors='ignore')
-        b_cols = ['ID', 'Lat', 'Lon']
+        b_cols = ['temp_clean_id', 'Lat', 'Lon']
         for c in ['Csoport', 'Megjegyzés']:
-            if c in master_df.columns and c not in df_napi.columns: b_cols.append(c)
-        df_napi = df_napi.merge(master_df[b_cols], on='ID', how='left')
+            if c in master_df.columns and c not in df_napi.columns: 
+                b_cols.append(c)
+                
+        # Összeillesztés a tiszta id alapján (figyelve a duplikációkra)
+        merged_df = df_napi.merge(master_df[b_cols].drop_duplicates('temp_clean_id'), on='temp_clean_id', how='left')
+        df_napi = merged_df.drop(columns=['temp_clean_id'])
+        master_df = master_df.drop(columns=['temp_clean_id'])
+        
     df_napi['Lat'] = df_napi['Lat'].apply(biztonsagos_koordinata_tisztito)
     df_napi['Lon'] = df_napi['Lon'].apply(biztonsagos_koordinata_tisztito)
     df_napi['Sorrend'] = range(1, len(df_napi) + 1)

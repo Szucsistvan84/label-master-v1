@@ -41,18 +41,22 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
         for pg in pdf.pages:
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
             
-            # --- JAVÍTOTT LÁBLÉC-SOROMPÓ (GOLYÓÁLLÓ LÁBLÉC-SZŰRŐ) ---
+            # Horgonyok gyűjtése (Sorszám-ragadás elleni védelemmel)
+            anchors = [w for w in words if re.search(r'\b[A-Za-z0-9]{1,3}-\d{5,7}\b', w['text'])]
+            
+            # --- INTELLIGENS LÁBLÉC-SOROMPÓ (MINDEN LAP ALÁN MEGBÍZHATÓAN LEZÁR) ---
+            # Csak az utolsó érvényes horgony alatt keresünk lábléc elemeket, így a rövid lapokon is tökéletes
+            last_anchor_top = max([a['top'] for a in anchors]) if anchors else 120
+            
             footer_elements = []
             for w in words:
                 txt = w['text']
-                if any(tag in txt for tag in ["Összesítés", "Csilagozott", "Összesen"]) and w['top'] > pg.height * 0.5:
+                # Ékezet- és kódolás-immunis részstring alapú lábléc szűrő
+                if any(tag.lower() in txt.lower() for tag in ["Összesítés", "osszesites", "Csilagozott", "csillagozott", "Összesen", "osszesen", "nyomtatta", "oldal", "menetlevél", "menetlevel"]) and w['top'] > last_anchor_top:
                     footer_elements.append(w)
             
             page_cutoff = min([w['top'] for w in footer_elements]) - 2 if footer_elements else pg.height
 
-            # Horgonyok gyűjtése (Sorszám-ragadás elleni védelemmel)
-            anchors = [w for w in words if re.search(r'\b[A-Za-z0-9]{1,3}-\d{5,7}\b', w['text'])]
-            
             for i, anchor in enumerate(anchors):
                 if anchor['top'] >= page_cutoff: continue
 
@@ -190,7 +194,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     x_start_admin = (38 / 88) * W
                     x_end_admin = (54 / 88) * W
                     
-                    admin_candidates = [w for w in line_words if x_start_admin <= (w['x0'] + w['x1'])/2 < x_end_admin]
+                    admin_candidates = [w for w in line_words if x_start_admin <= (w['x0'] + w['x1'])/2 < x_max_tel]
                     y_start = (anchor['top'] + anchor['bottom']) / 2
                     raw_name_parts = []
                     stop_keywords = ["Összesen", "Összesítés", "Össz"]
@@ -218,14 +222,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     clean_name = re.sub(r'\d+', '', clean_name)
                     clean_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', clean_name)
                     
-                    # --- JAVÍTOTT, INTENZÍV JUNK LIST AZ ÜGYINTÉZŐ MEZŐRE (A bleed-in elkerülésére) ---
-                    junk_words = [
-                        "közöt", "között", "köz", "D", "S", "adag", "db", "ad",
-                        "tel", "telefon", "kcs", "kk", "ft", "huf", "lph", "lh", 
-                        "fsz", "fszt", "em", "emelet", "ajto", "ajtó", "lépcsőház", 
-                        "lepcsohaz", "porta", "portán", "portan", "kapu", "kapukód", "kapukod"
-                    ]
-                    
+                    junk_words = ["közöt", "között", "köz", "D", "S", "adag", "db"]
                     final_parts = []
                     for part in clean_name.split():
                         p_stripped = part.strip(" ,.|/-")
@@ -388,15 +385,14 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                     clean_customer = " | ".join(final_parts)
 
-                    # --- KIVETTÜK A VALÓS INFORMÁCIÓT HORDOZÓ SZAVAKAT (Felnőtt, Vendég, Nyugdíjas, stb. MARAD!) ---
-                    junk_list_customer = [
+                    # --- JUNK LIST CUSTOMER ---
+                    junk_list = [
+                        "Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj",
                         "Csilagozott betűnél kiegészítő is van!!!",
-                        "Csilagozott betűnél kiegészítő is van",
-                        "Csillagozott betűnél kiegészítő is van!!!",
-                        "Csillagozott betűnél kiegészítő is van"
+                        "Csilagozott betűnél kiegészítő is van"
                     ]
                     
-                    for junk in junk_list_customer:
+                    for junk in junk_list:
                         clean_customer = clean_customer.replace(junk, "")
 
                     clean_customer = re.sub(r'\s+', ' ', clean_customer)

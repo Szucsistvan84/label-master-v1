@@ -7,8 +7,8 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# --- GLOBÁLIS REGEX MINTÁK (PDF FELDOLGOZÁSHOZ) ---
-PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'
+# --- GLOBÁLIS REGEX MINTÁK (PDF FELDOLGOZÁSHOZ - FRISSÍTVE A HIBÁS PONTOZÁS ELLEN) ---
+PHONE_PAT = r'(\d{2}/[\.\s]*\d[\d\s,\.]*\d)'
 ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z][A-Z0-9*+]*)'
 MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
@@ -160,7 +160,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
                     row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
 
-                    # --- 2. TELEFON ÉS PÉNZ ---
+                    # --- 2. TELEFON ÉS PÉNZ (PONTOZÁST TISZTÍTÓ LOGIKÁVAL) ---
                     tel_money_words = sorted([w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5], key=lambda w: w['top'])
                     
                     phone_val, money_val = "", "0Ft"
@@ -172,8 +172,14 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         bottom_text = " ".join([w['text'] for w in sorted(bottom_row, key=lambda w: w['x0'])])
                         
                         full_text_area = top_text + " " + bottom_text
-                        phone_match = re.search(r'(\d{1,2}/\d+)', full_text_area)
-                        phone_val = phone_match.group(1).replace(" ", "") if phone_match else ""
+                        
+                        # Felkészítjük a regexet a perjel utáni pontra és szóközre is
+                        phone_match = re.search(r'(\d{1,2}/[\.\s]*\d+)', full_text_area)
+                        if phone_match:
+                            # Eltávolítjuk a szóközöket és a pontokat is a telefonszámból
+                            phone_val = phone_match.group(1).replace(" ", "").replace(".", "")
+                        else:
+                            phone_val = ""
                         
                         money_match = re.search(r'(-?\s*\d[\d\s]*)\s*Ft', bottom_text if bottom_text else top_text)
                         if money_match:

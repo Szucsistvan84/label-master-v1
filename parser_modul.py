@@ -262,11 +262,19 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
 
-                    # --- GOLYÓÁLLÓ, LINE-BY-LINE OSZLOP ALAPÚ CÍM ÉS MEGJEGYZÉS EXTRAKCIÓ (KITÁGÍTOTT HATÁROKKAL) ---
-                    # 1. Kigyűjtjük a szavakat az Ügyfél / Cím oszlop teljes szélességében (v_lines[1] és x40 között)
-                    col2_words = sorted([w for w in line_words if v_lines[1] <= (w['x0'] + w['x1'])/2 < x40], key=lambda x: (x['top'], x['x0']))
+                    # --- JAVÍTOTT, SEPARÁLT OSZLOP ALAPÚ CÍM ÉS MEGJEGYZÉS EXTRAKCIÓ (COLLISION-FREE) ---
+                    # A) CÍM KINYERÉSE (Szigorúan a 3. oszlopból: v_lines[2] és v_lines[3] között)
+                    col3_words = sorted([w for w in line_words if v_lines[2] <= (w['x0'] + w['x1'])/2 < v_lines[3]], key=lambda x: (x['top'], x['x0']))
+                    address = " ".join([w['text'] for w in col3_words]).strip()
                     
-                    # 2. Csoportosítjuk őket fizikai sorokba (5 pixeles függőleges tűréssel)
+                    # Cím fallback, ha a 3. oszlop valamiért teljesen üres lenne
+                    if not address:
+                        address = " ".join([w['text'] for w in sorted([w for w in row_words if v_lines[2] <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
+
+                    # B) MEGJEGYZÉS KINYERÉSE (Szigorúan a 2. oszlopból: v_lines[1] és v_lines[2] között)
+                    col2_words = sorted([w for w in line_words if v_lines[1] <= (w['x0'] + w['x1'])/2 < v_lines[2]], key=lambda x: (x['top'], x['x0']))
+                    
+                    # Csoportosítjuk a szavakat fizikai sorokba (5 pixeles függőleges tűréssel)
                     col2_lines = []
                     for w in col2_words:
                         inserted = False
@@ -277,39 +285,35 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                 break
                         if not inserted:
                             col2_lines.append([w])
-                            
-                    # 3. Sorok szövegeinek előállítása vízszintes rendezéssel
+                    
+                    # Sorok szövegeinek előállítása vízszintes rendezéssel
                     lines_text = [" ".join([w['text'] for w in sorted(line, key=lambda w: w['x0'])]) for line in col2_lines]
-                    
-                    # 4. Cím sor megkeresése (Irányítószám + Város alapján a debreceni régióban)
-                    address_line_idx = -1
-                    city_pattern = r'\b\d{4}\b\s+(?:Debrecen|Ebes|Hajdú|Sáránd|Mikepércs|Bocskaikert|Derecske|Konyár|Hosszúpályi|Vámospércs|Létavértes|Nagyhegyes|Józsa)'
-                    for idx, line_str in enumerate(lines_text):
-                        if re.search(city_pattern, line_str, re.IGNORECASE):
-                            address_line_idx = idx
-                            break
-                            
-                    address = ""
+
                     megj_parts = []
-                    
-                    if address_line_idx != -1:
-                        address = lines_text[address_line_idx].strip()
-                        # A cím feletti sorok (az 1. sorszám/név sor kivételével) a megjegyzés első fele
-                        for line_str in lines_text[1:address_line_idx]:
-                            line_clean = line_str.strip()
+                    if lines_text:
+                        # Az első sor tartalmazza az ID-t és a vevő nevét
+                        first_line = lines_text[0]
+                        raw_line = first_line.replace(current_id, "").strip()
+                        
+                        # Meghatározzuk a nevet, hogy eltávolíthassuk
+                        name_parts = []
+                        for word in raw_line.split():
+                            if word[0].isupper() or word.startswith("Dr.") or word.lower() in ["id.", "ifj.", "özv."]:
+                                name_parts.append(word)
+                            else:
+                                break
+                        local_customer_name = " ".join(name_parts)
+                        
+                        # Ha maradt még szöveg az első sorban a név/ID után, azt elmentjük megjegyzésként
+                        first_line_remaining = raw_line.replace(local_customer_name, "").strip()
+                        if first_line_remaining:
+                            megj_parts.append(first_line_remaining)
+                        
+                        # Az összes többi sor (Line 1, 2, stb.) teljes egészében a megjegyzés része (pl. Pál Csaba hosszú megjegyzései!)
+                        for l_str in lines_text[1:]:
+                            line_clean = l_str.strip()
                             if line_clean:
                                 megj_parts.append(line_clean)
-                        # A cím alatti sorok a megjegyzés második fele (Pál Csaba extra hosszú megjegyzései!)
-                        for line_str in lines_text[address_line_idx + 1:]:
-                            line_clean = line_str.strip()
-                            if line_clean:
-                                megj_parts.append(line_clean)
-                    else:
-                        # Fallback ha nem találtunk címet: az első sor után minden a megjegyzés
-                        if len(lines_text) > 1:
-                            megj_parts.extend([l.strip() for l in lines_text[1:] if l.strip()])
-                        # Cím fallback a hagyományos módszerre
-                        address = " ".join([w['text'] for w in sorted([w for w in row_words if v_lines[2] <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
 
                     # Összefűzzük az összes megjegyzést a megadott pipe karakterrel
                     clean_customer = " | ".join(megj_parts)

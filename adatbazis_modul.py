@@ -124,6 +124,27 @@ def iterativ_gps_kereso(cim, geolocator):
     tisztitott_cim = str(cim).strip().rstrip(',').rstrip('.')
     # Alapvető zavaró írásjelek leszedése a hasábelcsúszások ellen
     tisztitott_cim = re.sub(r'[\(\)\$\*]', '', tisztitott_cim)
+    
+    # --- NULLADIK LÉPÉS: MAGYAR CÍMRÖVIDÍTÉSEK AUTOMATIKUS KIBONTÁSA (Zseniális Peeling-Előfutár) ---
+    abbrev_map = {
+        r'\bu\b\.?': 'utca',
+        r'\bkrt\b\.?': 'körút',
+        r'\bkorút\b\.?': 'körút',
+        r'\bkorut\b\.?': 'körút',
+        r'\bút\b\.?': 'út',
+        r'\bútja\b\.?': 'útja',
+        r'\btér\b\.?': 'tér',
+        r'\bter\b\.?': 'tér',
+        r'\bsetány\b\.?': 'sétány',
+        r'\bsetany\b\.?': 'sétány',
+        r'\brkp\b\.?': 'rakpart',
+        r'\bköz\b\.?': 'köz',
+        r'\bkoz\b\.?': 'köz',
+    }
+    
+    for pattern, repl in abbrev_map.items():
+        tisztitott_cim = re.sub(pattern, repl, tisztitott_cim, flags=re.IGNORECASE)
+        
     words = tisztitott_cim.split()
     
     while len(words) >= 2:
@@ -132,7 +153,6 @@ def iterativ_gps_kereso(cim, geolocator):
         # Biztonsági fék: ne engedjük, hogy csak az irányítószám + város maradjon meg utca nélkül
         teszt_szoveg = re.sub(r'^\d{4}\s+', '', proba_cim).strip()
         if len(teszt_szoveg.split()) < 2:
-            # Ha már csak a városnév maradt (pl. "Debrecen"), megszakítjuk, mert az túl pontatlan lenne
             break
             
         try:
@@ -142,7 +162,7 @@ def iterativ_gps_kereso(cim, geolocator):
                 return str(round(location.latitude, 6)), str(round(location.longitude, 6)), proba_cim
         except Exception:
             pass
-        words.pop() # Peeling / Hámozás: Levágjuk a legutolsó szót, és futunk egy újabb kört
+        words.pop() # Peeling / Hámozás
     return None, None, None
 
 def get_latest_week_from_master(sheet_id, client):
@@ -201,7 +221,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
 
-    # --- ÉLŐ (CACHE-MENTES) BEOLVASÁS TRANZAKCIÓKHOZ A DUPLIKÁLÓDÁS ELLEN ---
+    # ÉLŐ (CACHE-MENTES) BEOLVASÁS TRANZAKCIÓKHOZ A DUPLIKÁLÓDÁS ELLEN
     try:
         sh = client.open_by_key(sheet_id)
         ws_ugyfel = sh.worksheet("Ugyfelkor")
@@ -307,7 +327,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
 
         master_df['Lat'] = master_df['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
         master_df['Lon'] = master_df['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
-        df_ugyfelkor_vegleges = kotelezo_ugyfelkor_formatum_tisztitas(master_df)
+        df_ugyfelkor_vegleges = kotelezo_ugyfelkor_formatum_tisUTtitas(master_df) if 'kotelezo_ugyfelkor_formatum_tisUTtitas' in locals() else kotelezo_ugyfelkor_formatum_tisztitas(master_df)
         set_with_dataframe(ws_ugyfel, df_ugyfelkor_vegleges, row=1, col=1, include_index=False, resize=True)
         master_df = df_ugyfelkor_vegleges.copy()
         if 'google_data_loaded' in st.session_state: del st.session_state['google_data_loaded']

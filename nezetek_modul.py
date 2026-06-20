@@ -13,7 +13,8 @@ from adatbazis_modul import (
     load_futar_from_sheets, save_futar_to_sheets,
     load_etlap_from_sheets, sync_interfood_etlap, master_lista_szinkron,
     kotelezo_ugyfelkor_formatum_tisztitas,
-    load_sheet_data_cached  # Golyóálló cached olvasó a Google API kvótavédelemhez
+    load_sheet_data_cached,  # Golyóálló cached olvasó a Google API kvótavédelemhez
+    ellenoriz_nominatim_kapcsolat  # ÚJ: Élő GPS kapcsolat ellenőrző modul
 )
 from nyomtatas_modulok import create_label_pdf, create_manifest_pdf, create_raklista_pdf
 from vizualizacio import utvonal_terkep
@@ -331,6 +332,49 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
     if 'teszt_uzemmod' not in st.session_state: st.session_state.teszt_uzemmod = False
     st.session_state.teszt_uzemmod = st.toggle("🧪 TESZT ÜZEMMÓD (Nincs mentés)", value=st.session_state.teszt_uzemmod)
     if st.session_state.teszt_uzemmod: st.warning("⚠️ Adatbázis mentés letiltva!")
+    st.divider()
+
+    # --- ÉLŐ GPS DIAGNOSZTIKAI PANEL SZÉP, AAA KONTRASZTOS MEGJELENÍTÉSSEL ---
+    st.subheader("🛰️ Élő GPS Szerver Állapot")
+    status_kod, status_uzenet = ellenoriz_nominatim_kapcsolat()
+    if status_kod == "OK":
+        st.success("🟢 GPS Szerver: Üzemkész")
+    elif status_kod == "BLOCKED":
+        st.markdown(
+            f"""
+            <div style="background-color: #FEE2E2; border: 1.5px solid #F87171; padding: 12px; border-radius: 8px; color: #991B1B; font-weight: bold; font-size: 13.5px;">
+                🛑 TILTVA VAGY (403 Forbidden)<br>
+                <span style="font-weight: normal; font-size: 11.5px; color: #7F1D1D;">
+                    Az OpenStreetMap geokódoló szervere átmenetileg letiltotta a Streamlit Cloud megosztott IP-jét bulk lekérdezések miatt. Emiatt az új címek koordinátáit jelenleg nem tudjuk lekérni.
+                </span>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+    elif status_kod == "RATE_LIMITED":
+        st.markdown(
+            f"""
+            <div style="background-color: #FEF3C7; border: 1.5px solid #FBBF24; padding: 12px; border-radius: 8px; color: #92400E; font-weight: bold; font-size: 13.5px;">
+                ⚠️ TÚL SOK LEKÉRDEZÉS (429)<br>
+                <span style="font-weight: normal; font-size: 11.5px; color: #78350F;">
+                    Túl gyorsan jöttek a kérések a szervertől. Várj pár percet a következő feltöltés előtt!
+                </span>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            f"""
+            <div style="background-color: #F3F4F6; border: 1.5px solid #9CA3AF; padding: 12px; border-radius: 8px; color: #374151; font-weight: bold; font-size: 13.5px;">
+                ⚪ KAPCSOLÓDÁSI HIBA<br>
+                <span style="font-weight: normal; font-size: 11.5px; color: #4B5563;">
+                    {status_uzenet}
+                </span>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
     st.divider()
 
     if is_admin:

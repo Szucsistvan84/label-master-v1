@@ -44,7 +44,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
             # Horgonyok gyűjtése (Sorszám-ragadás elleni védelemmel)
             anchors = [w for w in words if re.search(r'\b[A-Za-z0-9]{1,3}-\d{5,7}\b', w['text'])]
             
-            # --- INTELLIGENS LÁBLÉC-SOROMPÓ (MINDEN LAP ALÁN MEGBÍZHATÓAN LEZÁR) ---
+            # --- JAVÍTOTT, DINAMIKUS LÁBLÉC-SOROMPÓ (MINDEN LAP ALÁN MEGBÍZHATÓAN LEZÁR) ---
             # Csak az utolsó érvényes horgony alatt keresünk lábléc elemeket, így a rövid lapokon is tökéletes
             last_anchor_top = max([a['top'] for a in anchors]) if anchors else 120
             
@@ -194,7 +194,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     x_start_admin = (38 / 88) * W
                     x_end_admin = (54 / 88) * W
                     
-                    admin_candidates = [w for w in line_words if x_start_admin <= (w['x0'] + w['x1'])/2 < x_max_tel]
+                    admin_candidates = [w for w in line_words if x_start_admin <= (w['x0'] + w['x1'])/2 < x_end_admin]
                     y_start = (anchor['top'] + anchor['bottom']) / 2
                     raw_name_parts = []
                     stop_keywords = ["Összesen", "Összesítés", "Össz"]

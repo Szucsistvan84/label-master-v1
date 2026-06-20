@@ -168,10 +168,16 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
 def iterativ_gps_kereso(cim, geolocator):
     """
     Zseniális iteratív GPS peeling (hámozó) motor kibővített magyar címrövidítés feloldással.
-    If it doesn't find the exact match, peels off word by word from the right to get road/zip level.
+    Ha nem találja a pontos egyezést, szavanként hámozza lefelé jobbról balra, hogy utca szintű koordinátát kapjon.
+    Golyóálló Dual-Geocoder fallback: ha a Nominatim le van tiltva a felhőben, automatikusan az ArcGIS-re vált!
     """
     import time
     import re
+    from geopy.geocoders import ArcGIS
+    
+    # Élesítjük a másodlagos golyóálló felhős geokódolót
+    arcgis_geolocator = ArcGIS(user_agent="Interfood_Express_Delivery_App_v3_2026")
+    
     tisztitott_cim = str(cim).strip().rstrip(',').rstrip('.')
     tisztitott_cim = re.sub(r'[\(\)\$\*]', '', tisztitott_cim)
     
@@ -205,14 +211,26 @@ def iterativ_gps_kereso(cim, geolocator):
         if len(teszt_szoveg.split()) < 2:
             break
             
+        # 1. Próbálkozás a Nominatim-mal (elsődleges felhős motor)
         try:
             time.sleep(1.2) # API Rate limit betartása
-            location = geolocator.geocode(proba_cim, timeout=8)
+            location = geolocator.geocode(proba_cim, timeout=5)
             if location:
                 return str(round(location.latitude, 6)), str(round(location.longitude, 6)), proba_cim
         except Exception:
+            # Ha a Nominatim hálózati hibát vagy 403 Forbidden tiltást dob, némán átugorjuk
             pass
+            
+        # 2. Próbálkozás az ArcGIS-szel (másodlagos - golyóálló tartalék, ami nincs kitiltva a Streamlit Cloudon)
+        try:
+            location = arcgis_geolocator.geocode(proba_cim, timeout=5)
+            if location:
+                return str(round(location.latitude, 6)), str(round(location.longitude, 6)), f"{proba_cim} (ArcGIS)"
+        except Exception:
+            pass
+            
         words.pop() # Hámozás: Levágjuk a legutolsó szót, ha sikertelen volt a kör
+        
     return None, None, None
 
 

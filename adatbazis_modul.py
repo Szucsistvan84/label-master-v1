@@ -41,6 +41,32 @@ def get_gspread_client():
         logger.error(f"Google Sheets hitelesítési hiba: {e}")
         return None
 
+
+def ellenoriz_nominatim_kapcsolat():
+    """
+    Élő tesztlekérdezés a Nominatim API-hoz, amivel diagnosztizálni lehet,
+    hogy a szerverünk megosztott IP címe ki van-e tiltva (banned/blocked) bulk geokódolás miatt.
+    """
+    import requests
+    url = "https://nominatim.openstreetmap.org/status?format=json"
+    headers = {
+        "User-Agent": "Interfood_Express_Delivery_App_v3_2026",
+        "Accept": "application/json"
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=6)
+        if r.status_code == 200:
+            return "OK", "Üzemkész (200 OK)"
+        elif r.status_code == 403:
+            return "BLOCKED", "TILTVA (403 Forbidden - Access Blocked)"
+        elif r.status_code == 429:
+            return "RATE_LIMITED", "TÚL SOK LEKÉRDEZÉS (429 Rate Limited)"
+        else:
+            return "ERROR", f"Hiba kód: {r.status_code}"
+    except Exception as e:
+        return "DISCONNECTED", f"Kapcsolódási hiba: {e}"
+
+
 @st.cache_data(ttl=300, show_spinner="Adatbázisok szinkronizálása...")
 def load_sheet_data_cached(_client, sheet_id, worksheet_name):
     """
@@ -58,6 +84,7 @@ def load_sheet_data_cached(_client, sheet_id, worksheet_name):
     except Exception as e:
         logger.error(f"Hiba a táblázat beolvasásakor ({worksheet_name}): {e}")
         return pd.DataFrame()
+
 
 def _tiszta_futar_lista_letoltes(sheet_id):
     """
@@ -78,6 +105,7 @@ def _tiszta_futar_lista_letoltes(sheet_id):
         logger.error(f"Hiba a futár lista letöltésekor: {e}")
         return []
 
+
 def save_df_to_sheet(client, sheet_id, worksheet_name, df, clear_sheet=True):
     """
     DataFrame objektumot ment a megadott Google Sheets fülre.
@@ -94,6 +122,7 @@ def save_df_to_sheet(client, sheet_id, worksheet_name, df, clear_sheet=True):
     except Exception as e:
         logger.error(f"Hiba a táblázat mentésekor ({worksheet_name}): {e}")
         return False
+
 
 def kotelezo_ugyfelkor_formatum_tisztitas(df):
     """
@@ -135,17 +164,18 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     if 'Lon' in df_clean.columns: df_clean['Lon'] = df_clean['Lon'].astype(str)
     return df_clean
 
+
 def iterativ_gps_kereso(cim, geolocator):
     """
     Zseniális iteratív GPS peeling (hámozó) motor kibővített magyar címrövidítés feloldással.
-    Ha nem találja a teljes címet, szavanként hámozza lefelé, amíg értelmes utcaszintű találatot kap.
+    If it doesn't find the exact match, peels off word by word from the right to get road/zip level.
     """
     import time
     import re
     tisztitott_cim = str(cim).strip().rstrip(',').rstrip('.')
     tisztitott_cim = re.sub(r'[\(\)\$\*]', '', tisztitott_cim)
     
-    # --- CSODÁLATOS ÚJ KIEGÉSZÍTÉS: CÍMRÖVIDÍTÉSEK AUTOMATIKUS KIBONTÁSA ---
+    # CÍMRÖVIDÍTÉSEK AUTOMATIKUS KIBONTÁSA
     abbrev_map = {
         r'\bu\b\.?': 'utca',
         r'\bkrt\b\.?': 'körút',
@@ -185,6 +215,7 @@ def iterativ_gps_kereso(cim, geolocator):
         words.pop() # Hámozás: Levágjuk a legutolsó szót, ha sikertelen volt a kör
     return None, None, None
 
+
 def get_latest_week_from_master(sheet_id, client):
     """
     Lekéri a legutolsó feltöltött hét számát a Master adatbázisból.
@@ -209,6 +240,7 @@ def get_latest_week_from_master(sheet_id, client):
         logger.error(f"Hiba történt a hét lekérésekor: {e}")
         return 2026, 0
 
+
 @st.cache_data(show_spinner="Étlap API frissítése a felhőből...")
 def load_etlap_api_smart(_client, sheet_id, columns_trigger=None):
     """
@@ -225,6 +257,7 @@ def load_etlap_api_smart(_client, sheet_id, columns_trigger=None):
     except Exception as e:
         logger.error(f"❌ Smart Cache hiba az Etlap_API letöltésekor: {e}")
         return pd.DataFrame()
+
 
 def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     """
@@ -251,7 +284,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
 
-    # --- ÉLŐ (CACHE-MENTES) BEOLVASÁS A TRANZAKCIÓS BIZTONSÁGÉRT ---
+    # --- ÉLŐ (CACHE-MENTES) BEOLVASÁS ---
     try:
         sh = client.open_by_key(sheet_id)
         ws_ugyfel = sh.worksheet("Ugyfelkor")
@@ -358,7 +391,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         master_df['Lat'] = master_df['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
         master_df['Lon'] = master_df['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
         
-        # JAVÍTVA: Csak a tiszta függvényt hívjuk meg névütközési elgépelés nélkül
         df_ugyfelkor_vegleges = kotelezo_ugyfelkor_formatum_tisztitas(master_df)
         set_with_dataframe(ws_ugyfel, df_ugyfelkor_vegleges, row=1, col=1, include_index=False, resize=True)
         master_df = df_ugyfelkor_vegleges.copy()
@@ -421,6 +453,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
     except Exception as e:
         logger.warning(f"Sinc hiba: {e}")
     return df_napi, master_df
+
 
 def sync_interfood_etlap(year, week, sheet_id):
     """

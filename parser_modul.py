@@ -12,7 +12,7 @@ PHONE_PAT = r'(\d{2}/\d[\d\s,]*\d)'
 ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z][A-Z0-9*+]*)'
 MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
-# --- 3. FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
+# --- FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
 def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None, 'jaratok': []}
@@ -218,7 +218,14 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     clean_name = re.sub(r'\d+', '', clean_name)
                     clean_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', clean_name)
                     
-                    junk_words = ["közöt", "között", "köz", "D", "S", "adag", "db"]
+                    # --- JAVÍTOTT, INTENZÍV JUNK LIST AZ ÜGYINTÉZŐ MEZŐRE (A bleed-in elkerülésére) ---
+                    junk_words = [
+                        "közöt", "között", "köz", "D", "S", "adag", "db", "ad",
+                        "tel", "telefon", "kcs", "kk", "ft", "huf", "lph", "lh", 
+                        "fsz", "fszt", "em", "emelet", "ajto", "ajtó", "lépcsőház", 
+                        "lepcsohaz", "porta", "portán", "portan", "kapu", "kapukód", "kapukod"
+                    ]
+                    
                     final_parts = []
                     for part in clean_name.split():
                         p_stripped = part.strip(" ,.|/-")
@@ -336,7 +343,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     if 'phone_val' in locals() and phone_val:
                         clean_context = clean_context.replace(phone_val, "")
 
-                    # --- ZIP-CODE ANCHOR LOCK (JAVÍTOTT REGEX SZINGLI BACKSLASHRE) ---
+                    # --- ZIP-CODE ANCHOR LOCK ---
                     addr_zip_match = re.search(r'\b\d{4}\b', address)
                     if addr_zip_match:
                         target_zip = addr_zip_match.group(0)
@@ -381,13 +388,15 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                     clean_customer = " | ".join(final_parts)
 
-                    junk_list = [
-                        "Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj",
+                    # --- KIVETTÜK A VALÓS INFORMÁCIÓT HORDOZÓ SZAVAKAT (Felnőtt, Vendég, Nyugdíjas, stb. MARAD!) ---
+                    junk_list_customer = [
                         "Csilagozott betűnél kiegészítő is van!!!",
-                        "Csilagozott betűnél kiegészítő is van"
+                        "Csilagozott betűnél kiegészítő is van",
+                        "Csillagozott betűnél kiegészítő is van!!!",
+                        "Csillagozott betűnél kiegészítő is van"
                     ]
                     
-                    for junk in junk_list:
+                    for junk in junk_list_customer:
                         clean_customer = clean_customer.replace(junk, "")
 
                     clean_customer = re.sub(r'\s+', ' ', clean_customer)
@@ -450,7 +459,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     
                     full_note = " | ".join(final_note_parts)
                     
-                    # --- GOLYÓÁLLÓ AUTODETECT / FALLBACK SAFETY NET (EMESE KÓDJÁNAK MENTÉSE - JAVÍTOTT REGEXEKEL!) ---
+                    # --- GOLYÓÁLLÓ AUTODETECT / FALLBACK SAFETY NET (EMESE KÓDJÁNAK MENTÉSE) ---
                     if not full_note or len(full_note.strip()) < 3:
                         raw_comment_parts = []
                         kk_match = re.search(r'\b(kcs|kk|kapukód|kapukod|kulcs)\b.*?(\d+[a-zA-Z0-9]*)', working_context, flags=re.IGNORECASE)

@@ -42,6 +42,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             font-size: 1.05rem !important;
             font-weight: 800 !important;
             line-height: 1.1 !important;
+            color: #139D43 !important; /* Interfood Zöld mérőszámok */
         }
         [data-testid="stSidebarUserContent"] [data-testid="stMetricLabel"] {
             font-size: 0.68rem !important;
@@ -61,11 +62,13 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             font-size: 1.15rem !important;
             margin-top: 0px !important;
             margin-bottom: 4px !important;
+            color: #139D43 !important;
         }
         [data-testid="stSidebarUserContent"] h3 {
             font-size: 0.85rem !important;
             margin-top: 4px !important;
             margin-bottom: 2px !important;
+            color: #1F2937 !important;
         }
         [data-testid="stSidebarUserContent"] hr {
             display: none !important;
@@ -85,7 +88,9 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         unsafe_allow_html=True
     )
 
-    st.markdown("<h2 style='text-align: center; color: #1E3A8A; margin-bottom: 6px;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
+    # --- STREAMING_CHUNK: Loading sidebar dashboard stats... ---
+    st.image("interfood-logo.png", use_container_width=True)
+    st.markdown("<h2 style='text-align: center; margin-bottom: 6px;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
     
     futar_nev_kiir = st.session_state.get('user_nev', 'Ismeretlen Futár')
     jarat_lista_kiir = st.session_state.get('user_jarat_lista', [])
@@ -378,7 +383,9 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             # Fallback ha nem elérhető a gsheets
             st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
             st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
-    # ZÉRÓ REDUNDANCIA: A "else" ágat teljesen felszámoltuk, sima futárnak a redundáns alsó panel többé nem jelenik meg!
+    else:
+        # Sima futárnak zéró adatbeviteli mező, fixen kiírjuk az éles bejelentkezési adatokat a sidebar tetejére (nincs duplikáció!)
+        pass
 
     st.divider()
     if 'teszt_uzemmod' not in st.session_state: st.session_state.teszt_uzemmod = False

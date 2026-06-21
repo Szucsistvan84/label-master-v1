@@ -12,13 +12,14 @@ from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
+# --- FIXEN DEFINIÁLT GOOGLE SHEETS AZONOSÍTÓK ---
 SHEET_ID_MASTER = "1bZrtgqROYijYhyFOFrqYeSTUAsGqZU6GLijObJ1En0o" 
 SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 
 def get_gspread_client():
     """
     Létrehozza és visszaadja a gspread klienst a hitelesítő adatok alapján.
-    Fejlesztői környezetben a helyi környezeti változókból, Streamlit Cloudon pedig a secrets-ből dolgozik.
+    Keresi a 'gcp_service_account' kulcsot a titkos beállításokban vagy a környezeti változókban.
     """
     scopes = [
         "https://spreadsheets.google.com/feeds",
@@ -44,8 +45,8 @@ def get_gspread_client():
 
 def ellenoriz_nominatim_kapcsolat():
     """
-    Élő tesztlekérdezés a Nominatim API-hoz, amivel diagnosztizálni lehet,
-    hogy a szerverünk megosztott IP címe ki van-e tiltva (banned/blocked) bulk geokódolás miatt.
+    Élő tesztlekérdezés a Nominatim API-hoz, amivel valós időben ellenőrizhető,
+    hogy a Streamlit Cloud megosztott IP-je éppen le van-e tiltva (403 Forbidden).
     """
     import requests
     url = "https://nominatim.openstreetmap.org/status?format=json"
@@ -71,6 +72,7 @@ def ellenoriz_nominatim_kapcsolat():
 def load_sheet_data_cached(_client, sheet_id, worksheet_name):
     """
     Biztonságos, gyorsítótárazott táblázatbeolvasó a Google Sheets API kvóták kímélése érdekében.
+    Segít megvédeni a rendszert a tömeges frissítések során a 429-es API hibáktól.
     """
     import pandas as pd
     try:
@@ -82,13 +84,13 @@ def load_sheet_data_cached(_client, sheet_id, worksheet_name):
             records = worksheet.get_all_records()
         return pd.DataFrame(records)
     except Exception as e:
-        logger.error(f"Biztonsági hiba a munkalap olvasásakor: {e}")
+        logger.error(f"Hiba a munkalap gyorsítótárazott olvasásakor ({worksheet_name}): {e}")
         return pd.DataFrame()
 
 
 def _tiszta_futar_lista_letoltes(sheet_id):
     """
-    Letölti és visszaadja a regisztrált futárok listáját az ellenőrzéshez.
+    Letölti a regisztrált futárok listáját az ellenőrzéshez és a PIN-kódos beléptetéshez.
     """
     import pandas as pd
     import streamlit as st
@@ -109,8 +111,8 @@ def _tiszta_futar_lista_letoltes(sheet_id):
 def kotelezo_ugyfelkor_formatum_tisztitas(df):
     """
     Szigorú oszlopformázó és adattisztító motor az Ugyfelkor munkalaphoz.
-    Eltávolítja a felesleges karaktereket, javítja a típusokat és koordinátákat.
     Garantálja, hogy a koordináták dot-tizedespontosak maradnak a térkép stabilitásáért.
+    A szóló apostróf (') beillesztésével kényszeríti a Google Sheets-et a tiszta szövegként való tárolásra.
     """
     import pandas as pd
     if df.empty: return df
@@ -129,7 +131,9 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
         if col in df_clean.columns:
             df_clean[col] = df_clean[col].apply(biztonsagos_koordinata_tisztito)
             # Szuper-biztonságos formázás szóló aposztróf előtaggal, hogy a Google Sheets tiszta szövegként kezelje
-            df_clean[col] = df_clean[col].apply(lambda x: f"'{str(x).replace(',', '.')}" if x is not None and not pd.isna(x) and str(x).strip() != "" else "")
+            df_clean[col] = df_clean[col].apply(
+                lambda x: f"'{str(x).replace(',', '.')}" if x is not None and not pd.isna(x) and str(x).strip() != "" else ""
+            )
             
     for col in ['Telefon', 'Csoport', 'Megjegyzés', 'Utolso_Rendeles']:
         if col in df_clean.columns:
@@ -176,7 +180,7 @@ def iterativ_gps_kereso(cim, geolocator):
     import re
     from geopy.geocoders import ArcGIS
     
-    # Élesítjük a másodlagos golyóálló felhős geokódolót
+    # Élesítjük a másodlagos golyóálló felhős geokódolót (ArcGIS), ami kikerüli a hálózati IP letiltásokat
     arcgis_geolocator = ArcGIS(user_agent="Interfood_Express_Delivery_App_v3_2026")
     
     tisztitott_cim = str(cim).strip().rstrip(',').rstrip('.')
@@ -237,7 +241,7 @@ def iterativ_gps_kereso(cim, geolocator):
 
 def get_latest_week_from_master(sheet_id, client):
     """
-    Lekéri a legutolsó feltöltött hét számát a Master adatbázisból.
+    Lekéri a legutolsó feltöltött hét számát a Master adatbázisból az étlapok naprakészségének ellenőrzéséhez.
     """
     import pandas as pd
     try:
@@ -263,7 +267,7 @@ def get_latest_week_from_master(sheet_id, client):
 @st.cache_data(show_spinner="Étlap API frissítése a felhőből...")
 def load_etlap_api_smart(_client, sheet_id, columns_trigger=None):
     """
-    Gyorsítótárazott étlap API olvasó.
+    Gyorsítótárazott étlap API olvasó az API terhelés minimalizálására.
     """
     import pandas as pd
     try:
@@ -478,7 +482,6 @@ def sync_interfood_etlap(year, week, sheet_id):
     """
     Közvetlenül az Interfood API-ból húzza be a heti árakat, és elmenti az Etlap_API munkalapra.
     """
-    import requests
     api_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     headers = {"User-Agent": "Mozilla/5.0"}
     cache_key = f"sync_done_{year}_{week}"
@@ -564,6 +567,7 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
     """
     Frissíti a Master Étlap Adatbázist az adott hetek összesített adatai alapján.
     """
+    import pandas as pd
     import requests
     from io import BytesIO
     from utils import clean_text

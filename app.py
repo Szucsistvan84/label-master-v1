@@ -55,7 +55,8 @@ def main():
     if 'client' not in st.session_state or st.session_state['client'] is None:
         st.session_state['client'] = client
 
-    # --- ATOMBIZTOS CSS TRÜKKÖK (MOBIL ÉS DEKORÁCIÓS ELREJTÉSEK) ---
+    # --- STREAMING_CHUNK: Injecting Interfood brand style sheet... ---
+    # --- ATOMBIZTOS CSS TRÜKKÖK (INTERFOOD BRAND SZÍNEK ÉS ELRENDEZÉSEK) ---
     st.markdown(
         """
         <style>
@@ -65,14 +66,94 @@ def main():
         #MainMenu {visibility: hidden !important; display: none !important;}
         [data-testid="stAppDeployButton"] {display: none !important;}
         [data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
-        [data-testid="stDecoration"] {display: none !important;}
+        [data-testid="stDecoration"] {display: none !important; background-color: #139D43 !important;}
         [data-testid="stSidebarCollapseButton"] {
             visibility: visible !important;
             display: inline-flex !important;
         }
         .block-container {
-            padding-top: 2.5rem !important;
+            padding-top: 1.5rem !important;
             padding-bottom: 0rem !important;
+        }
+        
+        /* === INTERFOOD DESIGN OVERRIDES === */
+        /* Elsődleges zöld gombok */
+        div.stButton > button[kind="primary"] {
+            background-color: #139D43 !important;
+            color: white !important;
+            border: 2px solid #139D43 !important;
+            border-radius: 8px !important;
+            font-weight: 800 !important;
+            transition: all 0.3s ease !important;
+            box-shadow: 0 4px 6px rgba(19, 157, 67, 0.15) !important;
+        }
+        div.stButton > button[kind="primary"]:hover {
+            background-color: #0E7E32 !important;
+            border-color: #0E7E32 !important;
+            box-shadow: 0 6px 12px rgba(19, 157, 67, 0.3) !important;
+            transform: translateY(-1px);
+        }
+        
+        /* Másodlagos gombok */
+        div.stButton > button[kind="secondary"] {
+            border: 1.5px solid #139D43 !important;
+            color: #139D43 !important;
+            border-radius: 8px !important;
+            font-weight: bold !important;
+            background-color: transparent !important;
+        }
+        div.stButton > button[kind="secondary"]:hover {
+            background-color: rgba(19, 157, 67, 0.05) !important;
+            color: #0E7E32 !important;
+            border-color: #0E7E32 !important;
+        }
+        
+        /* Piros kiemelt gombok (pl. Kijelentkezés, PDF feldolgozás) */
+        div.stButton > button[key*="logout"], 
+        div.stButton > button[key*="desktop_logout"], 
+        div.stButton > button[key*="mob_logout"],
+        div.stButton > button[key*="pdf_process_btn"],
+        div.stButton > button[key*="sidebar_pdf_process_btn"] {
+            background-color: #E1251B !important;
+            border-color: #E1251B !important;
+            color: white !important;
+        }
+        div.stButton > button[key*="logout"]:hover, 
+        div.stButton > button[key*="desktop_logout"]:hover,
+        div.stButton > button[key*="mob_logout"]:hover,
+        div.stButton > button[key*="pdf_process_btn"]:hover,
+        div.stButton > button[key*="sidebar_pdf_process_btn"]:hover {
+            background-color: #B51C15 !important;
+            border-color: #B51C15 !important;
+        }
+        
+        /* Input mezők fókusza */
+        div[data-baseweb="input"] > div {
+            border-color: #D1D5DB !important;
+        }
+        div[data-baseweb="input"]:focus-within > div {
+            border-color: #139D43 !important;
+            box-shadow: 0 0 0 1px #139D43 !important;
+        }
+        div[data-baseweb="select"] > div {
+            border-color: #D1D5DB !important;
+        }
+        div[data-baseweb="select"]:focus-within > div {
+            border-color: #139D43 !important;
+        }
+        
+        /* Haladási csúszkák */
+        div.stProgress > div > div > div > div {
+            background-color: #139D43 !important;
+        }
+        
+        /* Aktív fülek (Tabs) */
+        button[data-baseweb="tab"] {
+            font-weight: bold !important;
+        }
+        button[data-baseweb="tab"][aria-selected="true"] {
+            color: #139D43 !important;
+            border-bottom-color: #139D43 !important;
         }
         </style>
         """,
@@ -102,34 +183,39 @@ def main():
     url_jarat = st.query_params.get("jarat", "")
     url_teszt = st.query_params.get("test", "false") == "true"
 
+    # --- STREAMING_CHUNK: Rendering login panel if not authenticated... ---
     # BIZTONSÁGOS REDIRECT: Ha a parancsikon miatt nincs 'view' paraméter a linkben
     if view is None:
         if 'edited_df' in st.session_state:
             view = "desktop"
         else:
-            st.markdown("### 📱 Interfood Futár Terminál")
-            st.info("A parancsikonról indítottad az alkalmazást. Kattints az alábbi gombra a folytatáshoz:")
-            
-            if st.button("🚀 MOBIL TERMINÁL INDÍTÁSA", use_container_width=True, type="primary"):
-                st.query_params.update(view="mobile")
-                st.rerun()
+            col_l1, col_l2, col_l3 = st.columns([1, 1.2, 1])
+            with col_l2:
+                st.image("interfood-logo.png", use_container_width=True)
+                st.markdown("<h3 style='text-align: center; color: #1F2937;'>📱 Interfood Futár Terminál</h3>", unsafe_allow_html=True)
+                st.info("A parancsikonról indítottad az alkalmazást. Kattints az alábbi gombra a folytatáshoz:")
                 
-            st.write("---")
-            with st.expander("💻 Adminisztrátori belépés (Asztali nézet)"):
-                if st.button("Asztali verzió megnyitása"):
-                    st.query_params.update(view="desktop")
+                if st.button("🚀 MOBIL TERMINÁL INDÍTÁSA", use_container_width=True, type="primary"):
+                    st.query_params.update(view="mobile")
                     st.rerun()
+                    
+                st.write("---")
+                with st.expander("💻 Adminisztrátori belépés (Asztali nézet)"):
+                    if st.button("Asztali verzió megnyitása"):
+                        st.query_params.update(view="desktop")
+                        st.rerun()
             return
 
     is_mobile_view = (view == "mobile")
 
     # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
-        st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🎯 Label Master</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
-        
-        col1, col2, col3 = st.columns([1, 1.5, 1])
+        col1, col2, col3 = st.columns([1, 1.3, 1])
         with col2:
+            st.write("")
+            st.image("interfood-logo.png", use_container_width=True)
+            st.markdown("<p style='text-align: center; color: #4B5563; font-weight: bold;'>Biztonságos logisztikai és nyomtatási irányítópult</p>", unsafe_allow_html=True)
+            
             st.warning("🔒 Kérjük, add meg a járatszámodat és az egyedi jelszavadat!")
             
             jarat_input = st.text_input("JÁRATSZÁM (vagy Admin):", value=url_jarat, key="login_jarat_field", placeholder="Pl. 4002 vagy admin")
@@ -281,8 +367,9 @@ def main():
     # 📱 1. ÁG: QR-KÓDOS MOBIL NÉZET
     # =========================================================================
     if is_mobile_view:
-        st.title("📱 Futár Terminál")
-        st.caption(f"Bejelentkezve: {st.session_state.user_nev}")
+        st.write("")
+        st.image("interfood-logo.png", width=160, use_container_width=False)
+        st.caption(f"Bejelentkezve: **{st.session_state.user_nev}**")
         
         with st.sidebar:
             render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID_MASTER)
@@ -295,7 +382,7 @@ def main():
         with tab3:
             render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)
                 
-        if st.button("🚪 Kijelentkezés", key="mob_logout"):
+        if st.button("🚪 Kijelentkezés", key="mob_logout", use_container_width=True):
             # --- TISZTA LAP KIJELENTKEZÉSKOR ---
             for k in list(st.session_state.keys()):
                 if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
@@ -307,6 +394,8 @@ def main():
     # 🖥️ 2. ÁG: TELJES ASZTALI / ADMINISZTRÁCIÓS NÉZET
     # =========================================================================
     else:
+        # Felső fejléc logó elhelyezése az asztali oldalsávban
+        st.sidebar.image("interfood-logo.png", use_container_width=True)
         st.sidebar.markdown(f"### 👤 {st.session_state.user_nev}")
         is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
         
@@ -315,10 +404,8 @@ def main():
         else:
             if 'user_jarat_lista' in st.session_state and st.session_state.user_jarat_lista:
                 st.sidebar.caption(f"🚚 Aktív járatok: {', '.join(st.session_state.user_jarat_lista)}")
-            if 'c_p' in st.session_state and st.session_state.c_p:
-                st.sidebar.caption(f"📞 Telefon: {st.session_state.c_p}")
             
-        if st.sidebar.button("🚪 Kijelentkezés", key="desktop_logout"):
+        if st.sidebar.button("🚪 Kijelentkezés", key="desktop_logout", use_container_width=True):
             # --- TISZTA LAP KIJELENTKEZÉSKOR ---
             for k in list(st.session_state.keys()):
                 if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):

@@ -13,7 +13,7 @@ from adatbazis_modul import (
     load_futar_from_sheets, save_futar_to_sheets,
     load_etlap_from_sheets, sync_interfood_etlap, master_lista_szinkron,
     kotelezo_ugyfelkor_formatum_tisztitas,
-    load_sheet_data_cached, ellenoriz_nominatim_kapcsolat
+    load_sheet_data_cached, ellenoriz_nominatim_kapcsolat, SHEET_ID_UGYFELKOR
 )
 from nyomtatas_modulok import create_label_pdf, create_manifest_pdf, create_raklista_pdf
 from vizualizacio import utvonal_terkep
@@ -336,7 +336,6 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
     if is_admin:
         st.subheader("🛡️ Adminisztrációs Központ")
         
-        # --- GPS SZERVER DIAGNOSZTIKA ---
         status_code, status_msg = ellenoriz_nominatim_kapcsolat()
         if status_code == "OK":
             st.success(f"📡 GPS Szerver: {status_msg}")
@@ -601,7 +600,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             <div style="font-size: 40px !important; margin-bottom: 10px !important; line-height: 1 !important;">👑🏆🍾</div>
             <h2 style="margin: 0 0 10px 0 !important; color: #78350F !important; font-weight: 900 !important; font-size: 24px !important; border: none !important; line-height: 1.2 !important; text-shadow: none !important; font-family: sans-serif !important;">GRATULÁLUNK, {bonus_data['futar'].upper()}!</h2>
             <p style="font-size: 16px !important; margin: 10px 0 12px 0 !important; color: #78350F !important; font-weight: bold !important; line-height: 1.4 !important; text-shadow: none !important; font-family: sans-serif !important;">
-                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke alcanzó a <b style="color: #B45309 !important; font-size: 18px !important; font-weight: 900 !important;">{bonus_data['forgalom']:,} Ft</b>-ot!
+                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke elérte a <b style="color: #B45309 !important; font-size: 18px !important; font-weight: 900 !important;">{bonus_data['forgalom']:,} Ft</b>-ot!
             </p>
             <div style="background-color: rgba(120, 53, 15, 0.08) !important; display: inline-block !important; padding: 10px 25px !important; border-radius: 50px !important; font-weight: 800 !important; font-size: 15px !important; margin-top: 5px !important; border: 1.5px solid #78350F !important; color: #78350F !important; letter-spacing: 0.5px !important; font-family: sans-serif !important;">
                 ⭐ EMELT BÓNUSZ SÁV: 14% JUTALÉK AKTIVÁLVA! ⭐
@@ -644,7 +643,89 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
 
             with st.expander("🗺️ Útvonal megtekintése a térképen", expanded=False):
                 utvonal_terkep(df_napi=edited_df, sheet_id=SHEET_ID_UGYFELKOR) 
-            
+                
+                # ==============================================================================
+                # 🎯 GPS GYORS-MENTŐ ASSZISZTENS PANEL KÖZVETLENÜL A TÉRKÉP ALATT
+                # ==============================================================================
+                st.write("")
+                st.markdown("### 🛰️ Térképes GPS Gyors-Mentő")
+                st.markdown(
+                    """
+                    💡 **Hogyan használd?** 1. Kattints a fenti térképen a helyes pontra (pl. a ház tetejére).
+                    2. A felugró piros tűnél kattints a **'Koordináta Másolása'** gombra.
+                    3. Válaszd ki alább az ügyfelet, illeszd be a koordinátát, és nyomj a Mentésre!
+                    """
+                )
+                
+                col_ast1, col_ast2 = st.columns([1.5, 1])
+                with col_ast1:
+                    ugyfel_nevek = ["-- Válassz ügyfelet a mentéshez --"]
+                    for _, r in edited_df.iterrows():
+                        if str(r['Név']).strip() != "":
+                            ugyfel_nevek.append(f"{r['ID']} - {r['Név']} ({r['Cím']})")
+                        
+                    valasztott_ugyfel_str = st.selectbox("Melyik ügyfél koordinátáját javítod?", ugyfel_nevek, key="gps_assistant_selectbox")
+                    
+                with col_ast2:
+                    beillesztett_gps = st.text_input("Másolt koordináta beillesztése (Paste):", placeholder="Pl. 47.531234,21.624123", key="gps_assistant_input")
+                    
+                if st.button("💾 ÚJ GPS KOORDINÁTA MENTÉSE AZ ADATBÁZISOKBA", key="save_edited_data_btn_assistant", use_container_width=True):
+                    try:
+                        import re
+                        sh = client.open_by_key(SHEET_ID_UGYFELKOR)
+                        
+                        # Tisztítsuk meg a beillesztett GPS-t
+                        gps_match = re.findall(r'[-+]?\d*\.\d+|\d+', beillesztett_gps)
+                        if len(gps_match) >= 2:
+                            uj_lat, uj_lon = gps_match[0], gps_match[1]
+                            target_id = valasztott_ugyfel_str.split(" - ")[0].strip()
+                            
+                            # 1. Mentés az Ugyfelkor törzstáblába
+                            ws_ugyfel = sh.worksheet("Ugyfelkor")
+                            teljes_adat = ws_ugyfel.get_all_values()
+                            fejlec = teljes_adat[0]
+                            
+                            ugyfel_row_idx = None
+                            for u_idx, u_rec in enumerate(teljes_adat[1:], start=2):
+                                if str(u_rec[0]).strip() == target_id:
+                                    ugyfel_row_idx = u_idx
+                                    break
+                                    
+                            if ugyfel_row_idx:
+                                u_lat_idx = fejlec.index('Lat') + 1
+                                u_lon_idx = fejlec.index('Lon') + 1
+                                
+                                ws_ugyfel.update_cell(ugyfel_row_idx, u_lat_idx, f"'{uj_lat}")
+                                ws_ugyfel.update_cell(ugyfel_row_idx, u_lon_idx, f"'{uj_lon}")
+                                
+                                # 2. Ha az Adatok táblában is szerepel az ügyfél ID-ja mára, oda is mentsük el azonnali térkép-frissítésért
+                                try:
+                                    ws_adatok = sh.worksheet("Adatok")
+                                    headers_adatok = ws_adatok.row_values(1)
+                                    a_id_idx = headers_adatok.index('ID')
+                                    a_lat_idx = headers_adatok.index('Lat') + 1
+                                    a_lon_idx = headers_adatok.index('Lon') + 1
+                                    
+                                    adatok_vals = ws_adatok.get_all_values()
+                                    for a_row_idx, a_rec in enumerate(adatok_vals[1:], start=2):
+                                        if str(a_rec[a_id_idx]).strip() == target_id:
+                                            ws_adatok.update_cell(a_row_idx, a_lat_idx, uj_lat)
+                                            ws_adatok.update_cell(a_row_idx, a_lon_idx, uj_lon)
+                                except Exception as e_a:
+                                    logger.warning(f"Napi Adatok frissítési hiba: {e_a}")
+                                
+                                st.success(f"🎉 SIKER! {valasztott_ugyfel_str.split(' - ')[1]} koordinátája véglegesen elmentve!")
+                                st.balloons()
+                                st.cache_data.clear()
+                                time.sleep(1.0)
+                                st.rerun()
+                            else:
+                                st.error("❌ Nem találom az ügyfelet a törzstáblában!")
+                        else:
+                            st.error("❌ Érvénytelen koordináta formátum! Használj 'lat, lon' formátumot (tizedesponttal).")
+                    except Exception as e_assistant:
+                        st.error(f"Hiba a mentés során: {e_assistant}")
+
             st.subheader("🗄️ Ügyfélkör kezelése")
             gomb_col1, gomb_col2 = st.columns(2)
 

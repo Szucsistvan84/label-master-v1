@@ -4,7 +4,7 @@ import streamlit as st
 # --- 1. STREAMLIT ALAPBEÁLLÍTÁS - Kötelezően mindenen kívül, a legelső sorban! ---
 st.set_page_config(page_title="Interfood Label Master", layout="wide")
 
-# --- KÉNYSZERÍTETT MODUL HOT-RELOAD (GARANTÁLT FRISSÍTÉS - HOZZÁADVA PARSER_MODUL ÉS VIZUALIZACIO) ---
+# --- KÉNYSZERÍTETT MODUL HOT-RELOAD (GARANTÁLT FRISSÍTÉS) ---
 import sys
 import importlib
 
@@ -44,9 +44,6 @@ from nezetek_modul import (
 setup_logging()
 logger = logging.getLogger(__name__)
 init_test_mode()
-
-# Kényszerített kód-frissítési jelző a modulok újratöltéséhez
-# UPDATE_TRIGGER_v6_2026_06_21
 
 # --- GOOGLE SHEETS KLIENS INICIALIZÁLÁSA ---
 client = init_google_sheets()
@@ -222,19 +219,40 @@ def main():
             if 'etlap_api_df' in st.session_state: del st.session_state['etlap_api_df']
             if 'master_df' in st.session_state: del st.session_state['master_df']
             if 'etelek_master_df' in st.session_state: del st.session_state['etelek_master_df']
+            if 'nevnapok_df' in st.session_state: del st.session_state['nevnapok_df']
+            if 'keresztnevek_df' in st.session_state: del st.session_state['keresztnevek_df']
         st.session_state.etlap_trigger_state = jelenlegi_het_trigger
     except:
         jelenlegi_het_trigger = "INITIAL"
 
-    if 'master_df' not in st.session_state or 'etlap_api_df' not in st.session_state:
+    if 'master_df' not in st.session_state or 'etlap_api_df' not in st.session_state or st.session_state.nevnapok_df.empty or st.session_state.keresztnevek_df.empty:
         with st.spinner("⏳ A Label Master adatbázisok inicializálása..."):
             try:
+                # 1. Master Étlap Adatbázis betöltése
                 m_df = pd.DataFrame(sheet.worksheet("Master_Adatbazis").get_all_records())
                 m_df.columns = [col.strip().replace('\ufeff', '') for col in m_df.columns]
                 st.session_state.etelek_master_df = m_df  
                 st.session_state.master_df = m_df 
                 
-                # Átadjuk a client objektumot paraméterként a helyes API kommunikációhoz
+                # 2. Éles NÉVNAPOK Adatbázis betöltése
+                try:
+                    nevnap_df = pd.DataFrame(sheet.worksheet("Nevnapok").get_all_records())
+                    nevnap_df.columns = [col.strip().replace('\ufeff', '') for col in nevnap_df.columns]
+                    st.session_state.nevnapok_df = nevnap_df
+                    logger.info("Névnapok adatbázis sikeresen betöltve a felhőből.")
+                except Exception as e_nev:
+                    logger.warning(f"Nevnapok betöltési hiba: {e_nev}")
+                
+                # 3. Éles KERESZTNEVEK Adatbázis betöltése (Szigorú elsőnév-szűréshez)
+                try:
+                    kereszt_df = pd.DataFrame(sheet.worksheet("Keresztnevek").get_all_records())
+                    kereszt_df.columns = [col.strip().replace('\ufeff', '') for col in kereszt_df.columns]
+                    st.session_state.keresztnevek_df = kereszt_df
+                    logger.info("Keresztnevek adatbázis sikeresen betöltve a felhőből.")
+                except Exception as e_ker:
+                    logger.warning(f"Keresztnevek betöltési hiba: {e_ker}")
+                
+                # 4. Étlap API betöltése
                 api_df = load_etlap_api_smart(client, SHEET_ID_MASTER, columns_trigger=jelenlegi_het_trigger)
                 if api_df is not None:
                     st.session_state.etlap_api_df = api_df
@@ -244,10 +262,12 @@ def main():
                 st.session_state.etlap_api_df = pd.DataFrame()
 
     # Biztosítjuk a globális láthatóságot
-    global etlap_api_df, etelek_master_df, master_df, ugyfelkor_df, mdf
+    global etlap_api_df, etelek_master_df, master_df, ugyfelkor_df, mdf, nevnapok_df, keresztnevek_df
     etlap_api_df = st.session_state.get('etlap_api_df', pd.DataFrame())
     etelek_master_df = st.session_state.get('etelek_master_df', pd.DataFrame())
     master_df = etelek_master_df
+    nevnapok_df = st.session_state.get('nevnapok_df', pd.DataFrame())
+    keresztnevek_df = st.session_state.get('keresztnevek_df', pd.DataFrame())
     ugyfelkor_df = st.session_state.get('ugyfelkor_df', pd.DataFrame())
     mdf = st.session_state.get('mdf', pd.DataFrame())
 
@@ -301,7 +321,6 @@ def main():
             
         # Oldalsáv kezelőszervek kirajzolása és az aktív funkció lekérése
         with st.sidebar:
-            # Átadjuk a client objektumot paraméterként az asztali kezelőszerveknek is
             admin_funkcio = render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE)
 
         # Főképernyő renderelése a választott menüpont alapján

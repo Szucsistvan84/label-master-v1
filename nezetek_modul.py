@@ -5,6 +5,7 @@ import os
 import re
 import pdfplumber
 import datetime
+import time
 
 # --- KAPCSOLÓDÓ SEGÉDFÜGGVÉNYEK ---
 from parser_modul import parse_interfood_pdf, extract_all_meta, merge_data

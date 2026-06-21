@@ -50,7 +50,7 @@ def utvonal_terkep(df_napi, sheet_id=None):
             map_data = map_data.sort_values(by='Sorrend_num', ascending=True)
 
         if map_data.empty:
-            st.warning("⚠️ Nincs megjeleníthető érvényes GPS koordináta a mai listán!")
+            st.warning("⚠️ Nincs megjelelíthető érvényes GPS koordináta a mai listán!")
             return
 
         # 5. Adatsorok átalakítása tiszta JSON formátumba a JavaScript számára (egész sorszámokkal)
@@ -163,14 +163,14 @@ def utvonal_terkep(df_napi, sheet_id=None):
                     if (copyText) {{
                         copyText.select();
                         copyText.setSelectionRange(0, 99999);
-                        try {
+                        try {{
                             document.execCommand('copy');
                             var msg = document.getElementById("copy_ok_msg");
                             if (msg) msg.style.display = "block";
                             setTimeout(function() {{
                                 if (msg) msg.style.display = "none";
                             }}, 2000);
-                        } catch (err) {{
+                        }} catch (err) {{
                             console.error("Nem sikerült a másolás", err);
                         }}
                     }}

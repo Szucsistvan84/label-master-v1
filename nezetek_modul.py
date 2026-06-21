@@ -210,6 +210,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     # --- 4. SEPARATOR DIV ---
     st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
+    # --- 4. SZEKCIÓ: SÜRGŐS HIBAJELENTŐ ---
     st.subheader("⚠️ Probléma az úton?")
     with st.expander("🚨 SÜRGŐS HIBAKÜLDÉS (Gyorsmenü)"):
         st.write("Sérült, elcserélt vagy hiányzó étel gyors bejelentése a központnak:")
@@ -331,7 +332,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
     st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
     st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
     
-    # --- SZUPER AUTOMATIZÁCIÓ: A manuális dátumválasztó (date_input) véglegesen kikukázva! ---
+    # --- SZUPER AUTOMATIZÁCIÓ: A manuális dátumválasztó (date_input) véglegesen eltávolítva! ---
     # Az éles kiszállítási és névnapi dátumot innentől közvetlenül a PDF-ekből nyerjük ki.
     
     st.divider()
@@ -480,7 +481,7 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
         df_temp = merge_data(all_rows)
         with st.spinner("Ügyféladatok szinkronizálása..."):
             mentett_meta = st.session_state.get('meta_data', None)
-            tartalek_jarat = mentett_meta['jaratok'][0] if mentett_meta and mentett_meta.get('jaratok') else None
+            tartalek_jarat = mentett_meta['jaratok'][0] if meta_auto and meta_auto.get('jaratok') else None
             df_temp, m_df_friss = master_lista_szinkron(df_temp, ugyfelkor_sheet_id, client, jarat_szam=tartalek_jarat)
             st.session_state.ugyfelkor_df = m_df_friss
         st.session_state.mdf = df_temp
@@ -578,7 +579,7 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
                 r_futar = str(row.get('Futar', '')).strip().lower()
                 if r_futar == aktualis_futar.lower():
                     try:
-                        r_dt = datetime.datetime.strptime(r_date_str, "%Y-%m-%d")
+                        r_dt = datetime.strptime(r_date_str, "%Y-%m-%d")
                         if het_kezdete <= r_dt <= het_vege:
                             if r_date_str == api_datum_kulcs: existing_row_index = idx
                             else: eheti_eddigi_forgalom += int(pd.to_numeric(row.get('Forgalom_Osszes', 0), errors='coerce'))
@@ -601,7 +602,15 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
             try:
                 uj_adat_sor = [api_datum_kulcs, aktualis_futar, jarat_szoveg, int(szamitott_osszes_megallo), int(szamitott_osszes_cim), int(szamitott_osszes_etel), int(szamitott_total_ertek), int(regi_beszedett_kp), int(szamitott_borravalo), int(szamitott_jutalek)]
                 if existing_row_index:
-                    ws_summary.update(f"A{existing_row_index}:J{existing_row_index}", [uj_adat_sor])
+                    ws_summary.update_cell(existing_row_index, 1, api_datum_kulcs)
+                    ws_summary.update_cell(existing_row_index, 2, aktualis_futar)
+                    ws_summary.update_cell(existing_row_index, 3, jarat_szoveg)
+                    ws_summary.update_cell(existing_row_index, 4, int(szamitott_osszes_megallo))
+                    ws_summary.update_cell(existing_row_index, 5, int(szamitott_osszes_cim))
+                    ws_summary.update_cell(existing_row_index, 6, int(szamitott_osszes_etel))
+                    ws_summary.update_cell(existing_row_index, 7, int(szamitott_total_ertek))
+                    # A korábban beszedett KP-t és borravalót nem bántjuk
+                    ws_summary.update_cell(existing_row_index, 10, int(szamitott_jutalek))
                 else:
                     ws_summary.append_row(uj_adat_sor)
                 st.cache_data.clear()
@@ -810,7 +819,16 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             if st.button("🚀 DOKUMENTUMOK GENERÁLÁSA", type="primary", use_container_width=True, key="doc_gen_btn"):
                 with st.spinner("⏳ PDF-ek generálása..."):
                     try:
-                        st.session_state['ready_label_pdf'] = create_label_pdf(edited_df, st.session_state.c_n, st.session_state.c_p, meta, st.session_state.etelek_master_df, pd.DataFrame(), pd.DataFrame(), st.session_state.etlap_api_df).getvalue()
+                        st.session_state['ready_label_pdf'] = create_label_pdf(
+                            edited_df, 
+                            st.session_state.c_n, 
+                            st.session_state.c_p, 
+                            meta, 
+                            st.session_state.etelek_master_df, 
+                            st.session_state.get('nevnapok_df', pd.DataFrame()), 
+                            st.session_state.get('keresztnevek_df', pd.DataFrame()), 
+                            st.session_state.etlap_api_df
+                        ).getvalue()
                         st.session_state['ready_manifest_pdf'] = create_manifest_pdf(edited_df, st.session_state.c_n, meta).getvalue()
                         st.session_state['ready_raklista_pdf'] = create_raklista_pdf(edited_df, aktualis_jaratok, meta, client.open_by_key(SHEET_ID_UGYFELKOR)).getvalue()
                         st.success("✅ Minden dokumentum sikeresen elkészült!")

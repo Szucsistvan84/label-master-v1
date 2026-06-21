@@ -28,21 +28,62 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     """
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
     Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel, precíz div-alapú elválasztóvonalakkal.
+    Az Interfood márka arculatához igazított prémium színekkel és lekerekítésekkel.
     """
     st.markdown(
         """
         <style>
+        /* Globális Interfood stílusok injektálása */
+        /* Elsődleges gombok - Interfood Zöld */
+        .stButton > button[kind="primary"] {
+            background-color: #139D43 !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+            font-weight: bold !important;
+            transition: all 0.3s ease !important;
+        }
+        .stButton > button[kind="primary"]:hover {
+            background-color: #0E7F35 !important;
+            box-shadow: 0 4px 12px rgba(19, 157, 67, 0.3) !important;
+        }
+        /* Másodlagos gombok */
+        .stButton > button[kind="secondary"] {
+            border-radius: 8px !important;
+            font-weight: 500 !important;
+            transition: all 0.2s ease !important;
+        }
+        /* Danger gombok (Kijelentkezés, Letöltések, Reset) - Interfood Piros */
+        button[key*="logout"], button[key*="dl_"], button[key*="reset"], button[key*="delete"], button[key*="superadmin_"], button[key*="test_reset"] {
+            background-color: #E1251B !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+            font-weight: bold !important;
+        }
+        button[key*="logout"]:hover, button[key*="dl_"]:hover, button[key*="reset"]:hover, button[key*="test_reset"]:hover {
+            background-color: #B81D17 !important;
+            box-shadow: 0 4px 12px rgba(225, 37, 27, 0.3) !important;
+        }
+        /* File feltöltő zöld kerettel */
+        [data-testid="stFileUploader"] {
+            border: 2px dashed #139D43 !important;
+            border-radius: 10px !important;
+            padding: 10px !important;
+            background-color: #F9FBF9 !important;
+        }
+        
         /* Sidebar felső sáv finomítása */
         div[data-testid="stSidebarUserContent"] {
             padding-top: 0.8rem !important;
             margin-top: -2.2rem !important;
         }
-        /* Metric kártyák tömörítése */
+        /* Metric kártyák tömörítése és zöldítése */
         [data-testid="stSidebarUserContent"] [data-testid="stMetricValue"] {
             font-size: 1.05rem !important;
             font-weight: 800 !important;
             line-height: 1.1 !important;
-            color: #139D43 !important; /* Interfood Zöld mérőszámok */
+            color: #139D43 !important; /* Interfood Zöld */
         }
         [data-testid="stSidebarUserContent"] [data-testid="stMetricLabel"] {
             font-size: 0.68rem !important;
@@ -68,7 +109,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             font-size: 0.85rem !important;
             margin-top: 4px !important;
             margin-bottom: 2px !important;
-            color: #1F2937 !important;
         }
         [data-testid="stSidebarUserContent"] hr {
             display: none !important;
@@ -88,9 +128,13 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         unsafe_allow_html=True
     )
 
-    # --- STREAMING_CHUNK: Loading sidebar dashboard stats... ---
-    st.image("interfood-logo.png", use_container_width=True)
-    st.markdown("<h2 style='text-align: center; margin-bottom: 6px;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
+    # --- FALLBACK LOGÓ VÉDELEM ---
+    if os.path.exists("interfood-logo.png"):
+        st.image("interfood-logo.png", use_container_width=True)
+    else:
+        st.markdown("<h2 style='text-align: center; color: #139D43; margin-top:0;'>🟢 Interfood</h2>", unsafe_allow_html=True)
+
+    st.markdown("<h2 style='text-align: center; color: #139D43; margin-bottom: 6px;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
     
     futar_nev_kiir = st.session_state.get('user_nev', 'Ismeretlen Futár')
     jarat_lista_kiir = st.session_state.get('user_jarat_lista', [])
@@ -327,11 +371,74 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
     - Kiküszöböltük a felesleges dátumválasztót és a manuális futár adatbevitelt!
     - A névnapi és kiszállítási dátum, valamint a futár neve és telefonszáma mostantól
       teljesen automatikusan szinkronizálódik a rendszerből és a bejelentkezési profilból!
+    - Interfood Zöld (#139D43) és Piros (#E1251B) arculatú stílusok injektálásával.
     """
-    st.header("⚙️ Kezelés")
+    # Globális Interfood design injektálás asztali gombokra és felületekre is
+    st.markdown(
+        """
+        <style>
+        /* Elsődleges gombok (Feldolgozás, Mentés, Generálás) - Interfood Zöld */
+        .stButton > button[kind="primary"] {
+            background-color: #139D43 !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+            font-weight: bold !important;
+            transition: all 0.3s ease !important;
+        }
+        .stButton > button[kind="primary"]:hover {
+            background-color: #0E7F35 !important;
+            box-shadow: 0 4px 12px rgba(19, 157, 67, 0.3) !important;
+        }
+        /* Másodlagos gombok */
+        .stButton > button[kind="secondary"] {
+            border-radius: 8px !important;
+            font-weight: 500 !important;
+            transition: all 0.2s ease !important;
+        }
+        /* Danger gombok (Kijelentkezés, Letöltések) - Interfood Piros */
+        button[key*="logout"], button[key*="dl_"], button[key*="reset"], button[key*="delete"], button[key*="superadmin_"], button[key*="test_reset"] {
+            background-color: #E1251B !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+            font-weight: bold !important;
+        }
+        button[key*="logout"]:hover, button[key*="dl_"]:hover, button[key*="reset"]:hover, button[key*="test_reset"]:hover {
+            background-color: #B81D17 !important;
+            box-shadow: 0 4px 12px rgba(225, 37, 27, 0.3) !important;
+        }
+        /* File feltöltő zöld kerettel */
+        [data-testid="stFileUploader"] {
+            border: 2px dashed #139D43 !important;
+            border-radius: 10px !important;
+            padding: 10px !important;
+            background-color: #F9FBF9 !important;
+        }
+        /* Kiemelt mérőszámok zöldítése */
+        [data-testid="stMetricValue"] {
+            color: #139D43 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Adjuk hozzá a gyönyörű logót az oldalsáv legtetejére! Fallback védelemmel
+    if os.path.exists("interfood-logo.png"):
+        st.image("interfood-logo.png", use_container_width=True)
+    else:
+        st.markdown("<h2 style='text-align: center; color: #139D43; margin-top:0;'>🟢 Interfood</h2>", unsafe_allow_html=True)
+    
     is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
+    
+    # 📞 TELEFON KIÍRÁSA A TETEJÉRE SIMA FUTÁR ESETÉN (Tűpontosan az image_0b8152.png alá)
+    if not is_admin:
+        st.sidebar.markdown(f"📞 **Telefon:** {st.session_state.get('c_p', '+36 20 886 8971')}")
+    
+    st.header("⚙️ Kezelés")
     if is_admin:
-        admin_funkcio = st.radio("📌 Válassz funkciót:", ["📋 Raklista & Étlap Kezelés", "🚚 Logisztikai Közenter & Stand"])
+        admin_funkcio = st.sidebar.radio("📌 Válassz funkciót:", ["📋 Raklista & Étlap Kezelés", "🚚 Logisztikai Közenter & Stand"])
     else:
         admin_funkcio = "📋 Raklista & Étlap Kezelés"
     
@@ -353,7 +460,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
     st.divider()
 
     # ==============================================================================
-    # 🚚 FUTÁR ADATAINAK AUTOMATIKUS KEZELÉSE (Nulla elírási lehetőség!)
+    # 🚚 FUTÁR ADATAINAK AUTOMATIKUS KEZELÉSE (Csak Admin / Superadmin részére!)
     # ==============================================================================
     if is_admin:
         st.subheader("🚚 Aktív Futár Kiválasztása")
@@ -383,9 +490,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             # Fallback ha nem elérhető a gsheets
             st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
             st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
-    else:
-        # Sima futárnak zéró adatbeviteli mező, fixen kiírjuk az éles bejelentkezési adatokat a sidebar tetejére (nincs duplikáció!)
-        pass
+    # ZÉRÓ REDUNDANCIA: A sima futárnak a korábbi alsó panel többé nem jelenik meg!
 
     st.divider()
     if 'teszt_uzemmod' not in st.session_state: st.session_state.teszt_uzemmod = False
@@ -406,7 +511,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             st.warning(f"📡 GPS Szerver: {status_msg}")
             
         # ==============================================================================
-        # 🛰️ GPS BATCH PÓTLÓ ESZKÖZ - MINDEN ADMINNAK LÁTHATÓ ÉS ELÉRHETŐ!
+        # 🛰️ GPS BATCH PÓTLÓ ESZKÖZ - MINDEN ADMINNAK LÁTAPATÓ ÉS ELÉRHETŐ!
         # ==============================================================================
         with st.expander("🛰️ GPS Koordináták Tömeges Pótlása"):
             st.write("Megkeresi azokat az ügyfeleket a törzsadatbázisban, akiknek nincs mentett koordinátája, és automatikusan pótolja azokat az ArcGIS geokódoló segítségével (max 20 menetben).")
@@ -466,6 +571,61 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
                     except Exception as e:
                         st.error(f"Hiba a takarítás során: {e}")
                         
+                st.write("---")
+                st.write("🗑️ **Tesztadatok Teljes Resetelése**")
+                st.write("Kiüríti a napi 'Adatok' táblát, a 'Mobil_Summary' táblát és a 'Mobil_Idobelyegek' táblát (csak a fejléceket hagyja meg), valamint törli a helyi memóriát. Tökéletes új teszt futamok indítása előtt!")
+                if st.button("🚨 TESZTADATOK TÖRLÉSE (Adatok & Summary reset)", key="superadmin_test_reset_btn", use_container_width=True):
+                    try:
+                        with st.spinner("⏳ Adatbázisok takarítása..."):
+                            sh = client.open_by_key(SHEET_ID_UGYFELKOR)
+                            
+                            # 1. Adatok tisztítása (fejléc megtartásával)
+                            ws_adatok = sh.worksheet("Adatok")
+                            adatok_headers = ws_adatok.row_values(1)
+                            ws_adatok.clear()
+                            ws_adatok.append_row(adatok_headers)
+                            
+                            # 2. Mobil_Summary tisztítása (fejléc megtartásával)
+                            ws_summary = sh.worksheet("Mobil_Summary")
+                            summary_headers = ws_summary.row_values(1)
+                            ws_summary.clear()
+                            ws_summary.append_row(summary_headers)
+                            
+                            # 3. Mobil_Idobelyegek tisztítása (fejléc megtartásával)
+                            try:
+                                ws_idok = sh.worksheet("Mobil_Idobelyegek")
+                                idok_headers = ws_idok.row_values(1)
+                                ws_idok.clear()
+                                ws_idok.append_row(idok_headers)
+                            except:
+                                pass
+
+                            # 4. Mobil_Raklista tisztítása (fejléc megtartásával)
+                            try:
+                                ws_raklista = sh.worksheet("Mobil_Raklista")
+                                rak_headers = ws_raklista.row_values(1)
+                                ws_raklista.clear()
+                                ws_raklista.append_row(rak_headers)
+                            except:
+                                pass
+                            
+                            # Helyi session state takarítás
+                            for k in list(st.session_state.keys()):
+                                if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
+                                    st.session_state.pop(k, None)
+                            
+                            st.session_state.mdf = None
+                            st.session_state.kiszallitas_folyamatban = False
+                            st.session_state.aruatvetel_folyamatban = False
+                            
+                            st.cache_data.clear()
+                            st.success("🎉 Minden tesztadat sikeresen törölve! Tiszta lappal indulhat a nap.")
+                            st.balloons()
+                            time.sleep(1.0)
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Hiba a reset során: {e}")
+                        
     return admin_funkcio
 
 def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivalasztott_datum):
@@ -481,7 +641,7 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
     meta_auto = extract_all_meta(up_files)
     st.session_state.meta_data = meta_auto
     
-    # --- AUTOMATIKUS DÁTUM SZINKRONIZÁCIÓ A METÁBÓL ---
+    # --- AUTOMATIZÁCÓ: DÁTUM SZINKRONIZÁCIÓ A METÁBÓL ---
     if meta_auto.get('datum_iso'):
         try:
             st.session_state['kivalasztott_datum'] = datetime.datetime.strptime(meta_auto['datum_iso'], "%Y-%m-%d").date()
@@ -684,7 +844,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             <div style="font-size: 40px !important; margin-bottom: 10px !important; line-height: 1 !important;">👑🏆🍾</div>
             <h2 style="margin: 0 0 10px 0 !important; color: #78350F !important; font-weight: 900 !important; font-size: 24px !important; border: none !important; line-height: 1.2 !important; text-shadow: none !important; font-family: sans-serif !important;">GRATULÁLUNK, {bonus_data['futar'].upper()}!</h2>
             <p style="font-size: 16px !important; margin: 10px 0 12px 0 !important; color: #78350F !important; font-weight: bold !important; line-height: 1.4 !important; text-shadow: none !important; font-family: sans-serif !important;">
-                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke elérte a <b style="color: #B45309 !important; font-size: 18px !important; font-weight: 900 !important;">{bonus_data['forgalom']:,} Ft</b>-ot!
+                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke alcanzo a <b style="color: #B45309 !important; font-size: 18px !important; font-weight: 900 !important;">{bonus_data['forgalom']:,} Ft</b>-ot!
             </p>
             <div style="background-color: rgba(120, 53, 15, 0.08) !important; display: inline-block !important; padding: 10px 25px !important; border-radius: 50px !important; font-weight: 800 !important; font-size: 15px !important; margin-top: 5px !important; border: 1.5px solid #78350F !important; color: #78350F !important; letter-spacing: 0.5px !important; font-family: sans-serif !important;">
                 ⭐ EMELT BÓNUSZ SÁV: 14% JUTALÉK AKTIVÁLVA! ⭐

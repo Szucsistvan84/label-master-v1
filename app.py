@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 
+# STREAM_CHUNK: Configuring page settings...
 # --- 1. STREAMLIT ALAPBEÁLLÍTÁS - Kötelezően mindenen kívül, a legelső sorban! ---
 st.set_page_config(page_title="Interfood Label Master", layout="wide")
 
@@ -14,6 +15,7 @@ for mod_name in modules_to_reload:
         importlib.reload(sys.modules[mod_name])
 # -----------------------------------------------------------------------------------
 
+# STREAM_CHUNK: Importing core libraries...
 # --- Standard Python modulok importálása ---
 import pandas as pd
 import logging
@@ -45,6 +47,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 init_test_mode()
 
+# STREAM_CHUNK: Initializing Google Sheets connection...
 # --- GOOGLE SHEETS KLIENS INICIALIZÁLÁSA ---
 client = init_google_sheets()
 if 'client' not in st.session_state:
@@ -102,6 +105,7 @@ def main():
     url_jarat = st.query_params.get("jarat", "")
     url_teszt = st.query_params.get("test", "false") == "true"
 
+    # STREAM_CHUNK: Checking view permissions...
     # BIZTONSÁGOS REDIRECT: Ha a parancsikon miatt nincs 'view' paraméter a linkben
     if view is None:
         if 'edited_df' in st.session_state:
@@ -123,11 +127,14 @@ def main():
 
     is_mobile_view = (view == "mobile")
 
+    # STREAM_CHUNK: Rendering login form and handling credentials...
     # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
-        # Fallback védelem a logó hiányára
+        # Fallback védelem a logó hiányára és méretezés a képernyő pontosan 20%-ára (középre igazítva)
         if os.path.exists("interfood-logo.png"):
-            st.image("interfood-logo.png", use_container_width=True)
+            col_l1, col_l2, col_l3 = st.columns([2, 1, 2])
+            with col_l2:
+                st.image("interfood-logo.png", use_container_width=True)
         else:
             st.markdown("<h1 style='text-align: center; color: #139D43;'>💚 Interfood Label Master</h1>", unsafe_allow_html=True)
             
@@ -219,6 +226,7 @@ def main():
                         st.error("❌ Hibás járatszám vagy jelszó!")
         return
 
+    # STREAM_CHUNK: Checking database status and syncing weeks...
     # --- IDŐUTAZÁS FIGYELŐ ÉS ADATBÁZIS-INICIALIZÁLÓ MOTOR ---
     try:
         sheet = client.open_by_key(SHEET_ID_MASTER)
@@ -282,6 +290,7 @@ def main():
     ugyfelkor_df = st.session_state.get('ugyfelkor_df', pd.DataFrame())
     mdf = st.session_state.get('mdf', pd.DataFrame())
 
+    # STREAM_CHUNK: Routing mobile and desktop views...
     # =========================================================================
     # 📱 1. ÁG: QR-KÓDOS MOBIL NÉZET
     # =========================================================================

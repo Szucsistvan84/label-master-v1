@@ -381,6 +381,11 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
 
+    # 🎯 KIKÜSZÖBÖLJÜK A PREFIXEKET AZ ADATOK TÁBLÁBÓL:
+    # Azonnal tiszta, 6 számjegyből álló számmá alakítjuk a napi lista ID oszlopát,
+    # így mind az 'Adatok' fülre, mind az 'Ugyfelkor' törzslistába tisztán kerül be!
+    df_napi['ID'] = df_napi['ID'].apply(tiszta_id_konverzio)
+
     # --- ÉLŐ (CACHE-MENTES) BEOLVASÁS ---
     try:
         sh = client.open_by_key(sheet_id)

@@ -7,15 +7,15 @@ import json
 def utvonal_terkep(df_napi, sheet_id=None):
     """
     Kirajzolja a napi útvonalat egy interaktív térképen.
-    Sorszámozott Leaflet.js markereket használ egész számként formázva.
-    Támogatja az interaktív kattintást, a piros tű lerakását és az egykattintásos koordináta másolást.
-    Beépített, kényelmes Nominatim címkeresővel rendelkezik a térképen belül!
+    Összevonja az azonos koordinátájú ügyfeleket egyetlen közös buborékba,
+    így ha egy címre több étel is megy, mindegyik név és sorszám láthatóvá válik.
+    Támogatja a piros javító tűt és a beépített Nominatim címkeresőt.
     """
     if df_napi is None or df_napi.empty:
         st.warning("⚠️ Nincs adat az útvonal kirajzolásához!")
         return
 
-    # 1. Biztonsági másolat készítése
+    # 1. Biztonsági másolat készítése, hogy ne rontsuk el az eredeti táblázatot
     map_df = df_napi.copy()
 
     # 2. Oszlopok ellenőrzése
@@ -24,7 +24,7 @@ def utvonal_terkep(df_napi, sheet_id=None):
         return
 
     try:
-        # 3. Tizedesvesszők és típusok megtisztítása
+        # 3. Tizedesvesszők és típusok megtisztítása számmá alakítással
         for col in ['Lat', 'Lon']:
             map_df[col] = (
                 map_df[col]
@@ -35,7 +35,7 @@ def utvonal_terkep(df_napi, sheet_id=None):
             )
             map_df[col] = pd.to_numeric(map_df[col], errors='coerce')
 
-        # 4. Kiszűrjük azokat a sorokat, ahol nincs érvényes GPS koordináta
+        # 4. Kiszűrjük azokat a sorokat, ahol nincs érvényes GPS koordináta Magyarország területén
         map_df['latitude'] = map_df['Lat']
         map_df['longitude'] = map_df['Lon']
         
@@ -50,29 +50,59 @@ def utvonal_terkep(df_napi, sheet_id=None):
             map_data = map_data.sort_values(by='Sorrend_num', ascending=True)
 
         if map_data.empty:
-            st.warning("⚠️ Nincs megjelelíthető érvényes GPS koordináta a mai listán!")
+            st.warning("⚠️ Nincs megjeleníthető érvényes GPS koordináta a mai listán!")
             return
 
-        # 5. Adatsorok átalakítása tiszta JSON formátumba a JavaScript számára (egész sorszámokkal)
+        # 5. CSOPORTOSÍTÁS KOORDINÁTÁK ALAPJÁN (Azonos helyre mutató címek összevonása)
+        # Kerekítjük a koordinátákat 6 tizedesjegyre az apróbb GPS-ingadozások kiküszöbölésére
+        map_data['lat_round'] = map_data['latitude'].round(6)
+        map_data['lon_round'] = map_data['longitude'].round(6)
+        
+        grouped = map_data.groupby(['lat_round', 'lon_round'])
+        
         points = []
-        for _, row in map_data.iterrows():
-            raw_index = row.get('Sorrend', '•')
-            try:
-                clean_index = str(int(float(raw_index)))
-            except (ValueError, TypeError):
-                clean_index = str(raw_index).split('.')[0] if '.' in str(raw_index) else str(raw_index)
+        for (lat, lon), group in grouped:
+            # Sorszám szerint rendezzük a csoporton belüli ügyfeleket
+            group_sorted = group.sort_values(by='Sorrend_num')
             
+            clients_list = []
+            indices_list = []
+            
+            for _, row in group_sorted.iterrows():
+                raw_index = row.get('Sorrend', '•')
+                try:
+                    clean_index = str(int(float(raw_index)))
+                except (ValueError, TypeError):
+                    clean_index = str(raw_index).split('.')[0] if '.' in str(raw_index) else str(raw_index)
+                
+                indices_list.append(clean_index)
+                clients_list.append({
+                    "index": clean_index,
+                    "name": str(row.get('Név', row.get('Ügyintéző', 'Névtelen Vevő'))),
+                    "address": str(row.get('Cím', 'Ismeretlen Cím'))
+                })
+            
+            # Ha egynél több ügyfél van ugyanott, akkor pl. "3+" formátumban jelezzük az ikonon
+            if len(indices_list) > 1:
+                display_index = f"{indices_list[0]}+"
+            else:
+                display_index = indices_list[0]
+                
             points.append({
-                "index": clean_index if clean_index.strip() != "" else "•",
-                "lat": float(row['latitude']),
-                "lon": float(row['longitude']),
-                "name": str(row.get('Név', row.get('Ügyintéző', 'Névtelen Vevő'))),
-                "address": str(row.get('Cím', 'Ismeretlen Cím'))
+                "display_index": display_index,
+                "first_index_num": int(group_sorted.iloc[0]['Sorrend_num']),
+                "lat": float(lat),
+                "lon": float(lon),
+                "clients": clients_list,
+                "address": clients_list[0]["address"]  # Megosztott cím
             })
 
+        # Sorbarendezzük a csoportosított pontokat az eredeti útvonal-sorszámuk alapján,
+        # így az összekötő vonal (polyline) nem fog összevissza ugrálni!
+        points.sort(key=lambda x: x["first_index_num"])
         points_json = json.dumps(points, ensure_ascii=False)
 
-        # 6. Szuper-biztonságos HTML + Leaflet.js sablon interaktív kattintás- és címkereső-figyelővel
+        # 6. HTML + Leaflet.js sablon több-ügyfelet kezelő felugró ablakokkal
         html_map_code = f"""
         <!DOCTYPE html>
         <html>
@@ -114,7 +144,8 @@ def utvonal_terkep(df_napi, sheet_id=None):
                 }}
                 .leaflet-popup-content-value {{
                     font-size: 12px;
-                    line-height: 1.4;
+                    line-height: 1.45;
+                    max-width: 220px;
                 }}
                 /* Címkereső widget dizájn */
                 .map-search-panel {{
@@ -157,7 +188,7 @@ def utvonal_terkep(df_napi, sheet_id=None):
                 var map;
                 var javitoTű = null;
                 
-                // Helper másoló függvény a homokozó iframe korlátok megkerülésére (Textarea trükk)
+                // Helper másoló függvény a homokozó iframe vágólap eléréséhez
                 window.masolGPS = function() {{
                     var copyText = document.getElementById("gps_val_input");
                     if (copyText) {{
@@ -269,13 +300,28 @@ def utvonal_terkep(df_napi, sheet_id=None):
 
                         var icon = L.divIcon({{
                             className: 'number-icon',
-                            html: p.index,
+                            html: p.display_index,
                             iconSize: [26, 26],
                             iconAnchor: [13, 13]
                         }});
 
+                        // Összetett HTML buborék generálása a közös címhez tartozó összes vevővel
+                        var popupHtml = "<div class='leaflet-popup-content-value'>";
+                        popupHtml += "<b>🏠 " + p.address + "</b>";
+                        popupHtml += "<hr style='margin: 6px 0; border:0; border-top: 1px solid #E5E7EB;'>";
+                        
+                        p.clients.forEach(function(c) {{
+                            popupHtml += "<div style='margin-bottom: 8px; border-bottom: 1px dashed #F3F4F6; padding-bottom: 4px;'>";
+                            popupHtml += "<span style='color: #1E3A8A; font-weight: 800;'>🏷️ " + c.index + ". Megálló</span><br>";
+                            popupHtml += "👤 <b>" + c.name + "</b>";
+                            popupHtml += "</div>";
+                        }});
+                        
+                        popupHtml = popupHtml.replace(/<div style='margin-bottom: 8px; border-bottom: 1px dashed #F3F4F6; padding-bottom: 4px;'>$/, "<div>"); // Utolsó elválasztó eltávolítása
+                        popupHtml += "</div>";
+
                         var marker = L.marker(latlng, {{icon: icon}})
-                            .bindPopup("<div class='leaflet-popup-content-value'><b>📍 " + p.index + ". Megálló</b><br><b>👤 " + p.name + "</b><br>🏠 " + p.address + "</div>")
+                            .bindPopup(popupHtml)
                             .addTo(map);
                             
                         markersGroup.addLayer(marker);
@@ -296,13 +342,18 @@ def utvonal_terkep(df_napi, sheet_id=None):
                     // --- NATIVE CÍMKERESŐ PANEL BEÉPÍTÉSE A TÉRKÉP BAL FELSŐ SARKÁBA ---
                     var searchControl = L.control({{position: 'topleft'}});
                     searchControl.onAdd = function (map) {{
-                        var div = L.DomUtil.create('div', 'map-search-panel');
-                        div.innerHTML = `
-                            <input type="text" id="map_address_search" class="map-search-input" placeholder="Cím keresése a térképen..." onkeypress="if(event.key === 'Enter') window.keresCimet()">
-                            <button onclick="window.keresCimet()" class="map-search-btn">🔍</button>
+                        var div = L.divIcon({{
+                            className: 'map-search-control',
+                            html: ''
+                        }});
+                        var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                        container.innerHTML = `
+                            <div class="map-search-panel" onclick="L.DomEvent.stopPropagation(event)">
+                                <input type="text" id="map_address_search" class="map-search-input" placeholder="Cím keresése a térképen...">
+                                <button onclick="window.keresCimet()" class="map-search-btn">🔍 Keresés</button>
+                            </div>
                         `;
-                        L.DomEvent.disableClickPropagation(div);
-                        return div;
+                        return container;
                     }};
                     searchControl.addTo(map);
 

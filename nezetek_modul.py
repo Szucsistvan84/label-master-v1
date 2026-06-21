@@ -554,7 +554,7 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
                 r_futar = str(row.get('Futar', '')).strip().lower()
                 if r_futar == aktualis_futar.lower():
                     try:
-                        r_dt = datetime.datetime.strptime(r_date_str, "%Y-%m-%d")
+                        r_dt = datetime.strptime(r_date_str, "%Y-%m-%d")
                         if het_kezdete <= r_dt <= het_vege:
                             if r_date_str == api_datum_kulcs: existing_row_index = idx
                             else: eheti_eddigi_forgalom += int(pd.to_numeric(row.get('Forgalom_Osszes', 0), errors='coerce'))
@@ -674,11 +674,14 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                         import re
                         sh = client.open_by_key(SHEET_ID_UGYFELKOR)
                         
-                        # Tisztítsuk meg a beillesztett GPS-t
+                        # Tisztítsuk meg a beillesztett GPS-t (kiszűrjük a számokat tizedesponttal)
                         gps_match = re.findall(r'[-+]?\d*\.\d+|\d+', beillesztett_gps)
                         if len(gps_match) >= 2:
                             uj_lat, uj_lon = gps_match[0], gps_match[1]
                             target_id = valasztott_ugyfel_str.split(" - ")[0].strip()
+                            
+                            # 🎯 JAVÍTÁS: TISZTÍTOTT ID MEGHATÁROZÁSA A TÖRZSTÁBLÁHOZ (PREFIX NÉLKÜL, pl: S-428612 -> 428612)
+                            target_id_clean = "".join(filter(str.isdigit, target_id.split('-')[-1]))
                             
                             # 1. Mentés az Ugyfelkor törzstáblába
                             ws_ugyfel = sh.worksheet("Ugyfelkor")
@@ -687,7 +690,9 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                             
                             ugyfel_row_idx = None
                             for u_idx, u_rec in enumerate(teljes_adat[1:], start=2):
-                                if str(u_rec[0]).strip() == target_id:
+                                # Biztonság kedvéért a törzstábla ID-ját is prefix és tizedes-mentesen vetjük össze
+                                db_id_clean = "".join(filter(str.isdigit, str(u_rec[0]).strip().split('-')[-1]))
+                                if db_id_clean == target_id_clean:
                                     ugyfel_row_idx = u_idx
                                     break
                                     
@@ -698,7 +703,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                                 ws_ugyfel.update_cell(ugyfel_row_idx, u_lat_idx, f"'{uj_lat}")
                                 ws_ugyfel.update_cell(ugyfel_row_idx, u_lon_idx, f"'{uj_lon}")
                                 
-                                # 2. Ha az Adatok táblában is szerepel az ügyfél ID-ja mára, oda is mentsük el azonnali térkép-frissítésért
+                                # 2. Ha az Adatok táblában is szerepel az ügyfél ID-ja mára, oda is elmentjük az azonnali térkép-frissülésért
                                 try:
                                     ws_adatok = sh.worksheet("Adatok")
                                     headers_adatok = ws_adatok.row_values(1)
@@ -708,7 +713,8 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                                     
                                     adatok_vals = ws_adatok.get_all_values()
                                     for a_row_idx, a_rec in enumerate(adatok_vals[1:], start=2):
-                                        if str(a_rec[a_id_idx]).strip() == target_id:
+                                        rec_id_clean = "".join(filter(str.isdigit, str(a_rec[a_id_idx]).split('-')[-1]))
+                                        if rec_id_clean == target_id_clean:
                                             ws_adatok.update_cell(a_row_idx, a_lat_idx, uj_lat)
                                             ws_adatok.update_cell(a_row_idx, a_lon_idx, uj_lon)
                                 except Exception as e_a:

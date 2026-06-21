@@ -318,8 +318,10 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
 def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE):
     """
     Kirajzolja a kezelő oldalsávot az asztali nézetben.
-    Kiküszöböltük a felesleges dátumválasztót: a névnapi és kiszállítási dátum mostantól 
-    teljesen automatikusan szinkronizálódik a feldolgozott PDF fálj metájából!
+    - Áthelyeztük ide a PDF menetterv feltöltő modult a tökéletes asztali Dashboardért!
+    - Kiküszöböltük a felesleges dátumválasztót és a manuális futár adatbevitelt!
+    - A névnapi és kiszállítási dátum, valamint a futár neve és telefonszáma mostantól
+      teljesen automatikusan szinkronizálódik a rendszerből és a bejelentkezési profilból!
     """
     st.header("⚙️ Kezelés")
     is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
@@ -329,12 +331,59 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
         admin_funkcio = "📋 Raklista & Étlap Kezelés"
     
     st.divider()
-    st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
-    st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
+
+    # ==============================================================================
+    # 📄 PDF MENETTERVEK FELTÖLTÉSE (Szuper esztétikus, sidebaros függőleges elrendezés!)
+    # ==============================================================================
+    st.subheader("📄 Menetterv PDF-ek")
+    up_files = st.file_uploader("Menettervek feltöltése:", accept_multiple_files=True, type=['pdf'], key="sidebar_pdf_uploader")
     
-    # --- SZUPER AUTOMATIZÁCIÓ: A manuális dátumválasztó (date_input) véglegesen eltávolítva! ---
-    # Az éles kiszállítási és névnapi dátumot innentől közvetlenül a PDF-ekből nyerjük ki.
+    kivalasztott_datum = st.session_state.get('kivalasztott_datum', datetime.date.today())
     
+    if up_files:
+        if st.button("🚀 PDF-EK FELDOLGOZÁSA", type="primary", use_container_width=True, key="sidebar_pdf_process_btn"):
+            process_uploaded_pdfs(up_files, client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, kivalasztott_datum)
+            st.rerun()
+
+    st.divider()
+
+    # ==============================================================================
+    # 🚚 FUTÁR ADATAINAK AUTOMATIKUS KEZELÉSE (Nulla elírási lehetőség!)
+    # ==============================================================================
+    if is_admin:
+        st.subheader("🚚 Aktív Futár Kiválasztása")
+        futar_df = load_futar_from_sheets(SHEET_ID_UGYFELKOR)
+        if not futar_df.empty:
+            futar_df.columns = [c.strip() for c in futar_df.columns]
+            courier_names = sorted(futar_df['Név'].dropna().astype(str).unique().tolist())
+            
+            if st.session_state.c_n not in courier_names:
+                courier_names.insert(0, st.session_state.c_n)
+                
+            selected_courier = st.selectbox(
+                "Futár kiválasztása (Admin):", 
+                options=courier_names, 
+                index=courier_names.index(st.session_state.c_n), 
+                key="sidebar_admin_courier_select"
+            )
+            
+            if selected_courier:
+                st.session_state.c_n = selected_courier
+                matching_row = futar_df[futar_df['Név'] == selected_courier]
+                if not matching_row.empty:
+                    phone_val = str(matching_row.iloc[0].get('Telefon', '+36 20 886 8971')).strip()
+                    if phone_val and phone_val != "nan":
+                        st.session_state.c_p = phone_val
+        else:
+            # Fallback ha nem elérhető a gsheets
+            st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
+            st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
+    else:
+        # Sima futárnak zéró adatbeviteli mező, fixen kiírjuk az éles bejelentkezési adatokat
+        st.subheader("👤 Aktív Futárod")
+        st.markdown(f"**Név:** {st.session_state.c_n}")
+        st.markdown(f"**Telefon:** {st.session_state.c_p}")
+
     st.divider()
     if 'teszt_uzemmod' not in st.session_state: st.session_state.teszt_uzemmod = False
     st.session_state.teszt_uzemmod = st.toggle("🧪 TESZT ÜZEMMÓD (Nincs mentés)", value=st.session_state.teszt_uzemmod)
@@ -415,28 +464,25 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
                         
     return admin_funkcio
 
-
 def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivalasztott_datum):
     """
     Feldolgozza a feltöltött PDF-eket.
-    A dátumot elsősorban automatikusan nyeri ki a fájl metaadataiból, így a névnapi lekérdezések is
+    A dátumot elsősorban automatikusan nyeri ki a fálj metaadataiból, így a névnapi lekérdezések is
     mindig hajszálpontosan az éppen futtatott PDF-hez fognak alkalmazkodni!
     """
     import pandas as pd
     for key in ['ready_label_pdf', 'ready_manifest_pdf', 'ready_raklista_pdf']:
         if key in st.session_state: del st.session_state[key]
             
-    # Kinyerjük az összes metaadatot (év, hét, nap, kiszámított pontos dátum)
     meta_auto = extract_all_meta(up_files)
     st.session_state.meta_data = meta_auto
     
     # --- AUTOMATIKUS DÁTUM SZINKRONIZÁCIÓ A METÁBÓL ---
     if meta_auto.get('datum_iso'):
         try:
-            # Azonnal frissítjük a session state dátumot, hogy az egész alkalmazás erre álljon át
             st.session_state['kivalasztott_datum'] = datetime.datetime.strptime(meta_auto['datum_iso'], "%Y-%m-%d").date()
             kivalasztott_datum = st.session_state['kivalasztott_datum']
-        except Exception as e_date_parse:
+        except Exception:
             pass
 
     ev, het = meta_auto.get('ev'), meta_auto.get('het')
@@ -646,11 +692,6 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
         try: render_logisztikai_kozpont(client.open_by_key(SHEET_ID_UGYFELKOR))
         except Exception as e: st.error(f"Hiba: {e}")
         return
-
-    st.subheader("📄 Új PDF-ek")
-    up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
-    if up_files and st.button("🚀 FELDOLGOZÁS", type="primary", key="pdf_process_btn"):
-        process_uploaded_pdfs(up_files, client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, kivalasztott_datum)
 
     st.divider()
 

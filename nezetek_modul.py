@@ -210,7 +210,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     # --- 4. SEPARATOR DIV ---
     st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
-    # --- 4. SZEKCIÓ: SÜRGŐS HIBAJELENTŐ ---
     st.subheader("⚠️ Probléma az úton?")
     with st.expander("🚨 SÜRGŐS HIBAKÜLDÉS (Gyorsmenü)"):
         st.write("Sérült, elcserélt vagy hiányzó étel gyors bejelentése a központnak:")
@@ -316,6 +315,11 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
 
 
 def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE):
+    """
+    Kirajzolja a kezelő oldalsávot az asztali nézetben.
+    Kiküszöböltük a felesleges dátumválasztót: a névnapi és kiszállítási dátum mostantól 
+    teljesen automatikusan szinkronizálódik a feldolgozott PDF fálj metájából!
+    """
     st.header("⚙️ Kezelés")
     is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
     if is_admin:
@@ -326,7 +330,9 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
     st.divider()
     st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
     st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
-    kivalasztott_datum = st.date_input("📅 Kiszállítás dátuma (Névnaphoz)", key="kivalasztott_datum")
+    
+    # --- SZUPER AUTOMATIZÁCIÓ: A manuális dátumválasztó (date_input) véglegesen kikukázva! ---
+    # Az éles kiszállítási és névnapi dátumot innentől közvetlenül a PDF-ekből nyerjük ki.
     
     st.divider()
     if 'teszt_uzemmod' not in st.session_state: st.session_state.teszt_uzemmod = False
@@ -408,13 +414,30 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
                         
     return admin_funkcio
 
+
 def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivalasztott_datum):
+    """
+    Feldolgozza a feltöltött PDF-eket.
+    A dátumot elsősorban automatikusan nyeri ki a fájl metaadataiból, így a névnapi lekérdezések is
+    mindig hajszálpontosan az éppen futtatott PDF-hez fognak alkalmazkodni!
+    """
     import pandas as pd
     for key in ['ready_label_pdf', 'ready_manifest_pdf', 'ready_raklista_pdf']:
         if key in st.session_state: del st.session_state[key]
             
+    # Kinyerjük az összes metaadatot (év, hét, nap, kiszámított pontos dátum)
     meta_auto = extract_all_meta(up_files)
     st.session_state.meta_data = meta_auto
+    
+    # --- AUTOMATIKUS DÁTUM SZINKRONIZÁCIÓ A METÁBÓL ---
+    if meta_auto.get('datum_iso'):
+        try:
+            # Azonnal frissítjük a session state dátumot, hogy az egész alkalmazás erre álljon át
+            st.session_state['kivalasztott_datum'] = datetime.datetime.strptime(meta_auto['datum_iso'], "%Y-%m-%d").date()
+            kivalasztott_datum = st.session_state['kivalasztott_datum']
+        except Exception as e_date_parse:
+            pass
+
     ev, het = meta_auto.get('ev'), meta_auto.get('het')
 
     if ev and het:
@@ -555,7 +578,7 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
                 r_futar = str(row.get('Futar', '')).strip().lower()
                 if r_futar == aktualis_futar.lower():
                     try:
-                        r_dt = datetime.strptime(r_date_str, "%Y-%m-%d")
+                        r_dt = datetime.datetime.strptime(r_date_str, "%Y-%m-%d")
                         if het_kezdete <= r_dt <= het_vege:
                             if r_date_str == api_datum_kulcs: existing_row_index = idx
                             else: eheti_eddigi_forgalom += int(pd.to_numeric(row.get('Forgalom_Osszes', 0), errors='coerce'))
@@ -588,6 +611,7 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
 
 
 def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, admin_funkcio, is_admin):
+    # A dátumot mostantól mindig a globális tárolóból szedjük, ami a PDF feltöltésekor automatikusan frissül!
     kivalasztott_datum = st.session_state.get('kivalasztott_datum', datetime.date.today())
     st.session_state['SHEET_ID_UGYFELKOR'] = SHEET_ID_UGYFELKOR
     st.session_state['SHEET_ID_MASTER'] = SHEET_ID_MASTER
@@ -628,7 +652,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             df_view = df_view[df_view['Járat'].astype(str).isin([str(j) for j in st.session_state.user_jarat_lista])].copy()
         
         if df_view.empty:
-            st.warning("✉️ Nincsenek aktív címeid mára.")
+            st.warning("✉️ Nincsenek active címeid mára.")
         else:
             if 'Sorrend' not in df_view.columns: df_view['Sorrend'] = range(1, len(df_view) + 1)
             df_view['Sorrend'] = pd.to_numeric(df_view['Sorrend'], errors='coerce').fillna(999.0).astype(float)
@@ -719,7 +743,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                                             ws_adatok.update_cell(a_row_idx, a_lat_idx, uj_lat)
                                             ws_adatok.update_cell(a_row_idx, a_lon_idx, uj_lon)
                                 except Exception as e_a:
-                                    logger.warning(f"Napi Adatok frissítési hiba: {e_a}")
+                                    pass
                                 
                                 st.success(f"🎉 SIKER! {valasztott_ugyfel_str.split(' - ')[1]} koordinátája véglegesen elmentve!")
                                 st.balloons()

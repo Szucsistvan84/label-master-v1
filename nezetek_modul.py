@@ -20,13 +20,13 @@ from vizualizacio import utvonal_terkep
 from utils import check_user_role, clean_text
 from admin_modul import render_logisztikai_kozpont
 
-# Szigorú illesztés a rendelési kódok kinyeréséhez (pl. 1-A1* vagy 4-S1)
+# --- RENDELÉSI KÓD REGEX MINTA (Szigorú illesztés pl. 1-A1* vagy 4-S1) ---
 ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 
 def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     """
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
-    Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel.
+    Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel, precíz div-alapú elválasztóvonalakkal.
     """
     st.markdown(
         """
@@ -92,6 +92,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     
     st.write(f"👤 **Futár:** {futar_nev_kiir} | 🚚 **Járat:** {jarat_szoveg_kiir}")
 
+    # Alapértelmezett elszámolási mérők
     osszes_cim = 0
     osszes_megallo = 0
     osszes_etel = 0
@@ -156,6 +157,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         st.error(f"❌ Nem sikerült elérni a Google Sheets-et: {e}")
         return
 
+    # Élő kiszállítási mérők a Session State-ből
     live_kesz_cimek = 0
     live_beszedett_kp = 0
     live_borravalo = 0
@@ -170,6 +172,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             except:
                 pass
 
+    # --- 1. SEPARATOR DIV ---
     st.markdown("<div style='margin: 18px 0 12px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 1. SZEKCIÓ: KISZÁLLÍTÁSI HALADÁS ---
@@ -178,6 +181,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     st.progress(haladas_szazalek)
     st.caption(f"Teljesítve: {live_kesz_cimek} / {osszes_cim} cím ({int(haladas_szazalek * 100)}%)")
     
+    # --- 2. SEPARATOR DIV ---
     st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 2. SZEKCIÓ: PÉNZÜGY & MENNYISÉG ---
@@ -190,6 +194,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         st.metric("📦 Összes étel", f"{osszes_etel} adag")
         st.metric("💵 Rakományérték", f"{forgalmi_ertek:,} Ft".replace(",", " "))
         
+    # --- 3. SEPARATOR DIV ---
     st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 3. SZEKCIÓ: ÉLŐ SZÁLLÍTÁSI MÉRŐK ---
@@ -201,6 +206,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     with col_l2:
         st.metric("💰 Gyűjtött borravaló", f"{live_borravalo:,} Ft".replace(",", " "))
 
+    # --- 4. SEPARATOR DIV ---
     st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 4. SZEKCIÓ: SÜRGŐS HIBAJELENTŐ ---
@@ -217,11 +223,11 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 df_adatok_all.columns = [str(c).strip() for c in df_adatok_all.columns]
                 
                 futar_keresett_clean = str(futar_nev_kiir).strip().lower()
-                aktiv_jaratok = [str(j).strip() for j in jarat_lista_kiir]
+                text_active_routes = [str(j).strip() for j in jarat_lista_kiir]
                 
                 jarat_col_name = next((c for c in df_adatok_all.columns if 'járat' in c.lower() or 'jarat' in c.lower()), None)
-                if jarat_col_name and aktiv_jaratok:
-                    df_szurt = df_adatok_all[df_adatok_all[jarat_col_name].astype(str).str.strip().isin(aktiv_jaratok)]
+                if jarat_col_name and text_active_routes:
+                    df_szurt = df_adatok_all[df_adatok_all[jarat_col_name].astype(str).str.strip().isin(text_active_routes)]
                 else:
                     df_szurt = df_adatok_all
                 
@@ -307,6 +313,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                     except Exception as e:
                         st.error(f"Mentési hiba: {e}")
 
+
 def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE):
     st.header("⚙️ Kezelés")
     is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
@@ -339,6 +346,15 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
         else:
             st.warning(f"📡 GPS Szerver: {status_msg}")
             
+        # ==============================================================================
+        # 🛰️ GPS BATCH PÓTLÓ ESZKÖZ - MINDEN ADMINNAK LÁTHATÓ ÉS ELÉRHETŐ!
+        # ==============================================================================
+        with st.expander("🛰️ GPS Koordináták Tömeges Pótlása"):
+            st.write("Megkeresi azokat az ügyfeleket a törzsadatbázisban, akiknek nincs mentett koordinátája, és automatikusan pótolja azokat az ArcGIS geokódoló segítségével (max 20 menetben).")
+            if st.button("🛰️ HIÁNYZÓ GPS-EK AUTOMATIKUS PÓTLÁSA", key="desktop_batch_gps_btn", use_container_width=True):
+                from adatbazis_modul import batch_potol_hianyozo_gps
+                batch_potol_hianyozo_gps(client, SHEET_ID_UGYFELKOR)
+
         ev_most, het_most = get_latest_week_from_master(SHEET_ID_MASTER, client)
         if het_most < 24:
             st.error(f"⚠️ Étlap figyelmeztetés: Csak a **{het_most}. hétig** van feltöltve!")
@@ -353,7 +369,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             if 'futar_df' not in st.session_state: st.session_state.futar_df = load_futar_from_sheets(SHEET_ID_UGYFELKOR)
             df_to_edit = st.session_state.futar_df.astype(str)
             edited_df_users = st.data_editor(df_to_edit, use_container_width=True, num_rows="dynamic", key="user_editor")
-            if st.button("💾 Módosítások mentése"):
+            if st.button("💾 Módosítások mentése", key="user_save_btn"):
                 with st.spinner("Mentés..."):
                     if save_futar_to_sheets(edited_df_users, SHEET_ID_UGYFELKOR):
                         st.session_state.futar_df = edited_df_users
@@ -380,7 +396,6 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
                                 df_ugyfel = pd.DataFrame(rows[1:], columns=header)
                                 df_cleaned = kotelezo_ugyfelkor_formatum_tisztitas(df_ugyfel)
                                 
-                                # Visszaírjuk a megtisztított tiszta adatokat
                                 worksheet.clear()
                                 worksheet.update('A1', [header] + df_cleaned.values.tolist(), value_input_option='USER_ENTERED')
                                 st.success("🎉 SIKER! Az ügyfélkör adatbázis teljesen megtisztítva és egységesítve lett!")
@@ -571,6 +586,7 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
         if feltoltott_jaratok: st.session_state.aktiv_jaratok = feltoltott_jaratok
         st.success("🎉 Menetterv sikeresen feldolgozva és szinkronizálva!")
 
+
 def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, admin_funkcio, is_admin):
     kivalasztott_datum = st.session_state.get('kivalasztott_datum', datetime.date.today())
     st.session_state['SHEET_ID_UGYFELKOR'] = SHEET_ID_UGYFELKOR
@@ -585,7 +601,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             <div style="font-size: 40px !important; margin-bottom: 10px !important; line-height: 1 !important;">👑🏆🍾</div>
             <h2 style="margin: 0 0 10px 0 !important; color: #78350F !important; font-weight: 900 !important; font-size: 24px !important; border: none !important; line-height: 1.2 !important; text-shadow: none !important; font-family: sans-serif !important;">GRATULÁLUNK, {bonus_data['futar'].upper()}!</h2>
             <p style="font-size: 16px !important; margin: 10px 0 12px 0 !important; color: #78350F !important; font-weight: bold !important; line-height: 1.4 !important; text-shadow: none !important; font-family: sans-serif !important;">
-                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke elérte a <b style="color: #B45309 !important; font-size: 18px !important; font-weight: 900 !important;">{bonus_data['forgalom']:,} Ft</b>-ot!
+                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke alcanzó a <b style="color: #B45309 !important; font-size: 18px !important; font-weight: 900 !important;">{bonus_data['forgalom']:,} Ft</b>-ot!
             </p>
             <div style="background-color: rgba(120, 53, 15, 0.08) !important; display: inline-block !important; padding: 10px 25px !important; border-radius: 50px !important; font-weight: 800 !important; font-size: 15px !important; margin-top: 5px !important; border: 1.5px solid #78350F !important; color: #78350F !important; letter-spacing: 0.5px !important; font-family: sans-serif !important;">
                 ⭐ EMELT BÓNUSZ SÁV: 14% JUTALÉK AKTIVÁLVA! ⭐
@@ -600,7 +616,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
 
     st.subheader("📄 Új PDF-ek")
     up_files = st.file_uploader("PDF fájlok feltöltése", accept_multiple_files=True, type=['pdf'])
-    if up_files and st.button("🚀 FELDOLGOZÁS", type="primary"):
+    if up_files and st.button("🚀 FELDOLGOZÁS", type="primary", key="pdf_process_btn"):
         process_uploaded_pdfs(up_files, client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, kivalasztott_datum)
 
     st.divider()
@@ -633,7 +649,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             gomb_col1, gomb_col2 = st.columns(2)
 
             with gomb_col1:
-                if st.button("🔄 Sorrend frissítése és újrasorszámozás", use_container_width=True):
+                if st.button("🔄 Sorrend frissítése és újrasorszámozás", use_container_width=True, key="seq_refresh_btn"):
                     edited_df['Sorrend'] = pd.to_numeric(edited_df['Sorrend'], errors='coerce').fillna(999)
                     edited_df = edited_df.sort_values('Sorrend').reset_index(drop=True)
                     edited_df['Sorrend'] = range(1, len(edited_df) + 1)
@@ -642,7 +658,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                     st.rerun()
 
             with gomb_col2:
-                if st.button("💾 Módosított adatok mentése", use_container_width=True):
+                if st.button("💾 Módosított adatok mentése", use_container_width=True, key="save_edited_data_btn"):
                     try:
                         sh = client.open_by_key(SHEET_ID_UGYFELKOR)
                         ws_ugyfel = sh.worksheet("Ugyfelkor")
@@ -679,7 +695,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             aktualis_jaratok = ", ".join(meta.get('jaratok', [])) if meta.get('jaratok') else "N/A"
             st.info(f"Észlelt járatok: **{aktualis_jaratok}** | {meta.get('ev', '')}. {meta.get('het', '')}. hét")
 
-            if st.button("🚀 DOKUMENTUMOK GENERÁLÁSA", type="primary", use_container_width=True):
+            if st.button("🚀 DOKUMENTUMOK GENERÁLÁSA", type="primary", use_container_width=True, key="doc_gen_btn"):
                 with st.spinner("⏳ PDF-ek generálása..."):
                     try:
                         st.session_state['ready_label_pdf'] = create_label_pdf(edited_df, st.session_state.c_n, st.session_state.c_p, meta, st.session_state.etelek_master_df, pd.DataFrame(), pd.DataFrame(), st.session_state.etlap_api_df).getvalue()
@@ -691,9 +707,9 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             if st.session_state.get('ready_label_pdf'):
                 st.write("### 📥 Letöltések:")
                 dl_c1, dl_c2, dl_c3 = st.columns(3)
-                dl_c1.download_button("📄 ETIKETTEK LETÖLTÉSE", data=st.session_state['ready_label_pdf'], file_name="etikettek.pdf", mime="application/pdf", use_container_width=True)
-                dl_c2.download_button("📋 MENETTERV LETÖLTÉSE", data=st.session_state['ready_manifest_pdf'], file_name="menetterv.pdf", mime="application/pdf", use_container_width=True)
-                dl_c3.download_button("📊 RAKLISTA LETÖLTÉSE", data=st.session_state['ready_raklista_pdf'], file_name="raklista.pdf", mime="application/pdf", use_container_width=True)
+                dl_c1.download_button("📄 ETIKETTEK LETÖLTÉSE", data=st.session_state['ready_label_pdf'], file_name="etikettek.pdf", mime="application/pdf", use_container_width=True, key="dl_labels")
+                dl_c2.download_button("📋 MENETTERV LETÖLTÉSE", data=st.session_state['ready_manifest_pdf'], file_name="menetterv.pdf", mime="application/pdf", use_container_width=True, key="dl_manifest")
+                dl_c3.download_button("📊 RAKLISTA LETÖLTÉSE", data=st.session_state['ready_raklista_pdf'], file_name="raklista.pdf", mime="application/pdf", use_container_width=True, key="dl_raklista")
 
             st.write("---")
             st.subheader("📱 Mobil Terminál")

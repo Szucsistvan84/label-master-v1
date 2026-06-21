@@ -250,7 +250,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                     rendeles_val = str(r.get('Rendelés', r.get('Rendeles', ''))).strip()
                     
                     label_szoveg = f"{nev_val} ({cim_val})"
-                    if label_szoveg notch in vevo_options:
+                    if label_szoveg not in vevo_options:
                         vevo_options.append(label_szoveg)
                     
                     vevo_kajak = ["-- Válassz érintett ételt --"]

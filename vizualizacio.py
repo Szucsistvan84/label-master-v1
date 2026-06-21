@@ -7,8 +7,8 @@ import json
 def utvonal_terkep(df_napi, sheet_id=None):
     """
     Kirajzolja a napi útvonalat egy interaktív térképen.
-    Sorszámozott Leaflet.js markereket használ egész számként formázva,
-    és összekötő vonallal mutatja meg a kézbesítési sorrendet.
+    Sorszámozott Leaflet.js markereket használ egész számként formázva.
+    Támogatja az interaktív kattintást, a piros tű lerakását és az egykattintásos koordináta másolást.
     """
     if df_napi is None or df_napi.empty:
         st.warning("⚠️ Nincs adat az útvonal kirajzolásához!")
@@ -19,7 +19,7 @@ def utvonal_terkep(df_napi, sheet_id=None):
 
     # 2. Oszlopok ellenőrzése
     if 'Lat' not in map_df.columns or 'Lon' not in map_df.columns:
-        st.warning("⚠️ A táblázat nem tartalmaz 'Lat' and 'Lon' oszlopokat!")
+        st.warning("⚠️ A táblázat nem tartalmaz 'Lat' és 'Lon' oszlopokat!")
         return
 
     try:
@@ -57,10 +57,8 @@ def utvonal_terkep(df_napi, sheet_id=None):
         for _, row in map_data.iterrows():
             raw_index = row.get('Sorrend', '•')
             try:
-                # Kényszerített egész számmá alakítás (pl. 1.0 -> 1)
                 clean_index = str(int(float(raw_index)))
             except (ValueError, TypeError):
-                # Fallback, ha nem lebegőpontos szám lenne
                 clean_index = str(raw_index).split('.')[0] if '.' in str(raw_index) else str(raw_index)
             
             points.append({
@@ -73,7 +71,7 @@ def utvonal_terkep(df_napi, sheet_id=None):
 
         points_json = json.dumps(points, ensure_ascii=False)
 
-        # 6. Szuper-biztonságos HTML + Leaflet.js sablon
+        # 6. Szuper-biztonságos HTML + Leaflet.js sablon interaktív kattintás-figyelővel
         html_map_code = f"""
         <!DOCTYPE html>
         <html>
@@ -96,7 +94,7 @@ def utvonal_terkep(df_napi, sheet_id=None):
                     border: 1.5px solid #E5E7EB;
                     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
                 }}
-                /* Egyedi, modern sorszámozott marker dizájn */
+                /* Egyedi sorszámozott marker dizájn */
                 .number-icon {{
                     background: #1E3A8A;
                     border: 2px solid #FFFFFF;
@@ -113,7 +111,6 @@ def utvonal_terkep(df_napi, sheet_id=None):
                     transform: scale(1.15);
                     background: #2563EB;
                 }}
-                /* Leaflet Popup buborék stílusos finomítása */
                 .leaflet-popup-content-value {{
                     font-size: 12px;
                     line-height: 1.4;
@@ -125,11 +122,28 @@ def utvonal_terkep(df_napi, sheet_id=None):
             <script>
                 var points = {points_json};
                 
+                // Helper másoló függvény a homokozó iframe korlátok megkerülésére (Textarea trükk)
+                window.masolGPS = function() {{
+                    var copyText = document.getElementById("gps_val_input");
+                    if (copyText) {{
+                        copyText.select();
+                        copyText.setSelectionRange(0, 99999);
+                        try {{
+                            document.execCommand("copy");
+                            var ok_msg = document.getElementById("copy_ok_msg");
+                            if (ok_msg) ok_msg.style.display = "block";
+                            setTimeout(function() {{
+                                if (ok_msg) ok_msg.style.display = "none";
+                            }}, 2000);
+                        }} catch (err) {{
+                            console.error("Nem sikerült a másolás", err);
+                        }}
+                    }}
+                }};
+
                 if (points.length > 0) {{
-                    // Térkép inicializálása az első megálló koordinátáival
                     var map = L.map('map').setView([points[0].lat, points[0].lon], 13);
                     
-                    // Elegáns, tiszta, modern utcatérkép réteg betöltése
                     L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
                         attribution: '© OpenStreetMap contributors'
                     }}).addTo(map);
@@ -141,7 +155,6 @@ def utvonal_terkep(df_napi, sheet_id=None):
                         var latlng = [p.lat, p.lon];
                         latlngs.push(latlng);
 
-                        // Egyedi sorszámozott kör ikon létrehozása
                         var icon = L.divIcon({{
                             className: 'number-icon',
                             html: p.index,
@@ -156,7 +169,6 @@ def utvonal_terkep(df_napi, sheet_id=None):
                         markersGroup.addLayer(marker);
                     }});
 
-                    // Szaggatott, sötétkék útvonalvezető vonal kirajzolása (Sequence Path)
                     if (latlngs.length > 1) {{
                         var polyline = L.polyline(latlngs, {{
                             color: '#2563EB',
@@ -166,16 +178,61 @@ def utvonal_terkep(df_napi, sheet_id=None):
                             lineJoin: 'round'
                         }}).addTo(map);
                         
-                        // Automatikus zoomolás és térképigazítás, hogy az összes megálló egyszerre látszódjon
                         map.fitBounds(markersGroup.getBounds(), {{ padding: [30, 30] }});
                     }}
+
+                    // --- INTERAKTÍV KATTINTÁS ÉS DRAGGABLE PIROS JAVÍTÓ TŰ ---
+                    var javitoTű = null;
+
+                    map.on('click', function(e) {{
+                        var lat = e.latlng.lat.toFixed(6);
+                        var lon = e.latlng.lng.toFixed(6);
+
+                        if (javitoTű) {{
+                            javitoTű.setLatLng(e.latlng);
+                        }} else {{
+                            // Piros Leaflet tű létrehozása
+                            javitoTű = L.marker(e.latlng, {{
+                                draggable: true,
+                                icon: L.icon({{
+                                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                                    iconSize: [25, 41],
+                                    iconAnchor: [12, 41],
+                                    popupAnchor: [1, -34],
+                                    shadowSize: [41, 41]
+                                }})
+                            }}).addTo(map);
+
+                            // Draggend figyelő a húzásokhoz
+                            javitoTű.on('dragend', function(evt) {{
+                                var drag_lat = evt.target.getLatLng().lat.toFixed(6);
+                                var drag_lon = evt.target.getLatLng().lng.toFixed(6);
+                                var input_field = document.getElementById('gps_val_input');
+                                if (input_field) {{
+                                    input_field.value = drag_lat + "," + drag_lon;
+                                }}
+                            }});
+                        }}
+
+                        var popupHtml = `
+                            <div style="font-size:12px; width:180px; text-align:center;">
+                                <b style="color:#DC2626;">🎯 Új GPS Pozíció</b><br>
+                                <span style="font-size:10px; color:#6B7280;">Húzd a kapura, ha nem pontos!</span><br>
+                                <input type="text" id="gps_val_input" value="${{lat}},${{lon}}" style="width:100%; margin:6px 0; font-size:11px; text-align:center; font-weight:bold; border:1px solid #D1D5DB; padding:2px; border-radius:4px;" readonly><br>
+                                <button onclick="window.masolGPS()" style="width:100%; background:#1E3A8A; color:white; border:none; border-radius:6px; padding:6px; font-weight:bold; cursor:pointer; font-size:11.5px; margin-top:2px;">📋 Koordináta Másolása</button>
+                                <div id="copy_ok_msg" style="color:#10B981; font-weight:bold; font-size:10.5px; margin-top:4px; display:none;">✨ Sikeresen másolva a vágólapra!</div>
+                            </div>
+                        `;
+
+                        javitoTű.bindPopup(popupHtml).openPopup();
+                    }});
                 }}
             </script>
         </body>
         </html>
         """
 
-        # HTML térkép komponens beágyazása a Streamlit felületre
         st.markdown(f"🗺️ **Aktív megállók a térképen:** {len(map_data)} cím")
         components.html(html_map_code, height=490)
         

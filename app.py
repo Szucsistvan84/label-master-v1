@@ -55,11 +55,11 @@ def main():
     if 'client' not in st.session_state or st.session_state['client'] is None:
         st.session_state['client'] = client
 
-    # --- ATOMBIZTOS CSS TRÜKKÖK (MÁRKAHŰ ÉS PREMIUM MOBIL ELRENDEZÉSEK) ---
+    # --- ATOMBIZTOS CSS ÉS JS TRÜKKÖK (MÁRKAHŰ ÉS PREMIUM MOBIL ELRENDEZÉSEK) ---
     st.markdown(
         """
         <style>
-        /* 1. A Streamlit Cloud lábléc és felesleges dekorációk elrejtése */
+        /* 1. A Streamlit Cloud belső lábléc és felesleges dekorációk elrejtése */
         footer {visibility: hidden !important; display: none !important;}
         [data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
         [data-testid="stDecoration"] {display: none !important;}
@@ -97,12 +97,28 @@ def main():
             border-color: #139D43 !important; /* Kijelöléskor Interfood Zöld keretet kap! */
         }
 
-        /* 5. Golyóálló szelektorok a jobb alsó sarokban lebegő Streamlit Cloud gombokra és futási badge-ekre */
+        /* 5. Golyóálló szelektorok a lebegő belső Streamlit elemekre (pl. észlelt viewerBadge) */
         [data-testid="manage-app-button"] {
             display: none !important;
             visibility: hidden !important;
         }
         button[data-testid="manage-app-button"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        [data-testid="viewerBadge"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        .viewerBadge {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        div[class*="viewerBadge"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        #ConnectionStatus {
             display: none !important;
             visibility: hidden !important;
         }
@@ -116,6 +132,39 @@ def main():
             padding-bottom: 0rem !important;
         }
         </style>
+
+        <!-- 6. INTELLIGENS SZÜLŐABLAK-ÁTTÖRŐ JAVASCRIPT A MAKACS 'MANAGE APP' ÉS 'VIEWER BADGE' GOMBOK ELREJTÉSÉRE -->
+        <script>
+        setTimeout(function() {
+            try {
+                // Átnyúlunk a szülő ablak dokumentumába (CORS-barát módon)
+                var parentDoc = window.parent.document;
+                
+                // 1. Megkeressük és kíméletlenül elrejtjük a fekete 'Manage app' gombot
+                var manageBtn = parentDoc.querySelector('[data-testid="manage-app-button"]');
+                if (manageBtn) {
+                    manageBtn.style.setProperty('display', 'none', 'important');
+                    manageBtn.style.setProperty('visibility', 'hidden', 'important');
+                }
+                
+                // 2. Elrejtjük a szülő ablak egyéb felesleges Streamlit logóit, a "Made with Streamlit" és "Fork" gombokat is!
+                var badges = parentDoc.querySelectorAll('[data-testid="viewerBadge"], .viewerBadge, div[class*="viewerBadge"]');
+                badges.forEach(function(badge) {
+                    badge.style.setProperty('display', 'none', 'important');
+                    badge.style.setProperty('visibility', 'hidden', 'important');
+                });
+                
+                // 3. Elrejtjük a lebegő hálózati státusz panelt is
+                var connStatus = parentDoc.querySelector('#ConnectionStatus, [id*="ConnectionStatus"]');
+                if (connStatus) {
+                    connStatus.style.setProperty('display', 'none', 'important');
+                    connStatus.style.setProperty('visibility', 'hidden', 'important');
+                }
+            } catch(e) {
+                console.log("CORS korlát miatt a szülő ablak fejlesztői gombjai szoftverből nem rejthetőek el (sima felhasználóknál ez nem jelenik meg).");
+            }
+        }, 300);
+        </script>
         """,
         unsafe_allow_html=True
     )
@@ -175,7 +224,7 @@ def main():
         else:
             st.markdown("<h1 style='text-align: center; color: #139D43;'>💚 Interfood Label Master</h1>", unsafe_allow_html=True)
             
-        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatokhoz</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:

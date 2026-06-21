@@ -250,7 +250,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                     rendeles_val = str(r.get('Rendelés', r.get('Rendeles', ''))).strip()
                     
                     label_szoveg = f"{nev_val} ({cim_val})"
-                    if label_szoveg not in vevo_options:
+                    if label_szoveg notch in vevo_options:
                         vevo_options.append(label_szoveg)
                     
                     vevo_kajak = ["-- Válassz érintett ételt --"]
@@ -378,11 +378,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             # Fallback ha nem elérhető a gsheets
             st.session_state.c_n = st.text_input("Futár Neve", st.session_state.c_n)
             st.session_state.c_p = st.text_input("Telefonszám", st.session_state.c_p)
-    else:
-        # Sima futárnak zéró adatbeviteli mező, fixen kiírjuk az éles bejelentkezési adatokat
-        st.subheader("👤 Aktív Futárod")
-        st.markdown(f"**Név:** {st.session_state.c_n}")
-        st.markdown(f"**Telefon:** {st.session_state.c_p}")
+    # ZÉRÓ REDUNDANCIA: A "else" ágat teljesen felszámoltuk, sima futárnak a redundáns alsó panel többé nem jelenik meg!
 
     st.divider()
     if 'teszt_uzemmod' not in st.session_state: st.session_state.teszt_uzemmod = False
@@ -446,7 +442,8 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
                             rows = worksheet.get_all_values()
                             
                             if not rows:
-                                st.warning("A táblázat üres!")
+                                m = "A táblázat üres!"
+                                st.warning(m)
                             else:
                                 header = rows[0]
                                 df_ugyfel = pd.DataFrame(rows[1:], columns=header)
@@ -527,7 +524,7 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
         df_temp = merge_data(all_rows)
         with st.spinner("Ügyféladatok szinkronizálása..."):
             mentett_meta = st.session_state.get('meta_data', None)
-            tartalek_jarat = mentett_meta['jaratok'][0] if meta_auto and meta_auto.get('jaratok') else None
+            tartalek_jarat = meta_auto['jaratok'][0] if meta_auto and meta_auto.get('jaratok') else None
             df_temp, m_df_friss = master_lista_szinkron(df_temp, ugyfelkor_sheet_id, client, jarat_szam=tartalek_jarat)
             st.session_state.ugyfelkor_df = m_df_friss
         st.session_state.mdf = df_temp

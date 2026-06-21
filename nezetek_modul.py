@@ -6,7 +6,8 @@ import re
 import pdfplumber
 import datetime
 
-#from parser_modul import parse_interfood_pdf, extract_all_meta, merge_data
+# --- KAPCSOLÓDÓ SEGÉDFÜGGVÉNYEK ---
+from parser_modul import parse_interfood_pdf, extract_all_meta, merge_data
 from adatbazis_modul import (
     get_latest_week_from_master, sync_master_database, 
     load_futar_from_sheets, save_futar_to_sheets,
@@ -22,7 +23,7 @@ from admin_modul import render_logisztikai_kozpont
 # Szigorú illesztés a rendelési kódok kinyeréséhez (pl. 1-A1* vagy 4-S1)
 ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 
-#def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
+def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     """
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
     Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel.
@@ -91,7 +92,7 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
     
     st.write(f"👤 **Futár:** {futar_nev_kiir} | 🚚 **Járat:** {jarat_szoveg_kiir}")
 
-    #    osszes_cim = 0
+    osszes_cim = 0
     osszes_megallo = 0
     osszes_etel = 0
     forgalmi_ertek = 0
@@ -155,7 +156,7 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
         st.error(f"❌ Nem sikerült elérni a Google Sheets-et: {e}")
         return
 
-    #    live_kesz_cimek = 0
+    live_kesz_cimek = 0
     live_beszedett_kp = 0
     live_borravalo = 0
 
@@ -210,7 +211,7 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
         vevo_options = ["-- Válassz helyszínt / vevőt --"]
         vevo_items_map = {}
         
-        #        try:
+        try:
             df_adatok_all = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
             if not df_adatok_all.empty:
                 df_adatok_all.columns = [str(c).strip() for c in df_adatok_all.columns]
@@ -306,7 +307,7 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
                     except Exception as e:
                         st.error(f"Mentési hiba: {e}")
 
-#def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE):
+def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE):
     st.header("⚙️ Kezelés")
     is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
     if is_admin:
@@ -348,7 +349,7 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
         else:
             st.success("✅ Étlapok naprakészek.")
 
-        #        with st.expander("👤 Felhasználó Kezelés"):
+        with st.expander("👤 Felhasználó Kezelés"):
             if 'futar_df' not in st.session_state: st.session_state.futar_df = load_futar_from_sheets(SHEET_ID_UGYFELKOR)
             df_to_edit = st.session_state.futar_df.astype(str)
             edited_df_users = st.data_editor(df_to_edit, use_container_width=True, num_rows="dynamic", key="user_editor")
@@ -392,7 +393,7 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
                         
     return admin_funkcio
 
-#def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivalasztott_datum):
+def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivalasztott_datum):
     import pandas as pd
     for key in ['ready_label_pdf', 'ready_manifest_pdf', 'ready_raklista_pdf']:
         if key in st.session_state: del st.session_state[key]
@@ -570,7 +571,7 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
         if feltoltott_jaratok: st.session_state.aktiv_jaratok = feltoltott_jaratok
         st.success("🎉 Menetterv sikeresen feldolgozva és szinkronizálva!")
 
-#def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, admin_funkcio, is_admin):
+def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, admin_funkcio, is_admin):
     kivalasztott_datum = st.session_state.get('kivalasztott_datum', datetime.date.today())
     st.session_state['SHEET_ID_UGYFELKOR'] = SHEET_ID_UGYFELKOR
     st.session_state['SHEET_ID_MASTER'] = SHEET_ID_MASTER
@@ -604,7 +605,7 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 
     st.divider()
 
-    #    if st.session_state.mdf is not None and not st.session_state.mdf.empty:
+    if st.session_state.mdf is not None and not st.session_state.mdf.empty:
         role = check_user_role()
         df_view = st.session_state.mdf.copy()
         if role == "futar" and 'user_jarat_lista' in st.session_state:
@@ -640,13 +641,13 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
                     st.success("Sorrend frissítve!")
                     st.rerun()
 
-            #            with gomb_col2:
+            with gomb_col2:
                 if st.button("💾 Módosított adatok mentése", use_container_width=True):
                     try:
                         sh = client.open_by_key(SHEET_ID_UGYFELKOR)
                         ws_ugyfel = sh.worksheet("Ugyfelkor")
                         teljes_adat = ws_ugyfel.get_all_values()
-                        fejlec = ./teljes_adat[0] if isinstance(teljes_adat, list) and len(teljes_adat) > 0 else []
+                        fejlec = teljes_adat[0] if isinstance(teljes_adat, list) and len(teljes_adat) > 0 else []
                         if not fejlec:
                             fejlec = teljes_adat[0]
                         sheets_id_map = {str(teljes_adat[i][0]).strip(): i for i in range(1, len(teljes_adat))}
@@ -678,7 +679,7 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
             aktualis_jaratok = ", ".join(meta.get('jaratok', [])) if meta.get('jaratok') else "N/A"
             st.info(f"Észlelt járatok: **{aktualis_jaratok}** | {meta.get('ev', '')}. {meta.get('het', '')}. hét")
 
-            #            if st.button("🚀 DOKUMENTUMOK GENERÁLÁSA", type="primary", use_container_width=True):
+            if st.button("🚀 DOKUMENTUMOK GENERÁLÁSA", type="primary", use_container_width=True):
                 with st.spinner("⏳ PDF-ek generálása..."):
                     try:
                         st.session_state['ready_label_pdf'] = create_label_pdf(edited_df, st.session_state.c_n, st.session_state.c_p, meta, st.session_state.etelek_master_df, pd.DataFrame(), pd.DataFrame(), st.session_state.etlap_api_df).getvalue()

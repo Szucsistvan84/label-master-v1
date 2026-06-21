@@ -147,39 +147,77 @@ def main():
             padding-top: 2.5rem !important;
             padding-bottom: 2rem !important;
         }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
 
-    # --- 🔏 MOBIL SPECIFIKUS FIZIKAI ALSÓ BIZTONSÁGI TAKARÓ (SAFE ZONE) ---
-    if is_mobile_view:
-        st.markdown(
-            """
-            <!-- Fizikai fehér kitöltő div beillesztése a belső ablak legaljára -->
-            <div class="custom-mobile-footer-shield"></div>
-            
-            <style>
-            .custom-mobile-footer-shield {
+        /* 📱 6. AUTOMATIKUS MOBIL BIZTONSÁGI SÁV ÉS SPÁCIÓS EMELÉS (MEDIA QUERY ALAPON) */
+        @media (max-width: 768px) {
+            /* Létrehozunk egy fix, hófehér biztonsági sávot a legfelső szintű Streamlit ablakra, ami kikerüli a transform-okat */
+            div[data-testid="stAppViewContainer"]::after, .stApp::after {
+                content: "" !important;
                 position: fixed !important;
                 bottom: 0 !important;
                 left: 0 !important;
                 width: 100% !important;
                 height: 65px !important; /* Biztonságos magasság az ikonok és linkek elfedéséhez */
                 background-color: #FFFFFF !important;
-                z-index: 999999 !important; /* Maximális prioritás a belső elemek felett */
+                z-index: 999990 !important; /* Maximális prioritás a belső elemek felett */
                 border-top: 1.5px solid #F3F4F6 !important; /* Finom modern elválasztó vonal */
                 pointer-events: none; /* Átengedjük a gombok melletti érintéseket a stabilitásért */
             }
             
             /* Megemeljük a teljes tartalom alsó margóját, hogy a gombok kényelmesen a fehér sáv felett legyenek */
             .block-container {
-                padding-bottom: 90px !important;
+                padding-bottom: 95px !important;
             }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
+        }
+        </style>
+
+        <!-- 7. INTELLIGENS SZÜLŐABLAK-ÁTTÖRŐ JAVASCRIPT A MAKACS SALLANGOK ELLEN -->
+        <script>
+        function cleanupStreamlitElements() {
+            try {
+                // Átnyúlunk a szülő ablak dokumentumába (CORS-barát módon)
+                var parentDoc = window.parent.document;
+                
+                // Megkeressük és kíméletlenül elrejtjük a fekete 'Manage app' gombot
+                var manageBtn = parentDoc.querySelector('[data-testid="manage-app-button"]');
+                if (manageBtn) {
+                    manageBtn.style.setProperty('display', 'none', 'important');
+                    manageBtn.style.setProperty('visibility', 'hidden', 'important');
+                }
+                
+                // Elrejtjük a szülő ablak egyéb felesleges Streamlit logóit, a "Made with Streamlit" és "Fork" gombokat is!
+                var badges = parentDoc.querySelectorAll('[data-testid="viewerBadge"], .viewerBadge, div[class*="viewerBadge"]');
+                badges.forEach(function(badge) {
+                    badge.style.setProperty('display', 'none', 'important');
+                    badge.style.setProperty('visibility', 'hidden', 'important');
+                });
+                
+                // Elrejtjük a lebegő hálózati státusz panelt is
+                var connStatus = parentDoc.querySelector('#ConnectionStatus, [id*="ConnectionStatus"]');
+                if (connStatus) {
+                    connStatus.style.setProperty('display', 'none', 'important');
+                    connStatus.style.setProperty('visibility', 'hidden', 'important');
+                }
+                
+                // Kijelentkezett módban megjelenő profil előnézet és a böszme nagy linkek megsemmisítése
+                var profilePreviews = parentDoc.querySelectorAll('[class*="profilePreview"], [class*="link"], a[href*="streamlit"]');
+                profilePreviews.forEach(function(el) {
+                    el.style.setProperty('display', 'none', 'important');
+                    el.style.setProperty('visibility', 'hidden', 'important');
+                });
+            } catch(e) {
+                console.log("CORS korlát miatt a szülő ablak fejlesztői gombjai szoftverből nem rejthetőek el.");
+            }
+        }
+        
+        // Futtatás többször is, hogy a késleltetett betöltések után is biztosan kisöpörjük őket
+        setTimeout(cleanupStreamlitElements, 300);
+        setTimeout(cleanupStreamlitElements, 1000);
+        setTimeout(cleanupStreamlitElements, 2500);
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
 
     # Fontok registerelése a PDF-nyomtatáshoz
     from nyomtatas_modulok import register_fonts
@@ -267,7 +305,7 @@ def main():
                         # --- TISZTA LAP: Korábbi session kulcsok kisöprése ---
                         for k in list(st.session_state.keys()):
                             if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
-                                st.session_state.pop(k, None)
+                               _tiszta_futar_lista_letoltes
                         st.session_state.bejelentkezve = True
                         st.session_state.user_nev = "Rendszergazda (Vészbejárat)"
                         st.session_state.user_jarat_lista = ["4002"]

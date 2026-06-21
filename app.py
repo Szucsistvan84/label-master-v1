@@ -64,11 +64,14 @@ def main():
         [data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
         [data-testid="stDecoration"] {display: none !important;}
         
-        /* 2. Szigorúan CSAK a jobb oldali fejléc gombokat (Deploy és Három pont menü) rejtjük el */
+        /* 2. Szigorúan CSAK a jobb oldali fejléc gombokat (Deploy, Share, Github, Három pont) rejtjük el */
         .stDeployButton {display: none !important;}
         #MainMenu {visibility: hidden !important; display: none !important;}
         [data-testid="stAppDeployButton"] {display: none !important;}
         [data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
+        [data-testid="stToolbarActions"] {visibility: hidden !important; display: none !important;}
+        .stToolbarActions {visibility: hidden !important; display: none !important;}
+        div[class*="stAppHeader"] > div[class*="stHeaderActionElements"] { display: none !important; }
         
         /* 3. Fejléc átlátszóvá tétele, hogy ne takarjon ki semmit és ne foglaljon helyet feleslegesen */
         header, [data-testid="stHeader"] {
@@ -94,7 +97,15 @@ def main():
             border-color: #139D43 !important; /* Kijelöléskor Interfood Zöld keretet kap! */
         }
 
-        /* 5. Golyóálló szelektor a jobb alsó sarokban lebegő Streamlit Cloud gombokra és futási badge-ekre */
+        /* 5. Golyóálló szelektorok a jobb alsó sarokban lebegő Streamlit Cloud gombokra és futási badge-ekre */
+        [data-testid="manage-app-button"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        button[data-testid="manage-app-button"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
         button[class*="terminalButton"], button[class*="ManageApp"], div[class*="viewerBadge"] {
             display: none !important;
             visibility: hidden !important;
@@ -164,7 +175,7 @@ def main():
         else:
             st.markdown("<h1 style='text-align: center; color: #139D43;'>💚 Interfood Label Master</h1>", unsafe_allow_html=True)
             
-        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatokhoz</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:

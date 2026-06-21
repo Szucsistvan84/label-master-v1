@@ -150,7 +150,7 @@ def main():
 
         /* 📱 6. AUTOMATIKUS MOBIL BIZTONSÁGI SÁV ÉS SPÁCIÓS EMELÉS (MEDIA QUERY ALAPON) */
         @media (max-width: 768px) {
-            /* Létrehozunk egy fix, hófehér biztonsági sávot a legfelső szintű Streamlit ablakra, ami kikerüli a transform-okat */
+            /* Létrehozunk egy fix biztonsági sávot a legfelső szintű Streamlit ablakra, ami kikerüli a transform-okat */
             div[data-testid="stAppViewContainer"]::after, .stApp::after {
                 content: "" !important;
                 position: fixed !important;
@@ -158,15 +158,23 @@ def main():
                 left: 0 !important;
                 width: 100% !important;
                 height: 65px !important; /* Biztonságos magasság az ikonok és linkek elfedéséhez */
-                background-color: #FFFFFF !important;
+                background-color: #FFFFFF !important; /* Világos mód alapértelmezett háttér */
                 z-index: 999990 !important; /* Maximális prioritás a belső elemek felett */
                 border-top: 1.5px solid #F3F4F6 !important; /* Finom modern elválasztó vonal */
                 pointer-events: none; /* Átengedjük a gombok melletti érintéseket a stabilitásért */
             }
             
-            /* Megemeljük a teljes tartalom alsó margóját, hogy a gombok kényelmesen a fehér sáv felett legyenek */
+            /* 🌙 SÖTÉT / ÉJSZAKAI ÜZEMMÓD AUTOMATIKUS ÉRZÉKELÉSE A MOBILON */
+            @media (prefers-color-scheme: dark) {
+                div[data-testid="stAppViewContainer"]::after, .stApp::after {
+                    background-color: #0E1117 !important; /* Tökéletesen simul a Streamlit gyári sötét hátterébe */
+                    border-top: 1.5px solid #1F2937 !important; /* Elegáns sötétszürke elválasztó */
+                }
+            }
+            
+            /* Megemeljük a teljes tartalom alsó margóját, hogy a gombok kényelmesen a biztonsági sáv felett lebegjenek */
             .block-container {
-                padding-bottom: 95px !important;
+                padding-bottom: 120px !important; /* Bőséges spárció az átlapolások és elnyelések ellen */
             }
         }
         </style>
@@ -305,7 +313,7 @@ def main():
                         # --- TISZTA LAP: Korábbi session kulcsok kisöprése ---
                         for k in list(st.session_state.keys()):
                             if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
-                               _tiszta_futar_lista_letoltes
+                                st.session_state.pop(k, None)
                         st.session_state.bejelentkezve = True
                         st.session_state.user_nev = "Rendszergazda (Vészbejárat)"
                         st.session_state.user_jarat_lista = ["4002"]

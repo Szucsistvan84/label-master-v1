@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 
-# STREAM_CHUNK: Configuring page settings...
 # --- 1. STREAMLIT ALAPBEÁLLÍTÁS - Kötelezően mindenen kívül, a legelső sorban! ---
 st.set_page_config(page_title="Interfood Label Master", layout="wide")
 
@@ -15,7 +14,6 @@ for mod_name in modules_to_reload:
         importlib.reload(sys.modules[mod_name])
 # -----------------------------------------------------------------------------------
 
-# STREAM_CHUNK: Importing core libraries...
 # --- Standard Python modulok importálása ---
 import pandas as pd
 import logging
@@ -47,7 +45,6 @@ setup_logging()
 logger = logging.getLogger(__name__)
 init_test_mode()
 
-# STREAM_CHUNK: Initializing Google Sheets connection...
 # --- GOOGLE SHEETS KLIENS INICIALIZÁLÁSA ---
 client = init_google_sheets()
 if 'client' not in st.session_state:
@@ -58,21 +55,51 @@ def main():
     if 'client' not in st.session_state or st.session_state['client'] is None:
         st.session_state['client'] = client
 
-    # --- ATOMBIZTOS CSS TRÜKKÖK (MOBIL ÉS DEKORÁCIÓS ELREJTÉSEK) ---
+    # --- ATOMBIZTOS CSS TRÜKKÖK (MÁRKAHŰ ÉS PREMIUM MOBIL ELRENDEZÉSEK) ---
     st.markdown(
         """
         <style>
+        /* 1. A Streamlit Cloud lábléc és felesleges dekorációk elrejtése */
         footer {visibility: hidden !important; display: none !important;}
         [data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
+        [data-testid="stDecoration"] {display: none !important;}
+        
+        /* 2. Szigorúan CSAK a jobb oldali fejléc gombokat (Deploy és Három pont menü) rejtjük el */
         .stDeployButton {display: none !important;}
         #MainMenu {visibility: hidden !important; display: none !important;}
         [data-testid="stAppDeployButton"] {display: none !important;}
         [data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
-        [data-testid="stDecoration"] {display: none !important;}
+        
+        /* 3. Fejléc átlátszóvá tétele, hogy ne takarjon ki semmit és ne foglaljon helyet feleslegesen */
+        header, [data-testid="stHeader"] {
+            background-color: rgba(0,0,0,0) !important;
+            z-index: 999999 !important;
+        }
+
+        /* 4. A bal oldali menü/sidebar-nyitó gombot (Collapse) megvédjük, stílusosabbá és könnyen nyithatóvá tesszük */
         [data-testid="stSidebarCollapseButton"] {
             visibility: visible !important;
             display: inline-flex !important;
+            background-color: #FFFFFF !important;
+            border: 1px solid #E5E7EB !important;
+            border-radius: 8px !important;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.08) !important;
+            margin-left: 8px !important;
+            margin-top: 6px !important;
+            z-index: 1000000 !important;
+            transition: all 0.2s ease !important;
         }
+        [data-testid="stSidebarCollapseButton"]:hover {
+            transform: scale(1.08) !important;
+            border-color: #139D43 !important; /* Kijelöléskor Interfood Zöld keretet kap! */
+        }
+
+        /* 5. Golyóálló szelektor a jobb alsó sarokban lebegő Streamlit Cloud gombokra és futási badge-ekre */
+        button[class*="terminalButton"], button[class*="ManageApp"], div[class*="viewerBadge"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        
         .block-container {
             padding-top: 2.5rem !important;
             padding-bottom: 0rem !important;
@@ -105,7 +132,6 @@ def main():
     url_jarat = st.query_params.get("jarat", "")
     url_teszt = st.query_params.get("test", "false") == "true"
 
-    # STREAM_CHUNK: Checking view permissions...
     # BIZTONSÁGOS REDIRECT: Ha a parancsikon miatt nincs 'view' paraméter a linkben
     if view is None:
         if 'edited_df' in st.session_state:
@@ -127,11 +153,11 @@ def main():
 
     is_mobile_view = (view == "mobile")
 
-    # STREAM_CHUNK: Rendering login form and handling credentials...
     # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
-        # Fallback védelem a logó hiányára és méretezés a képernyő pontosan 20%-ára (középre igazítva)
+        # Fallback védelem a logó hiányára
         if os.path.exists("interfood-logo.png"):
+            # A logót egy 2-1-2 arányú oszloprendszer közepére rakjuk, így garantáltan az asztali képernyő hajszálpontosan 20%-át teszi ki!
             col_l1, col_l2, col_l3 = st.columns([2, 1, 2])
             with col_l2:
                 st.image("interfood-logo.png", use_container_width=True)
@@ -226,7 +252,6 @@ def main():
                         st.error("❌ Hibás járatszám vagy jelszó!")
         return
 
-    # STREAM_CHUNK: Checking database status and syncing weeks...
     # --- IDŐUTAZÁS FIGYELŐ ÉS ADATBÁZIS-INICIALIZÁLÓ MOTOR ---
     try:
         sheet = client.open_by_key(SHEET_ID_MASTER)
@@ -290,7 +315,6 @@ def main():
     ugyfelkor_df = st.session_state.get('ugyfelkor_df', pd.DataFrame())
     mdf = st.session_state.get('mdf', pd.DataFrame())
 
-    # STREAM_CHUNK: Routing mobile and desktop views...
     # =========================================================================
     # 📱 1. ÁG: QR-KÓDOS MOBIL NÉZET
     # =========================================================================

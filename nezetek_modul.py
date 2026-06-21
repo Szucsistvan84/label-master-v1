@@ -6,8 +6,7 @@ import re
 import pdfplumber
 import datetime
 
-# --- STREAMING_CHUNK: Importing helpers and database utilities... ---
-from parser_modul import parse_interfood_pdf, extract_all_meta, merge_data
+#from parser_modul import parse_interfood_pdf, extract_all_meta, merge_data
 from adatbazis_modul import (
     get_latest_week_from_master, sync_master_database, 
     load_futar_from_sheets, save_futar_to_sheets,
@@ -20,15 +19,14 @@ from vizualizacio import utvonal_terkep
 from utils import check_user_role, clean_text
 from admin_modul import render_logisztikai_kozpont
 
-# --- STREAMING_CHUNK: Defining ordering code patterns... ---
+# Szigorú illesztés a rendelési kódok kinyeréséhez (pl. 1-A1* vagy 4-S1)
 ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 
-def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
+#def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     """
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
-    Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel, precíz div-alapú elválasztóvonalakkal.
+    Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel.
     """
-    # --- STREAMING_CHUNK: Injecting custom CSS styles... ---
     st.markdown(
         """
         <style>
@@ -85,7 +83,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         unsafe_allow_html=True
     )
 
-    # --- STREAMING_CHUNK: Loading current courier metadata... ---
     st.markdown("<h2 style='text-align: center; color: #1E3A8A; margin-bottom: 6px;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
     
     futar_nev_kiir = st.session_state.get('user_nev', 'Ismeretlen Futár')
@@ -94,14 +91,12 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     
     st.write(f"👤 **Futár:** {futar_nev_kiir} | 🚚 **Járat:** {jarat_szoveg_kiir}")
 
-    # Alapértelmezett elszámolási mérők
-    osszes_cim = 0
+    #    osszes_cim = 0
     osszes_megallo = 0
     osszes_etel = 0
     forgalmi_ertek = 0
     jutalek = 0
 
-    # --- STREAMING_CHUNK: Accessing daily summary sheets... ---
     try:
         sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
         summary_records_df = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Mobil_Summary")
@@ -126,7 +121,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                     matched_row = row
                     break
             
-            # --- STREAMING_CHUNK: Processing sorted driver records... ---
             if not matched_row:
                 driver_records_sorted = sorted(
                     driver_records, 
@@ -161,12 +155,10 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         st.error(f"❌ Nem sikerült elérni a Google Sheets-et: {e}")
         return
 
-    # Élő kiszállítási mérők a Session State-ből
-    live_kesz_cimek = 0
+    #    live_kesz_cimek = 0
     live_beszedett_kp = 0
     live_borravalo = 0
 
-    # --- STREAMING_CHUNK: Summing live values from state... ---
     for k in list(st.session_state.keys()):
         if k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres":
             idx = k.split("_")[-1]
@@ -179,7 +171,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
 
     st.markdown("<div style='margin: 18px 0 12px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
-    # --- SZEKCIÓK RENDERELESE ---
+    # --- 1. SZEKCIÓ: KISZÁLLÍTÁSI HALADÁS ---
     st.subheader("🏁 Kiszállítás Haladás")
     haladas_szazalek = min(1.0, live_kesz_cimek / osszes_cim) if osszes_cim > 0 else 0.0
     st.progress(haladas_szazalek)
@@ -187,6 +179,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     
     st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
+    # --- 2. SZEKCIÓ: PÉNZÜGY & MENNYISÉG ---
     st.subheader("💰 Pénzügy & Mennyiség")
     col_s1, col_s2 = st.columns(2)
     with col_s1:
@@ -198,6 +191,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         
     st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
+    # --- 3. SZEKCIÓ: ÉLŐ SZÁLLÍTÁSI MÉRŐK ---
     st.subheader("💸 Élő Elszámolás")
     col_l1, col_l2 = st.columns(2)
     with col_l1:
@@ -206,9 +200,9 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     with col_l2:
         st.metric("💰 Gyűjtött borravaló", f"{live_borravalo:,} Ft".replace(",", " "))
 
-    # --- STREAMING_CHUNK: Setting up emergency bug reporter... ---
     st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
+    # --- 4. SZEKCIÓ: SÜRGŐS HIBAJELENTŐ ---
     st.subheader("⚠️ Probléma az úton?")
     with st.expander("🚨 SÜRGŐS HIBAKÜLDÉS (Gyorsmenü)"):
         st.write("Sérült, elcserélt vagy hiányzó étel gyors bejelentése a központnak:")
@@ -216,7 +210,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         vevo_options = ["-- Válassz helyszínt / vevőt --"]
         vevo_items_map = {}
         
-        try:
+        #        try:
             df_adatok_all = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
             if not df_adatok_all.empty:
                 df_adatok_all.columns = [str(c).strip() for c in df_adatok_all.columns]
@@ -242,7 +236,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 prefix_to_num = {"H": "1", "K": "2", "S": "3", "C": "4", "P": "5", "Z": "6"}
                 prefix_to_nev = {"H": "Hétfő", "K": "Kedd", "S": "Szerda", "C": "Csütörtök", "P": "Péntek", "Z": "Szombat"}
 
-                # --- STREAMING_CHUNK: Processing customer options for selection... ---
                 for _, r in df_szurt.iterrows():
                     nev_val = str(r.get('Név', r.get('Nev', r.get('Ügyintéző', 'Névtelen')))).strip()
                     cim_val = str(r.get('Cím', r.get('Cim', 'Ismeretlen cím'))).strip()
@@ -313,9 +306,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                     except Exception as e:
                         st.error(f"Mentési hiba: {e}")
 
-
-# --- STREAMING_CHUNK: Rendering desktop controls and diagnostics... ---
-def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE):
+#def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE):
     st.header("⚙️ Kezelés")
     is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
     if is_admin:
@@ -357,8 +348,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
         else:
             st.success("✅ Étlapok naprakészek.")
 
-        # --- STREAMING_CHUNK: User management data editor... ---
-        with st.expander("👤 Felhasználó Kezelés"):
+        #        with st.expander("👤 Felhasználó Kezelés"):
             if 'futar_df' not in st.session_state: st.session_state.futar_df = load_futar_from_sheets(SHEET_ID_UGYFELKOR)
             df_to_edit = st.session_state.futar_df.astype(str)
             edited_df_users = st.data_editor(df_to_edit, use_container_width=True, num_rows="dynamic", key="user_editor")
@@ -402,9 +392,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
                         
     return admin_funkcio
 
-
-# --- STREAMING_CHUNK: Processing daily PDFs... ---
-def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivalasztott_datum):
+#def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivalasztott_datum):
     import pandas as pd
     for key in ['ready_label_pdf', 'ready_manifest_pdf', 'ready_raklista_pdf']:
         if key in st.session_state: del st.session_state[key]
@@ -449,7 +437,6 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
             for r in rows: r['Járat'] = fajl_sajat_jarata if fajl_sajat_jarata else ""
             all_rows.extend(rows)
 
-    # --- STREAMING_CHUNK: Syncing database with day data... ---
     if all_rows:
         df_temp = merge_data(all_rows)
         with st.spinner("Ügyféladatok szinkronizálása..."):
@@ -536,7 +523,6 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
             api_datum_kulcs, aktualis_futar, jarat_szoveg, szamitott_osszes_megallo = str(kivalasztott_datum), "Szűcs István", "Hiba", 0
             szamitott_osszes_cim = szamitott_osszes_etel = szamitott_total_ertek = szamitott_kp_forgalom = regi_beszedett_kp = szamitott_borravalo = 0
 
-        # --- STREAMING_CHUNK: Computing commissions... ---
         szamitott_jutalek = 0
         try:
             sh_ugyfelkor = client.open_by_key(ugyfelkor_sheet_id if ugyfelkor_sheet_id else sheet_id)
@@ -584,9 +570,7 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
         if feltoltott_jaratok: st.session_state.aktiv_jaratok = feltoltott_jaratok
         st.success("🎉 Menetterv sikeresen feldolgozva és szinkronizálva!")
 
-
-# --- STREAMING_CHUNK: Rendering desktop main workspace... ---
-def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, admin_funkcio, is_admin):
+#def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, admin_funkcio, is_admin):
     kivalasztott_datum = st.session_state.get('kivalasztott_datum', datetime.date.today())
     st.session_state['SHEET_ID_UGYFELKOR'] = SHEET_ID_UGYFELKOR
     st.session_state['SHEET_ID_MASTER'] = SHEET_ID_MASTER
@@ -600,7 +584,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             <div style="font-size: 40px !important; margin-bottom: 10px !important; line-height: 1 !important;">👑🏆🍾</div>
             <h2 style="margin: 0 0 10px 0 !important; color: #78350F !important; font-weight: 900 !important; font-size: 24px !important; border: none !important; line-height: 1.2 !important; text-shadow: none !important; font-family: sans-serif !important;">GRATULÁLUNK, {bonus_data['futar'].upper()}!</h2>
             <p style="font-size: 16px !important; margin: 10px 0 12px 0 !important; color: #78350F !important; font-weight: bold !important; line-height: 1.4 !important; text-shadow: none !important; font-family: sans-serif !important;">
-                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke alcanzó a <b style="color: #B45309 !important; font-size: 18px !important; font-weight: 900 !important;">{bonus_data['forgalom']:,} Ft</b>-ot!
+                Elérted a heti bónusz álomhatárt! Az eheti összesített rakományod értéke elérte a <b style="color: #B45309 !important; font-size: 18px !important; font-weight: 900 !important;">{bonus_data['forgalom']:,} Ft</b>-ot!
             </p>
             <div style="background-color: rgba(120, 53, 15, 0.08) !important; display: inline-block !important; padding: 10px 25px !important; border-radius: 50px !important; font-weight: 800 !important; font-size: 15px !important; margin-top: 5px !important; border: 1.5px solid #78350F !important; color: #78350F !important; letter-spacing: 0.5px !important; font-family: sans-serif !important;">
                 ⭐ EMELT BÓNUSZ SÁV: 14% JUTALÉK AKTIVÁLVA! ⭐
@@ -620,15 +604,14 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
 
     st.divider()
 
-    # --- STREAMING_CHUNK: Managing data editor and active routing... ---
-    if st.session_state.mdf is not None and not st.session_state.mdf.empty:
+    #    if st.session_state.mdf is not None and not st.session_state.mdf.empty:
         role = check_user_role()
         df_view = st.session_state.mdf.copy()
         if role == "futar" and 'user_jarat_lista' in st.session_state:
             df_view = df_view[df_view['Járat'].astype(str).isin([str(j) for j in st.session_state.user_jarat_lista])].copy()
         
         if df_view.empty:
-            st.warning("✉️ Nincsenek active címeid mára.")
+            st.warning("✉️ Nincsenek aktív címeid mára.")
         else:
             if 'Sorrend' not in df_view.columns: df_view['Sorrend'] = range(1, len(df_view) + 1)
             df_view['Sorrend'] = pd.to_numeric(df_view['Sorrend'], errors='coerce').fillna(999.0).astype(float)
@@ -657,14 +640,15 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                     st.success("Sorrend frissítve!")
                     st.rerun()
 
-            # --- STREAMING_CHUNK: Saving updated courier fields... ---
-            with gomb_col2:
+            #            with gomb_col2:
                 if st.button("💾 Módosított adatok mentése", use_container_width=True):
                     try:
                         sh = client.open_by_key(SHEET_ID_UGYFELKOR)
                         ws_ugyfel = sh.worksheet("Ugyfelkor")
                         teljes_adat = ws_ugyfel.get_all_values()
-                        fejlec = teljes_adat[0]
+                        fejlec = ./teljes_adat[0] if isinstance(teljes_adat, list) and len(teljes_adat) > 0 else []
+                        if not fejlec:
+                            fejlec = teljes_adat[0]
                         sheets_id_map = {str(teljes_adat[i][0]).strip(): i for i in range(1, len(teljes_adat))}
                         edited_df_clean = edited_df.copy()
                         edited_df_clean['ID'] = edited_df_clean['ID'].astype(str).str.strip()
@@ -694,7 +678,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             aktualis_jaratok = ", ".join(meta.get('jaratok', [])) if meta.get('jaratok') else "N/A"
             st.info(f"Észlelt járatok: **{aktualis_jaratok}** | {meta.get('ev', '')}. {meta.get('het', '')}. hét")
 
-            if st.button("🚀 DOKUMENTUMOK GENERÁLÁSA", type="primary", use_container_width=True):
+            #            if st.button("🚀 DOKUMENTUMOK GENERÁLÁSA", type="primary", use_container_width=True):
                 with st.spinner("⏳ PDF-ek generálása..."):
                     try:
                         st.session_state['ready_label_pdf'] = create_label_pdf(edited_df, st.session_state.c_n, st.session_state.c_p, meta, st.session_state.etelek_master_df, pd.DataFrame(), pd.DataFrame(), st.session_state.etlap_api_df).getvalue()
@@ -703,7 +687,6 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                         st.success("✅ Minden dokumentum sikeresen elkészült!")
                     except Exception as e: st.error(f"Hiba: {e}")
 
-            # --- STREAMING_CHUNK: Exposing PDF download triggers... ---
             if st.session_state.get('ready_label_pdf'):
                 st.write("### 📥 Letöltések:")
                 dl_c1, dl_c2, dl_c3 = st.columns(3)

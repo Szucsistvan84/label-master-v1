@@ -143,14 +143,13 @@ def main():
                     for k in list(st.session_state.keys()):
                         if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
                             st.session_state.pop(k, None)
-                    
-                    meta_forras = st.session_state.get('meta_data', {})
-                    pdf_futar_nev = meta_forras.get('futar_neve', meta_forras.get('futar', ''))
-                    
-                    st.session_state.user_nev = pdf_futar_nev if pdf_futar_nev else "Szűcs István"
+                            
                     st.session_state.bejelentkezve = True
+                    st.session_state.user_nev = "Teszt Futár"
                     st.session_state.user_jarat_lista = [j.strip() for j in str(jarat_input).split(",") if j.strip()]
                     st.session_state.user_szerep = "futar"
+                    st.session_state.c_n = "Teszt Futár"
+                    st.session_state.c_p = "+36 20 886 8971"
                     st.rerun()
 
             if st.button("🔑 BIZTONSÁGOS BELÉPÉS", use_container_width=True):
@@ -165,11 +164,13 @@ def main():
                         # --- TISZTA LAP: Korábbi session kulcsok kisöprése ---
                         for k in list(st.session_state.keys()):
                             if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
-                                    st.session_state.pop(k, None)
+                                st.session_state.pop(k, None)
                         st.session_state.bejelentkezve = True
                         st.session_state.user_nev = "Rendszergazda (Vészbejárat)"
                         st.session_state.user_jarat_lista = ["4002"]
                         st.session_state.user_szerep = "superadmin"
+                        st.session_state.c_n = "Szűcs István"
+                        st.session_state.c_p = "+36 20 886 8971"
                         st.success("🔓 Sikeres rendszergazda belépés!")
                         st.rerun()
                     
@@ -203,6 +204,11 @@ def main():
                         raw_jarat = str(talalt_futar.get('Járat', talalt_futar.get('Jarat', ''))).strip()
                         st.session_state.user_jarat_lista = [j.strip() for j in raw_jarat.split(",") if j.strip()]
                         st.session_state.user_szerep = str(talalt_futar.get('Szerep', 'futar'))
+                        
+                        # --- AUTOMATIKUS FUTÁR ADATSZINKRON: Berántjuk a nevét és telefonszámát ---
+                        st.session_state.c_n = talalt_futar.get('Név', 'Szűcs István')
+                        st.session_state.c_p = str(talalt_futar.get('Telefon', '+36 20 886 8971')).strip()
+                        
                         st.rerun()
                     else:
                         st.error("❌ Hibás járatszám vagy jelszó!")

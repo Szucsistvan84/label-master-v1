@@ -4,11 +4,11 @@ import streamlit as st
 # --- 1. STREAMLIT ALAPBEÁLLÍTÁS - Kötelezően mindenen kívül, a legelső sorban! ---
 st.set_page_config(page_title="Interfood Label Master", layout="wide")
 
-# --- KÉNYSZERÍTETT MODUL HOT-RELOAD (GARANTÁLT FRISSÍTÉS - HOZZÁADVA PARSER_MODUL) ---
+# --- KÉNYSZERÍTETT MODUL HOT-RELOAD (GARANTÁLT FRISSÍTÉS - HOZZÁADVA PARSER_MODUL ÉS VIZUALIZACIO) ---
 import sys
 import importlib
 
-modules_to_reload = ["parser_modul", "mobil_modulok", "nezetek_modul", "adatbazis_modul", "geokodolo_modul"]
+modules_to_reload = ["parser_modul", "mobil_modulok", "nezetek_modul", "adatbazis_modul", "geokodolo_modul", "vizualizacio"]
 for mod_name in modules_to_reload:
     if mod_name in sys.modules:
         importlib.reload(sys.modules[mod_name])
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 init_test_mode()
 
 # Kényszerített kód-frissítési jelző a modulok újratöltéséhez
-# UPDATE_TRIGGER_v4_2026_06_20_2015
+# UPDATE_TRIGGER_v5_2026_06_21
 
 # --- GOOGLE SHEETS KLIENS INICIALIZÁLÁSA ---
 client = init_google_sheets()
@@ -129,7 +129,7 @@ def main():
     # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
         st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🎯 Label Master</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a system használatához</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:
@@ -202,10 +202,10 @@ def main():
                             if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
                                 st.session_state.pop(k, None)
                         st.session_state.bejelentkezve = True
-                        st.session_state.user_nev = talalt_futar.get('Név', 'Ismeretlen felhasználó')
+                        st.session_state.user_nev = talalt_futar.get('Név', 'Ismeretlen felhasznaló')
                         raw_jarat = str(talalt_futar.get('Járat', talalt_futar.get('Jarat', ''))).strip()
                         st.session_state.user_jarat_lista = [j.strip() for j in raw_jarat.split(",") if j.strip()]
-                        st.session_state.user_szerep = str(talalt_futar.get('Szerep', 'futar')).strip().lower()
+                        st.session_state.user_szerep = str(talalt_futar.get('Szerep', 'futar'))
                         st.rerun()
                     else:
                         st.error("❌ Hibás járatszám vagy jelszó!")

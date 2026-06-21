@@ -44,7 +44,7 @@ def get_gspread_client():
 
 def ellenoriz_nominatim_kapcsolat():
     """
-    Élő tesztlekérdezés a Nominatim API-hoz, amivel valós időben ellenőrizhető,
+    Élő testlekérdezés a Nominatim API-hoz, amivel valós időben ellenőrizhető,
     hogy a Streamlit Cloud megosztott IP-je éppen le van-e tiltva (403 Forbidden).
     """
     import requests
@@ -381,9 +381,7 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         tisztitott = "".join(filter(str.isdigit, s))
         return tisztitott if len(tisztitott) > 0 else ""
 
-    # 🎯 KIKÜSZÖBÖLJÜK A PREFIXEKET AZ ADATOK TÁBLÁBÓL:
-    # Azonnal tiszta, 6 számjegyből álló számmá alakítjuk a napi lista ID oszlopát,
-    # így mind az 'Adatok' fülre, mind az 'Ugyfelkor' törzslistába tisztán kerül be!
+    # Azonnal tiszta, 6 számjegyből álló számmá alakítjuk a napi lista ID oszlopát
     df_napi['ID'] = df_napi['ID'].apply(tiszta_id_konverzio)
 
     # --- ÉLŐ (CACHE-MENTES) BEOLVASÁS ---
@@ -538,12 +536,38 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         df_napi['Feldolgozó Futár'] = aktualis_futar_nev
         export_cols = ['ID', 'Név', 'Cím', 'Telefon', 'Csoport', 'Sorrend', 'Lat', 'Lon', 'Rendelés', 'Megjegyzés', 'Járat', 'Fizetendő', 'Fizetési Mód', 'Státusz', 'Időbélyeg', 'Feldolgozó Futár']
         df_uj_adatok = df_napi[export_cols].copy()
+        
         if not df_existing.empty and 'Feldolgozó Futár' in df_existing.columns:
-            df_mások_adatai = df_existing[df_existing['Feldolgozó Futár'] != aktualis_futar_nev]
-            df_saját_lezárt_adatai = df_existing[(df_existing['Feldolgozó Futár'] == aktualis_futar_nev) & (df_existing['Időbélyeg'].astype(str).str.strip() != "")]
-            save_df = pd.concat([df_mások_adatai, df_saját_lezárt_adatai, df_uj_adatok], ignore_index=True)
+            # 🎯 INTELLIGENS ADATVÉDELEM ÉS MENTÉSI LOGIKA:
+            # Megnézzük, hogy van-e már valós, kézbesített tétel időbélyeggel ehhez a futárhoz a munkalapon.
+            df_sajat_existing = df_existing[df_existing['Feldolgozó Futár'] == aktualis_futar_nev]
+            valodi_munka_volt = False
+            
+            if not df_sajat_existing.empty and 'Időbélyeg' in df_sajat_existing.columns:
+                # Ha van olyan sor, ahol az időbélyeg nem üres (már kézbesített valós cím)
+                valodi_munka_volt = df_sajat_existing['Időbélyeg'].astype(str).str.strip().str.len().gt(0).any()
+                
+            if valodi_munka_volt:
+                # 🛡️ BIZTONSÁGI MENTÉS: Valós munka volt! Megőrizzük a már kézbesített/időbélyeggel ellátott éles sorokat.
+                sajat_lezart = df_sajat_existing[df_sajat_existing['Időbélyeg'].astype(str).str.strip().str.len() > 0]
+                
+                # Megtartjuk az összes többi futár összes adatát
+                df_masok_adatai = df_existing[df_existing['Feldolgozó Futár'] != aktualis_futar_nev]
+                
+                # Az új PDF rendeléseiből csak azokat a sorokat fűzzük hozzá, amiket még nem kézbesítettek élesben (ID ütközés elkerülése)
+                lezart_ids = set(sajat_lezart['ID'].astype(str).tolist())
+                df_uj_szurt = df_uj_adatok[~df_uj_adatok['ID'].astype(str).isin(lezart_ids)]
+                
+                save_df = pd.concat([df_masok_adatai, sajat_lezart, df_uj_szurt], ignore_index=True)
+                logger.info(f"Sikeresen megőriztük {aktualis_futar_nev} korábbi éles kézbesítési adatait!")
+            else:
+                # 🧹 AUTOMATIKUS TISZTÍTÁS: Nem volt valós kézbesítés (csak tesztüzem vagy PDF frissítés volt).
+                # Biztonságosan kisöpörjük az összes korábbi kísérletet a felesleges duplikációk elkerülésére!
+                df_masok_adatai = df_existing[df_existing['Feldolgozó Futár'] != aktualis_futar_nev]
+                save_df = pd.concat([df_masok_adatai, df_uj_adatok], ignore_index=True)
         else:
             save_df = df_uj_adatok
+            
         save_df['Lat'] = save_df['Lat'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
         save_df['Lon'] = save_df['Lon'].astype(str).str.strip().replace(['nan', 'None', '0.0', '0'], '')
         save_df['ID'] = save_df['ID'].astype(str)

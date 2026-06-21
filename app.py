@@ -315,6 +315,8 @@ def main():
         else:
             if 'user_jarat_lista' in st.session_state and st.session_state.user_jarat_lista:
                 st.sidebar.caption(f"🚚 Aktív járatok: {', '.join(st.session_state.user_jarat_lista)}")
+            if 'c_p' in st.session_state and st.session_state.c_p:
+                st.sidebar.caption(f"📞 Telefon: {st.session_state.c_p}")
             
         if st.sidebar.button("🚪 Kijelentkezés", key="desktop_logout"):
             # --- TISZTA LAP KIJELENTKEZÉSKOR ---

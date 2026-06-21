@@ -55,6 +55,12 @@ def main():
     if 'client' not in st.session_state or st.session_state['client'] is None:
         st.session_state['client'] = client
 
+    # URL paraméterek lekérése az ágak eldöntéséhez
+    view = st.query_params.get("view", None)
+    url_jarat = st.query_params.get("jarat", "")
+    url_teszt = st.query_params.get("test", "false") == "true"
+    is_mobile_view = (view == "mobile")
+
     # --- ATOMBIZTOS CSS ÉS JS TRÜKKÖK (MÁRKAHŰ ÉS PREMIUM MOBIL ELRENDEZÉSEK) ---
     st.markdown(
         """
@@ -139,59 +145,43 @@ def main():
         
         .block-container {
             padding-top: 2.5rem !important;
-            padding-bottom: 0rem !important;
+            padding-bottom: 2rem !important;
         }
         </style>
-
-        <!-- 6. INTELLIGENS SZÜLŐABLAK-ÁTTÖRŐ JAVASCRIPT A MAKACS SALLANGOK ELLEN -->
-        <script>
-        function cleanupStreamlitElements() {
-            try {
-                // Átnyúlunk a szülő ablak dokumentumába (CORS-barát módon)
-                var parentDoc = window.parent.document;
-                
-                // 1. Megkeressük és kíméletlenül elrejtjük a fekete 'Manage app' gombot
-                var manageBtn = parentDoc.querySelector('[data-testid="manage-app-button"]');
-                if (manageBtn) {
-                    manageBtn.style.setProperty('display', 'none', 'important');
-                    manageBtn.style.setProperty('visibility', 'hidden', 'important');
-                }
-                
-                // 2. Elrejtjük a szülő ablak egyéb felesleges Streamlit logóit, a "Made with Streamlit" és "Fork" gombokat is!
-                var badges = parentDoc.querySelectorAll('[data-testid="viewerBadge"], .viewerBadge, div[class*="viewerBadge"]');
-                badges.forEach(function(badge) {
-                    badge.style.setProperty('display', 'none', 'important');
-                    badge.style.setProperty('visibility', 'hidden', 'important');
-                });
-                
-                // 3. Elrejtjük a lebegő hálózati státusz panelt is
-                var connStatus = parentDoc.querySelector('#ConnectionStatus, [id*="ConnectionStatus"]');
-                if (connStatus) {
-                    connStatus.style.setProperty('display', 'none', 'important');
-                    connStatus.style.setProperty('visibility', 'hidden', 'important');
-                }
-                
-                // 4. Kijelentkezett módban megjelenő profil előnézet és a böszme nagy linkek megsemmisítése
-                var profilePreviews = parentDoc.querySelectorAll('[class*="profilePreview"], [class*="link"], a[href*="streamlit"]');
-                profilePreviews.forEach(function(el) {
-                    el.style.setProperty('display', 'none', 'important');
-                    el.style.setProperty('visibility', 'hidden', 'important');
-                });
-            } catch(e) {
-                console.log("CORS korlát miatt a szülő ablak fejlesztői gombjai szoftverből nem rejthetőek el.");
-            }
-        }
-        
-        // Futtatás többször is, hogy a késleltetett betöltések után is biztosan kisöpörjük őket
-        setTimeout(cleanupStreamlitElements, 300);
-        setTimeout(cleanupStreamlitElements, 1000);
-        setTimeout(cleanupStreamlitElements, 2500);
-        </script>
         """,
         unsafe_allow_html=True
     )
 
-    # Fontok regisztrálása a PDF-nyomtatáshoz
+    # --- 🔏 MOBIL SPECIFIKUS FIZIKAI ALSÓ BIZTONSÁGI TAKARÓ (SAFE ZONE) ---
+    if is_mobile_view:
+        st.markdown(
+            """
+            <!-- Fizikai fehér kitöltő div beillesztése a belső ablak legaljára -->
+            <div class="custom-mobile-footer-shield"></div>
+            
+            <style>
+            .custom-mobile-footer-shield {
+                position: fixed !important;
+                bottom: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: 65px !important; /* Biztonságos magasság az ikonok és linkek elfedéséhez */
+                background-color: #FFFFFF !important;
+                z-index: 999999 !important; /* Maximális prioritás a belső elemek felett */
+                border-top: 1.5px solid #F3F4F6 !important; /* Finom modern elválasztó vonal */
+                pointer-events: none; /* Átengedjük a gombok melletti érintéseket a stabilitásért */
+            }
+            
+            /* Megemeljük a teljes tartalom alsó margóját, hogy a gombok kényelmesen a fehér sáv felett legyenek */
+            .block-container {
+                padding-bottom: 90px !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+    # Fontok registerelése a PDF-nyomtatáshoz
     from nyomtatas_modulok import register_fonts
     register_fonts()
 
@@ -208,11 +198,6 @@ def main():
     if 'user_szerep' not in st.session_state: st.session_state.user_szerep = "futar"
     if 'nevnapok_df' not in st.session_state: st.session_state.nevnapok_df = pd.DataFrame()
     if 'keresztnevek_df' not in st.session_state: st.session_state.keresztnevek_df = pd.DataFrame()
-
-    # URL paraméterek lekérése
-    view = st.query_params.get("view", None)
-    url_jarat = st.query_params.get("jarat", "")
-    url_teszt = st.query_params.get("test", "false") == "true"
 
     # BIZTONSÁGOS REDIRECT: Ha a parancsikon miatt nincs 'view' paraméter a linkben
     if view is None:
@@ -232,8 +217,6 @@ def main():
                     st.query_params.update(view="desktop")
                     st.rerun()
             return
-
-    is_mobile_view = (view == "mobile")
 
     # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:

@@ -97,7 +97,7 @@ def main():
             border-color: #139D43 !important; /* Kijelöléskor Interfood Zöld keretet kap! */
         }
 
-        /* 5. Golyóálló szelektorok a lebegő belső Streamlit elemekre (pl. észlelt viewerBadge) */
+        /* 5. Golyóálló szelektorok a lebegő belső Streamlit elemekre */
         [data-testid="manage-app-button"] {
             display: none !important;
             visibility: hidden !important;
@@ -127,15 +127,25 @@ def main():
             visibility: hidden !important;
         }
         
+        /* Wildcard osztály elrejtések a belső iframe-hez is a profilkép és linkek ellen */
+        div[class*="profilePreview"], span[class*="profilePreview"], [class*="profilePreview"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        a[class*="link"], [class*="link"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        
         .block-container {
             padding-top: 2.5rem !important;
             padding-bottom: 0rem !important;
         }
         </style>
 
-        <!-- 6. INTELLIGENS SZÜLŐABLAK-ÁTTÖRŐ JAVASCRIPT A MAKACS 'MANAGE APP' ÉS 'VIEWER BADGE' GOMBOK ELREJTÉSÉRE -->
+        <!-- 6. INTELLIGENS SZÜLŐABLAK-ÁTTÖRŐ JAVASCRIPT A MAKACS SALLANGOK ELLEN -->
         <script>
-        setTimeout(function() {
+        function cleanupStreamlitElements() {
             try {
                 // Átnyúlunk a szülő ablak dokumentumába (CORS-barát módon)
                 var parentDoc = window.parent.document;
@@ -160,10 +170,22 @@ def main():
                     connStatus.style.setProperty('display', 'none', 'important');
                     connStatus.style.setProperty('visibility', 'hidden', 'important');
                 }
+                
+                // 4. Kijelentkezett módban megjelenő profil előnézet és a böszme nagy linkek megsemmisítése
+                var profilePreviews = parentDoc.querySelectorAll('[class*="profilePreview"], [class*="link"], a[href*="streamlit"]');
+                profilePreviews.forEach(function(el) {
+                    el.style.setProperty('display', 'none', 'important');
+                    el.style.setProperty('visibility', 'hidden', 'important');
+                });
             } catch(e) {
-                console.log("CORS korlát miatt a szülő ablak fejlesztői gombjai szoftverből nem rejthetőek el (sima felhasználóknál ez nem jelenik meg).");
+                console.log("CORS korlát miatt a szülő ablak fejlesztői gombjai szoftverből nem rejthetőek el.");
             }
-        }, 300);
+        }
+        
+        // Futtatás többször is, hogy a késleltetett betöltések után is biztosan kisöpörjük őket
+        setTimeout(cleanupStreamlitElements, 300);
+        setTimeout(cleanupStreamlitElements, 1000);
+        setTimeout(cleanupStreamlitElements, 2500);
         </script>
         """,
         unsafe_allow_html=True

@@ -50,8 +50,8 @@ def ellenoriz_nominatim_kapcsolat():
     import requests
     url = "https://nominatim.openstreetmap.org/status?format=json"
     headers = {
-        "User-Agent": "Interfood_Express_Delivery_App_v3_2026",
-        "Accept": "application/json"
+        "User-Agent": "Interfood_Express_Delivery_App_v3_2026_06_20",
+        "Referer": "https://interfood-menetterv-etikett-generator.streamlit.app"
     }
     try:
         r = requests.get(url, headers=headers, timeout=6)
@@ -82,7 +82,7 @@ def load_sheet_data_cached(_client, sheet_id, worksheet_name):
             records = worksheet.get_all_records()
         return pd.DataFrame(records)
     except Exception as e:
-        logger.error(f"Hiba a táblázat beolvasásakor ({worksheet_name}): {e}")
+        logger.error(f"Biztonsági hiba a munkalap olvasásakor: {e}")
         return pd.DataFrame()
 
 
@@ -102,32 +102,15 @@ def _tiszta_futar_lista_letoltes(sheet_id):
             return []
         return df.to_dict('records')
     except Exception as e:
-        logger.error(f"Hiba a futár lista letöltésekor: {e}")
+        logger.error(f"Hiba a futár lista lekérésekor: {e}")
         return []
-
-
-def save_df_to_sheet(client, sheet_id, worksheet_name, df, clear_sheet=True):
-    """
-    DataFrame objektumot ment a megadott Google Sheets fülre.
-    """
-    import pandas as pd
-    try:
-        sheet = client.open_by_key(sheet_id)
-        worksheet = sheet.worksheet(worksheet_name)
-        if clear_sheet:
-            worksheet.clear()
-        set_with_dataframe(worksheet, df)
-        logger.info(f"Sikeresen mentve a DataFrame a(z) '{worksheet_name}' fülre.")
-        return True
-    except Exception as e:
-        logger.error(f"Hiba a táblázat mentésekor ({worksheet_name}): {e}")
-        return False
 
 
 def kotelezo_ugyfelkor_formatum_tisztitas(df):
     """
     Szigorú oszlopformázó és adattisztító motor az Ugyfelkor munkalaphoz.
     Eltávolítja a felesleges karaktereket, javítja a típusokat és koordinátákat.
+    Garantálja, hogy a koordináták dot-tizedespontosak maradnak a térkép stabilitásáért.
     """
     import pandas as pd
     if df.empty: return df
@@ -135,7 +118,7 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     
     if 'ID' in df_clean.columns:
         df_clean['ID'] = df_clean['ID'].astype(str).apply(
-            lambda x: "".join(filter(str.isdigit, x.split('.')[0])).strip()
+            lambda x: "".join(filter(str.isdigit, str(x).split('.')[0])).strip()
         )
     if 'Név' in df_clean.columns:
         df_clean['Név'] = df_clean['Név'].astype(str).str.strip()
@@ -145,7 +128,8 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     for col in ['Lat', 'Lon']:
         if col in df_clean.columns:
             df_clean[col] = df_clean[col].apply(biztonsagos_koordinata_tisztito)
-            df_clean[col] = df_clean[col].apply(lambda x: f"{x}" if x is not None and not pd.isna(x) else "")
+            # Szuper-biztonságos formázás szóló aposztróf előtaggal, hogy a Google Sheets tiszta szövegként kezelje
+            df_clean[col] = df_clean[col].apply(lambda x: f"'{str(x).replace(',', '.')}" if x is not None and not pd.isna(x) and str(x).strip() != "" else "")
             
     for col in ['Telefon', 'Csoport', 'Megjegyzés', 'Utolso_Rendeles']:
         if col in df_clean.columns:
@@ -163,6 +147,23 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     if 'Lat' in df_clean.columns: df_clean['Lat'] = df_clean['Lat'].astype(str)
     if 'Lon' in df_clean.columns: df_clean['Lon'] = df_clean['Lon'].astype(str)
     return df_clean
+
+
+def save_df_to_sheet(client, sheet_id, worksheet_name, df, clear_sheet=True):
+    """
+    DataFrame objektumot ment a megadott Google Sheets fülre.
+    """
+    try:
+        sheet = client.open_by_key(sheet_id)
+        worksheet = sheet.worksheet(worksheet_name)
+        if clear_sheet:
+            worksheet.clear()
+        set_with_dataframe(worksheet, df)
+        logger.info(f"Sikeresen mentve a DataFrame a(z) '{worksheet_name}' fülre.")
+        return True
+    except Exception as e:
+        logger.error(f"Hiba a táblázat mentésekor ({worksheet_name}): {e}")
+        return False
 
 
 def iterativ_gps_kereso(cim, geolocator):
@@ -477,7 +478,7 @@ def sync_interfood_etlap(year, week, sheet_id):
     """
     Közvetlenül az Interfood API-ból húzza be a heti árakat, és elmenti az Etlap_API munkalapra.
     """
-    import pandas as pd
+    import requests
     api_url = f"https://ia.interfood.hu/api/v3/excel-export?year={year}&week={week}"
     headers = {"User-Agent": "Mozilla/5.0"}
     cache_key = f"sync_done_{year}_{week}"
@@ -501,7 +502,6 @@ def load_etlap_from_sheets(sheet_id):
     """
     Betölti az étlap adatokat és az egyedi kategóriarendet a Google Sheetsből.
     """
-    import pandas as pd
     client = st.session_state.get('client')
     try:
         sheet = client.open_by_key(sheet_id)
@@ -541,7 +541,6 @@ def load_futar_from_sheets(sheet_id):
     """
     Betölti a regisztrált futárok listáját az ellenőrzéshez.
     """
-    import pandas as pd
     client = st.session_state.get('client')
     if not client: return pd.DataFrame()
     try:
@@ -565,7 +564,6 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
     """
     Frissíti a Master Étlap Adatbázist az adott hetek összesített adatai alapján.
     """
-    import pandas as pd
     import requests
     from io import BytesIO
     from utils import clean_text

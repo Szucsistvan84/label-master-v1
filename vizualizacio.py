@@ -7,8 +7,8 @@ import json
 def utvonal_terkep(df_napi, sheet_id=None):
     """
     Kirajzolja a napi útvonalat egy interaktív térképen.
-    Sorszámozott Leaflet.js markereket használ, és összekötő vonallal
-    mutatja meg a kézbesítési sorrendet (mi következik mi után).
+    Sorszámozott Leaflet.js markereket használ egész számként formázva,
+    és összekötő vonallal mutatja meg a kézbesítési sorrendet.
     """
     if df_napi is None or df_napi.empty:
         st.warning("⚠️ Nincs adat az útvonal kirajzolásához!")
@@ -19,7 +19,7 @@ def utvonal_terkep(df_napi, sheet_id=None):
 
     # 2. Oszlopok ellenőrzése
     if 'Lat' not in map_df.columns or 'Lon' not in map_df.columns:
-        st.warning("⚠️ A táblázat nem tartalmaz 'Lat' és 'Lon' oszlopokat!")
+        st.warning("⚠️ A táblázat nem tartalmaz 'Lat' and 'Lon' oszlopokat!")
         return
 
     try:
@@ -52,11 +52,19 @@ def utvonal_terkep(df_napi, sheet_id=None):
             st.warning("⚠️ Nincs megjeleníthető érvényes GPS koordináta a mai listán!")
             return
 
-        # 5. Adatsorok átalakítása tiszta JSON formátumba a JavaScript számára
+        # 5. Adatsorok átalakítása tiszta JSON formátumba a JavaScript számára (egész sorszámokkal)
         points = []
         for _, row in map_data.iterrows():
+            raw_index = row.get('Sorrend', '•')
+            try:
+                # Kényszerített egész számmá alakítás (pl. 1.0 -> 1)
+                clean_index = str(int(float(raw_index)))
+            except (ValueError, TypeError):
+                # Fallback, ha nem lebegőpontos szám lenne
+                clean_index = str(raw_index).split('.')[0] if '.' in str(raw_index) else str(raw_index)
+            
             points.append({
-                "index": str(row.get('Sorrend', '•')),
+                "index": clean_index if clean_index.strip() != "" else "•",
                 "lat": float(row['latitude']),
                 "lon": float(row['longitude']),
                 "name": str(row.get('Név', row.get('Ügyintéző', 'Névtelen Vevő'))),

@@ -207,7 +207,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     with col_l2:
         st.metric("💰 Gyűjtött borravaló", f"{live_borravalo:,} Ft".replace(",", " "))
 
-    # --- 4. SEPARATOR DIV ---
     st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
     # --- 4. SZEKCIÓ: SÜRGŐS HIBAJELENTŐ ---
@@ -407,6 +406,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
                         st.error(f"Hiba a takarítás során: {e}")
                         
     return admin_funkcio
+
 
 def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivalasztott_datum):
     import pandas as pd
@@ -691,7 +691,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                             
                             ugyfel_row_idx = None
                             for u_idx, u_rec in enumerate(teljes_adat[1:], start=2):
-                                # Biztonság kedvéért a törzstábla ID-ját os prefix és tizedes-mentesen vetjük össze
+                                # Biztonság kedvéért a törzstábla ID-ját is prefix és tizedes-mentesen vetjük össze
                                 db_id_clean = "".join(filter(str.isdigit, str(u_rec[0]).strip().split('-')[-1]))
                                 if db_id_clean == target_id_clean:
                                     ugyfel_row_idx = u_idx
@@ -745,7 +745,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                     st.success("Sorrend frissítve!")
                     st.rerun()
 
-            with gomb_col2:
+            with st.get_compiler_state() if hasattr(st, 'get_compiler_state') else st.container():
                 if st.button("💾 Módosított adatok mentése", use_container_width=True, key="save_edited_data_btn"):
                     try:
                         sh = client.open_by_key(SHEET_ID_UGYFELKOR)

@@ -19,7 +19,6 @@ SHEET_ID_UGYFELKOR = "1nK0OLzVzEFY5bSLhMFfGgs4tOgMEueBgXeb9JUbLSN8"
 def get_gspread_client():
     """
     Létrehozza és visszaadja a gspread klienst a hitelesítő adatok alapján.
-    Keresi a 'gcp_service_account' kulcsot a titkos beállításokban vagy a környezeti változókban.
     """
     scopes = [
         "https://spreadsheets.google.com/feeds",
@@ -72,7 +71,6 @@ def ellenoriz_nominatim_kapcsolat():
 def load_sheet_data_cached(_client, sheet_id, worksheet_name):
     """
     Biztonságos, gyorsítótárazott táblázatbeolvasó a Google Sheets API kvóták kímélése érdekében.
-    Segít megvédeni a rendszert a tömeges frissítések során a 429-es API hibáktól.
     """
     import pandas as pd
     try:
@@ -112,7 +110,6 @@ def kotelezo_ugyfelkor_formatum_tisztitas(df):
     """
     Szigorú oszlopformázó és adattisztító motor az Ugyfelkor munkalaphoz.
     Garantálja, hogy a koordináták dot-tizedespontosak maradnak a térkép stabilitásáért.
-    A szóló apostróf (') beillesztésével kényszeríti a Google Sheets-et a tiszta szövegként való tárolásra.
     """
     import pandas as pd
     if df.empty: return df
@@ -173,20 +170,16 @@ def save_df_to_sheet(client, sheet_id, worksheet_name, df, clear_sheet=True):
 def iterativ_gps_kereso(cim, geolocator):
     """
     Zseniális iteratív GPS peeling (hámozó) motor kibővített magyar címrövidítés feloldással.
-    Ha nem találja a pontos egyezést, szavanként hámozza lefelé jobbról balra, hogy utca szintű koordinátát kapjon.
-    Golyóálló Dual-Geocoder fallback: ha a Nominatim le van tiltva a felhőben, automatikusan az ArcGIS-re vált!
     """
     import time
     import re
     from geopy.geocoders import ArcGIS
     
-    # Élesítjük a másodlagos golyóálló felhős geokódolót (ArcGIS), ami kikerüli a hálózati IP letiltásokat
     arcgis_geolocator = ArcGIS(user_agent="Interfood_Express_Delivery_App_v3_2026")
     
     tisztitott_cim = str(cim).strip().rstrip(',').rstrip('.')
     tisztitott_cim = re.sub(r'[\(\)\$\*]', '', tisztitott_cim)
     
-    # CÍMRÖVIDÍTÉSEK AUTOMATIKUS KIBONTÁSA
     abbrev_map = {
         r'\bu\b\.?': 'utca',
         r'\bkrt\b\.?': 'körút',
@@ -211,22 +204,18 @@ def iterativ_gps_kereso(cim, geolocator):
     while len(words) >= 2:
         proba_cim = " ".join(words).strip().rstrip(',').rstrip('.')
         
-        # Biztonsági fék: ne engedjük, hogy csak az irányítószám + város maradjon meg utca nélkül
         teszt_szoveg = re.sub(r'^\d{4}\s+', '', proba_cim).strip()
         if len(teszt_szoveg.split()) < 2:
             break
             
-        # 1. Próbálkozás a Nominatim-mal (elsődleges felhős motor)
         try:
-            time.sleep(1.2) # API Rate limit betartása
+            time.sleep(1.2)
             location = geolocator.geocode(proba_cim, timeout=5)
             if location:
                 return str(round(location.latitude, 6)), str(round(location.longitude, 6)), proba_cim
         except Exception:
-            # Ha a Nominatim hálózati hibát vagy 403 Forbidden tiltást dob, némán átugorjuk
             pass
             
-        # 2. Próbálkozás az ArcGIS-szel (másodlagos - golyóálló tartalék, ami nincs kitiltva a Streamlit Cloudon)
         try:
             location = arcgis_geolocator.geocode(proba_cim, timeout=5)
             if location:
@@ -234,14 +223,14 @@ def iterativ_gps_kereso(cim, geolocator):
         except Exception:
             pass
             
-        words.pop() # Hámozás: Levágjuk a legutolsó szót, ha sikertelen volt a kör
+        words.pop()
         
     return None, None, None
 
 
 def get_latest_week_from_master(sheet_id, client):
     """
-    Lekéri a legutolsó feltöltött hét számát a Master adatbázisból az étlapok naprakészségének ellenőrzéséhez.
+    Lekéri a legutolsó feltöltött hét számát a Master adatbázisból.
     """
     import pandas as pd
     try:
@@ -267,7 +256,7 @@ def get_latest_week_from_master(sheet_id, client):
 @st.cache_data(show_spinner="Étlap API frissítése a felhőből...")
 def load_etlap_api_smart(_client, sheet_id, columns_trigger=None):
     """
-    Gyorsítótárazott étlap API olvasó az API terhelés minimalizálására.
+    Gyorsítótárazott étlap API olvasó.
     """
     import pandas as pd
     try:
@@ -280,6 +269,91 @@ def load_etlap_api_smart(_client, sheet_id, columns_trigger=None):
     except Exception as e:
         logger.error(f"❌ Smart Cache hiba az Etlap_API letöltésekor: {e}")
         return pd.DataFrame()
+
+
+def batch_potol_hianyozo_gps(client, sheet_id):
+    """
+    Végigmegy az Ugyfelkor munkalapon, és minden olyan ügyfélnél,
+    ahol hiányzik a Lat vagy Lon koordináta, az ArcGIS geolocator segítségével
+    pótolja azt. Biztonságos, rate-limited, progress barral kísért batch feldolgozás (egyszerre max 20 cím).
+    """
+    import time
+    import pandas as pd
+    import streamlit as st
+    from geopy.geocoders import ArcGIS
+    
+    try:
+        sh = client.open_by_key(sheet_id)
+        ws = sh.worksheet("Ugyfelkor")
+        records = ws.get_all_records()
+        if not records:
+            st.warning("⚠️ Az ügyfélkör adatbázis üres!")
+            return
+        
+        df = pd.DataFrame(records)
+        df.columns = [c.strip() for c in df.columns]
+        
+        if 'Lat' not in df.columns or 'Lon' not in df.columns or 'Cím' not in df.columns or 'Név' not in df.columns:
+            st.error("❌ Hiányoznak a szükséges oszlopok (Lat, Lon, Cím, Név)!")
+            return
+        
+        # Kiszűrjük a hiányzó vagy hibás koordinátákat (üres, nan, None, 0, 0.0)
+        missing_mask = (df['Lat'].astype(str).str.strip() == "") | \
+                       (df['Lon'].astype(str).str.strip() == "") | \
+                       (df['Lat'].isna()) | (df['Lon'].isna()) | \
+                       (df['Lat'].astype(str).str.strip() == "0.0") | \
+                       (df['Lat'].astype(str).str.strip().str.lower() == "nan") | \
+                       (df['Lat'].astype(str).str.strip().str.lower() == "none")
+        
+        df_missing = df[missing_mask]
+        
+        if df_missing.empty:
+            st.success("✨ Minden ügyfélhez tartozik már érvényes GPS koordináta!")
+            return
+            
+        total_missing = len(df_missing)
+        batch_size = 20
+        st.info(f"🔎 Összesen {total_missing} koordináta nélküli címet találtam. Elindítom a pótlási folyamatot (max {batch_size} címenként)...")
+        
+        arcgis_geolocator = ArcGIS(user_agent="Interfood_Express_Delivery_App_v3_2026_06_21")
+        
+        success_count = 0
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Csak az első 20 soron megyünk végig egy menetben a terhelés elkerülésére
+        for idx, (original_idx, row) in enumerate(df_missing.head(batch_size).iterrows()):
+            status_text.text(f"⏳ Cím lekérdezése ({idx+1}/{min(batch_size, total_missing)}): {row['Név']} -> {row['Cím']}")
+            progress_bar.progress((idx + 1) / min(batch_size, total_missing))
+            
+            try:
+                time.sleep(1.0) # Finom hálózati időköz a tiltás elkerülésére
+                location = arcgis_geolocator.geocode(f"{row['Cím']}, Hungary", timeout=5)
+                if location:
+                    lat_val = str(round(location.latitude, 6))
+                    lon_val = str(round(location.longitude, 6))
+                    
+                    # Beírjuk az új koordinátát a DataFrame-be szóló apostróffal
+                    df.at[original_idx, 'Lat'] = f"'{lat_val}"
+                    df.at[original_idx, 'Lon'] = f"'{lon_val}"
+                    success_count += 1
+            except Exception as geocode_err:
+                logger.warning(f"Sikertelen lekérdezés: {row['Cím']} -> {geocode_err}")
+        
+        if success_count > 0:
+            df_cleaned = kotelezo_ugyfelkor_formatum_tisztitas(df)
+            ws.clear()
+            set_with_dataframe(ws, df_cleaned, include_index=False, include_column_header=True)
+            
+            st.cache_data.clear()
+            st.success(f"🎉 SIKER! Ebben a körben {success_count} hiányzó ügyfél koordinátája lett sikeresen pótolva!")
+            st.balloons()
+            st.rerun()
+        else:
+            st.warning("⚠️ Ebben a körben nem sikerült új koordinátát beazonosítani. Ellenőrizd a címek formátumát a törzstáblában!")
+            
+    except Exception as batch_err:
+        st.error(f"Hiba a tömeges pótlás során: {batch_err}")
 
 
 def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
@@ -348,7 +422,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
         új_koordináta_számláló = 0
         geolocator_helyi = Nominatim(user_agent="Interfood_Express_Delivery_App_v3_2026")
         
-        # SZIGORÚ O(1)-es SZETT-ALAPÚ ÖSSZEHASONLÍTÁS A DUPLIKÁCIÓK ELLEN
         existing_ids = set(master_df['ID'].astype(str).tolist()) if not master_df.empty else set()
 
         for idx, row in df_napi.iterrows():
@@ -372,7 +445,6 @@ def master_lista_szinkron(df_napi, sheet_id, client, jarat_szam=None):
                         lon_clean = lon_str
                         van_koordinata = True
             
-            # --- ITERATÍV ADATBÁZIS-ALAPÚ GPS HÁMOZÓ MOTOR ---
             if not van_koordinata:
                 nev = row.get('Ügyintéző', row.get('Név', row.get('Nev', 'Ismeretlen név')))
                 eredeti_cim = str(row.get('Cím', row.get('Cim', '')))

@@ -1,64 +1,50 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 
-# --- 1. STREAMLIT ALAPBEÁLLÍTÁS - Kötelezően mindenen kívül, a legelső sorban! ---
-st.set_page_config(page_title="Interfood Label Master", layout="wide")
+#st.set_page_config(page_title="Interfood Label Master", layout="wide")
 
-# --- KÉNYSZERÍTETT MODUL HOT-RELOAD (GARANTÁLT FRISSÍTÉS - HOZZÁADVA PARSER_MODUL ÉS VIZUALIZACIO) ---
-import sys
+#import sys
 import importlib
 
+# A hot-reload lánc garantálja, hogy a Streamlit azonnal betölti a vizualizacio.py és nezetek_modul.py változásait!
 modules_to_reload = ["parser_modul", "mobil_modulok", "nezetek_modul", "adatbazis_modul", "geokodolo_modul", "vizualizacio"]
 for mod_name in modules_to_reload:
     if mod_name in sys.modules:
         importlib.reload(sys.modules[mod_name])
-# -----------------------------------------------------------------------------------
 
-# --- Standard Python modulok importálása ---
-import pandas as pd
+#import pandas as pd
 import logging
 import os
 
-# --- Globális konstansok ---
 LOG_FILE = "app.log"
 
-# --- SAJÁT MODULOK IMPORTÁLÁSA ---
-from parser_modul import merge_data
+#from parser_modul import merge_data
 from adatbazis_modul import (
     SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, 
     _tiszta_futar_lista_letoltes, load_etlap_api_smart
 )
 from utils import init_google_sheets, setup_logging, init_test_mode
-
-# --- MOBIL NÉZETEK ÉS NYOMTATÁS BEHÚZÁSA ---
 from mobil_modulok import render_mobil_aruatvetel, render_mobil_bepakolas, render_mobil_kiszallitas
-
-# --- KISZERVEZETT ÚJ NÉZET RENDEREK (nezetek_modul.py) ---
 from nezetek_modul import (
     render_mobil_sidebar_dashboard, 
     render_desktop_sidebar_controls, 
     render_desktop_main_content
 )
 
-# --- LOGGOLÁS ÉS TESZT ÜZEMMÓD INICIALIZÁLÁSA ---
-setup_logging()
+#setup_logging()
 logger = logging.getLogger(__name__)
 init_test_mode()
 
-# Kényszerített kód-frissítési jelző a modulok újratöltéséhez
-# UPDATE_TRIGGER_v5_2026_06_21
-
-# --- GOOGLE SHEETS KLIENS INICIALIZÁLÁSA ---
 client = init_google_sheets()
 if 'client' not in st.session_state:
     st.session_state['client'] = client
 
-def main():
+#def main():
     global client  
     if 'client' not in st.session_state or st.session_state['client'] is None:
         st.session_state['client'] = client
 
-    # --- ATOMBIZTOS CSS TRÜKKÖK (MOBIL ÉS DEKORÁCIÓS ELREJTÉSEK) ---
+    # CSS hack-ek a szükségtelen Streamlit dekorációk és footer elrejtéséhez
     st.markdown(
         """
         <style>
@@ -82,12 +68,10 @@ def main():
         unsafe_allow_html=True
     )
 
-    # Fontok regisztrálása a PDF-nyomtatáshoz
     from nyomtatas_modulok import register_fonts
     register_fonts()
 
-    # Session State alapértékek biztonságos beállítása
-    if 'mdf' not in st.session_state: st.session_state.mdf = None
+    #    if 'mdf' not in st.session_state: st.session_state.mdf = None
     if 'meta_data' not in st.session_state: st.session_state.meta_data = {}
     if 'weights' not in st.session_state: st.session_state.weights = {}
     if 'editor_key' not in st.session_state: st.session_state.editor_key = 0
@@ -100,13 +84,11 @@ def main():
     if 'nevnapok_df' not in st.session_state: st.session_state.nevnapok_df = pd.DataFrame()
     if 'keresztnevek_df' not in st.session_state: st.session_state.keresztnevek_df = pd.DataFrame()
 
-    # URL paraméterek lekérése
     view = st.query_params.get("view", None)
     url_jarat = st.query_params.get("jarat", "")
     url_teszt = st.query_params.get("test", "false") == "true"
 
-    # BIZTONSÁGOS REDIRECT: Ha a parancsikon miatt nincs 'view' paraméter a linkben
-    if view is None:
+    #    if view is None:
         if 'edited_df' in st.session_state:
             view = "desktop"
         else:
@@ -126,8 +108,7 @@ def main():
 
     is_mobile_view = (view == "mobile")
 
-    # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
-    if not st.session_state.bejelentkezve:
+    #    if not st.session_state.bejelentkezve:
         st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🎯 Label Master</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
         
@@ -138,11 +119,9 @@ def main():
             jarat_input = st.text_input("JÁRATSZÁM (vagy Admin):", value=url_jarat, key="login_jarat_field", placeholder="Pl. 4002 vagy admin")
             password_input = st.text_input("JELSZÓ / KÓD:", type="password", key="login_password_field", placeholder="••••••••")
             
-            # Teszt belépés jelszó nélkül (ha a linkben szerepel a test=true)
             if url_teszt and jarat_input:
                 st.info(f"🧪 Szimulált belépés észlelve a(z) {jarat_input} járathoz.")
                 if st.button("🧪 TESZT BELÉPÉS JELSZÓ NÉLKÜL", type="primary", use_container_width=True):
-                    # --- TISZTA LAP: Korábbi session kulcsok kisöprése ---
                     for k in list(st.session_state.keys()):
                         if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
                             st.session_state.pop(k, None)
@@ -163,9 +142,7 @@ def main():
                     tisztitott_input_jarat = str(jarat_input).strip().lower()
                     tisztitott_input_pass = str(password_input).strip()
                     
-                    # --- FEJLESZTŐI VÉSZBEJÁRAT ---
                     if tisztitott_input_jarat == "admin" and tisztitott_input_pass == "admin123":
-                        # --- TISZTA LAP: Korábbi session kulcsok kisöprése ---
                         for k in list(st.session_state.keys()):
                             if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
                                 st.session_state.pop(k, None)
@@ -176,13 +153,11 @@ def main():
                         st.success("🔓 Sikeres rendszergazda belépés!")
                         st.rerun()
                     
-                    # Google Sheets alapú éles ellenőrzés
                     with st.spinner("⏳ Kapcsolódás a biztonsági szerverhez..."):
                         try:
                             futar_adatok = _tiszta_futar_lista_letoltes(SHEET_ID_UGYFELKOR)
                         except Exception as auth_err:
                             st.error(f"⚠️ Nem sikerült a hitelesítő adatok letöltése: {auth_err}")
-                            st.info("Tipp: Használhatod a beépített vészbejáratot is (Járatszám: admin, Jelszó: admin123)")
                             st.stop()
                     
                     talalt_futar = None
@@ -197,7 +172,6 @@ def main():
                             break
                     
                     if talalt_futar:
-                        # --- TISZTA LAP: Korábbi session kulcsok kisöprése ---
                         for k in list(st.session_state.keys()):
                             if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
                                 st.session_state.pop(k, None)
@@ -211,8 +185,7 @@ def main():
                         st.error("❌ Hibás járatszám vagy jelszó!")
         return
 
-    # --- IDŐUTAZÁS FIGYELŐ ÉS ADATBÁZIS-INICIALIZÁLÓ MOTOR ---
-    try:
+    #    try:
         sheet = client.open_by_key(SHEET_ID_MASTER)
         ws_etlap = sheet.worksheet("Etlap_API")
         nyers_fejlec = ws_etlap.row_values(1) 
@@ -234,7 +207,6 @@ def main():
                 st.session_state.etelek_master_df = m_df  
                 st.session_state.master_df = m_df 
                 
-                # Átadjuk a client objektumot paraméterként a helyes API kommunikációhoz
                 api_df = load_etlap_api_smart(client, SHEET_ID_MASTER, columns_trigger=jelenlegi_het_trigger)
                 if api_df is not None:
                     st.session_state.etlap_api_df = api_df
@@ -243,7 +215,6 @@ def main():
                 st.session_state.master_df = pd.DataFrame()
                 st.session_state.etlap_api_df = pd.DataFrame()
 
-    # Biztosítjuk a globális láthatóságot
     global etlap_api_df, etelek_master_df, master_df, ugyfelkor_df, mdf
     etlap_api_df = st.session_state.get('etlap_api_df', pd.DataFrame())
     etelek_master_df = st.session_state.get('etelek_master_df', pd.DataFrame())
@@ -251,10 +222,7 @@ def main():
     ugyfelkor_df = st.session_state.get('ugyfelkor_df', pd.DataFrame())
     mdf = st.session_state.get('mdf', pd.DataFrame())
 
-    # =========================================================================
-    # 📱 1. ÁG: QR-KÓDOS MOBIL NÉZET
-    # =========================================================================
-    if is_mobile_view:
+    #    if is_mobile_view:
         st.title("📱 Futár Terminál")
         st.caption(f"Bejelentkezve: {st.session_state.user_nev}")
         
@@ -270,16 +238,12 @@ def main():
             render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)
                 
         if st.button("🚪 Kijelentkezés", key="mob_logout"):
-            # --- TISZTA LAP KIJELENTKEZÉSKOR ---
             for k in list(st.session_state.keys()):
                 if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
                     st.session_state.pop(k, None)
             st.session_state.bejelentkezve = False
             st.rerun()
 
-    # =========================================================================
-    # 🖥️ 2. ÁG: TELJES ASZTALI / ADMINISZTRÁCIÓS NÉZET
-    # =========================================================================
     else:
         st.sidebar.markdown(f"### 👤 {st.session_state.user_nev}")
         is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
@@ -291,7 +255,6 @@ def main():
                 st.sidebar.caption(f"🚚 Aktív járatok: {', '.join(st.session_state.user_jarat_lista)}")
             
         if st.sidebar.button("🚪 Kijelentkezés", key="desktop_logout"):
-            # --- TISZTA LAP KIJELENTKEZÉSKOR ---
             for k in list(st.session_state.keys()):
                 if any(x in k for x in ["kiszallitva_", "kiszallitott_statusz_", "bepak_allapot_", "lada_szam_tarolt_", "borravalo_", "atvett_input_", "chk_"]):
                     st.session_state.pop(k, None)
@@ -299,12 +262,9 @@ def main():
             if 'user_jarat_lista' in st.session_state: del st.session_state.user_jarat_lista
             st.rerun()
             
-        # Oldalsáv kezelőszervek kirajzolása és az aktív funkció lekérése
         with st.sidebar:
-            # Átadjuk a client objektumot paraméterként az asztali kezelőszerveknek is
             admin_funkcio = render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE)
 
-        # Főképernyő renderelése a választott menüpont alapján
         render_desktop_main_content(
             client=client,
             SHEET_ID_MASTER=SHEET_ID_MASTER,

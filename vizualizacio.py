@@ -9,6 +9,7 @@ def utvonal_terkep(df_napi, sheet_id=None):
     Kirajzolja a napi útvonalat egy interaktív térképen.
     Sorszámozott Leaflet.js markereket használ egész számként formázva.
     Támogatja az interaktív kattintást, a piros tű lerakását és az egykattintásos koordináta másolást.
+    Beépített, kényelmes Nominatim címkeresővel rendelkezik a térképen belül!
     """
     if df_napi is None or df_napi.empty:
         st.warning("⚠️ Nincs adat az útvonal kirajzolásához!")
@@ -34,7 +35,7 @@ def utvonal_terkep(df_napi, sheet_id=None):
             )
             map_df[col] = pd.to_numeric(map_df[col], errors='coerce')
 
-        # 4. Érvényes koordináták szűrése és sorszám szerinti szigorú növekvő rendezés
+        # 4. Kiszűrjük azokat a sorokat, ahol nincs érvényes GPS koordináta
         map_df['latitude'] = map_df['Lat']
         map_df['longitude'] = map_df['Lon']
         
@@ -71,7 +72,7 @@ def utvonal_terkep(df_napi, sheet_id=None):
 
         points_json = json.dumps(points, ensure_ascii=False)
 
-        # 6. Szuper-biztonságos HTML + Leaflet.js sablon interaktív kattintás-figyelővel
+        # 6. Szuper-biztonságos HTML + Leaflet.js sablon interaktív kattintás- és címkereső-figyelővel
         html_map_code = f"""
         <!DOCTYPE html>
         <html>
@@ -115,12 +116,46 @@ def utvonal_terkep(df_napi, sheet_id=None):
                     font-size: 12px;
                     line-height: 1.4;
                 }}
+                /* Címkereső widget dizájn */
+                .map-search-panel {{
+                    background: white;
+                    padding: 4px;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+                    display: flex;
+                    gap: 4px;
+                    border: 1.5px solid #D1D5DB;
+                }}
+                .map-search-input {{
+                    width: 180px;
+                    padding: 6px;
+                    font-size: 12px;
+                    border: 1px solid #E5E7EB;
+                    border-radius: 6px;
+                    outline: none;
+                }}
+                .map-search-btn {{
+                    background: #1E3A8A;
+                    color: white;
+                    border: none;
+                    padding: 6px 10px;
+                    border-radius: 6px;
+                    font-size: 12px;
+                    font-weight: bold;
+                    cursor: pointer;
+                    transition: background 0.2s;
+                }}
+                .map-search-btn:hover {{
+                    background: #2563EB;
+                }}
             </style>
         </head>
         <body>
             <div id="map"></div>
             <script>
                 var points = {points_json};
+                var map;
+                var javitoTű = null;
                 
                 // Helper másoló függvény a homokozó iframe korlátok megkerülésére (Textarea trükk)
                 window.masolGPS = function() {{
@@ -128,21 +163,98 @@ def utvonal_terkep(df_napi, sheet_id=None):
                     if (copyText) {{
                         copyText.select();
                         copyText.setSelectionRange(0, 99999);
-                        try {{
-                            document.execCommand("copy");
-                            var ok_msg = document.getElementById("copy_ok_msg");
-                            if (ok_msg) ok_msg.style.display = "block";
+                        try {
+                            document.execCommand('copy');
+                            var msg = document.getElementById("copy_ok_msg");
+                            if (msg) msg.style.display = "block";
                             setTimeout(function() {{
-                                if (ok_msg) ok_msg.style.display = "none";
+                                if (msg) msg.style.display = "none";
                             }}, 2000);
-                        }} catch (err) {{
+                        } catch (err) {{
                             console.error("Nem sikerült a másolás", err);
                         }}
                     }}
                 }};
 
+                // Golyóálló piros tű lehelyező és frissítő funkció
+                window.helyezRedMarker = function(latlng) {{
+                    var lat = latlng.lat.toFixed(6);
+                    var lon = latlng.lng.toFixed(6);
+
+                    if (javitoTű) {{
+                        javitoTű.setLatLng(latlng);
+                    }} else {{
+                        javitoTű = L.marker(latlng, {{
+                            draggable: true,
+                            icon: L.icon({{
+                                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                                iconSize: [25, 41],
+                                iconAnchor: [12, 41],
+                                popupAnchor: [1, -34],
+                                shadowSize: [41, 41]
+                            }})
+                        }}).addTo(map);
+
+                        // Húzás végének figyelése
+                        javitoTű.on('dragend', function(evt) {{
+                            var drag_lat = evt.target.getLatLng().lat.toFixed(6);
+                            var drag_lon = evt.target.getLatLng().lng.toFixed(6);
+                            var input_field = document.getElementById('gps_val_input');
+                            if (input_field) {{
+                                input_field.value = drag_lat + "," + drag_lon;
+                            }}
+                        }});
+                    }}
+
+                    var popupHtml = `
+                        <div style="font-size:12px; width:180px; text-align:center;">
+                            <b style="color:#DC2626;">🎯 Új GPS Pozíció</b><br>
+                            <span style="font-size:10px; color:#6B7280;">Húzd a kapura, ha nem pontos!</span><br>
+                            <input type="text" id="gps_val_input" value="${{lat}},${{lon}}" style="width:100%; margin:6px 0; font-size:11px; text-align:center; font-weight:bold; border:1px solid #D1D5DB; padding:2px; border-radius:4px;" readonly><br>
+                            <button onclick="window.masolGPS()" style="width:100%; background:#1E3A8A; color:white; border:none; border-radius:6px; padding:6px; font-weight:bold; cursor:pointer; font-size:11.5px; margin-top:2px;">📋 Koordináta Másolása</button>
+                            <div id="copy_ok_msg" style="color:#10B981; font-weight:bold; font-size:10.5px; margin-top:4px; display:none;">✨ Sikeresen másolva a vágólapra!</div>
+                        </div>
+                    `;
+
+                    javitoTű.bindPopup(popupHtml).openPopup();
+                }};
+
+                // Címkereső futtatása Nominatim API-val
+                window.keresCimet = function() {{
+                    var input = document.getElementById("map_address_search");
+                    if (!input || !input.value.trim()) return;
+                    var address = input.value.trim();
+                    
+                    var query = address;
+                    if (!query.toLowerCase().includes("debrecen") && !query.toLowerCase().includes("ebes")) {{
+                        query += ", Debrecen";
+                    }}
+                    if (!query.toLowerCase().includes("hungary") && !query.toLowerCase().includes("magyarország")) {{
+                        query += ", Hungary";
+                    }}
+
+                    fetch("https://nominatim.openstreetmap.org/search?format=json&q=" + encodeURIComponent(query) + "&limit=1")
+                        .then(response => response.json())
+                        .then(data => {{
+                            if (data && data.length > 0) {{
+                                var lat = parseFloat(data[0].lat);
+                                var lon = parseFloat(data[0].lon);
+                                var targetLatLng = L.latLng(lat, lon);
+                                
+                                map.setView(targetLatLng, 16);
+                                window.helyezRedMarker(targetLatLng);
+                            }} else {{
+                                alert("❌ Sajnos a megadott cím nem található! Próbáld meg egyszerűbben.");
+                            }}
+                        }})
+                        .catch(err => {{
+                            console.error("Geokódolási hiba:", err);
+                        }});
+                }};
+
                 if (points.length > 0) {{
-                    var map = L.map('map').setView([points[0].lat, points[0].lon], 13);
+                    map = L.map('map').setView([points[0].lat, points[0].lon], 13);
                     
                     L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
                         attribution: '© OpenStreetMap contributors'
@@ -181,51 +293,22 @@ def utvonal_terkep(df_napi, sheet_id=None):
                         map.fitBounds(markersGroup.getBounds(), {{ padding: [30, 30] }});
                     }}
 
-                    // --- INTERAKTÍV KATTINTÁS ÉS DRAGGABLE PIROS JAVÍTÓ TŰ ---
-                    var javitoTű = null;
-
-                    map.on('click', function(e) {{
-                        var lat = e.latlng.lat.toFixed(6);
-                        var lon = e.latlng.lng.toFixed(6);
-
-                        if (javitoTű) {{
-                            javitoTű.setLatLng(e.latlng);
-                        }} else {{
-                            // Piros Leaflet tű létrehozása
-                            javitoTű = L.marker(e.latlng, {{
-                                draggable: true,
-                                icon: L.icon({{
-                                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-                                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-                                    iconSize: [25, 41],
-                                    iconAnchor: [12, 41],
-                                    popupAnchor: [1, -34],
-                                    shadowSize: [41, 41]
-                                }})
-                            }}).addTo(map);
-
-                            // Draggend figyelő a húzásokhoz
-                            javitoTű.on('dragend', function(evt) {{
-                                var drag_lat = evt.target.getLatLng().lat.toFixed(6);
-                                var drag_lon = evt.target.getLatLng().lng.toFixed(6);
-                                var input_field = document.getElementById('gps_val_input');
-                                if (input_field) {{
-                                    input_field.value = drag_lat + "," + drag_lon;
-                                }}
-                            }});
-                        }}
-
-                        var popupHtml = `
-                            <div style="font-size:12px; width:180px; text-align:center;">
-                                <b style="color:#DC2626;">🎯 Új GPS Pozíció</b><br>
-                                <span style="font-size:10px; color:#6B7280;">Húzd a kapura, ha nem pontos!</span><br>
-                                <input type="text" id="gps_val_input" value="${{lat}},${{lon}}" style="width:100%; margin:6px 0; font-size:11px; text-align:center; font-weight:bold; border:1px solid #D1D5DB; padding:2px; border-radius:4px;" readonly><br>
-                                <button onclick="window.masolGPS()" style="width:100%; background:#1E3A8A; color:white; border:none; border-radius:6px; padding:6px; font-weight:bold; cursor:pointer; font-size:11.5px; margin-top:2px;">📋 Koordináta Másolása</button>
-                                <div id="copy_ok_msg" style="color:#10B981; font-weight:bold; font-size:10.5px; margin-top:4px; display:none;">✨ Sikeresen másolva a vágólapra!</div>
-                            </div>
+                    // --- NATIVE CÍMKERESŐ PANEL BEÉPÍTÉSE A TÉRKÉP BAL FELSŐ SARKÁBA ---
+                    var searchControl = L.control({{position: 'topleft'}});
+                    searchControl.onAdd = function (map) {{
+                        var div = L.DomUtil.create('div', 'map-search-panel');
+                        div.innerHTML = `
+                            <input type="text" id="map_address_search" class="map-search-input" placeholder="Cím keresése a térképen..." onkeypress="if(event.key === 'Enter') window.keresCimet()">
+                            <button onclick="window.keresCimet()" class="map-search-btn">🔍</button>
                         `;
+                        L.DomEvent.disableClickPropagation(div);
+                        return div;
+                    }};
+                    searchControl.addTo(map);
 
-                        javitoTű.bindPopup(popupHtml).openPopup();
+                    // Térképes kattintás figyelő
+                    map.on('click', function(e) {{
+                        window.helyezRedMarker(e.latlng);
                     }});
                 }}
             </script>
@@ -233,6 +316,7 @@ def utvonal_terkep(df_napi, sheet_id=None):
         </html>
         """
 
+        # HTML térkép komponens beágyazása a Streamlit felületre
         st.markdown(f"🗺️ **Aktív megállók a térképen:** {len(map_data)} cím")
         components.html(html_map_code, height=490)
         

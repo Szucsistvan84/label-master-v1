@@ -817,16 +817,22 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                         style_plain = "font-weight: bold; color: #991B1B; font-size: 11.5px;" if is_szombat else "font-weight: normal; color: #4B5563; font-size: 11.5px;"
                         st.markdown(f'<div style="font-size: 11.5px; {style_plain}">📋 {part}</div>', unsafe_allow_html=True)
             
-            # --- 🗺️ GOOGLE / OPENSTREETMAP EMBED ---
+            # --- 🗺️ GOLYÓÁLLÓ OPENSTREETMAP EMBED MOBILRA ---
             if saved_lat and saved_lon and saved_lat != "nan" and saved_lon != "nan":
-                embed_url = f"https://www.google.com/maps/search/?api=1&query={saved_lat},{saved_lon}&zoom=16&layers=M"
+                # Ha van GPS koordináta, az OSM export linkjét használjuk tiszta HTTPS-en, fix piros markerrel!
+                lat_f = float(saved_lat)
+                lon_f = float(saved_lon)
+                # Kiszámolunk egy finom ablakot a pont köré (kb. zoom 16-os szint)
+                delta = 0.003
+                embed_url = f"https://www.openstreetmap.org/export/embed.html?bbox={lon_f-delta}%2C{lat_f-delta}%2C{lon_f+delta}%2C{lat_f+delta}&layer=mapnik&marker={lat_f}%2C{lon_f}"
             else:
-                clean_address = f"{aktualis_cim, Hungary}"
-                encoded_osm = urllib.parse.quote(clean_address)
-                embed_url = f"https://maps.google.com/maps?q={encoded_osm}&zoom=16&layers=M"
+                # Fallback: ha csak cím van, a Google tiszta HTTPS beágyazó linkjét hívjuk meg
+                encoded_nav = urllib.parse.quote(f"{aktualis_cim}, Debrecen, Hungary")
+                embed_url = f"https://maps.google.com/maps?q={encoded_nav}&t=&z=16&ie=UTF8&iwloc=&output=embed"
             
+            # Megjelenítés a reszponzív, kék keretes iframe-ben
             st.components.v1.html(
-                f'<iframe width="100%" height="150" src="{embed_url}" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" style="border-radius:10px; border:1px solid #ddd;"></iframe>', 
+                f'<iframe width="100%" height="150" src="{embed_url}" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" style="border-radius:10px; border:1.5px solid #93C5FD;"></iframe>', 
                 height=160
             )
 

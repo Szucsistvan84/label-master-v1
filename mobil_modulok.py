@@ -229,76 +229,27 @@ def render_mobil_aruatvetel(client):
                 st.rerun()
 
 def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
-    st.markdown(
-        """
-        <style>
-        .block-container {
-            padding-top: 1rem !important;
-            padding-bottom: 1.5rem !important;
-            padding-left: 0.5rem !important;
-            padding-right: 0.5rem !important;
-        }
-        .grouped-card {
-            background-color: #FFFFFF;
-            border: 1px solid #E5E7EB;
-            border-radius: 12px;
-            padding: 10px;
-            margin-bottom: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        }
-        .group-tip {
-            background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
-            border: 1px solid #FCD34D;
-            color: #92400E;
-            padding: 6px 10px;
-            border-radius: 8px;
-            font-size: 11px;
-            font-weight: bold;
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .item-badge {
-            display: inline-block;
-            background-color: #EFF6FF;
-            color: #1E40AF;
-            border: 1px solid #BFDBFE;
-            padding: 2px 6px;
-            border-radius: 12px;
-            margin: 2px;
-            font-size: 11px;
-            font-weight: bold;
-            white-space: nowrap;
-        }
-        .customer-item {
-            background-color: #F9FAFB;
-            border: 1px solid #F3F4F6;
-            border-radius: 8px;
-            padding: 8px;
-            margin-bottom: 6px;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
+    """
+    Címke és láda rendező (Címekre szedés) fázis.
+    Atombiztos felhős perzisztenciával: az állapotok frissítés után is megmaradnak,
+    a lezárás pedig egyetlen kötegelt (batch) kéréssel szinkronizál a Google Sheets-be.
+    """
     st.markdown("## 2. lépés: Címke és láda rendező (Címekre szedés)")
     st.caption("💡 Pakolás fordított sorrendben! A csoportosított címeket szedd egy szatyorba.")
 
-    if 'mobil_lada_szam' not in st.session_state: st.session_state.mobil_lada_szam = 1
-    if "mutasd_bepakoltat" not in st.session_state: st.session_state.mutasd_bepakoltat = False
+    if 'mobil_lada_szam' not in st.session_state: 
+        st.session_state.mobil_lada_szam = 1
+    if "mutasd_bepakoltat" not in st.session_state: 
+        st.session_state.mutasd_bepakoltat = False
 
+    # Felső vezérlőpult a ládáknak
     col_info, col_gomb1, col_gomb2 = st.columns([1, 1.2, 1.2])
-    
     with col_info:
         st.metric("📦 Aktuális:", f"{st.session_state.mobil_lada_szam}. láda")
-        
     with col_gomb1:
         if st.button("➕ Következő láda", use_container_width=True, key="bepak_fofelulet_kov_lada_btn"):
             st.session_state.mobil_lada_szam += 1
             st.rerun()
-            
     with col_gomb2:
         gomb_szoveg = "🔍 Rejtsd a kész" if st.session_state.mutasd_bepakoltat else "🔍 Mutasd a kész"
         if st.button(gomb_szoveg, use_container_width=True, key="bepak_fofelulet_elrejtes_btn"):
@@ -310,7 +261,9 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
     try:
         valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
         if valasztott_jaratok:
-            df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok") 
+            df_adatok = st.session_state.get('mdf', pd.DataFrame())
+            if df_adatok is None or df_adatok.empty:
+                df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok") 
             
             if not df_adatok.empty:
                 df_adatok.columns = [c.strip() for c in df_adatok.columns]
@@ -331,7 +284,6 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         if 'Feldolgozó Futár' in df_adatok.columns:
                             routes_from_data = df_adatok[df_adatok['Feldolgozó Futár'].astype(str).str.strip().str.lower() == futar_neve_lower]['Járat'].unique()
                             actual_filter_routes.extend([str(r).strip() for r in routes_from_data if str(r).strip() != "" and str(r).lower() != "nan"])
-                        
                         if not actual_filter_routes:
                             actual_filter_routes.extend([str(r).strip() for r in st.session_state.get("user_jarat_lista", [])])
                     else:
@@ -351,117 +303,45 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                     st.info("ℹ️ Nincsenek bepakolandó címek a járatodhoz.")
                     return
 
-                # Admin gyorstöltés panel
+                # --- ADMIN GYORSTÖLTŐ INTEGRÁCIÓ ---
                 if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
-                    with st.expander("🛠️ ADMIN TESZTELŐ PANEL (Gyors Bepakolás)", expanded=True):
-                        st.markdown(f"**Kedves {futar_neve}!** Ezt a panelt csak te látod adminisztrátorként a tesztelés megkönnyítésére.")
-                        
+                    with st.expander("🛠️ ADMIN TESZTELŐ PANEL (Gyors Bepakolás)", expanded=False):
                         col_fast1, col_fast2 = st.columns(2)
                         with col_fast1:
                             if st.button("⚡ ÖSSZES CÍM BEPAKOLÁSA AZONNAL", type="primary", use_container_width=True, key="admin_fast_pack_btn"):
-                                with st.spinner("⏳ Minden tétel bepakolása folyamatban..."):
-                                    for idx in df_adatok_filtered.index:
-                                        st.session_state[f"bepak_allapot_{idx}"] = True
-                                        st.session_state[f"lada_szam_tarolt_{idx}"] = "1. láda"
-                                        st.session_state[f"chk_{idx}"] = True
-                                        st.session_state[f"kiszallitva_{idx}"] = False
-                                        st.session_state[f"kiszallitott_statusz_{idx}"] = "Folyamatban"
-                                        st.session_state[f"borravalo_{idx}"] = 0
-                                        if f"atvett_input_{idx}" in st.session_state:
-                                            st.session_state[f"atvett_input_{idx}"] = 0
-                                            
-                                    st.session_state.kiszallitas_folyamatban = True
-                                    st.session_state['futar_borravalo'] = 0
-                                    
-                                    if not st.session_state.get('teszt_uzemmod', False):
-                                        try:
-                                            kivalasztott = st.session_state.get('kivalasztott_datum', datetime.today().date())
-                                            api_datum_kulcs = kivalasztott.strftime("%Y-%m-%d") if isinstance(kivalasztott, datetime.date) else str(kivalasztott)
-                                            sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
-                                            ws_summary = sh_ugyfelkor.worksheet("Mobil_Summary")
-                                            summary_records = ws_summary.get_all_records()
-                                            
-                                            futar_keresett_clean = str(futar_neve).strip().lower()
-                                            existing_row_index = None
-                                            for r_idx, row in enumerate(summary_records, start=2):
-                                                r_date_str = str(row.get('Datum', '')).strip()
-                                                r_futar = str(row.get('Futar', '')).strip().lower()
-                                                if r_date_str == api_datum_kulcs and (r_futar == futar_keresett_clean or r_futar == "szűcs istván"):
-                                                    existing_row_index = r_idx
-                                                    break
-                                            
-                                            if existing_row_index:
-                                                ws_summary.update_cell(existing_row_index, 8, 0)
-                                                ws_summary.update_cell(existing_row_index, 9, 0)
-                                                st.cache_data.clear()
-                                        except Exception as e_sh_reset:
-                                            st.write(f"⚠️ Nem sikerült a Google Sheets valós idejű szinkronizációja: {e_sh_reset}")
-                                            
-                                    st.success("🎉 Összes tétel sikeresen bepakolva az 1. lábába! Indulhat a kiszállítás!")
-                                    time.sleep(1.0)
-                                    st.rerun()
+                                for idx in df_adatok_filtered.index:
+                                    st.session_state[f"bepak_allapot_{idx}"] = True
+                                    st.session_state[f"lada_szam_tarolt_{idx}"] = "1. láda"
+                                    st.session_state[f"chk_{idx}"] = True
+                                st.success("🎉 Minden tétel lokálisan bepakolva! Nyomj a lenti mentés gombra a szinkronhoz.")
+                                time.sleep(0.5)
+                                st.rerun()
                         with col_fast2:
                             if st.button("🧹 BEPAKOLÁSOK RESETÁLÁSA", type="secondary", use_container_width=True, key="admin_fast_reset_btn"):
                                 for idx in df_adatok_filtered.index:
                                     st.session_state[f"bepak_allapot_{idx}"] = False
                                     st.session_state[f"lada_szam_tarolt_{idx}"] = None
                                     st.session_state[f"chk_{idx}"] = False
-                                    st.session_state[f"kiszallitva_{idx}"] = False
-                                    st.session_state[f"kiszallitott_statusz_{idx}"] = "Folyamatban"
-                                    st.session_state[f"borravalo_{idx}"] = 0
-                                    if f"atvett_input_{idx}" in st.session_state:
-                                        st.session_state[f"atvett_input_{idx}"] = 0
-                                        
-                                st.session_state.kiszallitas_folyamatban = False
-                                st.session_state['futar_borravalo'] = 0
-                                
-                                if not st.session_state.get('teszt_uzemmod', False):
-                                    try:
-                                        kivalasztott = st.session_state.get('kivalasztott_datum', datetime.today().date())
-                                        api_datum_kulcs = kivalasztott.strftime("%Y-%m-%d") if isinstance(kivalasztott, datetime.date) else str(kivalasztott)
-                                        sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
-                                        ws_summary = sh_ugyfelkor.worksheet("Mobil_Summary")
-                                        summary_records = ws_summary.get_all_records()
-                                        
-                                        futar_keresett_clean = str(futar_neve).strip().lower()
-                                        existing_row_index = None
-                                        for r_idx, row in enumerate(summary_records, start=2):
-                                            r_date_str = str(row.get('Datum', '')).strip()
-                                            r_futar = str(row.get('Futar', '')).strip().lower()
-                                            if r_date_str == api_datum_kulcs and (r_futar == futar_keresett_clean or r_futar == "szűcs istván"):
-                                                existing_row_index = r_idx
-                                                break
-                                        
-                                        if existing_row_index:
-                                            ws_summary.update_cell(existing_row_index, 8, 0)
-                                            ws_summary.update_cell(existing_row_index, 9, 0)
-                                            st.cache_data.clear()
-                                    except Exception as e_sh_reset:
-                                        st.write(f"⚠️ Nem sikerült a Google Sheets valós idejű szinkronizációja: {e_sh_reset}")
-                                        
-                                st.warning("🧹 Minden korábbi bepakolás sikeresen kiürítve!")
-                                time.sleep(1.0)
+                                st.warning("🧹 Helyi cache kiürítve!")
+                                time.sleep(0.5)
                                 st.rerun()
-                        st.write("")
 
                 addr_max_sorrend = df_adatok_filtered.groupby(cim_oszlop)['Sorrend'].max().reset_index()
                 addr_max_sorrend = addr_max_sorrend.sort_values(by='Sorrend', ascending=False)
                 rendezett_cimek = addr_max_sorrend[cim_oszlop].tolist()
 
-                def log_lada():
-                    # Segédfüggvény a ládázáshoz, ami rögzíti a megállók állapotát
-                    for row_idx in df_adatok_filtered.index:
-                        bep_k = f"bepak_allapot_{row_idx}"
-                        chk_k = f"chk_{row_idx}"
-                        lada_k = f"lada_szam_tarolt_{row_idx}"
-                        if st.session_state.get(chk_k, False):
-                            if not st.session_state.get(bep_k, False):
-                                st.session_state[bep_k] = True
-                                st.session_state[lada_k] = f"{st.session_state.mobil_lada_szam}. láda"
-                        else:
-                            if st.session_state.get(bep_k, False):
-                                st.session_state[bep_k] = False
-                                st.session_state[lada_k] = None
+                # --- FELHŐS ÁLLAPOTMENTŐ ENGINE (MINDEN TOGGLE KATTINTÁSKOR) ---
+                def frissit_bepakolas_felhoben(idx_to_update, check_value):
+                    status_str = "Bepakolva" if check_value else "Folyamatban"
+                    lada_str = f"{st.session_state.mobil_lada_szam}. láda" if check_value else ""
+                    
+                    st.session_state[f"bepak_allapot_{idx_to_update}"] = check_value
+                    st.session_state[f"lada_szam_tarolt_{idx_to_update}"] = lada_str if check_value else None
+                    
+                    if 'mdf' in st.session_state and st.session_state.mdf is not None:
+                        st.session_state.mdf.at[idx_to_update, 'Státusz'] = status_str
+                        st.session_state.mdf.at[idx_to_update, 'Láda'] = lada_str
+                    st.toast(f"💾 Tárolva: {st.session_state.mobil_lada_szam}. láda")
 
                 @st.fragment
                 def render_kartyak(df_lista, cimek):
@@ -473,10 +353,14 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             bepakolt_kulcs = f"bepak_allapot_{idx}"
                             lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
                             
+                            # Védett kezdeti beolvasás a Sheets-ből érkező adatok alapján!
+                            db_statusz = str(row.get('Státusz', 'Folyamatban')).strip()
+                            db_lada = str(row.get('Láda', '')).strip()
+                            
                             if bepakolt_kulcs not in st.session_state:
-                                st.session_state[bepakolt_kulcs] = False
+                                st.session_state[bepakolt_kulcs] = (db_statusz == "Bepakolva" or "láda" in db_lada.lower())
                             if lada_tarolt_kulcs not in st.session_state:
-                                st.session_state[lada_tarolt_kulcs] = None
+                                st.session_state[lada_tarolt_kulcs] = db_lada if ("láda" in db_lada.lower()) else None
                             
                             if not st.session_state[bepakolt_kulcs] or st.session_state.mutasd_bepakoltat:
                                 show_card = True
@@ -484,17 +368,10 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         if not show_card:
                             continue
 
-                        st.markdown(f"""
-                        <div class="grouped-card">
-                            <div style="font-size: 16px; font-weight: bold; color: #1E3A8A; margin-bottom: 4px;">📍 Megálló: {addr}</div>
-                        """, unsafe_allow_html=True)
+                        st.markdown(f'<div class="grouped-card"><div style="font-size: 16px; font-weight: bold; color: #1E3A8A; margin-bottom: 4px;">📍 Megálló: {addr}</div>', unsafe_allow_html=True)
 
                         if len(df_addr) > 1:
-                            st.markdown(f"""
-                            <div class="group-tip">
-                                💡 Tipp: Erre a címre {len(df_addr)} db rendelés megy! Szedheted őket egy közös szatyorba.
-                            </div>
-                            """, unsafe_allow_html=True)
+                            st.markdown('<div class="group-tip">💡 Tipp: Erre a címre több rendelés megy! Szedheted egy közös szatyorba.</div>', unsafe_allow_html=True)
 
                         for idx, row in df_addr.iterrows():
                             vevo_nev = str(row[nev_oszlop]).strip()
@@ -502,39 +379,25 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             megj = str(row.get('Megjegyzés', '')).strip()
                             rendeles_val = str(row[rendeles_oszlop]).strip() if rendeles_oszlop else ""
                             
-                            tetel_darabszam = 0
-                            found_items_count = re.findall(ORDER_PAT, rendeles_val)
-                            if found_items_count:
-                                tetel_darabszam = sum(int(qty) for qty, _ in found_items_count)
-                            else:
-                                tetel_darabszam = 1 if rendeles_val != "" and rendeles_val.lower() != "nan" else 0
+                            tetel_darabszam = sum(int(qty) for qty, _ in re.findall(ORDER_PAT, rendeles_val)) if re.findall(ORDER_PAT, rendeles_val) else (1 if rendeles_val and rendeles_val.lower() != "nan" else 0)
 
-                            st.markdown(f"""
-                            <div class="customer-item">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                    <span style="font-size: 13.5px; font-weight: bold; color: #374151;">👤 {vevo_nev}</span>
-                                    <span style="font-size: 11.5px; background-color: #E5E7EB; color: #374151; padding: 2px 6px; border-radius: 6px; font-weight: bold;">
-                                        🏷️ Címke #{címke_szama} | 📦 {tetel_darabszam} db
-                                    </span>
-                                </div>
-                            """, unsafe_allow_html=True)
+                            st.markdown(f'<div class="customer-item"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;"><span style="font-size: 13.5px; font-weight: bold; color: #374151;">👤 {vevo_nev}</span><span style="font-size: 11.5px; background-color: #E5E7EB; color: #374151; padding: 2px 6px; border-radius: 6px; font-weight: bold;">🏷️ Címke #{címke_szama} | 📦 {tetel_darabszam} db</span></div>', unsafe_allow_html=True)
 
-                            if megj and megj != "nan" and megj != "":
+                            if megj and megj.lower() != "nan" and megj != "":
                                 st.markdown(f'<div style="font-size: 11.5px; color: #D97706; font-style: italic; margin-bottom: 4px;">📝 Megjegyzés: {megj}</div>', unsafe_allow_html=True)
 
                             day_parts = rendeles_val.split('|')
                             for part in day_parts:
                                 part = part.strip()
                                 if not part: continue
-                                
                                 is_szombat = "Szo:" in part or "Szombat:" in part
                                 day_title = ""
                                 if "Hé:" in part: day_title = "🗓️ Hétfő:"
                                 elif "Ke:" in part: day_title = "🗓️ Kedd:"
                                 elif "Sze:" in part: day_title = "🗓️ Szerda:"
-                                elif "Csü:" in part: day_title = "🗓️ Csütörtök:"
+                                elif "Csü:" in part: day_title = "🗓️  Csütörtök:"
                                 elif "Pé:" in part: day_title = "🗓️ Péntek:"
-                                elif "Szo:" in part: day_title = "📆 Szombat (Hétvége):"
+                                elif "Szo:" in part: day_title = "季 Szombat (Hétvége):"
                                 
                                 if day_title:
                                     style_szoveg = "color: #DC2626; font-weight: bold;" if is_szombat else "color: #4B5563; font-weight: 500;"
@@ -548,68 +411,79 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                         badges_html += f'<span class="item-badge" style="{style_kaja}">{qty}x {code}</span>'
                                     badges_html += '</div>'
                                     st.markdown(badges_html, unsafe_allow_html=True)
-                                elif part and part != "nan" and part != "":
-                                    style_plain = "font-weight: bold; color: #991B1B;" if is_szombat else "font-weight: normal; color: #4B5563;"
-                                    st.markdown(f'<div style="font-size: 12px; {style_plain}">📋 {part}</div>', unsafe_allow_html=True)
 
                             st.markdown('</div>', unsafe_allow_html=True)
 
                             bepakolt_kulcs = f"bepak_allapot_{idx}"
                             lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
 
-                            if bepakolt_kulcs not in st.session_state:
-                                st.session_state[bepakolt_kulcs] = False
-                            if lada_tarolt_kulcs not in st.session_state:
-                                st.session_state[lada_tarolt_kulcs] = None
-
                             tarolt_lada_ertek = st.session_state.get(lada_tarolt_kulcs, None)
                             label_text = f"🟢 Bepakolva ide: {tarolt_lada_ertek}" if tarolt_lada_ertek else f"⚪ Bepakolás a ládába ({vevo_nev})"
                             
-                            st.toggle(label_text, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}", on_change=log_lada)
-                            st.write("")
+                            val_toggle = st.toggle(label_text, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}")
+                            if val_toggle != st.session_state[bepakolt_kulcs]:
+                                frissit_bepakolas_felhoben(idx, val_toggle)
+                                st.rerun()
 
                         st.markdown('</div>', unsafe_allow_html=True)
                         st.write("---")
 
                 render_kartyak(df_adatok_filtered, rendezett_cimek)
                 
+                # --- GOLYÓÁLLÓ KÖTEGELT FELHŐ-MENTŐS LEZÁRÁS ---
                 st.write("")
                 st.write("---")
                 st.subheader("🏁 Bepakolás Lezárása")
-                st.info("Ha minden címet berendeztél a ládákba, zárd le a fázist az induláshoz!")
+                st.info("Ha minden címet elrendeztél, zárd le a fázist az induláshoz! Ekkor a rendszer szinkronizálja a ládaszámokat a felhőbe.")
                 
                 if st.button("📦 LÁDÁZÁS ÉS BEPAKOLÁS KÉSZ (Indulás)", use_container_width=True, type="primary", key="futar_bepakolas_kesz_btn"):
                     st.session_state.kiszallitas_folyamatban = True
                     
-                    if st.session_state.get('teszt_uzemmod', False) or st.query_params.get("test", "false") == "true":
-                        st.warning("🧪 **Teszt üzemmód aktív!** A bepakolás lezárását sikeresen szimuláltuk. A Google Sheets-be NEM mentettünk időbélyeget.")
-                        time.sleep(2.0)
+                    if st.session_state.get('teszt_uzemmod', False):
+                        st.warning("🧪 **Teszt üzemmód aktív!** Mentés szimulálva.")
+                        time.sleep(1.0)
                         st.rerun()
                     else:
-                        try:
-                            sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
-                            idok_sheet = sh_ugyfelkor.worksheet("Mobil_Idobelyegek")
-                            
-                            most = datetime.now()
-                            bepakolas_vege_ido = most.strftime("%H:%M:%S")
-                            mai_datum = most.strftime("%Y-%m-%d")
-                            futar_neve = st.session_state.get('user_nev', 'Ismeretlen Futár')
-                            jarat_szoveg = ", ".join(map(str, valasztott_jaratok))
-                            
-                            sor_szam = st.session_state.get('idobelyeg_sor_index')
-                            if sor_szam:
-                                idok_sheet.update_cell(sor_szam, 6, bepakolas_vege_ido)
-                            else:
-                                idok_sheet.append_row([mai_datum, jarat_szoveg, futar_neve, "", bepakolas_vege_ido])
-                            
-                            st.success(f"🎉 Bepakolás lezárva ({bepakolas_vege_ido})! Jó utat kívánunk! 🚚")
-                            time.sleep(1.5)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Hiba az éles időbélyeg mentésekor: {e}")
-                            time.sleep(2.0)
-                            st.rerun()
-                            
+                        with st.spinner("⏳ Adatbázisok és ládaszámok szinkronizálása a felhőbe..."):
+                            try:
+                                sh = client.open_by_key(SHEET_ID_UGYFELKOR)
+                                ws_adatok = sh.worksheet("Adatok")
+                                adatok_rows = ws_adatok.get_all_values()
+                                
+                                header = adatok_rows[0]
+                                df_save = pd.DataFrame(adatok_rows[1:], columns=header)
+                                
+                                # Átemeljük az összes ládainfót a DataFrame-be az ID horgonyok alapján
+                                for idx in df_adatok_filtered.index:
+                                    lada_k = f"lada_szam_tarolt_{idx}"
+                                    if st.session_state.get(lada_k):
+                                        u_id = str(df_adatok_filtered.loc[idx, 'ID']).strip()
+                                        df_save.loc[df_save['ID'].astype(str).str.strip() == u_id, 'Láda'] = st.session_state[lada_k]
+                                        df_save.loc[df_save['ID'].astype(str).str.strip() == u_id, 'Státusz'] = "Folyamatban"
+                                
+                                # Egyetlen nagy kéréssel mentünk! (Kvótabiztos ág)
+                                ws_adatok.clear()
+                                ws_adatok.update('A1', [header] + df_save.values.tolist(), value_input_option='USER_ENTERED')
+                                
+                                # Időbélyeg elhelyezése
+                                idok_sheet = sh.worksheet("Mobil_Idobelyegek")
+                                most = datetime.now()
+                                bepakolas_vege_ido = most.strftime("%H:%M:%S")
+                                mai_datum = most.strftime("%Y-%m-%d")
+                                jarat_szoveg = ", ".join(map(str, valasztott_jaratok))
+                                
+                                sor_szam = st.session_state.get('idobelyeg_sor_index')
+                                if sor_szam:
+                                    idok_sheet.update_cell(sor_szam, 6, bepakolas_vege_ido)
+                                else:
+                                    idok_sheet.append_row([mai_datum, jarat_szoveg, futar_neve, "", bepakolas_vege_ido])
+                                
+                                st.cache_data.clear()
+                                st.success("🎉 Ládaszámok sikeresen mentve a Google Sheets-be! Indulhat a menet!")
+                                time.sleep(1.0)
+                                st.rerun()
+                            except Exception as e_save_all:
+                                st.error(f"Sikertelen felhős mentés: {e_save_all}")
             else:
                 st.error("Az Adatok munkalap üres!")
         else:

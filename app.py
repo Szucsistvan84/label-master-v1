@@ -345,19 +345,32 @@ def main():
     if not st.session_state.bejelentkezve:
         # Fallback védelem a logó hiányára
         if os.path.exists("interfood-logo.png"):
-            # HTML/CSS konténer: mobilon és asztalin is FIXEN max 140px széles, és középre zárt!
+            import base64
+            # Beolvassuk a gyökérben lévő képet és átalakítjuk Base64 formátumra
+            with open("interfood-logo.png", "rb") as img_file:
+                b64_string = base64.b64encode(img_file.read()).decode()
+            
+            # Közvetlen beágyazás elérési út nélkül!
             st.markdown(
-                """
+                f"""
                 <div style="text-align: center; width: 100%; margin-bottom: 15px; margin-top: 10px;">
-                    <img src="app/static/interfood-logo.png" style="max-width: 140px; height: auto; display: block; margin: 0 auto;" onerror="this.onerror=null; this.src='https://www.interfood.hu/images/logo.png';">
+                    <img src="data:image/png;base64,{b64_string}" style="max-width: 140px; height: auto; display: block; margin: 0 auto;">
                 </div>
                 """,
                 unsafe_allow_html=True
             )
         else:
-            st.markdown("<h1 style='text-align: center; color: #139D43;'>💚 Interfood Label Master</h1>", unsafe_allow_html=True)
+            # Ha fizikai fájl nincs, az élő weboldalról rántjuk le a logót
+            st.markdown(
+                """
+                <div style="text-align: center; width: 100%; margin-bottom: 15px; margin-top: 10px;">
+                    <img src="https://www.interfood.hu/images/logo.png" style="max-width: 140px; height: auto; display: block; margin: 0 auto;">
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
             
-        st.markdown("<p style='text-align: center; color: #6B7280; font-size: 14px;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280; font-size: 14px;'>Biztonságos azonosítás a rendszer használatóhoz</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:

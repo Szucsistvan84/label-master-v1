@@ -345,14 +345,19 @@ def main():
     if not st.session_state.bejelentkezve:
         # Fallback védelem a logó hiányára
         if os.path.exists("interfood-logo.png"):
-            # A logót egy 2-1-2 arányú oszloprendszer közepére rakjuk, így garantáltan az asztali képernyő hajszálpontosan 20%-át teszi ki!
-            col_l1, col_l2, col_l3 = st.columns([2, 1, 2])
-            with col_l2:
-                st.image("interfood-logo.png", use_container_width=True)
+            # HTML/CSS konténer: mobilon és asztalin is FIXEN max 140px széles, és középre zárt!
+            st.markdown(
+                """
+                <div style="text-align: center; width: 100%; margin-bottom: 15px; margin-top: 10px;">
+                    <img src="app/static/interfood-logo.png" style="max-width: 140px; height: auto; display: block; margin: 0 auto;" onerror="this.onerror=null; this.src='https://www.interfood.hu/images/logo.png';">
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         else:
             st.markdown("<h1 style='text-align: center; color: #139D43;'>💚 Interfood Label Master</h1>", unsafe_allow_html=True)
             
-        st.markdown("<p style='text-align: center; color: #6B7280;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280; font-size: 14px;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:

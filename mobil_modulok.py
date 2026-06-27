@@ -917,10 +917,10 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
                         var popupHtml = `
                             <div style="font-size:11px; min-width:140px; font-family:sans-serif;">
-                                <b>#${{p.sorrend}} - ${{p.name}}</b><br>
-                                <span style="color:#6B7280;">${{p.address}}</span><br>
-                                <button onclick="parent.window.location.href='?view=mobile&action=move_end&target_id='+p.id" class="popup-btn btn-end">⬇️ Végére dobás</button>
-                                <button onclick="var pos=prompt('Hányadik helyre szúrod be?'); if(pos) parent.window.location.href='?view=mobile&action=move_to&target_id='+p.id+'&pos='+pos" class="popup-btn btn-move">🔀 Helyre beszúrás</button>
+                                <b>#\${p.sorrend} - \${p.name}</b><br>
+                                <span style="color:#6B7280;">\${p.address}</span><br>
+                                <a href="?view=mobile&action=move_end&target_id=\${p.id}" target="_parent" class="popup-btn btn-end" style="color:white; text-decoration:none; display:block;">⬇️ Végére dobás</a>
+                                <button onclick="var pos=prompt('Hányadik helyre szúrod be?'); if(pos) window.parent.location.href='?view=mobile&action=move_to&target_id='+p.id+'&pos='+pos" class="popup-btn btn-move">🔀 Helyre beszúrás</button>
                             </div>
                         `;
 

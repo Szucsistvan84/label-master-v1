@@ -292,10 +292,13 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
         st.success("🔒 A mai bepakolás le van zárva, a kiszállítás folyamatban van.")
         
         df_levalt = st.session_state.get('mdf', pd.DataFrame())
-        if df_levalt.empty:
+        
+        # Ha None-t kaptunk korábban, vagy üres a DataFrame, megpróbáljuk betölteni
+        if df_levalt is None or (hasattr(df_levalt, 'empty') and df_levalt.empty):
             df_levalt = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
             
-        if not df_levalt.empty:
+        # BIZTONSÁGI ELLENŐRZÉS: Csak akkor megyünk tovább, ha a df_levalt nem None és nem üres DataFrame
+        if df_levalt is not None and hasattr(df_levalt, 'empty') and not df_levalt.empty:
             df_levalt.columns = [c.strip() for c in df_levalt.columns]
             df_levalt['Sorrend_num'] = pd.to_numeric(df_levalt['Sorrend'], errors='coerce').fillna(999).astype(int)
             
@@ -333,6 +336,9 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                 )
             else:
                 st.info("Nincsenek ládába pakolt tételek regisztrálva.")
+        else:
+            # Ha a Google Sheets-ből sem sikerült adatot kinyerni (None maradt vagy teljesen üres)
+            st.error("⚠️ Nem sikerült betölteni a kiszállítási adatokat a táblázatból. Ellenőrizd az internetkapcsolatot vagy a Google Sheets táblát!")
         
         if st.button("🔓 Bepakolás újranyitása (Vészhelyzet)", use_container_width=True, key="reopen_bepakolas_emergency_btn"):
             st.session_state.kiszallitas_folyamatban = False

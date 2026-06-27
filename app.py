@@ -230,47 +230,75 @@ def main():
 
         <!-- 7. INTELLIGENS SZÜLŐABLAK-ÁTTÖRŐ JAVASCRIPT A MAKACS SALLANGOK ELLEN -->
         <script>
-        function cleanupStreamlitElements() {
-            try {
-                // Átnyúlunk a szülő ablak dokumentumába (CORS-barát módon)
-                var parentDoc = window.parent.document;
-                
-                // Megkeressük és kíméletlenül elrejtjük a fekete 'Manage app' gombot
-                var manageBtn = parentDoc.querySelector('[data-testid="manage-app-button"]');
-                if (manageBtn) {
-                    manageBtn.style.setProperty('display', 'none', 'important');
-                    manageBtn.style.setProperty('visibility', 'hidden', 'important');
-                }
-                
-                // Elrejtjük a szülő ablak egyéb felesleges Streamlit logóit, a "Made with Streamlit" és "Fork" gombokat is!
-                var badges = parentDoc.querySelectorAll('[data-testid="viewerBadge"], .viewerBadge, div[class*="viewerBadge"]');
-                badges.forEach(function(badge) {
-                    badge.style.setProperty('display', 'none', 'important');
-                    badge.style.setProperty('visibility', 'hidden', 'important');
-                });
-                
-                // Elrejtjük a lebegő hálózati státusz panelt is
-                var connStatus = parentDoc.querySelector('#ConnectionStatus, [id*="ConnectionStatus"]');
-                if (connStatus) {
-                    connStatus.style.setProperty('display', 'none', 'important');
-                    connStatus.style.setProperty('visibility', 'hidden', 'important');
-                }
-                
-                // Kijelentkezett módban megjelenő profil előnézet és a böszme nagy linkek megsemmisítése
-                var profilePreviews = parentDoc.querySelectorAll('[class*="profilePreview"], [class*="link"], a[href*="streamlit"]');
-                profilePreviews.forEach(function(el) {
-                    el.style.setProperty('display', 'none', 'important');
-                    el.style.setProperty('visibility', 'hidden', 'important');
-                });
-            } catch(e) {
-                console.log("CORS korlát miatt a szülő ablak fejlesztői gombjai szoftverből nem rejthetőek el.");
-            }
-        }
+            var wakeLock = null;
         
-        // Futtatás többször is, hogy a késleltetett betöltések után is biztosan kisöpörjük őket
-        setTimeout(cleanupStreamlitElements, 300);
-        setTimeout(cleanupStreamlitElements, 1000);
-        setTimeout(cleanupStreamlitElements, 2500);
+            async function requestWakeLock() {
+                try {
+                    if ('wakeLock' in navigator) {
+                        // Csak akkor kérjük le, ha még nem fut aktívan
+                        if (!wakeLock) {
+                            wakeLock = await navigator.wakeLock.request('screen');
+                            console.log('✨ Label Master Kijelző Ébrentartás AKTÍV - Nincs alvó mód!');
+                        }
+                    }
+                } catch (err) {
+                    console.log('Kijelző ébrentartási hiba: ' + err.message);
+                }
+            }
+        
+            function cleanupStreamlitElements() {
+                try {
+                    // Átnyúlunk a szülő ablak dokumentumába (CORS-barát módon)
+                    var parentDoc = window.parent.document;
+                    
+                    // Megkeressük és kíméletlenül elrejtjük a fekete 'Manage app' gombot
+                    var manageBtn = parentDoc.querySelector('[data-testid="manage-app-button"]');
+                    if (manageBtn) {
+                        manageBtn.style.setProperty('display', 'none', 'important');
+                        manageBtn.style.setProperty('visibility', 'hidden', 'important');
+                    }
+                    
+                    // Elrejtjük a szülő ablak egyéb felesleges Streamlit logóit, a "Made with Streamlit" és "Fork" gombokat is!
+                    var badges = parentDoc.querySelectorAll('[data-testid="viewerBadge"], .viewerBadge, div[class*="viewerBadge"]');
+                    badges.forEach(function(badge) {
+                        badge.style.setProperty('display', 'none', 'important');
+                        badge.style.setProperty('visibility', 'hidden', 'important');
+                    });
+                    
+                    // Elrejtjük a lebegő hálózati státusz panelt is
+                    var connStatus = parentDoc.querySelector('#ConnectionStatus, [id*="ConnectionStatus"]');
+                    if (connStatus) {
+                        connStatus.style.setProperty('display', 'none', 'important');
+                        connStatus.style.setProperty('visibility', 'hidden', 'important');
+                    }
+                    
+                    // Kijelentkezett módban megjelenő profil előnézet és a böszme nagy linkek megsemmisítése
+                    var profilePreviews = parentDoc.querySelectorAll('[class*="profilePreview"], [class*="link"], a[href*="streamlit"]');
+                    profilePreviews.forEach(function(el) {
+                        el.style.setProperty('display', 'none', 'important');
+                        el.style.setProperty('visibility', 'hidden', 'important');
+                    });
+        
+                    // --- WAKE LOCK API INDÍTÁSA ---
+                    requestWakeLock();
+        
+                } catch(e) {
+                    console.log("CORS korlát vagy egyéb hiba a takarítás/ébrentartás során.");
+                }
+            }
+            
+            // Figyeljük, ha a futár visszalép az appba (pl. hívás után), azonnal ébresszük fel újra a kijelzőt
+            document.addEventListener('visibilitychange', async () => {
+                if (document.visibilityState === 'visible') {
+                    wakeLock = null; // Reseteljük az előzőt
+                    requestWakeLock();
+                }
+            });
+            
+            // Futtatás többször is, hogy a késleltetett betöltések után is biztosan kisöpörjük őket
+            setTimeout(cleanupStreamlitElements, 300);
+            setTimeout(cleanupStreamlitElements, 1000);
+            setTimeout(cleanupStreamlitElements, 2500);
         </script>
         """,
         unsafe_allow_html=True

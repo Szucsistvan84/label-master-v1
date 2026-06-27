@@ -57,6 +57,55 @@ def main():
 
     # URL paraméterek lekérése az ágak eldöntéséhez
     view = st.query_params.get("view", None)
+    # --- SORREND MÓDOSÍTÓ HOOK AZ APP INDULÁSAKOR ---
+    if "action" in st.query_params and "target_id" in st.query_params:
+        action = st.query_params["action"]
+        target_id = str(st.query_params["target_id"]).strip()
+        
+        try:
+            sh = st.session_state.client.open_by_key(SHEET_ID_UGYFELKOR)
+            ws_adatok = sh.worksheet("Adatok")
+            adatok_rows = ws_adatok.get_all_values()
+            
+            if adatok_rows and len(adatok_rows) > 1:
+                header_adatok = adatok_rows[0]
+                df_sheets = pd.DataFrame(adatok_rows[1:], columns=header_adatok)
+                df_sheets['Sorrend'] = pd.to_numeric(df_sheets['Sorrend'], errors='coerce').fillna(999).astype(int)
+                df_sheets = df_sheets.sort_values(by='Sorrend').reset_index(drop=True)
+                
+                target_idx = df_sheets[df_sheets['ID'].astype(str).str.strip() == target_id].index
+                
+                if not target_idx.empty:
+                    t_idx = target_idx[0]
+                    target_row = df_sheets.loc[t_idx].copy()
+                    
+                    if action == "move_end":
+                        max_sorrend = df_sheets['Sorrend'].max()
+                        df_sheets = df_sheets.drop(t_idx).reset_index(drop=True)
+                        target_row['Sorrend'] = max_sorrend + 1
+                        df_sheets = pd.concat([df_sheets, pd.DataFrame([target_row])], ignore_index=True)
+                    
+                    elif action == "move_to" and "pos" in st.query_params:
+                        target_pos = max(1, int(st.query_params["pos"]))
+                        df_sheets = df_sheets.drop(t_idx).reset_index(drop=True)
+                        insert_idx = min(len(df_sheets), target_pos - 1)
+                        
+                        df_left = df_sheets.iloc[:insert_idx]
+                        df_right = df_sheets.iloc[insert_idx:]
+                        df_sheets = pd.concat([df_left, pd.DataFrame([target_row]), df_right], ignore_index=True)
+                    
+                    df_sheets['Sorrend'] = range(1, len(df_sheets) + 1)
+                    ws_adatok.clear()
+                    ws_adatok.update('A1', [header_adatok] + df_sheets.values.tolist(), value_input_option='USER_ENTERED')
+                    st.session_state.mdf = df_sheets
+                    st.cache_data.clear()
+                    
+                    # URL tisztítás és tiszta reload
+                    st.query_params.clear()
+                    st.query_params.update(view="mobile")
+                    st.rerun()
+        except Exception as e:
+            st.error(f"Hiba az átsorrendezés során: {e}")
     url_jarat = st.query_params.get("jarat", "")
     url_teszt = st.query_params.get("test", "false") == "true"
     is_mobile_view = (view == "mobile")

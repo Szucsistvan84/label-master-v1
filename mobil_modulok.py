@@ -830,11 +830,24 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 encoded_nav = urllib.parse.quote(f"{aktualis_cim}, Debrecen, Hungary")
                 embed_url = f"https://maps.google.com/maps?q={encoded_nav}&t=&z=16&ie=UTF8&iwloc=&output=embed"
             
-            # Megjelenítés a reszponzív, kék keretes iframe-ben
-            st.components.v1.html(
-                f'<iframe width="100%" height="150" src="{embed_url}" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" style="border-radius:10px; border:1.5px solid #93C5FD;"></iframe>', 
-                height=160
-            )
+            # --- TISZTÍTOTT, SÁVMENTES IFRAME MEGJELENÍTÉS ---
+            html_tisztitott_map = f"""
+            <div style="width: 100%; height: 150px; overflow: hidden; border-radius: 10px; border: 1.5px solid #93C5FD;">
+                <iframe 
+                    width="100%" 
+                    height="190px" 
+                    src="{embed_url}" 
+                    frameborder="0" 
+                    scrolling="no" 
+                    marginheight="0" 
+                    marginwidth="0" 
+                    style="margin-bottom: -40px; border: none;">
+                </iframe>
+            </div>
+            """
+            
+            # Megjelenítés a Streamlit komponensben
+            st.components.v1.html(html_tisztitott_map, height=160)
 
             col_tel, col_gps = st.columns(2)
             

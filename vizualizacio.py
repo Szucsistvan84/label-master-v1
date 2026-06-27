@@ -3,6 +3,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import json
+from geokodolo_modul import biztonsagos_koordinata_tisztito
 
 def utvonal_terkep(df_napi, sheet_id=None):
     """
@@ -24,25 +25,15 @@ def utvonal_terkep(df_napi, sheet_id=None):
         return
 
     try:
-        # 3. Tizedesvesszők és típusok megtisztítása számmá alakítással
-        for col in ['Lat', 'Lon']:
-            map_df[col] = (
-                map_df[col]
-                .astype(str)
-                .str.replace(',', '.', regex=False)
-                .str.replace(' ', '', regex=False)
-                .str.strip()
-            )
-            map_df[col] = pd.to_numeric(map_df[col], errors='coerce')
-
-        # 4. Kiszűrjük azokat a sorokat, ahol nincs érvényes GPS koordináta Magyarország területén
-        map_df['latitude'] = map_df['Lat']
-        map_df['longitude'] = map_df['Lon']
+        # 3. Golyóálló tisztítás a saját moduloddal
+        map_df['latitude'] = map_df['Lat'].apply(biztonsagos_koordinata_tisztito)
+        map_df['longitude'] = map_df['Lon'].apply(biztonsagos_koordinata_tisztito)
         
+        # 4. Kiszűrjük azokat a sorokat, ahol nincs érvényes GPS koordináta Magyarország területén
         map_data = map_df.dropna(subset=['latitude', 'longitude']).copy()
         map_data = map_data[
-            (map_data['latitude'] > 45.0) & (map_data['latitude'] < 49.0) &
-            (map_data['longitude'] > 16.0) & (map_data['longitude'] < 23.5)
+            (map_data['latitude'] >= 45.5) & (map_data['latitude'] <= 48.8) &
+            (map_data['longitude'] >= 16.0) & (map_data['longitude'] <= 23.0)
         ]
 
         if 'Sorrend' in map_data.columns:
@@ -50,9 +41,8 @@ def utvonal_terkep(df_napi, sheet_id=None):
             map_data = map_data.sort_values(by='Sorrend_num', ascending=True)
 
         if map_data.empty:
-            st.warning("⚠️ Nincs megjeleníthető érvényes GPS koordináta a mai listán!")
+            st.warning("⚠️ Nincs megjeleníthető érvényes GPS koordináta a mai listán! Ellenőrizd a táblázat Lat/Lon oszlopait.")
             return
-
         # 5. CSOPORTOSÍTÁS KOORDINÁTÁK ALAPJÁN (Azonos helyre mutató címek összevonása)
         # Kerekítjük a koordinátákat 6 tizedesjegyre az apróbb GPS-ingadozások kiküszöbölésére
         map_data['lat_round'] = map_data['latitude'].round(6)

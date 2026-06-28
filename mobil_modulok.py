@@ -666,7 +666,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             c_lat = current_target_point['lat'] if current_target_point else 47.5316
             c_lon = current_target_point['lon'] if current_target_point else 21.6244
             
-            # --- 🛰️ HIBRID GOLYÓÁLLÓ TÉRKÉP KÓD (HTML FORM-OKKAL, AMIT A MOBIL SEM TILT) ---
+            # --- 🛰️ 1. TÉRKÉP KÓD: ÜGYFÉL AKTIVÁLÓ LINKKEL ---
             html_map_code = """
             <!DOCTYPE html>
             <html>
@@ -676,8 +676,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 <style>html, body, #map { height: 100%; width: 100%; margin: 0; } #map { height: 190px; }
                 .active-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 19px; font-size: 9.5px; }
                 .current-marker { background: #E1251B; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; }
-                .popup-btn { display: block; width: 100%; margin-top: 5px; padding: 5px; border: none; border-radius: 5px; font-weight: bold; font-size: 10.5px; text-align: center; cursor: pointer; color: white; text-decoration: none; }
-                .btn-end { background-color: #E1251B; } .btn-move { background-color: #F59E0B; }
+                .popup-btn { display: block; width: 100%; margin-top: 5px; padding: 6px; border: none; border-radius: 6px; font-weight: bold; font-size: 11px; text-align: center; cursor: pointer; color: white; text-decoration: none; background-color: #2563EB; }
                 </style>
             </head>
             <body>
@@ -694,28 +693,12 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
                         var icon = L.divIcon({ className: iconClass, html: p.sorrend, iconSize: iconSize });
                         
-                        // ⭐ FORM-ALAPÚ BIZTONSÁGOS RAKÉTA GOMBOK A BUBORÉKBAN:
+                        // ⭐ GOLYÓÁLLÓ ADATLAP-AKTIVÁLÓ LINK A BUBORÉKBAN:
                         var popupHtml = `
-                            <div style="font-size:11px; font-family:sans-serif; width:140px;">
+                            <div style="font-size:11px; font-family:sans-serif; width:135px;">
                                 <b>#${p.sorrend} - ${p.name}</b><br>
                                 ${p.address}<br>
-                                
-                                <form action="" method="get" target="_parent" style="margin:0; padding:0;">
-                                    <input type="hidden" name="view" value="mobile">
-                                    <input type="hidden" name="active_tab" value="kiszallitas">
-                                    <input type="hidden" name="action" value="move_end">
-                                    <input type="hidden" name="target_id" value="${p.id}">
-                                    <button type="submit" class="popup-btn btn-end" style="width:100%;">⬇️ Végére dobás</button>
-                                </form>
-                                
-                                <form id="form_move_${p.id}" action="" method="get" target="_parent" style="margin:4px 0 0 0; padding:0;">
-                                    <input type="hidden" name="view" value="mobile">
-                                    <input type="hidden" name="active_tab" value="kiszallitas">
-                                    <input type="hidden" name="action" value="move_to">
-                                    <input type="hidden" name="target_id" value="${p.id}">
-                                    <input type="hidden" id="pos_input_${p.id}" name="pos" value="">
-                                    <button type="button" class="popup-btn btn-move" style="width:100%;" onclick="var pos=prompt('Helyezés sorszáma:'); if(pos){ document.getElementById('pos_input_${p.id}').value=pos; document.getElementById('form_move_${p.id}').submit(); }">🔀 Helyre beszúrás</button>
-                                </form>
+                                <a href="?view=mobile&active_tab=kiszallitas&activate_id=${p.id}" target="_parent" class="popup-btn">🔍 Kártya aktiválása</a>
                             </div>
                         `;
                         L.marker([p.lat, p.lon], {icon: icon}).bindPopup(popupHtml).addTo(map);
@@ -730,21 +713,51 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
             st.components.v1.html(f'<div style="width: 100%; height: 150px; overflow: hidden; border-radius: 12px; border: 1.5px solid #93C5FD;"><iframe width="100%" height="190px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="margin-bottom: -40px; border: none;"></iframe></div>', height=155)
 
-        # --- 📋 KÁRTYÁK ÉS KÁRTYA ALATTI RENDEZŐK INTEGRÁCIÓJA ---
-        for sorszam, (idx, row) in enumerate(bepakolt_sorok, 1):
-            if st.session_state.get(f"kiszallitva_{idx}", False): continue 
+        # --- 🛰️ 2. ELKAPJUK A TÉRKÉPRŐL ÉRKEZŐ AKTIVÁLÁSI KÉRÉST ---
+        if "activate_id" in st.query_params:
+            st.session_state.kiemelt_ugyfel_id = str(st.query_params["activate_id"]).strip()
+            # Letisztítjuk az URL-t, hogy ne ragadjon be a paraméter
+            st.query_params.clear()
+            st.query_params.update(view="mobile", active_tab="kiszallitas")
 
+        # --- 📋 3. OKOS SORRENDEZÉS: HA VAN KIEMELT ÜGYFÉL, AZT ELŐRE RAKJUK A LISTÁBAN ---
+        elokeszitett_sorok = []
+        for idx_p, row_p in bepakolt_sorok:
+            if st.session_state.get(f"kiszallitva_{idx_p}", False): continue
+            elokeszitett_sorok.append((idx_p, row_p))
+
+        # Ha a futár rákattintott egy bogyóra, megkeressük és áttesszük a lista legeslegelejére!
+        kiemelt_id = st.session_state.get("kiemelt_ugyfel_id", None)
+        if kiemelt_id:
+            talalt_kiemelt = None
+            for s_idx, (idx_e, row_e) in enumerate(elokeszitett_sorok):
+                if str(row_e.get('ID', idx_e)).strip() == kiemelt_id:
+                    talalt_kiemelt = elokeszitett_sorok.pop(s_idx)
+                    break
+            if talalt_kiemelt:
+                elokeszitett_sorok.insert(0, talalt_kiemelt)
+
+        # --- 📋 4. KÁRTYÁK KIRAJZOLÁSA (DINAMIKUS KIEMELÉSSEL) ---
+        for sorszam, (idx, row) in enumerate(elokeszitett_sorok, 1):
             melyik_lada = st.session_state.get(f"lada_szam_tarolt_{idx}")
+            if not melyik_lada: melyik_lada = str(row.get('Láda', 'Nincs láda'))
+            
             aktualis_cim = str(row[cim_oszlop]).strip()
             vevo_neve = str(row[nev_oszlop]).strip()
             vevo_tel = str(row.get(tel_oszlop, '')).strip()
             customer_id = str(row['ID']).strip()
-            
             aktualis_rendeles = str(row[rendeles_oszlop]).strip() if rendeles_oszlop in row else "Nincs adat"
             
-            # Kék kártya
+            # Megnézzük, hogy ez a kártya-e az éppen térképen kiválasztott kiemelt ügyfél
+            is_kiemelt = (customer_id == kiemelt_id)
+            
+            # Ha ki van emelve, kap egy vibráló sárga-narancs keretet és egy figyelmeztető jelzést!
+            bg_style = "background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2.5px solid #F59E0B;" if is_kiemelt else "background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD;"
+            kiemelt_szoveg = "⚠️ <b>TÉRKÉPEN KIJELÖLT SORSZÁMON KÍVÜLI CÍM!</b><br>" if is_kiemelt else ""
+
             st.markdown(f"""
-            <div style="background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD; border-radius: 12px; padding: 10px 14px;">
+            <div style="{bg_style} border-radius: 12px; padding: 10px 14px; margin-top: 8px;">
+                {kiemelt_szoveg}
                 <b>📍 #{row["Sorrend_num"]} megálló — {melyik_lada}</b><br>
                 <span style="font-size:18px; font-weight:bold; color:#1E3A8A;">👤 {vevo_neve}</span><br>
                 <span style="font-size:14px; color:#4B5563;">🏠 {aktualis_cim}</span><br>
@@ -761,7 +774,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 maps_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(aktualis_cim)}"
                 st.markdown(f'<a href="{maps_url}" target="_blank"><button style="width:100%; height:38px; background-color:#4285F4; color:white; border:none; border-radius:8px; font-weight:bold;">🗺️ Navigáció</button></a>', unsafe_allow_html=True)
 
-            # --- 🔀 LISTA ALATTI RENDEZŐ PANEL (BÓNUSZ) ---
+            # --- 🔀 NATÍV BIZTONSÁGOS PYTHON RENDEZŐ PANEL ---
             with st.expander("🔀 Megálló sorrendjének módosítása"):
                 c_end, c_move = st.columns(2)
                 
@@ -785,6 +798,9 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                         
                         ws_adatok.clear()
                         ws_adatok.update('A1', [header] + df_s.values.tolist(), value_input_option='USER_ENTERED')
+                        
+                        # Töröljük a kiemelést, mert sikeresen elrendeztük!
+                        st.session_state.pop("kiemelt_ugyfel_id", None)
                         st.session_state.mdf = df_s
                         st.cache_data.clear()
                         st.success("Sikeresen a végére dobva!")
@@ -815,6 +831,9 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                         
                         ws_adatok.clear()
                         ws_adatok.update('A1', [header] + df_s.values.tolist(), value_input_option='USER_ENTERED')
+                        
+                        # Töröljük a kiemelést, mert sikeresen elrendeztük!
+                        st.session_state.pop("kiemelt_ugyfel_id", None)
                         st.session_state.mdf = df_s
                         st.cache_data.clear()
                         st.success(f"Sikeresen áthelyezve a(z) {uj_pozicio}. helyre!")
@@ -877,8 +896,12 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             
             if st.button("✅ Sikeres kézbesítés", key=f"siker_{idx}", use_container_width=True, type="primary"):
                 st.session_state[f"kiszallitva_{idx}"] = True
+                # Töröljük a kiemelést kézbesítéskor is
+                st.session_state.pop("kiemelt_ugyfel_id", None)
                 st.toast(f"🎉 {vevo_neve} teljesítve!")
                 st.rerun()
+            
+            # Csak az első élő (vagy az éppen manuálisan kiemelt) kártyát mutatjuk meg nyitva!
             break
             
     except Exception as e:

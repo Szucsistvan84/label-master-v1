@@ -27,10 +27,9 @@ def register_fonts():
     f_reg = "DejaVu"
     f_bold = "DejaVu-Bold"
     
-    # Határozzuk meg a projekt gyökérmappáját
+    # Határozzuk meg a projekt alapmappáját (ahol ez a modul van)
     base_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 💡 Ha a fájljaid egy 'fonts' mappában vannak, írd át erre: os.path.join(base_dir, "fonts", "DejaVuSans.ttf")
     reg_path = os.path.join(base_dir, "DejaVuSans.ttf")
     bold_path = os.path.join(base_dir, "DejaVuSans-Bold.ttf")
     
@@ -48,10 +47,8 @@ def register_fonts():
                 raise FileNotFoundError(f"Hiányzó fájl: {bold_path}")
                 
     except Exception as e:
-        # Ide berakunk egy direkt Streamlit kiírást, így azonnal látni fogod a képernyőn a valódi hibát!
-        import streamlit as st
-        st.sidebar.error(f"⚠️ Font Hiba: {e}")
-        
+        # Ha bármi hiba van, sima printet használunk, így nincs szükség logger modulra!
+        print(f"⚠️ Betűtípus regisztrációs hiba, Helvetica használata: {e}")
         f_reg = "Helvetica"
         f_bold = "Helvetica-Bold"
         

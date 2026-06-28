@@ -33,10 +33,11 @@ def render_mobil_aruatvetel(client):
             df_adatok_init.columns = [c.strip() for c in df_adatok_init.columns]
             
             if 'Feldolgozó Futár' in df_adatok_init.columns:
-                # Ha Admin vagy Boss vagy, az összes elérhető járatot felkínáljuk, egyébként csak a sajátot
-                if f_clean in ["boss", "rendszergazda", "rendszergazda (vészbejárat)"]:
+                # JAVÍTÁS: Név helyett itt is a hivatalos szerepkört ellenőrizzük (Profi verzió)
+                if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
                     jaratok = [str(j).strip() for j in df_adatok_init['Járat'].unique() if str(j).strip() != "" and str(j).lower() != "nan"]
                 else:
+                    f_clean = str(futar_neve).strip().lower()
                     df_szurt = df_adatok_init[df_adatok_init['Feldolgozó Futár'].astype(str).str.strip().str.lower() == f_clean]
                     jaratok = [str(j).strip() for j in df_szurt['Járat'].unique() if str(j).strip() != ""]
             else:

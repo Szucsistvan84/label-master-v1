@@ -666,7 +666,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             c_lat = current_target_point['lat'] if current_target_point else 47.5316
             c_lon = current_target_point['lon'] if current_target_point else 21.6244
             
-            # --- JAVÍTOTT TÉRKÉP KÓD (SIMA STRING + FORMAT, HOGY A JAVASCRIPT ${p...} MŰKÖDJÖN) ---
+            # --- 🛰️ HIBRID GOLYÓÁLLÓ TÉRKÉP KÓD (HTML FORM-OKKAL, AMIT A MOBIL SEM TILT) ---
             html_map_code = """
             <!DOCTYPE html>
             <html>
@@ -676,8 +676,8 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 <style>html, body, #map { height: 100%; width: 100%; margin: 0; } #map { height: 190px; }
                 .active-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 19px; font-size: 9.5px; }
                 .current-marker { background: #E1251B; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; }
-                .popup-btn { display: block; width: 100%; margin-top: 5px; padding: 5px; border: none; border-radius: 5px; font-weight: bold; font-size: 10.5px; text-align: center; cursor: pointer; }
-                .btn-end { background-color: #E1251B; color: white; } .btn-move { background-color: #F59E0B; color: white; }
+                .popup-btn { display: block; width: 100%; margin-top: 5px; padding: 5px; border: none; border-radius: 5px; font-weight: bold; font-size: 10.5px; text-align: center; cursor: pointer; color: white; text-decoration: none; }
+                .btn-end { background-color: #E1251B; } .btn-move { background-color: #F59E0B; }
                 </style>
             </head>
             <body>
@@ -693,12 +693,29 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                         var iconSize = isCurrent ? [26, 26] : [22, 22];
 
                         var icon = L.divIcon({ className: iconClass, html: p.sorrend, iconSize: iconSize });
+                        
+                        // ⭐ FORM-ALAPÚ BIZTONSÁGOS RAKÉTA GOMBOK A BUBORÉKBAN:
                         var popupHtml = `
-                            <div style="font-size:11px; font-family:sans-serif;">
+                            <div style="font-size:11px; font-family:sans-serif; width:140px;">
                                 <b>#${p.sorrend} - ${p.name}</b><br>
                                 ${p.address}<br>
-                                <a href="?view=mobile&action=move_end&target_id=${p.id}" target="_parent" class="popup-btn btn-end" style="color:white; text-decoration:none;">⬇️ Végére dobás</a>
-                                <button onclick="var pos=prompt('Helyezés sorszáma:'); if(pos) window.parent.location.href='?view=mobile&action=move_to&target_id=${p.id}&pos='+pos" class="popup-btn btn-move">🔀 Helyre beszúrás</button>
+                                
+                                <form action="" method="get" target="_parent" style="margin:0; padding:0;">
+                                    <input type="hidden" name="view" value="mobile">
+                                    <input type="hidden" name="active_tab" value="kiszallitas">
+                                    <input type="hidden" name="action" value="move_end">
+                                    <input type="hidden" name="target_id" value="${p.id}">
+                                    <button type="submit" class="popup-btn btn-end" style="width:100%;">⬇️ Végére dobás</button>
+                                </form>
+                                
+                                <form id="form_move_${p.id}" action="" method="get" target="_parent" style="margin:4px 0 0 0; padding:0;">
+                                    <input type="hidden" name="view" value="mobile">
+                                    <input type="hidden" name="active_tab" value="kiszallitas">
+                                    <input type="hidden" name="action" value="move_to">
+                                    <input type="hidden" name="target_id" value="${p.id}">
+                                    <input type="hidden" id="pos_input_${p.id}" name="pos" value="">
+                                    <button type="button" class="popup-btn btn-move" style="width:100%;" onclick="var pos=prompt('Helyezés sorszáma:'); if(pos){ document.getElementById('pos_input_${p.id}').value=pos; document.getElementById('form_move_${p.id}').submit(); }">🔀 Helyre beszúrás</button>
+                                </form>
                             </div>
                         `;
                         L.marker([p.lat, p.lon], {icon: icon}).bindPopup(popupHtml).addTo(map);
@@ -707,13 +724,13 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             </body>
             </html>
             """
-            # Helyettesítjük a Python változókat biztonságosan a stringben
             html_map_code = html_map_code.replace("__POINTS_JSON__", points_json)
             html_map_code = html_map_code.replace("__C_LAT__", str(c_lat))
             html_map_code = html_map_code.replace("__C_LON__", str(c_lon))
 
             st.components.v1.html(f'<div style="width: 100%; height: 150px; overflow: hidden; border-radius: 12px; border: 1.5px solid #93C5FD;"><iframe width="100%" height="190px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="margin-bottom: -40px; border: none;"></iframe></div>', height=155)
 
+        # --- 📋 KÁRTYÁK ÉS KÁRTYA ALATTI RENDEZŐK INTEGRÁCIÓJA ---
         for sorszam, (idx, row) in enumerate(bepakolt_sorok, 1):
             if st.session_state.get(f"kiszallitva_{idx}", False): continue 
 
@@ -721,11 +738,11 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             aktualis_cim = str(row[cim_oszlop]).strip()
             vevo_neve = str(row[nev_oszlop]).strip()
             vevo_tel = str(row.get(tel_oszlop, '')).strip()
+            customer_id = str(row['ID']).strip()
             
-            # 👁️ KIOLVASSUK A MEGRENDELÉST (Ha létezik az oszlop)
             aktualis_rendeles = str(row[rendeles_oszlop]).strip() if rendeles_oszlop in row else "Nincs adat"
             
-            # ✨ JAVÍTOTT CÍMKÁRTYA: Most már a konkrét megrendelés (étel kódok) is megjelenik szép nagy betűkkel!
+            # Kék kártya
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD; border-radius: 12px; padding: 10px 14px;">
                 <b>📍 #{row["Sorrend_num"]} megálló — {melyik_lada}</b><br>
@@ -744,6 +761,68 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 maps_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(aktualis_cim)}"
                 st.markdown(f'<a href="{maps_url}" target="_blank"><button style="width:100%; height:38px; background-color:#4285F4; color:white; border:none; border-radius:8px; font-weight:bold;">🗺️ Navigáció</button></a>', unsafe_allow_html=True)
 
+            # --- 🔀 LISTA ALATTI RENDEZŐ PANEL (BÓNUSZ) ---
+            with st.expander("🔀 Megálló sorrendjének módosítása"):
+                c_end, c_move = st.columns(2)
+                
+                if c_end.button("⬇️ Végére dobás", key=f"py_end_{idx}", use_container_width=True):
+                    try:
+                        sh = client.open_by_key(SHEET_ID_UGYFELKOR)
+                        ws_adatok = sh.worksheet("Adatok")
+                        rows = ws_adatok.get_all_values()
+                        header = rows[0]
+                        df_s = pd.DataFrame(rows[1:], columns=header)
+                        df_s['Sorrend'] = pd.to_numeric(df_s['Sorrend'], errors='coerce').fillna(999).astype(int)
+                        df_s = df_s.sort_values(by='Sorrend').reset_index(drop=True)
+                        
+                        t_idx = df_s[df_s['ID'].astype(str).str.strip() == customer_id].index[0]
+                        target_row = df_s.loc[t_idx].copy()
+                        
+                        df_s = df_s.drop(t_idx).reset_index(drop=True)
+                        target_row['Sorrend'] = df_s['Sorrend'].max() + 1
+                        df_s = pd.concat([df_s, pd.DataFrame([target_row])], ignore_index=True)
+                        df_s['Sorrend'] = range(1, len(df_s) + 1)
+                        
+                        ws_adatok.clear()
+                        ws_adatok.update('A1', [header] + df_s.values.tolist(), value_input_option='USER_ENTERED')
+                        st.session_state.mdf = df_s
+                        st.cache_data.clear()
+                        st.success("Sikeresen a végére dobva!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    except Exception as err: st.error(f"Hiba: {err}")
+                
+                uj_pozicio = c_move.number_input("Helyezés sorszáma:", min_value=1, max_value=100, value=2, key=f"py_num_{idx}")
+                if c_move.button("👉 Áthelyezés ide", key=f"py_move_btn_{idx}", use_container_width=True):
+                    try:
+                        sh = client.open_by_key(SHEET_ID_UGYFELKOR)
+                        ws_adatok = sh.worksheet("Adatok")
+                        rows = ws_adatok.get_all_values()
+                        header = rows[0]
+                        df_s = pd.DataFrame(rows[1:], columns=header)
+                        df_s['Sorrend'] = pd.to_numeric(df_s['Sorrend'], errors='coerce').fillna(999).astype(int)
+                        df_s = df_s.sort_values(by='Sorrend').reset_index(drop=True)
+                        
+                        t_idx = df_s[df_s['ID'].astype(str).str.strip() == customer_id].index[0]
+                        target_row = df_s.loc[t_idx].copy()
+                        
+                        df_s = df_s.drop(t_idx).reset_index(drop=True)
+                        insert_idx = min(len(df_s), int(uj_pozicio) - 1)
+                        df_left = df_s.iloc[:insert_idx]
+                        df_right = df_s.iloc[insert_idx:]
+                        df_s = pd.concat([df_left, pd.DataFrame([target_row]), df_right], ignore_index=True)
+                        df_s['Sorrend'] = range(1, len(df_s) + 1)
+                        
+                        ws_adatok.clear()
+                        ws_adatok.update('A1', [header] + df_s.values.tolist(), value_input_option='USER_ENTERED')
+                        st.session_state.mdf = df_s
+                        st.cache_data.clear()
+                        st.success(f"Sikeresen áthelyezve a(z) {uj_pozicio}. helyre!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    except Exception as err: st.error(f"Hiba: {err}")
+
+            # --- GPS KAPU RÖGZÍTÉS ---
             with st.expander("🎯 Kapu rögzítése (GPS koordináta)"):
                 loc = get_geolocation()
                 if loc and 'coords' in loc:
@@ -762,7 +841,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                             ws_adatok.update_cell(sheet_row, lat_col_idx, curr_lat)
                             ws_adatok.update_cell(sheet_row, lon_col_idx, curr_lon)
                             
-                            customer_id = str(row['ID']).strip()
                             ws_ugyfelkor = sh.worksheet("Ugyfelkor")
                             ugyfel_records = ws_ugyfelkor.get_all_records()
                             

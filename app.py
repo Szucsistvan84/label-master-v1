@@ -275,7 +275,15 @@ def main():
                     st.session_state.user_szerep = str(talalt_futar.get('Szerep', 'futar'))
                     
                     routes_str = ",".join(st.session_state.user_jarat_lista)
-                    st.query_params.update(view="mobile", token_name=st.session_state.user_nev, token_role=st.session_state.user_szerep, token_routes=routes_str)
+                    
+                    # 💡 INTELLIGENS JAVÍTÁS: Ha asztali nézetben lép be, megtartja a desktop paramétert!
+                    current_view = view if view else "desktop"
+                    st.query_params.update(
+                        view=current_view, 
+                        token_name=st.session_state.user_nev, 
+                        token_role=st.session_state.user_szerep, 
+                        token_routes=routes_str
+                    )
                     st.rerun()
                 else:
                     st.error("❌ Hibás járatszám vagy jelszó!")

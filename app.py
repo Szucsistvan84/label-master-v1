@@ -117,7 +117,7 @@ def main():
     url_teszt = st.query_params.get("test", "false") == "true"
     is_mobile_view = (view == "mobile")
 
-    # --- ATOMBIZTOS PREMIUM CSS DESIGN ÉS INJEKTÁLT ELEM ELREJTŐK ---
+    # --- ATOMBIZTOS PREMIUM CSS DESIGN ÉS INJEKTÁLT ELEM ELREJTŐK (ULTRA-KOMPAKT FUTÁR UX) ---
     st.markdown(
         """
         <style>
@@ -130,15 +130,41 @@ def main():
         [data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
         header, [data-testid="stHeader"] { background-color: rgba(0,0,0,0) !important; z-index: 999999 !important; }
 
+        /* 5. PONT FIX: A Sidebar megnyitó gomb háttérszíne és kiemelése ha a menü csukva van (Szürke alap, szegély) */
         [data-testid="stSidebarCollapseButton"] {
             visibility: visible !important; display: inline-flex !important;
-            background-color: #FFFFFF !important; border: 1px solid #E5E7EB !important;
-            border-radius: 8px !important; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.08) !important;
+            background-color: #E5E7EB !important; border: 1.5px solid #9CA3AF !important;
+            border-radius: 8px !important; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08) !important;
             margin-left: 8px !important; margin-top: 6px !important; z-index: 1000000 !important;
+            color: #374151 !important;
         }
-        [data-testid="stSidebarCollapseButton"]:hover { border-color: #139D43 !important; }
+        [data-testid="stSidebarCollapseButton"]:hover { border-color: #139D43 !important; background-color: #D1D5DB !important; }
+        
         [data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
-        .block-container { padding-top: 2.5rem !important; padding-bottom: 2rem !important; }
+        
+        /* 1. PONT UX FINOMHANGOLÁS: A felső üres paddingot minimálisra vesszük, hogy a tartalom azonnal feltolódjon */
+        .block-container { padding-top: 0.5rem !important; padding-bottom: 2rem !important; }
+
+        /* 1. PONT TABS RESZPONZIVITÁS: A navigációs gombok ne törjenek új sorba, hanem a szöveg törjön belül! */
+        div[data-testid="stSegmentedControl"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            width: 100% !important;
+        }
+        div[data-testid="stSegmentedControl"] button {
+            flex: 1 1 0% !important;
+            min-width: 0 !important;
+            padding: 4px 2px !important;
+        }
+        div[data-testid="stSegmentedControl"] button div p {
+            font-size: 11.5px !important;
+            white-space: normal !important;
+            word-break: break-all !important;
+            line-height: 1.2 !important;
+            text-align: center !important;
+            font-weight: bold !important;
+        }
 
         @media (max-width: 768px) {
             div[data-testid="stAppViewContainer"]::after, .stApp::after {
@@ -200,7 +226,7 @@ def main():
             return
 
     # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
-    if not st.session_state.bejelentkezve:
+    if not st.session_state.bejelentgevve if 'bejelentkezve' in st.session_state else False or not st.session_state.bejelentkezve:
         if os.path.exists("interfood-logo.png"):
             import base64
             with open("interfood-logo.png", "rb") as img_file:
@@ -209,7 +235,7 @@ def main():
         else:
             st.markdown('<div style="text-align: center; width: 100%; margin-bottom: 15px; margin-top: 10px;"><img src="https://www.interfood.hu/images/logo.png" style="max-width: 140px; height: auto; display: block; margin: 0 auto;"></div>', unsafe_allow_html=True)
             
-        st.markdown("<p style='text-align: center; color: #6B7280; font-size: 14px;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280; font-size: 14px;'>Biztonságos azonosítás a system használatához</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:
@@ -283,15 +309,21 @@ def main():
     # 📱 1. ÁG: MOBIL FUTÁR TERMINÁL (SZEGMENTÁLT FÜLVEZÉRLÉSSEL)
     # =========================================================================
     if is_mobile_view:
-        st.title("📱 Futár Terminál")
-        st.caption(f"Bejelentkezve: {st.session_state.user_nev}")
-        
-        # --- 🧹 ADMIN GYORSÍTÓTÁR ÉS MEMÓRIA TÖRLŐ GOMB A MOBIL SIDEBARON ---
+        # --- SIDEBAR ARCULAT: LOGÓ HARMADOLVA + INTEGRÁLT MOBIL CÍM ---
         with st.sidebar:
+            try:
+                if os.path.exists("interfood-logo.png"):
+                    st.image("interfood-logo.png", width=90)
+                else:
+                    st.image("https://www.interfood.hu/images/logo.png", width=90)
+            except: pass
+            st.markdown("<h3 style='margin-top:2px; margin-bottom:10px; color:#1E3A8A;'>📱 Futár Terminál</h3>", unsafe_allow_html=True)
+            
             render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID_MASTER)
             if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
                 st.write("---")
                 st.markdown("### 🛠️ Rendszergazda Eszközök")
+                # GRAMMATIKAI FIX: RENDZER HELYETT RENDSZER
                 if st.button("🧹 RENDSZER CACHE TELJES TÖRLÉSE", type="primary", use_container_width=True, key="admin_global_cache_clear_btn"):
                     st.cache_data.clear()
                     st.cache_resource.clear()
@@ -314,8 +346,7 @@ def main():
             url_tab_param = st.query_params.get("active_tab", "aruatvetel")
             st.session_state.current_mobile_tab_state = tab_mapping.get(url_tab_param, "1. Áruátvétel 📦")
             
-        # 🔥 FIX: Kényszerítjük a Streamlit belső widget-memóriáját, hogy kövesse a külső állapotot,
-        # így ha egy gomb (pl. az Admin panel) átírja a fület, a navigációs sáv nem akad ki!
+        # 🔥 FIX: Kényszerítjük a Streamlit belső widget-memóriáját, hogy kövesse a külső állapotot
         st.session_state["mobil_segmented_nav_bar_live"] = st.session_state.current_mobile_tab_state
         
         selected_mobil_tab = st.segmented_control(
@@ -323,7 +354,7 @@ def main():
             options=list(tab_mapping.values()),
             selection_mode="single",
             label_visibility="collapsed",
-            key="mobil_segmented_nav_bar_live"  # Ez a kulcs és a fenti session sor most már tökéletes szinkronban van!
+            key="mobil_segmented_nav_bar_live"
         )
         
         if selected_mobil_tab and selected_mobil_tab != st.session_state.current_mobile_tab_state:
@@ -332,7 +363,7 @@ def main():
             st.query_params.update(active_tab=inv_map[selected_mobil_tab])
             st.rerun()
 
-        # 🔥 BIZTONSÁGI HÁLÓ: Ha bármelyik modul elhasal, a Kijelentkezés gomb akkor is megmarad alatta!
+        # 🔥 BIZTONSÁGI HÁLÓ: Modul renderelés
         try:
             if st.session_state.current_mobile_tab_state == "1. Áruátvétel 📦":
                 render_mobil_aruatvetel(client)
@@ -346,13 +377,11 @@ def main():
         # ⭐ ELPUSZTÍTHATATLAN KIJELENTKEZÉS ÉS URL-GYALU
         st.write("---")
         if st.button("🚪 Kijelentkezés", key="mob_logout", use_container_width=True):
-            # 1. Kitakarítjuk a lokális memóriát és az elcsúszott állapotokat
             for k in list(st.session_state.keys()):
                 if any(x in k for x in ["kiszallitva_", "bepak_allapot_", "lada_szam_tarolt_", "current_mobile_tab_state"]): 
                     st.session_state.pop(k, None)
             st.session_state.bejelentkezve = False
             
-            # 2. Letöröljük a beragadt active_tab paramétert az URL-ből, visszaállunk tiszta mobilra
             st.query_params.clear()
             st.query_params.update(view="mobile")
             

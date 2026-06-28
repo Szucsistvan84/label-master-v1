@@ -666,7 +666,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             c_lat = current_target_point['lat'] if current_target_point else 47.5316
             c_lon = current_target_point['lon'] if current_target_point else 21.6244
             
-            # --- 🛰️ 1. TÉRKÉP KÓD: ÜGYFÉL AKTIVÁLÓ LINKKEL ---
+            # --- TISZTA TÉRKÉP MEGJELENÍTÉS (MERT A LINKET TILTJA A MOBIL BÖNGÉSZŐ AZ IFRAME-BŐL) ---
             html_map_code = """
             <!DOCTYPE html>
             <html>
@@ -676,7 +676,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 <style>html, body, #map { height: 100%; width: 100%; margin: 0; } #map { height: 190px; }
                 .active-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 19px; font-size: 9.5px; }
                 .current-marker { background: #E1251B; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; }
-                .popup-btn { display: block; width: 100%; margin-top: 5px; padding: 6px; border: none; border-radius: 6px; font-weight: bold; font-size: 11px; text-align: center; cursor: pointer; color: white; text-decoration: none; background-color: #2563EB; }
                 </style>
             </head>
             <body>
@@ -692,13 +691,10 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                         var iconSize = isCurrent ? [26, 26] : [22, 22];
 
                         var icon = L.divIcon({ className: iconClass, html: p.sorrend, iconSize: iconSize });
-                        
-                        // ⭐ GOLYÓÁLLÓ ADATLAP-AKTIVÁLÓ LINK A BUBORÉKBAN:
                         var popupHtml = `
-                            <div style="font-size:11px; font-family:sans-serif; width:135px;">
+                            <div style="font-size:11px; font-family:sans-serif;">
                                 <b>#${p.sorrend} - ${p.name}</b><br>
-                                ${p.address}<br>
-                                <a href="?view=mobile&active_tab=kiszallitas&activate_id=${p.id}" target="_parent" class="popup-btn">🔍 Kártya aktiválása</a>
+                                ${p.address}
                             </div>
                         `;
                         L.marker([p.lat, p.lon], {icon: icon}).bindPopup(popupHtml).addTo(map);
@@ -713,20 +709,36 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
             st.components.v1.html(f'<div style="width: 100%; height: 150px; overflow: hidden; border-radius: 12px; border: 1.5px solid #93C5FD;"><iframe width="100%" height="190px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="margin-bottom: -40px; border: none;"></iframe></div>', height=155)
 
-        # --- 🛰️ 2. ELKAPJUK A TÉRKÉPRŐL ÉRKEZŐ AKTIVÁLÁSI KÉRÉST ---
-        if "activate_id" in st.query_params:
-            st.session_state.kiemelt_ugyfel_id = str(st.query_params["activate_id"]).strip()
-            # Letisztítjuk az URL-t, hogy ne ragadjon be a paraméter
-            st.query_params.clear()
-            st.query_params.update(view="mobile", active_tab="kiszallitas")
-
-        # --- 📋 3. OKOS SORRENDEZÉS: HA VAN KIEMELT ÜGYFÉL, AZT ELŐRE RAKJUK A LISTÁBAN ---
+        # --- 📋 2. JAVÍTOTT OKOS ALAP-LISTA ÖSSZEÁLLÍTÁS ---
         elokeszitett_sorok = []
         for idx_p, row_p in bepakolt_sorok:
             if st.session_state.get(f"kiszallitva_{idx_p}", False): continue
             elokeszitett_sorok.append((idx_p, row_p))
 
-        # Ha a futár rákattintott egy bogyóra, megkeressük és áttesszük a lista legeslegelejére!
+        # --- 🛰️ 3. NATÍV INTELLIGENS CÍM-UGROTÓ ÉS CÍM-KERESŐ PANEL ---
+        st.write("")
+        options_ugras = ["--- Válassz egy megállót az adatlap kiemeléséhez ---"]
+        id_mapping_ugras = {}
+        
+        for idx_u, row_u in elokeszitett_sorok:
+            u_id = str(row_u['ID']).strip()
+            u_nev = str(row_u[nev_oszlop]).strip()
+            u_sorszam = row_u["Sorrend_num"]
+            felirat = f"📍 #{u_sorszam} — {u_nev}"
+            options_ugras.append(felirat)
+            id_mapping_ugras[felirat] = u_id
+
+        valasztott_gyorsugras = st.selectbox(
+            "🔍 Útba eső cím/bogyó gyors adatlap-aktiválása:",
+            options=options_ugras,
+            key="native_térkép_gyorsugro_select"
+        )
+        
+        # Ha a futár kiválasztott egy címet, elmentjük a memóriába kiemeltnek
+        if valasztott_gyorsugras != "--- Válassz egy megállót az adatlap kiemeléséhez ---":
+            st.session_state.kiemelt_ugyfel_id = id_mapping_ugras[valasztott_gyorsugras]
+
+        # --- 📋 4. HA VAN KIEMELT ÜGYFÉL, AZT ELŐRE RAKJUK A LISTÁBAN ---
         kiemelt_id = st.session_state.get("kiemelt_ugyfel_id", None)
         if kiemelt_id:
             talalt_kiemelt = None
@@ -737,7 +749,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             if talalt_kiemelt:
                 elokeszitett_sorok.insert(0, talalt_kiemelt)
 
-        # --- 📋 4. KÁRTYÁK KIRAJZOLÁSA (EREDETI SORSZÁM KIELMZÉSSEL) ---
+        # --- 📋 5. KÁRTYÁK KIRAJZOLÁSA (EREDETI SORSZÁM KIELMZÉSSEL ÉS SZÓKÖZCSAPDA FIXEL) ---
         for sorszam, (idx, row) in enumerate(elokeszitett_sorok, 1):
             melyik_lada = st.session_state.get(f"lada_szam_tarolt_{idx}")
             if not melyik_lada: melyik_lada = str(row.get('Láda', 'Nincs láda'))
@@ -748,12 +760,8 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             customer_id = str(row['ID']).strip()
             aktualis_rendeles = str(row[rendeles_oszlop]).strip() if rendeles_oszlop in row else "Nincs adat"
             
-            # 📌 EREDETI VS AKTUÁLIS SORSZÁM VIZSGÁLAT:
             eredeti_sorszam = int(row["Sorrend_num"])
-            # Az aktuális megálló sorszáma a listában (figyelembe véve a már kézbesítetteket)
-            # Ha el lett rendezve, a kettő el fog térni!
             
-            # Összerakjuk a sorszám feliratot: ha módosítva lett, jelezzük mindkettőt!
             if eredeti_sorszam != sorszam:
                 sorszam_felirat = f"📍 #{sorszam}. megálló <span style='font-size:12px; color:#EA580C;'>(Átrendezve)</span> — {melyik_lada}"
                 doboz_felirat = f"<span style='font-size:15px; font-weight:bold; color:#EA580C;'>🏷️ Doboz / Etikett száma: #{eredeti_sorszam}</span><br>"
@@ -761,15 +769,11 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 sorszam_felirat = f"📍 #{sorszam}. megálló — {melyik_lada}"
                 doboz_felirat = f"<span style='font-size:14px; color:#4B5563;'>🏷️ Doboz száma: #{eredeti_sorszam}</span><br>"
 
-            # Megnézzük, hogy ez a kártya-e az éppen térképen kiválasztott kiemelt ügyfél
             is_kiemelt = (customer_id == kiemelt_id)
-            
             bg_style = "background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2.5px solid #F59E0B;" if is_kiemelt else "background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD;"
             kiemelt_szoveg = "⚠️ <b>TÉRKÉPEN KIJELÖLT CÍM!</b><br>" if is_kiemelt else ""
 
-            # ✨ GOLYÓÁLLÓ HTML KÁRTYA KIIRATÁS (BEHÚZÁSI REJTETT SZÓKÖZÖK NÉLKÜL)
             html_kartyadisz = f"""<div style="{bg_style} border-radius: 12px; padding: 10px 14px; margin-top: 8px;">{kiemelt_szoveg}<b>{sorszam_felirat}</b><br><span style="font-size:18px; font-weight:bold; color:#1E3A8A;">👤 {vevo_neve}</span><br><span style="font-size:14px; color:#4B5563;">🏠 {aktualis_cim}</span><br><hr style="margin: 6px 0; border: 0; border-top: 1px solid #BFDBFE;">{doboz_felirat}<span style="font-size:15px; font-weight:bold; color:#DC2626;">📦 Rendelés: {aktualis_rendeles}</span></div>"""
-            
             st.markdown(html_kartyadisz, unsafe_allow_html=True)
             
             col_tel, col_gps = st.columns(2)

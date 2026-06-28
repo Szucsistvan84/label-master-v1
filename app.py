@@ -211,6 +211,10 @@ def main():
     if 'nevnapok_df' not in st.session_state: st.session_state.nevnapok_df = pd.DataFrame()
     if 'keresztnevek_df' not in st.session_state: st.session_state.keresztnevek_df = pd.DataFrame()
 
+    # 💡 GOLYÓÁLLÓ FIX: Inicializáljuk a hiányzó változókat a gombnak
+    if 'c_n' not in st.session_state: st.session_state.c_n = ""
+    if 'edited_df' not in st.session_state: st.session_state.edited_df = None
+
     # ==============================================================================
     # 🚨 VISSZAÁLLÍTOTT SZABAD ASZTALI/MOBILKAPCSOLÓ (MINDENKINEK JÁR A DESKTOP)
     # ==============================================================================

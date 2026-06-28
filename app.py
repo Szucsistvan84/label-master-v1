@@ -293,8 +293,6 @@ def main():
                         routes_str = str(st.session_state.login_jarat_field).strip()
                         st.session_state.user_jarat_lista = [routes_str]
                     
-                    # 💡 INTELLIGENS JAVÍTÁS: Megtartjuk a nézetet, és átadjuk a tokeneket
-                    current_view = view if view else "desktop"
                     # 💡 INTELLIGENS JAVÍTÁS: Minden adatot – a telefont is – beégetünk az URL-be!
                     current_view = view if view else "desktop"
                     st.query_params.update(

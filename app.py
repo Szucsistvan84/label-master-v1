@@ -292,7 +292,7 @@ def main():
             if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
                 st.write("---")
                 st.markdown("### 🛠️ Rendszergazda Eszközök")
-                if st.button("🧹 RENDZER CACHE TELJES TÖRLÉSE", type="primary", use_container_width=True, key="admin_global_cache_clear_btn"):
+                if st.button("🧹 RENDSZER CACHE TELJES TÖRLÉSE", type="primary", use_container_width=True, key="admin_global_cache_clear_btn"):
                     st.cache_data.clear()
                     st.cache_resource.clear()
                     for k in list(st.session_state.keys()):

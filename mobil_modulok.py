@@ -767,18 +767,10 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             bg_style = "background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2.5px solid #F59E0B;" if is_kiemelt else "background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD;"
             kiemelt_szoveg = "⚠️ <b>TÉRKÉPEN KIJELÖLT CÍM!</b><br>" if is_kiemelt else ""
 
-            # ✨ JAVÍTOTT CÍMKÁRTYA NYOMRAVEZETŐ ADATOKKAL:
-            st.markdown(f"""
-            <div style="{bg_style} border-radius: 12px; padding: 10px 14px; margin-top: 8px;">
-                {kiemelt_szoveg}
-                <b>{sorszam_felirat}</b><br>
-                <span style="font-size:18px; font-weight:bold; color:#1E3A8A;">👤 {vevo_neve}</span><br>
-                <span style="font-size:14px; color:#4B5563;">🏠 {aktualis_cim}</span><br>
-                <hr style="margin: 6px 0; border: 0; border-top: 1px solid #BFDBFE;">
-                {doboz_felirat}
-                <span style="font-size:15px; font-weight:bold; color:#DC2626;">📦 Rendelés: {aktualis_rendeles}</span>
-            </div>
-            """, unsafe_allow_html=True)
+            # ✨ GOLYÓÁLLÓ HTML KÁRTYA KIIRATÁS (BEHÚZÁSI REJTETT SZÓKÖZÖK NÉLKÜL)
+            html_kartyadisz = f"""<div style="{bg_style} border-radius: 12px; padding: 10px 14px; margin-top: 8px;">{kiemelt_szoveg}<b>{sorszam_felirat}</b><br><span style="font-size:18px; font-weight:bold; color:#1E3A8A;">👤 {vevo_neve}</span><br><span style="font-size:14px; color:#4B5563;">🏠 {aktualis_cim}</span><br><hr style="margin: 6px 0; border: 0; border-top: 1px solid #BFDBFE;">{doboz_felirat}<span style="font-size:15px; font-weight:bold; color:#DC2626;">📦 Rendelés: {aktualis_rendeles}</span></div>"""
+            
+            st.markdown(html_kartyadisz, unsafe_allow_html=True)
             
             col_tel, col_gps = st.columns(2)
             with col_tel:

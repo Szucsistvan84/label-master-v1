@@ -140,7 +140,11 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     jarat_lista_kiir = st.session_state.get('user_jarat_lista', [])
     jarat_szoveg_kiir = ", ".join(map(str, jarat_lista_kiir)) if jarat_lista_kiir else "Nincs"
     
-    st.write(f"👤 **Futár:** {futar_nev_kiir} | 🚚 **Járat:** {jarat_szoveg_kiir}")
+    # 💡 FIX: Lekérjük a telefonszámot is, és ha létezik, elegánsan kiírjuk a név alá/mellé!
+    futar_tel_kiir = st.session_state.get('user_tel', '')
+    tel_resz = f" | 📞 {futar_tel_kiir}" if futar_tel_kiir else ""
+    
+    st.write(f"👤 **Futár:** {futar_nev_kiir}{tel_resz}<br>🚚 **Járat:** {jarat_szoveg_kiir}", unsafe_allow_html=True)
 
     # Alapértelmezett elszámolási mérők
     osszes_cim = 0

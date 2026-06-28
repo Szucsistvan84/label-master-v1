@@ -128,24 +128,36 @@ def main():
         #MainMenu {visibility: hidden !important; display: none !important;}
         [data-testid="stAppDeployButton"] {display: none !important;}
         [data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
-        header, [data-testid="stHeader"] { background-color: rgba(0,0,0,0) !important; z-index: 999999 !important; }
+        
+        /* 3. PONT FIX: A felső stHeader sávot és a gombot BEBETONOZZUK, nem engedjük elrejteni! */
+        header, [data-testid="stHeader"] { 
+            background-color: transparent !important; 
+            z-index: 999999 !important; 
+            display: block !important;
+            height: 45px !important;
+        }
 
-        /* 5. PONT FIX: A Sidebar megnyitó gomb háttérszíne és kiemelése ha a menü csukva van (Szürke alap, szegély) */
+        /* Sidebar megnyitó gomb állandó, jól látható, stabil szürke dizájnja */
         [data-testid="stSidebarCollapseButton"] {
-            visibility: visible !important; display: inline-flex !important;
-            background-color: #E5E7EB !important; border: 1.5px solid #9CA3AF !important;
-            border-radius: 8px !important; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08) !important;
-            margin-left: 8px !important; margin-top: 6px !important; z-index: 1000000 !important;
+            visibility: visible !important; 
+            display: inline-flex !important;
+            background-color: #E5E7EB !important; 
+            border: 1.5px solid #9CA3AF !important;
+            border-radius: 8px !important; 
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08) !important;
+            margin-left: 8px !important; 
+            margin-top: 6px !important; 
+            z-index: 1000000 !important;
             color: #374151 !important;
         }
         [data-testid="stSidebarCollapseButton"]:hover { border-color: #139D43 !important; background-color: #D1D5DB !important; }
         
         [data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
         
-        /* 1. PONT UX FINOMHANGOLÁS: A felső üres paddingot minimálisra vesszük, hogy a tartalom azonnal feltolódjon */
+        /* 1. PONT UX FINOMHANGOLÁS: A felső üres tér minimalizálása */
         .block-container { padding-top: 0.5rem !important; padding-bottom: 2rem !important; }
 
-        /* 1. PONT TABS RESZPONZIVITÁS: A navigációs gombok ne törjenek új sorba, hanem a szöveg törjön belül! */
+        /* 5. PONT ULTRA FIX: A 3 rádiógombot (Tabs) kényszerítjük egyetlen sorba mobilon, nincs törés! */
         div[data-testid="stSegmentedControl"] {
             display: flex !important;
             flex-direction: row !important;
@@ -155,13 +167,13 @@ def main():
         div[data-testid="stSegmentedControl"] button {
             flex: 1 1 0% !important;
             min-width: 0 !important;
-            padding: 4px 2px !important;
+            padding: 4px 1px !important;
         }
         div[data-testid="stSegmentedControl"] button div p {
-            font-size: 11.5px !important;
+            font-size: 10px !important; /* Kicsit kisebb betű, hogy elférjen egy sorban */
             white-space: normal !important;
-            word-break: break-all !important;
-            line-height: 1.2 !important;
+            word-break: break-word !important;
+            line-height: 1.1 !important;
             text-align: center !important;
             font-weight: bold !important;
         }
@@ -235,7 +247,7 @@ def main():
         else:
             st.markdown('<div style="text-align: center; width: 100%; margin-bottom: 15px; margin-top: 10px;"><img src="https://www.interfood.hu/images/logo.png" style="max-width: 140px; height: auto; display: block; margin: 0 auto;"></div>', unsafe_allow_html=True)
             
-        st.markdown("<p style='text-align: center; color: #6B7280; font-size: 14px;'>Biztonságos azonosítás a system használatához</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280; font-size: 14px;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:
@@ -320,10 +332,10 @@ def main():
             st.markdown("<h3 style='margin-top:2px; margin-bottom:10px; color:#1E3A8A;'>📱 Futár Terminál</h3>", unsafe_allow_html=True)
             
             render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID_MASTER)
+            
             if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
                 st.write("---")
                 st.markdown("### 🛠️ Rendszergazda Eszközök")
-                # GRAMMATIKAI FIX: RENDZER HELYETT RENDSZER
                 if st.button("🧹 RENDSZER CACHE TELJES TÖRLÉSE", type="primary", use_container_width=True, key="admin_global_cache_clear_btn"):
                     st.cache_data.clear()
                     st.cache_resource.clear()
@@ -335,7 +347,20 @@ def main():
                     time.sleep(0.5)
                     st.rerun()
 
-        # --- 🔄 OKOS SZINKRONIZÁLT NAVIGÁCIÓS SÁV (JAVÍTOTT, GOMBBIZTOS) ---
+            # 3. PONT FIX: A KIJELENTKEZÉS GOMBOT ÁTTETTÜK IDE A MENÜ ALJÁRA, NEM FOGLAL HELYET A FŐKÉPERNYŐN
+            st.write("---")
+            if st.button("🚪 Kijelentkezés", key="mob_logout", use_container_width=True):
+                for k in list(st.session_state.keys()):
+                    if any(x in k for x in ["kiszallitva_", "bepak_allapot_", "lada_szam_tarolt_", "current_mobile_tab_state"]): 
+                        st.session_state.pop(k, None)
+                st.session_state.bejelentkezve = False
+                st.query_params.clear()
+                st.query_params.update(view="mobile")
+                st.toast("👋 Sikeres kijelentkezés!")
+                time.sleep(0.5)
+                st.rerun()
+
+        # --- 🔄 OKOS SZINKRONIZÁLT NAVIGÁCIÓS SÁV ---
         tab_mapping = {
             "aruatvetel": "1. Áruátvétel 📦",
             "bepakolas": "2. Címekre szedés 📥",
@@ -346,7 +371,6 @@ def main():
             url_tab_param = st.query_params.get("active_tab", "aruatvetel")
             st.session_state.current_mobile_tab_state = tab_mapping.get(url_tab_param, "1. Áruátvétel 📦")
             
-        # 🔥 FIX: Kényszerítjük a Streamlit belső widget-memóriáját, hogy kövesse a külső állapotot
         st.session_state["mobil_segmented_nav_bar_live"] = st.session_state.current_mobile_tab_state
         
         selected_mobil_tab = st.segmented_control(
@@ -363,7 +387,7 @@ def main():
             st.query_params.update(active_tab=inv_map[selected_mobil_tab])
             st.rerun()
 
-        # 🔥 BIZTONSÁGI HÁLÓ: Modul renderelés
+        # Modul renderelés
         try:
             if st.session_state.current_mobile_tab_state == "1. Áruátvétel 📦":
                 render_mobil_aruatvetel(client)
@@ -373,21 +397,6 @@ def main():
                 render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)
         except Exception as e:
             st.error(f"❌ Hiba történt a modul futtatása közben: {e}")
-                
-        # ⭐ ELPUSZTÍTHATATLAN KIJELENTKEZÉS ÉS URL-GYALU
-        st.write("---")
-        if st.button("🚪 Kijelentkezés", key="mob_logout", use_container_width=True):
-            for k in list(st.session_state.keys()):
-                if any(x in k for x in ["kiszallitva_", "bepak_allapot_", "lada_szam_tarolt_", "current_mobile_tab_state"]): 
-                    st.session_state.pop(k, None)
-            st.session_state.bejelentkezve = False
-            
-            st.query_params.clear()
-            st.query_params.update(view="mobile")
-            
-            st.toast("👋 Sikeres és biztonságos kijelentkezés!")
-            time.sleep(0.5)
-            st.rerun()
 
     # =========================================================================
     # 🖥️ 2. ÁG: TELJES ASZTALI / ADMINISZTRÁCIÓS NÉZET

@@ -212,13 +212,13 @@ def main():
     if 'keresztnevek_df' not in st.session_state: st.session_state.keresztnevek_df = pd.DataFrame()
 
     # ==============================================================================
-    # 🚨 INTELLIGENS BIZTONSÁGOS REDIRECT (ASZTALI MONITOR ÉS MOBIL SZÉTVÁLASZTÁS)
+    # 🚨 VISSZAÁLLÍTOTT SZABAD ASZTALI/MOBILKAPCSOLÓ (MINDENKINEK JÁR A DESKTOP)
     # ==============================================================================
     if view is None:
         if 'edited_df' in st.session_state: 
             view = "desktop"
         else:
-            # Ha tiszta URL-lel érkezel (pl. asztali gépen), alapértelmezetten a Desktop (Admin) induljon el!
+            # Ha tiszta URL-lel érkezik be a futár az asztali gépen, asztali módot kap!
             view = "desktop"
             st.query_params.update(view="desktop")
             st.rerun()

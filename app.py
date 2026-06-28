@@ -338,9 +338,18 @@ def main():
             render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)
                 
         if st.button("🚪 Kijelentkezés", key="mob_logout", use_container_width=True):
+            # 1. Kitakarítjuk a lokális memóriát és az elcsúszott állapotokat
             for k in list(st.session_state.keys()):
-                if any(x in k for x in ["kiszallitva_", "bepak_allapot_", "lada_szam_tarolt_"]): st.session_state.pop(k, None)
+                if any(x in k for x in ["kiszallitva_", "bepak_allapot_", "lada_szam_tarolt_", "current_mobile_tab_state"]): 
+                    st.session_state.pop(k, None)
             st.session_state.bejelentkezve = False
+            
+            # 🔥 ATOMBIZTOS URL TISZTÍTÁS: Kigyomláljuk az active_tab-ot, csak a tiszta mobil nézet marad!
+            st.query_params.clear()
+            st.query_params.update(view="mobile")
+            
+            st.toast("👋 Sikeres és biztonságos kijelentkezés!")
+            time.sleep(0.5)
             st.rerun()
 
     # =========================================================================

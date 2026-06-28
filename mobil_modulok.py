@@ -74,7 +74,7 @@ def render_mobil_aruatvetel(client):
         with st.expander("🛠️ ADMIN TESZTELŐ PANEL (Gyors Áruátvétel)", expanded=False):
             if st.button("⚡ ÖSSZES ÉTEL ÁTVÉTELE ÉS TOVÁBBLÉPÉS", type="primary", use_container_width=True, key="admin_fast_aruatvetel_btn"):
                 st.session_state.aruatvetel_folyamatban = True
-                st.session_state.current_mobile_tab_state = "2. Címkre szedés 📥"
+                st.session_state.current_mobile_tab_state = "2. Címekre szedés 📥"
                 st.toast("🚀 Áruátvétel szimulálva!")
                 time.sleep(0.5)
                 st.rerun()

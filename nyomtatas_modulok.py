@@ -126,14 +126,15 @@ def get_gender_and_nevnap(full_name, nevnapok_df, keresztnevek_df, target_date):
     for part in name_parts:
         clean_part = part.lower()
         if clean_part in mai_nevek:
-            # Megvan a névnapos! Nem meghatározása a keresztnevek alapján
-            ikon = "✨" # Alapértelmezett (Férfi vagy ismeretlen)
+            # 💡 VISSZATÉRÉS A REJTETT DEJAVU GRAFIKÁKHOZ (A hétvégi hiba végleges javítása)
+            ikon = "✦" # Gyönyörű négyágú csillag (Férfi/Általános) - garantáltan működik!
+            
             if keresztnevek_df is not None and not keresztnevek_df.empty:
                 gender_match = keresztnevek_df[keresztnevek_df['Keresztnév'].astype(str).str.lower() == clean_part]
                 if not gender_match.empty:
                     nem = str(gender_match.iloc[0]['Nem']).lower()
                     if 'nő' in nem:
-                        ikon = "✿"
+                        ikon = "❀" # Gyönyörű tiszta virág (Női) - garantáltan működik!
             
             return f"{ikon} Boldog Névnapot, {part}! {ikon}"
     return None

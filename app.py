@@ -306,7 +306,7 @@ def main():
         # --- 🔄 OKOS SZINKRONIZÁLT NAVIGÁCIÓS SÁV ---
         tab_mapping = {
             "aruatvetel": "1. Áruátvétel 📦",
-            "bepakolas": "2. Címkre szedés 📥",
+            "bepakolas": "2. Címekre szedés 📥",
             "kiszallitas": "3. Kiszállítás 🚚"
         }
         

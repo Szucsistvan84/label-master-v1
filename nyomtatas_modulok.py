@@ -27,13 +27,31 @@ def register_fonts():
     f_reg = "DejaVu"
     f_bold = "DejaVu-Bold"
     
+    # Határozzuk meg a projekt gyökérmappáját
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 💡 Ha a fájljaid egy 'fonts' mappában vannak, írd át erre: os.path.join(base_dir, "fonts", "DejaVuSans.ttf")
+    reg_path = os.path.join(base_dir, "DejaVuSans.ttf")
+    bold_path = os.path.join(base_dir, "DejaVuSans-Bold.ttf")
+    
     try:
         if f_reg not in pdfmetrics.getRegisteredFontNames():
-            pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
+            if os.path.exists(reg_path):
+                pdfmetrics.registerFont(TTFont('DejaVu', reg_path))
+            else:
+                raise FileNotFoundError(f"Hiányzó fájl: {reg_path}")
+                
         if f_bold not in pdfmetrics.getRegisteredFontNames():
-            pdfmetrics.registerFont(TTFont('DejaVu-Bold', 'DejaVuSans-Bold.ttf'))
+            if os.path.exists(bold_path):
+                pdfmetrics.registerFont(TTFont('DejaVu-Bold', bold_path))
+            else:
+                raise FileNotFoundError(f"Hiányzó fájl: {bold_path}")
+                
     except Exception as e:
-        logger.warning(f"Egyedi betűtípus regisztrációs hiba, alapértelmezett használata: {e}")
+        # Ide berakunk egy direkt Streamlit kiírást, így azonnal látni fogod a képernyőn a valódi hibát!
+        import streamlit as st
+        st.sidebar.error(f"⚠️ Font Hiba: {e}")
+        
         f_reg = "Helvetica"
         f_bold = "Helvetica-Bold"
         

@@ -392,14 +392,22 @@ def main():
     # 🖥️ ASZTALI ÁG
     # =========================================================================
     else:
-        st.sidebar.markdown(f"### 👤 {st.session_state.user_nev}")
+        # 💡 FIX: Kirakjuk az asztali sidebar fejlécbe is a nevet és a telefonszámot!
+        futar_tel_asztal = st.session_state.get('user_tel', '')
+        tel_resz_asztal = f" ({futar_tel_asztal})" if futar_tel_asztal else ""
+        
+        st.sidebar.markdown(f"### 👤 {st.session_state.user_nev}{tel_resz_asztal}")
+        
         is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
         if is_admin: st.sidebar.success("⭐ Adminisztrátor Mód")
+        
         if st.sidebar.button("🚪 Kijelentkezés", key="desktop_logout"):
             st.session_state.bejelentkezve = False
             st.rerun()
+            
         with st.sidebar:
             admin_funkcio = render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE)
+            
         render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, admin_funkcio, is_admin)
 
 if __name__ == "__main__":

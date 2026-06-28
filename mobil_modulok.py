@@ -346,8 +346,15 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                 else:
                     df_adatok_filtered = df_adatok.copy()
 
+                # --- 🛰️ JOGOSULTSÁG ALAPÚ SZŰRÉS A BEPAKOLÁSNÁL (PROFI VERZIÓ) ---
                 if 'Feldolgozó Futár' in df_adatok_filtered.columns:
-                    df_adatok_filtered = df_adatok_filtered[df_adatok_filtered['Feldolgozó Futár'].astype(str).str.strip().str.lower() == futar_neve_lower]
+                    # Ha admin vagy superadmin mutatja be a rendszert, nincs korlátozás
+                    if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
+                        pass 
+                    else:
+                        # Normál futár: csak a saját címeit pakolhatja be
+                        f_clean = str(futar_neve).strip().lower()
+                        df_adatok_filtered = df_adatok_filtered[df_adatok_filtered['Feldolgozó Futár'].astype(str).str.strip().str.lower() == f_clean]
 
                 if df_adatok_filtered.empty:
                     st.info("ℹ️ Nincsenek bepakolandó címek.")

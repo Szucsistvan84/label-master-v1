@@ -336,7 +336,7 @@ def main():
         try:
             if st.session_state.current_mobile_tab_state == "1. Áruátvétel 📦":
                 render_mobil_aruatvetel(client)
-            elif st.session_state.current_mobile_tab_state == "2. Címkre szedés 📥":
+            elif st.session_state.current_mobile_tab_state == "2. Címekre szedés 📥":
                 render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR)
             elif st.session_state.current_mobile_tab_state == "3. Kiszállítás 🚚":
                 render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)

@@ -29,7 +29,17 @@ def render_mobil_aruatvetel(client):
         
         if not df_raklista_init.empty:
             df_raklista_init.columns = [c.strip() for c in df_raklista_init.columns]
-            df_sajat_raklista_init = df_raklista_init[df_raklista_init['Jarat_ID / Futar'] == futar_neve]
+            
+            f_clean = str(futar_neve).strip().lower()
+            
+            # --- 🛰️ MEGTARTOTT NÉV ALAPÚ HELYETTESÍTÉSI MOTOR (ADMIN KIVÉTELLEL) ---
+            # Ha egy Admin / Boss tesztel, és nincs külön 'Boss' aggregáció a konyhai fülön,
+            # akkor megengedjük, hogy az összes konyhai tételt lássa a választott járathoz.
+            if f_clean in ["boss", "rendszergazda", "rendszergazda (vészbejárat)"]:
+                df_sajat_raklista_init = df_raklista_init.copy()
+            else:
+                # NORMÁL FUTÁR: Szigorú név-egyezés az eredeti logikád szerint (helyettesítés működik!)
+                df_sajat_raklista_init = df_raklista_init[df_raklista_init['Jarat_ID / Futar'].astype(str).str.strip().str.lower() == f_clean]
             
             if not df_sajat_raklista_init.empty:
                 jaratok = ["Mai Raklista"]
@@ -39,8 +49,12 @@ def render_mobil_aruatvetel(client):
                     if not df_adatok.empty:
                         df_adatok.columns = [c.strip() for c in df_adatok.columns]
                         if 'Feldolgozó Futár' in df_adatok.columns:
-                            df_szurt = df_adatok[df_adatok['Feldolgozó Futár'] == futar_neve]
-                            jaratok = [str(j).strip() for j in df_szurt['Járat'].unique() if str(j).strip() != ""]
+                            # Itt is átengedjük az admint az Adatok fallback szűrésénél
+                            if f_clean in ["boss", "rendszergazda", "rendszergazda (vészbejárat)"]:
+                                jaratok = [str(j).strip() for j in df_adatok['Járat'].unique() if str(j).strip() != "" and str(j).lower() != "nan"]
+                            else:
+                                df_szurt = df_adatok[df_adatok['Feldolgozó Futár'].astype(str).str.strip().str.lower() == f_clean]
+                                jaratok = [str(j).strip() for j in df_szurt['Járat'].unique() if str(j).strip() != ""]
                         else:
                             jaratok = [str(j).strip() for j in df_adatok['Járat'].unique() if str(j).strip() != ""]
                 except:

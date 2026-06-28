@@ -666,14 +666,14 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             c_lat = current_target_point['lat'] if current_target_point else 47.5316
             c_lon = current_target_point['lon'] if current_target_point else 21.6244
             
-            # --- TISZTA TÉRKÉP MEGJELENÍTÉS (MERT A LINKET TILTJA A MOBIL BÖNGÉSZŐ AZ IFRAME-BŐL) ---
+            # --- 1. PONT FIX: TÉRKERET FINOMHANGOLÁS (NINCS MARGÓ, MAGASABB TÉRKÉP) ---
             html_map_code = """
             <!DOCTYPE html>
             <html>
             <head>
                 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
                 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-                <style>html, body, #map { height: 100%; width: 100%; margin: 0; } #map { height: 190px; }
+                <style>html, body, #map { height: 100%; width: 100%; margin: 0; } #map { height: 210px; }
                 .active-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 19px; font-size: 9.5px; }
                 .current-marker { background: #E1251B; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; }
                 </style>
@@ -707,38 +707,16 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             html_map_code = html_map_code.replace("__C_LAT__", str(c_lat))
             html_map_code = html_map_code.replace("__C_LON__", str(c_lon))
 
-            st.components.v1.html(f'<div style="width: 100%; height: 150px; overflow: hidden; border-radius: 12px; border: 1.5px solid #93C5FD;"><iframe width="100%" height="190px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="margin-bottom: -40px; border: none;"></iframe></div>', height=155)
+            # Beágyazás nulla felső/alsó margóval, megemelt térképpel
+            st.components.v1.html(f'<div style="width: 100%; height: 210px; overflow: hidden; border-radius: 12px; border: 1.5px solid #93C5FD; margin-top: -10px; margin-bottom: -10px;"><iframe width="100%" height="210px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="border: none;"></iframe></div>', height=212)
 
-        # --- 📋 2. JAVÍTOTT OKOS ALAP-LISTA ÖSSZEÁLLÍTÁS ---
+        # --- 📋 2. ALAP-LISTA ÖSSZEÁLLÍTÁS ---
         elokeszitett_sorok = []
         for idx_p, row_p in bepakolt_sorok:
             if st.session_state.get(f"kiszallitva_{idx_p}", False): continue
             elokeszitett_sorok.append((idx_p, row_p))
 
-        # --- 🛰️ 3. NATÍV INTELLIGENS CÍM-UGROTÓ ÉS CÍM-KERESŐ PANEL ---
-        st.write("")
-        options_ugras = ["--- Válassz egy megállót az adatlap kiemeléséhez ---"]
-        id_mapping_ugras = {}
-        
-        for idx_u, row_u in elokeszitett_sorok:
-            u_id = str(row_u['ID']).strip()
-            u_nev = str(row_u[nev_oszlop]).strip()
-            u_sorszam = row_u["Sorrend_num"]
-            felirat = f"📍 #{u_sorszam} — {u_nev}"
-            options_ugras.append(felirat)
-            id_mapping_ugras[felirat] = u_id
-
-        valasztott_gyorsugras = st.selectbox(
-            "🔍 Útba eső cím/bogyó gyors adatlap-aktiválása:",
-            options=options_ugras,
-            key="native_térkép_gyorsugro_select"
-        )
-        
-        # Ha a futár kiválasztott egy címet, elmentjük a memóriába kiemeltnek
-        if valasztott_gyorsugras != "--- Válassz egy megállót az adatlap kiemeléséhez ---":
-            st.session_state.kiemelt_ugyfel_id = id_mapping_ugras[valasztott_gyorsugras]
-
-        # --- 📋 4. HA VAN KIEMELT ÜGYFÉL, AZT ELŐRE RAKJUK A LISTÁBAN ---
+        # --- 📋 3. HA VAN KIEMELT ÜGYFÉL, AZT ELŐRE RAKJUK A LISTÁBAN ---
         kiemelt_id = st.session_state.get("kiemelt_ugyfel_id", None)
         if kiemelt_id:
             talalt_kiemelt = None
@@ -749,7 +727,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             if talalt_kiemelt:
                 elokeszitett_sorok.insert(0, talalt_kiemelt)
 
-        # --- 📋 4. KÁRTYÁK KIRAJZOLÁSA (ULTRA-KOMPAKT FUTÁR UX VERZIÓ) ---
+        # --- 📋 4. KÁRTYÁK KIRAJZOLÁSA (INTELLIGENS LOGISZTIKAI JAVÍTÁSOKKAL) ---
         for sorszam, (idx, row) in enumerate(elokeszitett_sorok, 1):
             melyik_lada = st.session_state.get(f"lada_szam_tarolt_{idx}")
             if not melyik_lada: melyik_lada = str(row.get('Láda', 'Nincs láda'))
@@ -762,22 +740,29 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             
             eredeti_sorszam = int(row["Sorrend_num"])
             
+            # 4. PONT FIX: KISZÁMOLJUK AZ ÖSSZES MEGRENDELT DARABSZÁMOT (REDUNDANCIA ELLEN)
+            osszes_db = 0
+            try:
+                # Kikeressük az összes darabszámot a regex (ORDER_PAT) segítségével a rendelési mezőből
+                darabok = re.findall(r'(\d+)-', aktualis_rendeles)
+                osszes_db = sum(int(d) for d in darabok)
+            except:
+                osszes_db = 1 # Biztonsági tartalék
+                
             if eredeti_sorszam != sorszam:
                 sorszam_felirat = f"📍 #{sorszam}. megálló <span style='font-size:11px; color:#EA580C;'>(Átrendezve)</span> — {melyik_lada}"
-                doboz_felirat = f"<span style='font-size:14px; font-weight:bold; color:#EA580C;'>🏷️ Doboz / Etikett száma: #{eredeti_sorszam}</span><br>"
             else:
                 sorszam_felirat = f"📍 #{sorszam}. megálló — {melyik_lada}"
-                doboz_felirat = f"<span style='font-size:13px; color:#4B5563;'>🏷️ Doboz száma: #{eredeti_sorszam}</span><br>"
 
             is_kiemelt = (customer_id == kiemelt_id)
             bg_style = "background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2.5px solid #F59E0B;" if is_kiemelt else "background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD;"
             kiemelt_szoveg = "⚠️ <b>TÉRKÉPEN KIJELÖLT CÍM!</b><br>" if is_kiemelt else ""
 
-            # HTML kártya kiírása - Tűpontos formázással, szóközcsapdák nélkül
-            html_kartyadisz = f"""<div style="{bg_style} border-radius: 12px; padding: 10px 14px; margin-top: 8px;">{kiemelt_szoveg}<b>{sorszam_felirat}</b><br><span style="font-size:18px; font-weight:bold; color:#1E3A8A;">👤 {vevo_neve}</span><br><span style="font-size:14px; color:#4B5563;">🏠 {aktualis_cim}</span><br><hr style="margin: 6px 0; border: 0; border-top: 1px solid #BFDBFE;">{doboz_felirat}<span style="font-size:14px; font-weight:bold; color:#DC2626;">📦 Rendelés: {aktualis_rendeles}</span></div>"""
+            # Új, letisztult, nem ismétlődő kártya felirat az összesített darabszámmal
+            html_kartyadisz = f"""<div style="{bg_style} border-radius: 12px; padding: 10px 14px; margin-top: 8px;">{kiemelt_szoveg}<b>{sorszam_felirat}</b><br><span style="font-size:18px; font-weight:bold; color:#1E3A8A;">👤 {vevo_neve}</span><br><span style="font-size:14px; color:#4B5563;">🏠 {aktualis_cim}</span><br><hr style="margin: 6px 0; border: 0; border-top: 1px solid #BFDBFE;"><span style="font-size:13px; font-weight:bold; color:#4B5563;">🛍️ Összes rendelési tétel: {osszes_db} db</span><br><span style="font-size:14px; font-weight:bold; color:#DC2626;">📦 Rendelés: {aktualis_rendeles}</span></div>"""
             st.markdown(html_kartyadisz, unsafe_allow_html=True)
             
-            # --- HÍVÁS ÉS NAVIGÁCIÓ EGY SORBAN (50-50%, RESZPONZÍV FLEXBOX) ---
+            # Gombok egy sorban
             maps_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(aktualis_cim)}"
             hivas_html = f'<a href="tel:{vevo_tel}" target="_blank" style="width:100%; text-decoration:none;"><button style="width:100%; height:38px; background-color:#25D366; color:white; border:none; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">📞 Hívás</button></a>' if vevo_tel and vevo_tel != "nan" else '<button style="width:100%; height:38px; background-color:#9CA3AF; color:white; border:none; border-radius:8px; font-weight:bold; font-size:14px; opacity:0.5;" disabled>📞 Nincs tel.</button>'
             nav_html = f'<a href="{maps_url}" target="_blank" style="width:100%; text-decoration:none;"><button style="width:100%; height:38px; background-color:#4285F4; color:white; border:none; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">🗺️ Navigáció</button></a>'
@@ -789,10 +774,26 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             </div>
             """, unsafe_allow_html=True)
 
-            # --- FUNKCIÓK CSOPORTOSÍTÁSA EGYETLEN EXPANDER ALÁ ---
+            # --- 2. PONT FIX: MINDEN MODOSÍTÓ ÉS AKTIVÁLÓ FUNKCIÓ EGYETLEN KÖZÖS EXPANDER ALÁ KERÜLT ---
             with st.expander("🛠️ Cím korrigálása és Átrendezés"):
                 
-                # A: Sorrend módosítása
+                # A: Adatlap gyorsaktiváló selectbox (Itt lakik belül!)
+                st.markdown("<b>🔍 Útba eső cím/bogyó gyors adatlap-aktiválása:</b>", unsafe_allow_html=True)
+                options_ugras = ["--- Válassz egy megállót a kiemeléshez ---"]
+                id_mapping_ugras = {}
+                for idx_u, row_u in elokeszitett_sorok:
+                    u_id = str(row_u['ID']).strip()
+                    options_ugras.append(f"📍 #{row_u['Sorrend_num']} — {str(row_u[nev_oszlop]).strip()}")
+                    id_mapping_ugras[f"📍 #{row_u['Sorrend_num']} — {str(row_u[nev_oszlop]).strip()}"] = u_id
+                
+                valasztott_gyorsugras = st.selectbox("Válassz ki egy bogyót a térképről:", options=options_ugras, key=f"inner_ugro_select_{idx}", label_visibility="collapsed")
+                if valasztott_gyorsugras != "--- Válassz egy megállót a kiemeléshez ---":
+                    st.session_state.kiemelt_ugyfel_id = id_mapping_ugras[valasztott_gyorsugras]
+                    st.rerun()
+
+                st.markdown("<hr style='margin:10px 0; border-top:1px dashed #D1D5DB;'>", unsafe_allow_html=True)
+
+                # B: Sorrend módosítása
                 st.markdown("<b>🔀 Megálló sorrendjének módosítása</b>", unsafe_allow_html=True)
                 c_end, c_move = st.columns(2)
                 
@@ -851,7 +852,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
                 st.markdown("<hr style='margin:10px 0; border-top:1px dashed #D1D5DB;'>", unsafe_allow_html=True)
                 
-                # B: GPS Kapu rögzítése
+                # C: GPS Kapu rögzítése
                 st.markdown("<b>🎯 Kapu rögzítése (GPS koordináta)</b>", unsafe_allow_html=True)
                 loc = get_geolocation()
                 if loc and 'coords' in loc:
@@ -891,7 +892,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 else:
                     st.caption("⏳ Várakozás éles GPS jelre...")
 
-            # --- LIKVIDÁLVA A 0 FT-OS FELESLEG, CSAK TEENDŐNÉL MUTATUNK PÉNZT ---
+            # --- PÉNZÜGYI RÉSZ ÉS KÉZBESÍTÉS ---
             elovart_osszeg = 0
             if penz_oszlop:
                 try: elovart_osszeg = int(float(str(row[penz_oszlop]).replace("Ft","").replace(" ","").strip()))
@@ -900,10 +901,8 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             if elovart_osszeg > 0:
                 st.write(f"💵 **Fizetendő KP:** {elovart_osszeg:,} Ft")
             
-            # Borravaló/átvett követés megmarad
             atvett_osszeg = st.number_input("Átvett összeg:", min_value=0, value=int(elovart_osszeg), step=50, key=f"atvett_input_{idx}")
             
-            # Domináns, nagy zöld kézbesítő gomb
             if st.button("✅ Sikeres kézbesítés", key=f"siker_{idx}", use_container_width=True, type="primary"):
                 st.session_state[f"kiszallitva_{idx}"] = True
                 st.session_state.pop("kiemelt_ugyfel_id", None)

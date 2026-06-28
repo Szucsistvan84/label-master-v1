@@ -211,15 +211,17 @@ def main():
     if 'nevnapok_df' not in st.session_state: st.session_state.nevnapok_df = pd.DataFrame()
     if 'keresztnevek_df' not in st.session_state: st.session_state.keresztnevek_df = pd.DataFrame()
 
-    # BIZTONSÁGOS REDIRECT
+    # ==============================================================================
+    # 🚨 INTELLIGENS BIZTONSÁGOS REDIRECT (ASZTALI MONITOR ÉS MOBIL SZÉTVÁLASZTÁS)
+    # ==============================================================================
     if view is None:
-        if 'edited_df' in st.session_state: view = "desktop"
+        if 'edited_df' in st.session_state: 
+            view = "desktop"
         else:
-            st.markdown("### 📱 Interfood Futár Terminál")
-            if st.button("🚀 MOBIL TERMINÁL INDÍTÁSA", use_container_width=True, type="primary"):
-                st.query_params.update(view="mobile")
-                st.rerun()
-            return
+            # Ha tiszta URL-lel érkezel (pl. asztali gépen), alapértelmezetten a Desktop (Admin) induljon el!
+            view = "desktop"
+            st.query_params.update(view="desktop")
+            st.rerun()
 
     # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:

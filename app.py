@@ -329,14 +329,19 @@ def main():
             st.query_params.update(active_tab=inv_map[selected_mobil_tab])
             st.rerun()
 
-        # Aktív képernyő kirajzolása
-        if st.session_state.current_mobile_tab_state == "1. Áruátvétel 📦":
-            render_mobil_aruatvetel(client)
-        elif st.session_state.current_mobile_tab_state == "2. Címkre szedés 📥":
-            render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR)
-        elif st.session_state.current_mobile_tab_state == "3. Kiszállítás 🚚":
-            render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)
+        # 🔥 BIZTONSÁGI HÁLÓ: Ha bármelyik modul elhasal, a Kijelentkezés gomb akkor is megmarad alatta!
+        try:
+            if st.session_state.current_mobile_tab_state == "1. Áruátvétel 📦":
+                render_mobil_aruatvetel(client)
+            elif st.session_state.current_mobile_tab_state == "2. Címkre szedés 📥":
+                render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR)
+            elif st.session_state.current_mobile_tab_state == "3. Kiszállítás 🚚":
+                render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)
+        except Exception as e:
+            st.error(f"❌ Hiba történt a modul futtatása közben: {e}")
                 
+        # ⭐ ELPUSZTÍTHATATLAN KIJELENTKEZÉS ÉS URL-GYALU
+        st.write("---")
         if st.button("🚪 Kijelentkezés", key="mob_logout", use_container_width=True):
             # 1. Kitakarítjuk a lokális memóriát és az elcsúszott állapotokat
             for k in list(st.session_state.keys()):
@@ -344,7 +349,7 @@ def main():
                     st.session_state.pop(k, None)
             st.session_state.bejelentkezve = False
             
-            # 🔥 ATOMBIZTOS URL TISZTÍTÁS: Kigyomláljuk az active_tab-ot, csak a tiszta mobil nézet marad!
+            # 2. Letöröljük a beragadt active_tab paramétert az URL-ből, visszaállunk tiszta mobilra
             st.query_params.clear()
             st.query_params.update(view="mobile")
             

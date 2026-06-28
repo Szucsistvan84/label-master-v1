@@ -694,10 +694,10 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                         var icon = L.divIcon({{ className: iconClass, html: p.sorrend, iconSize: iconSize }});
                         var popupHtml = `
                             <div style="font-size:11px; font-family:sans-serif;">
-                                <b>#\${p.sorrend} - \${p.name}</b><br>
-                                \${p.address}<br>
-                                <a href="?view=mobile&action=move_end&target_id=\${p.id}" target="_parent" class="popup-btn btn-end" style="color:white; text-decoration:none;">⬇️ Végére dobás</a>
-                                <button onclick="var pos=prompt('Helyezés sorszáma:'); if(pos) window.parent.location.href='?view=mobile&action=move_to&target_id=\${p.id}&pos='+pos" class="popup-btn btn-move">🔀 Helyre beszúrás</button>
+                                <b>#\${{p.sorrend}} - \${{p.name}}</b><br>
+                                \${{p.address}}<br>
+                                <a href="?view=mobile&action=move_end&target_id=\${{p.id}}" target="_parent" class="popup-btn btn-end" style="color:white; text-decoration:none;">⬇️ Végére dobás</a>
+                                <button onclick="var pos=prompt('Helyezés sorszáma:'); if(pos) window.parent.location.href='?view=mobile&action=move_to&target_id=\${{p.id}}&pos='+pos" class="popup-btn btn-move">🔀 Helyre beszúrás</button>
                             </div>
                         `;
                         L.marker([p.lat, p.lon], {{icon: icon}}).bindPopup(popupHtml).addTo(map);

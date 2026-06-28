@@ -1021,6 +1021,12 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             aktualis_jaratok = ", ".join(meta.get('jaratok', [])) if meta.get('jaratok') else "N/A"
             st.info(f"Észlelt járatok: **{aktualis_jaratok}** | {meta.get('ev', '')}. {meta.get('het', '')}. hét")
 
+            # 💡 FIX: Biztosítjuk, hogy a gomb megnyomásakor a c_n és c_p a bejelentkezett futár adatait tartalmazza!
+            if st.session_state.get('user_nev'):
+                st.session_state.c_n = st.session_state.user_nev
+            if st.session_state.get('user_tel'):
+                st.session_state.c_p = st.session_state.user_tel
+
             if st.button("🚀 DOKUMENTUMOK GENERÁLÁSA", type="primary", use_container_width=True, key="doc_gen_btn"):
                 with st.spinner("⏳ PDF-ek generálása..."):
                     try:

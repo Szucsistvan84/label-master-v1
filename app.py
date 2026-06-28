@@ -303,24 +303,27 @@ def main():
                     time.sleep(0.5)
                     st.rerun()
 
-        # --- 🔄 OKOS SZINKRONIZÁLT NAVIGÁCIÓS SÁV ---
+        # --- 🔄 OKOS SZINKRONIZÁLT NAVIGÁCIÓS SÁV (JAVÍTOTT, GOMBBIZTOS) ---
         tab_mapping = {
             "aruatvetel": "1. Áruátvétel 📦",
-            "bepakolas": "2. Címekre szedés 📥",
+            "bepakolas": "2. Címkre szedés 📥",
             "kiszallitas": "3. Kiszállítás 🚚"
         }
         
         if "current_mobile_tab_state" not in st.session_state:
             url_tab_param = st.query_params.get("active_tab", "aruatvetel")
             st.session_state.current_mobile_tab_state = tab_mapping.get(url_tab_param, "1. Áruátvétel 📦")
+            
+        # 🔥 FIX: Kényszerítjük a Streamlit belső widget-memóriáját, hogy kövesse a külső állapotot,
+        # így ha egy gomb (pl. az Admin panel) átírja a fület, a navigációs sáv nem akad ki!
+        st.session_state["mobil_segmented_nav_bar_live"] = st.session_state.current_mobile_tab_state
         
         selected_mobil_tab = st.segmented_control(
             "Navigáció",
             options=list(tab_mapping.values()),
             selection_mode="single",
-            default=st.session_state.current_mobile_tab_state,
             label_visibility="collapsed",
-            key="mobil_segmented_nav_bar_live"
+            key="mobil_segmented_nav_bar_live"  # Ez a kulcs és a fenti session sor most már tökéletes szinkronban van!
         )
         
         if selected_mobil_tab and selected_mobil_tab != st.session_state.current_mobile_tab_state:

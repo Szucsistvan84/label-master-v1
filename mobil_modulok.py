@@ -116,14 +116,17 @@ def render_mobil_aruatvetel(client):
                 df_raklista_init = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Mobil_Raklista")
             except: pass
             
+            # --- 🛰️ JOGOSULTSÁG ALAPÚ HELYETTESÍTÉSI MOTOR (PROFI VERZIÓ) ---
             df_sajat_raklista = pd.DataFrame()
             if df_raklista_init is not None and not df_raklista_init.empty:
                 df_raklista_init.columns = [c.strip() for c in df_raklista_init.columns]
                 
-                # --- HELYETTESÍTÉSI LOGIKA VÉDELME ---
-                if f_clean in ["boss", "rendszergazda", "rendszergazda (vészbejárat)"]:
-                    df_sajat_raklista = df_raklista_init.copy() # Admin mindent lát
+                # Ha a bejelentkezett felhasználó admin vagy superadmin, átengedjük
+                if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
+                    df_sajat_raklista = df_raklista_init.copy()
                 else:
+                    # Normál futár: szigorú név-egyezés az eredeti logikád szerint
+                    f_clean = str(futar_neve).strip().lower()
                     df_sajat_raklista = df_raklista_init[df_raklista_init['Jarat_ID / Futar'].astype(str).str.strip().str.lower() == f_clean]
 
             # 🚨 🛰️ VÉSZHELYZETI ENGINE: HA AZ ASZTALI KÓD MIATT ÜRES A RAKLISTA, ÉLŐBEN GENERÁLJUK!

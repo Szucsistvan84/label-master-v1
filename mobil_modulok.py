@@ -666,7 +666,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             c_lat = current_target_point['lat'] if current_target_point else 47.5316
             c_lon = current_target_point['lon'] if current_target_point else 21.6244
             
-            # --- 1. PONT FIX: TÉRKERET FINOMHANGOLÁS (NINCS MARGÓ, MAGASABB TÉRKÉP) ---
+            # --- 1. PONT FIX: TÉRKERET FINOMHANGOLÁS (NINCS MARGÓ, EMELT TÉRKÉP MAGASSÁG) ---
             html_map_code = """
             <!DOCTYPE html>
             <html>
@@ -707,7 +707,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             html_map_code = html_map_code.replace("__C_LAT__", str(c_lat))
             html_map_code = html_map_code.replace("__C_LON__", str(c_lon))
 
-            # Beágyazás nulla felső/alsó margóval, megemelt térképpel
+            # Beágyazás nulla felesleges fehér térközzel
             st.components.v1.html(f'<div style="width: 100%; height: 210px; overflow: hidden; border-radius: 12px; border: 1.5px solid #93C5FD; margin-top: -10px; margin-bottom: -10px;"><iframe width="100%" height="210px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="border: none;"></iframe></div>', height=212)
 
         # --- 📋 2. ALAP-LISTA ÖSSZEÁLLÍTÁS ---
@@ -727,7 +727,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             if talalt_kiemelt:
                 elokeszitett_sorok.insert(0, talalt_kiemelt)
 
-        # --- 📋 4. KÁRTYÁK KIRAJZOLÁSA (INTELLIGENS LOGISZTIKAI JAVÍTÁSOKKAL) ---
+        # --- 📋 4. KÁRTYÁK KIRAJZOLÁSA ---
         for sorszam, (idx, row) in enumerate(elokeszitett_sorok, 1):
             melyik_lada = st.session_state.get(f"lada_szam_tarolt_{idx}")
             if not melyik_lada: melyik_lada = str(row.get('Láda', 'Nincs láda'))
@@ -740,14 +740,13 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             
             eredeti_sorszam = int(row["Sorrend_num"])
             
-            # 4. PONT FIX: KISZÁMOLJUK AZ ÖSSZES MEGRENDELT DARABSZÁMOT (REDUNDANCIA ELLEN)
+            # 4. PONT FIX: MATEMATIKAI DARABSZÁM ÖSSZEGZÉS A REDUNDÁNS ADAT HELYETT
             osszes_db = 0
             try:
-                # Kikeressük az összes darabszámot a regex (ORDER_PAT) segítségével a rendelési mezőből
                 darabok = re.findall(r'(\d+)-', aktualis_rendeles)
                 osszes_db = sum(int(d) for d in darabok)
             except:
-                osszes_db = 1 # Biztonsági tartalék
+                osszes_db = 1
                 
             if eredeti_sorszam != sorszam:
                 sorszam_felirat = f"📍 #{sorszam}. megálló <span style='font-size:11px; color:#EA580C;'>(Átrendezve)</span> — {melyik_lada}"
@@ -758,7 +757,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             bg_style = "background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2.5px solid #F59E0B;" if is_kiemelt else "background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD;"
             kiemelt_szoveg = "⚠️ <b>TÉRKÉPEN KIJELÖLT CÍM!</b><br>" if is_kiemelt else ""
 
-            # Új, letisztult, nem ismétlődő kártya felirat az összesített darabszámmal
+            # Letisztított kártya az összesített darabszámmal, felesleges dobozszám nélkül
             html_kartyadisz = f"""<div style="{bg_style} border-radius: 12px; padding: 10px 14px; margin-top: 8px;">{kiemelt_szoveg}<b>{sorszam_felirat}</b><br><span style="font-size:18px; font-weight:bold; color:#1E3A8A;">👤 {vevo_neve}</span><br><span style="font-size:14px; color:#4B5563;">🏠 {aktualis_cim}</span><br><hr style="margin: 6px 0; border: 0; border-top: 1px solid #BFDBFE;"><span style="font-size:13px; font-weight:bold; color:#4B5563;">🛍️ Összes rendelési tétel: {osszes_db} db</span><br><span style="font-size:14px; font-weight:bold; color:#DC2626;">📦 Rendelés: {aktualis_rendeles}</span></div>"""
             st.markdown(html_kartyadisz, unsafe_allow_html=True)
             
@@ -774,10 +773,10 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             </div>
             """, unsafe_allow_html=True)
 
-            # --- 2. PONT FIX: MINDEN MODOSÍTÓ ÉS AKTIVÁLÓ FUNKCIÓ EGYETLEN KÖZÖS EXPANDER ALÁ KERÜLT ---
+            # --- 2. PONT FIX: AZ ÖSSZES FUNKCIÓ (KERESŐ + SORSZÁMOZÓ) EGYETLEN EXPANDER ALATT ---
             with st.expander("🛠️ Cím korrigálása és Átrendezés"):
                 
-                # A: Adatlap gyorsaktiváló selectbox (Itt lakik belül!)
+                # Gyorsaktiváló kereső (Itt lakik legfelül!)
                 st.markdown("<b>🔍 Útba eső cím/bogyó gyors adatlap-aktiválása:</b>", unsafe_allow_html=True)
                 options_ugras = ["--- Válassz egy megállót a kiemeléshez ---"]
                 id_mapping_ugras = {}
@@ -793,7 +792,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
                 st.markdown("<hr style='margin:10px 0; border-top:1px dashed #D1D5DB;'>", unsafe_allow_html=True)
 
-                # B: Sorrend módosítása
+                # Sorrend módosítása
                 st.markdown("<b>🔀 Megálló sorrendjének módosítása</b>", unsafe_allow_html=True)
                 c_end, c_move = st.columns(2)
                 
@@ -852,7 +851,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
                 st.markdown("<hr style='margin:10px 0; border-top:1px dashed #D1D5DB;'>", unsafe_allow_html=True)
                 
-                # C: GPS Kapu rögzítése
+                # GPS Kapu rögzítése
                 st.markdown("<b>🎯 Kapu rögzítése (GPS koordináta)</b>", unsafe_allow_html=True)
                 loc = get_geolocation()
                 if loc and 'coords' in loc:

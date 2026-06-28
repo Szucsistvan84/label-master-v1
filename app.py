@@ -295,11 +295,14 @@ def main():
                     
                     # 💡 INTELLIGENS JAVÍTÁS: Megtartjuk a nézetet, és átadjuk a tokeneket
                     current_view = view if view else "desktop"
+                    # 💡 INTELLIGENS JAVÍTÁS: Minden adatot – a telefont is – beégetünk az URL-be!
+                    current_view = view if view else "desktop"
                     st.query_params.update(
                         view=current_view, 
                         token_name=st.session_state.user_nev, 
                         token_role=st.session_state.user_szerep, 
-                        token_routes=routes_str
+                        token_routes=routes_str,
+                        token_tel=st.session_state.user_tel  # <- EZT MENTJÜK EL PLUSZBAN!
                     )
                     st.rerun()
                 else:

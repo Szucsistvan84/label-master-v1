@@ -226,7 +226,7 @@ def main():
             return
 
     # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
-    if not st.session_state.bejelentgevve if 'bejelentkezve' in st.session_state else False or not st.session_state.bejelentkezve:
+    if not st.session_state.get("bejelentkezve", False):
         if os.path.exists("interfood-logo.png"):
             import base64
             with open("interfood-logo.png", "rb") as img_file:

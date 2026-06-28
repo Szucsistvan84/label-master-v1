@@ -211,11 +211,14 @@ def main():
     if 'nevnapok_df' not in st.session_state: st.session_state.nevnapok_df = pd.DataFrame()
     if 'keresztnevek_df' not in st.session_state: st.session_state.keresztnevek_df = pd.DataFrame()
 
-    # 💡 TOVÁBBI GOLYÓÁLLÓ FIXEK A JÁRATMENTES INDULÁSHOZ:
+    # Golyóálló fixek a járatmentes induláshoz és a nyomtatási modulokhoz
     if 'c_n' not in st.session_state: st.session_state.c_n = ""
     if 'c_p' not in st.session_state: st.session_state.c_p = ""
     if 'edited_df' not in st.session_state: st.session_state.edited_df = None
-    if 'user_jarat_lista' not in st.session_state: st.session_state.user_jarat_lista = []
+    
+    # 💡 Ikonok és betűtípusok kényszerített fixálása a generáláshoz:
+    from nyomtatas_modulok import register_fonts
+    register_fonts()
 
     # ==============================================================================
     # 🚨 VISSZAÁLLÍTOTT SZABAD ASZTALI/MOBILKAPCSOLÓ (MINDENKINEK JÁR A DESKTOP)

@@ -283,9 +283,17 @@ def main():
                     st.session_state.user_jarat_lista = [j.strip() for j in str(talalt_futar.get('Járat', '')).split(",") if j.strip()]
                     st.session_state.user_szerep = str(talalt_futar.get('Szerep', 'futar'))
                     
+                    # 💡 MODOSÍTÁS: Elmentjük a telefonszámot és a járatokat is fixen a session_state-be a Google Sheetből!
+                    st.session_state.user_tel = str(talalt_futar.get('Telefon', ''))
+                    
                     routes_str = ",".join(st.session_state.user_jarat_lista)
                     
-                    # 💡 INTELLIGENS JAVÍTÁS: Ha asztali nézetben lép be, megtartja a desktop paramétert!
+                    # Ha üres lenne a routes_str, az asztali feldolgozáshoz a beírt járatot használjuk fallbackként
+                    if not routes_str and 'login_jarat_field' in st.session_state:
+                        routes_str = str(st.session_state.login_jarat_field).strip()
+                        st.session_state.user_jarat_lista = [routes_str]
+                    
+                    # 💡 INTELLIGENS JAVÍTÁS: Megtartjuk a nézetet, és átadjuk a tokeneket
                     current_view = view if view else "desktop"
                     st.query_params.update(
                         view=current_view, 

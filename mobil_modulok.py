@@ -666,46 +666,52 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             c_lat = current_target_point['lat'] if current_target_point else 47.5316
             c_lon = current_target_point['lon'] if current_target_point else 21.6244
             
-            html_map_code = f"""
+            # --- JAVÍTOTT TÉRKÉP KÓD (SIMA STRING + FORMAT, HOGY A JAVASCRIPT ${p...} MŰKÖDJÖN) ---
+            html_map_code = """
             <!DOCTYPE html>
             <html>
             <head>
                 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
                 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-                <style>html, body, #map {{ height: 100%; width: 100%; margin: 0; }} #map {{ height: 190px; }}
-                .active-marker {{ background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 19px; font-size: 9.5px; }}
-                .current-marker {{ background: #E1251B; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; }}
-                .popup-btn {{ display: block; width: 100%; margin-top: 5px; padding: 5px; border: none; border-radius: 5px; font-weight: bold; font-size: 10.5px; text-align: center; cursor: pointer; }}
-                .btn-end {{ background-color: #E1251B; color: white; }} .btn-move {{ background-color: #F59E0B; color: white; }}
+                <style>html, body, #map { height: 100%; width: 100%; margin: 0; } #map { height: 190px; }
+                .active-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 19px; font-size: 9.5px; }
+                .current-marker { background: #E1251B; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; }
+                .popup-btn { display: block; width: 100%; margin-top: 5px; padding: 5px; border: none; border-radius: 5px; font-weight: bold; font-size: 10.5px; text-align: center; cursor: pointer; }
+                .btn-end { background-color: #E1251B; color: white; } .btn-move { background-color: #F59E0B; color: white; }
                 </style>
             </head>
             <body>
                 <div id="map"></div>
                 <script>
-                    var points = {points_json};
-                    var map = L.map('map', {{zoomControl: false}}).setView([{c_lat}, {c_lon}], 14);
-                    L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(map);
+                    var points = __POINTS_JSON__;
+                    var map = L.map('map', {zoomControl: false}).setView([__C_LAT__, __C_LON__], 14);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-                    points.forEach(function(p, index) {{
+                    points.forEach(function(p, index) {
                         var isCurrent = (index === 0);
                         var iconClass = isCurrent ? 'current-marker' : 'active-marker';
                         var iconSize = isCurrent ? [26, 26] : [22, 22];
 
-                        var icon = L.divIcon({{ className: iconClass, html: p.sorrend, iconSize: iconSize }});
+                        var icon = L.divIcon({ className: iconClass, html: p.sorrend, iconSize: iconSize });
                         var popupHtml = `
                             <div style="font-size:11px; font-family:sans-serif;">
-                                <b>#\${{p.sorrend}} - \${{p.name}}</b><br>
-                                \${{p.address}}<br>
-                                <a href="?view=mobile&action=move_end&target_id=\${{p.id}}" target="_parent" class="popup-btn btn-end" style="color:white; text-decoration:none;">⬇️ Végére dobás</a>
-                                <button onclick="var pos=prompt('Helyezés sorszáma:'); if(pos) window.parent.location.href='?view=mobile&action=move_to&target_id=\${{p.id}}&pos='+pos" class="popup-btn btn-move">🔀 Helyre beszúrás</button>
+                                <b>#${p.sorrend} - ${p.name}</b><br>
+                                ${p.address}<br>
+                                <a href="?view=mobile&action=move_end&target_id=${p.id}" target="_parent" class="popup-btn btn-end" style="color:white; text-decoration:none;">⬇️ Végére dobás</a>
+                                <button onclick="var pos=prompt('Helyezés sorszáma:'); if(pos) window.parent.location.href='?view=mobile&action=move_to&target_id=${p.id}&pos='+pos" class="popup-btn btn-move">🔀 Helyre beszúrás</button>
                             </div>
                         `;
-                        L.marker([p.lat, p.lon], {{icon: icon}}).bindPopup(popupHtml).addTo(map);
-                    }});
+                        L.marker([p.lat, p.lon], {icon: icon}).bindPopup(popupHtml).addTo(map);
+                    });
                 </script>
             </body>
             </html>
             """
+            # Helyettesítjük a Python változókat biztonságosan a stringben
+            html_map_code = html_map_code.replace("__POINTS_JSON__", points_json)
+            html_map_code = html_map_code.replace("__C_LAT__", str(c_lat))
+            html_map_code = html_map_code.replace("__C_LON__", str(c_lon))
+
             st.components.v1.html(f'<div style="width: 100%; height: 150px; overflow: hidden; border-radius: 12px; border: 1.5px solid #93C5FD;"><iframe width="100%" height="190px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="margin-bottom: -40px; border: none;"></iframe></div>', height=155)
 
         for sorszam, (idx, row) in enumerate(bepakolt_sorok, 1):
@@ -716,7 +722,19 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             vevo_neve = str(row[nev_oszlop]).strip()
             vevo_tel = str(row.get(tel_oszlop, '')).strip()
             
-            st.markdown(f'<div style="background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD; border-radius: 12px; padding: 8px 12px;"><b>📍 #{row["Sorrend_num"]} megálló — {melyik_lada}</b><br><span style="font-size:18px; font-weight:bold;">👤 {vevo_neve}</span><br>🏠 {aktualis_cim}</div>', unsafe_allow_html=True)
+            # 👁️ KIOLVASSUK A MEGRENDELÉST (Ha létezik az oszlop)
+            aktualis_rendeles = str(row[rendeles_oszlop]).strip() if rendeles_oszlop in row else "Nincs adat"
+            
+            # ✨ JAVÍTOTT CÍMKÁRTYA: Most már a konkrét megrendelés (étel kódok) is megjelenik szép nagy betűkkel!
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD; border-radius: 12px; padding: 10px 14px;">
+                <b>📍 #{row["Sorrend_num"]} megálló — {melyik_lada}</b><br>
+                <span style="font-size:18px; font-weight:bold; color:#1E3A8A;">👤 {vevo_neve}</span><br>
+                <span style="font-size:14px; color:#4B5563;">🏠 {aktualis_cim}</span><br>
+                <hr style="margin: 6px 0; border: 0; border-top: 1px solid #BFDBFE;">
+                <span style="font-size:15px; font-weight:bold; color:#DC2626;">📦 Rendelés: {aktualis_rendeles}</span>
+            </div>
+            """, unsafe_allow_html=True)
             
             col_tel, col_gps = st.columns(2)
             with col_tel:

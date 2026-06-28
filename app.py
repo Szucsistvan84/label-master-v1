@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import streamlit as Object
 import streamlit as st
 
 # --- 1. STREAMLIT ALAPBEÁLLÍTÁS - Kötelezően mindenen kívül, a legelső sorban! ---
@@ -31,11 +32,11 @@ from adatbazis_modul import (
 )
 from utils import init_google_sheets, setup_logging, init_test_mode
 
-# --- MOBIL NÉZETEK ÉS NYOMTATÁS BEHÚZÁSA (A reload UTÁN!) ---
+# --- MOBIL NÉZETEK ÉS NYOMTATÁS BEHÚZÁSA ---
 import mobil_modulok
 from mobil_modulok import render_mobil_aruatvetel, render_mobil_bepakolas, render_mobil_kiszallitas
 
-# --- KISZERVEZETT ÚJ NÉZET RENDEREK (nezetek_modul.py) ---
+# --- KISZERVEZETT ÚJ NÉZET RENDEREK ---
 from nezetek_modul import (
     render_mobil_sidebar_dashboard, 
     render_desktop_sidebar_controls, 
@@ -59,9 +60,28 @@ def main():
 
     # URL paraméterek lekérése az ágak eldöntéséhez
     view = st.query_params.get("view", None)
-    
+    url_jarat = st.query_params.get("jarat", "")
+    url_teszt = st.query_params.get("test", "false") == "true"
+    is_mobile_view = (view == "mobile")
+
     # ==============================================================================
-    # 🛰️ ÉLES ÚTVONAL-RENDEZŐ ÉS RENDELÉSI SORREND HOOK (MINT A TÉRKÉPEN)
+    # 🛰️ 2. PONT FIX: AUTOMATIKUS VISSZALÉPTETŐ MOTOR BÖNGÉSZŐ FRISSÍTÉS (F5) ESETÉN
+    # ==============================================================================
+    if 'bejelentkezve' not in st.session_state: st.session_state.bejelentkezve = False
+    
+    # Ha a memóriából kiesett a belépés, de az URL-ben ott vannak a futár adatai, visszaléptetjük!
+    if not st.session_state.bejelentkezve and "token_name" in st.query_params:
+        st.session_state.bejelentkezve = True
+        st.session_state.user_nev = str(st.query_params["token_name"])
+        st.session_state.user_szerep = str(st.query_params.get("token_role", "futar"))
+        st.session_state.user_jarat_lista = str(st.query_params.get("token_routes", "")).split(",")
+        if "active_tab" in st.query_params:
+            tab_param = st.query_params["active_tab"]
+            tab_mapping_rev = {"aruatvetel": "1. Áruátvétel 📦", "bepakolas": "2. Címekre szedés 📥", "kiszallitas": "3. Kiszállítás 🚚"}
+            st.session_state.current_mobile_tab_state = tab_mapping_rev.get(tab_param, "1. Áruátvétel 📦")
+
+    # ==============================================================================
+    # 🛰️ ÉLES ÚTVONAL-RENDEZŐ ENGINE HOOK
     # ==============================================================================
     if "action" in st.query_params and "target_id" in st.query_params:
         action = st.query_params["action"]
@@ -77,24 +97,20 @@ def main():
                 df_sheets = pd.DataFrame(adatok_rows[1:], columns=header_adatok)
                 df_sheets['Sorrend'] = pd.to_numeric(df_sheets['Sorrend'], errors='coerce').fillna(999).astype(int)
                 df_sheets = df_sheets.sort_values(by='Sorrend').reset_index(drop=True)
-                
                 target_idx = df_sheets[df_sheets['ID'].astype(str).str.strip() == target_id].index
                 
                 if not target_idx.empty:
                     t_idx = target_idx[0]
                     target_row = df_sheets.loc[t_idx].copy()
-                    
                     if action == "move_end":
                         max_sorrend = df_sheets['Sorrend'].max()
                         df_sheets = df_sheets.drop(t_idx).reset_index(drop=True)
                         target_row['Sorrend'] = max_sorrend + 1
                         df_sheets = pd.concat([df_sheets, pd.DataFrame([target_row])], ignore_index=True)
-                    
                     elif action == "move_to" and "pos" in st.query_params:
                         target_pos = max(1, int(st.query_params["pos"]))
                         df_sheets = df_sheets.drop(t_idx).reset_index(drop=True)
                         insert_idx = min(len(df_sheets), target_pos - 1)
-                        
                         df_left = df_sheets.iloc[:insert_idx]
                         df_right = df_sheets.iloc[insert_idx:]
                         df_sheets = pd.concat([df_left, pd.DataFrame([target_row]), df_right], ignore_index=True)
@@ -105,17 +121,11 @@ def main():
                     st.session_state.mdf = df_sheets
                     st.cache_data.clear()
                     
-                    # Tiszta átsorolás utáni visszaugrás a kiszállítás fülre
-                    st.query_params.clear()
                     st.query_params.update(view="mobile", active_tab="kiszallitas")
                     st.session_state.current_mobile_tab_state = "3. Kiszállítás 🚚"
                     st.rerun()
         except Exception as e:
             st.error(f"Hiba az átsorrendezés során: {e}")
-
-    url_jarat = st.query_params.get("jarat", "")
-    url_teszt = st.query_params.get("test", "false") == "true"
-    is_mobile_view = (view == "mobile")
 
     # --- ATOMBIZTOS PREMIUM CSS DESIGN ÉS INJEKTÁLT ELEM ELREJTŐK (ULTRA-KOMPAKT FUTÁR UX) ---
     st.markdown(
@@ -129,7 +139,6 @@ def main():
         [data-testid="stAppDeployButton"] {display: none !important;}
         [data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
         
-        /* 3. PONT FIX: A felső stHeader sávot és a gombot BEBETONOZZUK, nem engedjük elrejteni! */
         header, [data-testid="stHeader"] { 
             background-color: transparent !important; 
             z-index: 999999 !important; 
@@ -137,7 +146,7 @@ def main():
             height: 45px !important;
         }
 
-        /* Sidebar megnyitó gomb állandó, jól látható, stabil szürke dizájnja */
+        /* Sidebar megnyitó gomb állandó, stabil szürke dizájnja - BEBETONOZVA */
         [data-testid="stSidebarCollapseButton"] {
             visibility: visible !important; 
             display: inline-flex !important;
@@ -153,11 +162,9 @@ def main():
         [data-testid="stSidebarCollapseButton"]:hover { border-color: #139D43 !important; background-color: #D1D5DB !important; }
         
         [data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
-        
-        /* 1. PONT UX FINOMHANGOLÁS: A felső üres tér minimalizálása */
         .block-container { padding-top: 0.5rem !important; padding-bottom: 2rem !important; }
 
-        /* 5. PONT ULTRA FIX: A 3 rádiógombot (Tabs) kényszerítjük egyetlen sorba mobilon, nincs törés! */
+        /* 5. PONT KÉNYSZERÍTETT RESZPONZÍV JAVÍTÁS: A gombok SOHA nem törnek két sorba! */
         div[data-testid="stSegmentedControl"] {
             display: flex !important;
             flex-direction: row !important;
@@ -170,10 +177,10 @@ def main():
             padding: 4px 1px !important;
         }
         div[data-testid="stSegmentedControl"] button div p {
-            font-size: 10px !important; /* Kicsit kisebb betű, hogy elférjen egy sorban */
-            white-space: normal !important;
-            word-break: break-word !important;
-            line-height: 1.1 !important;
+            font-size: 11px !important;
+            white-space: nowrap !important; /* Nem engedjük a sortörést a gombon belül */
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
             text-align: center !important;
             font-weight: bold !important;
         }
@@ -184,31 +191,9 @@ def main():
                 width: 100% !important; height: 65px !important; background-color: #FFFFFF !important;
                 z-index: 999990 !important; border-top: 1.5px solid #F3F4F6 !important; pointer-events: none;
             }
-            @media (prefers-color-scheme: dark) {
-                div[data-testid="stAppViewContainer"]::after, .stApp::after { background-color: #0E1117 !important; border-top: 1.5px solid #1F2937 !important; }
-            }
             .block-container { padding-bottom: 120px !important; }
         }
         </style>
-
-        <script>
-            var wakeLock = null;
-            async function requestWakeLock() {
-                try { if ('wakeLock' in navigator) { if (!wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); } } } catch (err) {}
-            }
-            function cleanupStreamlitElements() {
-                try {
-                    var parentDoc = window.parent.document;
-                    var manageBtn = parentDoc.querySelector('[data-testid="manage-app-button"]');
-                    if (manageBtn) { manageBtn.style.setProperty('display', 'none', 'important'); }
-                    var badges = parentDoc.querySelectorAll('[data-testid="viewerBadge"], .viewerBadge');
-                    badges.forEach(function(b) { b.style.setProperty('display', 'none', 'important'); });
-                    requestWakeLock();
-                } catch(e) {}
-            }
-            document.addEventListener('visibilitychange', async () => { if (document.visibilityState === 'visible') { wakeLock = null; requestWakeLock(); } });
-            setTimeout(cleanupStreamlitElements, 300); setTimeout(cleanupStreamlitElements, 1000);
-        </script>
         """,
         unsafe_allow_html=True
     )
@@ -221,7 +206,6 @@ def main():
     if 'mdf' not in st.session_state: st.session_state.mdf = None
     if 'meta_data' not in st.session_state: st.session_state.meta_data = {}
     if 'weights' not in st.session_state: st.session_state.weights = {}
-    if 'bejelentkezve' not in st.session_state: st.session_state.bejelentkezve = False
     if 'user_nev' not in st.session_state: st.session_state.user_nev = ""
     if 'user_szerep' not in st.session_state: st.session_state.user_szerep = "futar"
     if 'nevnapok_df' not in st.session_state: st.session_state.nevnapok_df = pd.DataFrame()
@@ -238,15 +222,8 @@ def main():
             return
 
     # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
-    if not st.session_state.get("bejelentkezve", False):
-        if os.path.exists("interfood-logo.png"):
-            import base64
-            with open("interfood-logo.png", "rb") as img_file:
-                b64_string = base64.b64encode(img_file.read()).decode()
-            st.markdown(f'<div style="text-align: center; width: 100%; margin-bottom: 15px; margin-top: 10px;"><img src="data:image/png;base64,{b64_string}" style="max-width: 140px; height: auto; display: block; margin: 0 auto;"></div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div style="text-align: center; width: 100%; margin-bottom: 15px; margin-top: 10px;"><img src="https://www.interfood.hu/images/logo.png" style="max-width: 140px; height: auto; display: block; margin: 0 auto;"></div>', unsafe_allow_html=True)
-            
+    if not st.session_state.bejelentkezve:
+        st.markdown('<div style="text-align: center; width: 100%; margin-bottom: 15px; margin-top: 10px;"><img src="https://www.interfood.hu/images/logo.png" style="max-width: 140px; height: auto; display: block; margin: 0 auto;"></div>', unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #6B7280; font-size: 14px;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
@@ -257,12 +234,12 @@ def main():
             
             if url_teszt and jarat_input:
                 if st.button("🧪 TESZT BELÉPÉS JELSZÓ NÉLKÜL", type="primary", use_container_width=True):
-                    for k in list(st.session_state.keys()):
-                        if any(x in k for x in ["kiszallitva_", "bepak_allapot_", "lada_szam_tarolt_"]): st.session_state.pop(k, None)
                     st.session_state.bejelentkezve = True
                     st.session_state.user_nev = "Teszt Futár"
                     st.session_state.user_jarat_lista = [jarat_input.strip()]
                     st.session_state.user_szerep = "futar"
+                    # Rögzítjük az URL-be az auto-login tokeneket!
+                    st.query_params.update(view="mobile", token_name="Teszt Futár", token_role="futar", token_routes=jarat_input.strip())
                     st.rerun()
 
             if st.button("🔑 BIZTONSÁGOS BELÉPÉS", use_container_width=True):
@@ -274,6 +251,7 @@ def main():
                     st.session_state.user_nev = "Rendszergazda"
                     st.session_state.user_jarat_lista = ["4002"]
                     st.session_state.user_szerep = "superadmin"
+                    st.query_params.update(view="mobile", token_name="Rendszergazda", token_role="superadmin", token_routes="4002")
                     st.rerun()
                 
                 with st.spinner("⏳ Hitelesítés..."):
@@ -293,6 +271,9 @@ def main():
                     st.session_state.user_nev = talalt_futar.get('Név', 'Futár')
                     st.session_state.user_jarat_lista = [j.strip() for j in str(talalt_futar.get('Járat', '')).split(",") if j.strip()]
                     st.session_state.user_szerep = str(talalt_futar.get('Szerep', 'futar'))
+                    
+                    routes_str = ",".join(st.session_state.user_jarat_lista)
+                    st.query_params.update(view="mobile", token_name=st.session_state.user_nev, token_role=st.session_state.user_szerep, token_routes=routes_str)
                     st.rerun()
                 else:
                     st.error("❌ Hibás járatszám vagy jelszó!")
@@ -311,28 +292,18 @@ def main():
                 st.session_state.etlap_api_df = load_etlap_api_smart(client, SHEET_ID_MASTER, "INITIAL")
             except: pass
 
-    # Globális változók átadása
-    global etlap_api_df, etelek_master_df, master_df, ugyfelkor_df, mdf
+    global etlap_api_df, etelek_master_df, master_df
     etlap_api_df = st.session_state.get('etlap_api_df', pd.DataFrame())
     etelek_master_df = st.session_state.get('etelek_master_df', pd.DataFrame())
     master_df = etelek_master_df
 
     # =========================================================================
-    # 📱 1. ÁG: MOBIL FUTÁR TERMINÁL (SZEGMENTÁLT FÜLVEZÉRLÉSSEL)
+    # 📱 MOBIL ÁG
     # =========================================================================
     if is_mobile_view:
-        # --- SIDEBAR ARCULAT: LOGÓ HARMADOLVA + INTEGRÁLT MOBIL CÍM ---
+        # 1. PONT FIX: ELTÜNTETTÜK A DUPLA LOGÓT! CSAK A RENDER ENGEDÉLYEZETT
         with st.sidebar:
-            try:
-                if os.path.exists("interfood-logo.png"):
-                    st.image("interfood-logo.png", width=90)
-                else:
-                    st.image("https://www.interfood.hu/images/logo.png", width=90)
-            except: pass
-            st.markdown("<h3 style='margin-top:2px; margin-bottom:10px; color:#1E3A8A;'>📱 Futár Terminál</h3>", unsafe_allow_html=True)
-            
             render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID_MASTER)
-            
             if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
                 st.write("---")
                 st.markdown("### 🛠️ Rendszergazda Eszközök")
@@ -347,20 +318,17 @@ def main():
                     time.sleep(0.5)
                     st.rerun()
 
-            # 3. PONT FIX: A KIJELENTKEZÉS GOMBOT ÁTTETTÜK IDE A MENÜ ALJÁRA, NEM FOGLAL HELYET A FŐKÉPERNYŐN
+            # 3. PONT FIX: KIJELENTKEZÉS BEBETONOZVA A SIDEBAR ALJÁRA
             st.write("---")
             if st.button("🚪 Kijelentkezés", key="mob_logout", use_container_width=True):
-                for k in list(st.session_state.keys()):
-                    if any(x in k for x in ["kiszallitva_", "bepak_allapot_", "lada_szam_tarolt_", "current_mobile_tab_state"]): 
-                        st.session_state.pop(k, None)
                 st.session_state.bejelentkezve = False
                 st.query_params.clear()
                 st.query_params.update(view="mobile")
-                st.toast("👋 Sikeres kijelentkezés!")
+                st.toast("👋 Kijelentkezve!")
                 time.sleep(0.5)
                 st.rerun()
 
-        # --- 🔄 OKOS SZINKRONIZÁLT NAVIGÁCIÓS SÁV ---
+        # --- 🔄 NAVIGÁCIÓS SÁV ---
         tab_mapping = {
             "aruatvetel": "1. Áruátvétel 📦",
             "bepakolas": "2. Címekre szedés 📥",
@@ -374,11 +342,7 @@ def main():
         st.session_state["mobil_segmented_nav_bar_live"] = st.session_state.current_mobile_tab_state
         
         selected_mobil_tab = st.segmented_control(
-            "Navigáció",
-            options=list(tab_mapping.values()),
-            selection_mode="single",
-            label_visibility="collapsed",
-            key="mobil_segmented_nav_bar_live"
+            "Navigáció", options=list(tab_mapping.values()), selection_mode="single", label_visibility="collapsed", key="mobil_segmented_nav_bar_live"
         )
         
         if selected_mobil_tab and selected_mobil_tab != st.session_state.current_mobile_tab_state:
@@ -387,7 +351,6 @@ def main():
             st.query_params.update(active_tab=inv_map[selected_mobil_tab])
             st.rerun()
 
-        # Modul renderelés
         try:
             if st.session_state.current_mobile_tab_state == "1. Áruátvétel 📦":
                 render_mobil_aruatvetel(client)
@@ -396,28 +359,21 @@ def main():
             elif st.session_state.current_mobile_tab_state == "3. Kiszállítás 🚚":
                 render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)
         except Exception as e:
-            st.error(f"❌ Hiba történt a modul futtatása közben: {e}")
+            st.error(f"❌ Hiba: {e}")
 
     # =========================================================================
-    # 🖥️ 2. ÁG: TELJES ASZTALI / ADMINISZTRÁCIÓS NÉZET
+    # 🖥️ ASZTALI ÁG
     # =========================================================================
     else:
         st.sidebar.markdown(f"### 👤 {st.session_state.user_nev}")
         is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
-        
         if is_admin: st.sidebar.success("⭐ Adminisztrátor Mód")
-            
         if st.sidebar.button("🚪 Kijelentkezés", key="desktop_logout"):
             st.session_state.bejelentkezve = False
             st.rerun()
-            
         with st.sidebar:
             admin_funkcio = render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE)
-
-        render_desktop_main_content(
-            client=client, SHEET_ID_MASTER=SHEET_ID_MASTER, SHEET_ID_UGYFELKOR=SHEET_ID_UGYFELKOR,
-            admin_funkcio=admin_funkcio, is_admin=is_admin
-        )
+        render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, admin_funkcio, is_admin)
 
 if __name__ == "__main__":
     main()

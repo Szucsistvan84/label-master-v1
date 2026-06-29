@@ -428,17 +428,42 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
         unsafe_allow_html=True
     )
 
-    # Adjuk hozzá a gyönyörű logót az oldalsáv legtetejére! Fallback védelemmel
-    if os.path.exists("interfood-logo.png"):
-        st.image("interfood-logo.png", use_container_width=True)
-    else:
-        st.markdown("<h2 style='text-align: center; color: #139D43; margin-top:0;'>🟢 Interfood</h2>", unsafe_allow_html=True)
+    # ==============================================================================
+    # 🎨 SZUPER KOMPAKT FEJLÉC: LOGÓ ÉS KIJELENTKEZÉS EGY SORBAN + FUTÁR ADATOK
+    # ==============================================================================
+    col_logo, col_logout = st.columns([1.8, 1.2])
     
+    with col_logo:
+        if os.path.exists("interfood-logo.png"):
+            # Harmadára csökkentett logóméret szélesség korlátozással
+            st.image("interfood-logo.png", width=110)
+        else:
+            st.markdown("<h3 style='color: #139D43; margin: 0;'>🟢 Interfood</h3>", unsafe_allow_html=True)
+            
+    with col_logout:
+        if st.button("🚪 Kilépés", key="desktop_sidebar_logout_btn", use_container_width=True):
+            st.session_state.bejelentkezve = False
+            st.rerun()
+
+    # Futár személyes adatai közvetlenül a logósor alá rendezve
+    futar_nev = st.session_state.get('user_nev', 'Ismeretlen Futár')
+    futar_tel = st.session_state.get('user_tel') or st.query_params.get('token_tel', '')
+    
+    # Ha az URL-ből megérkezett a telefonszám, azonnal befrissítjük a session_state-be is a biztonság kedvéért
+    if futar_tel and not st.session_state.get('user_tel'):
+        st.session_state.user_tel = futar_tel
+
+    st.markdown(
+        f"""
+        <div style="background-color: #F3F4F6; padding: 10px; border-radius: 8px; margin-top: 5px; margin-bottom: 10px; border-left: 4px solid #139D43;">
+            <p style="margin: 0; font-weight: bold; color: #1F2937; font-size: 1rem;">👤 {futar_nev}</p>
+            <p style="margin: 2px 0 0 0; color: #4B5563; font-size: 0.88rem;">📞 {futar_tel if futar_tel else "Nincs telefonszám"}</p>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+
     is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
-    
-    # 📞 TELEFON KIÍRÁSA A TETEJÉRE SIMA FUTÁR ESETÉN (Tűpontosan az image_0b8152.png alá)
-    if not is_admin:
-        st.sidebar.markdown(f"📞 **Telefon:** {st.session_state.get('c_p', '+36 20 886 8971')}")
     
     st.header("⚙️ Kezelés")
     if is_admin:

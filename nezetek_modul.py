@@ -440,8 +440,12 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
     # Egy kis szünet a logó után
     st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
 
-    # 🚪 GOLYÓÁLLÓ KIJELENTKEZÉS GOMB (Külön sorban, teljes szélességgel, fixen működik!)
+    # 🚪 GOLYÓÁLLÓ KIJELENTKEZÉS GOMB (Külön sorban, az URL-t is teljesen letisztítja!)
     if st.button("🚪 Kilépés a rendszerből", key="desktop_sidebar_logout_clean_btn", use_container_width=True):
+        # 💡 EZ A KULCS: Kitörli a böngésző címsorából a tokeneket, így nem léptet vissza automatikusan!
+        st.query_params.clear()
+        
+        # Kiürítjük a session-t is az admin váltáshoz
         st.session_state.bejelentkezve = False
         st.session_state.user_nev = None
         st.session_state.user_szerep = None

@@ -681,13 +681,22 @@ def merge_data(all_rows):
     res['Csoport'] = 0
     group_id = 1
     for i in range(1, len(res)):
+        # 💡 INTELLIGENS SZELETELŐS CÍMTISZTÍTÓ: Házszám szintig tisztít a csoportosításhoz!
         def clean_addr(s):
-            return re.sub(r'\W+', '', str(s)).lower()
+            text = str(s).lower().replace('utca', 'u').replace('út', 'u').replace('.', ' ').replace(',', ' ')
+            # Lehámozzuk az elejéről az irányítószámot, hogy ne zavarjon be
+            text_no_zip = re.sub(r'^\s*\d{4}\s*', '', text)
+            # Megkeressük a város + utca + házszámot (az első számblokkig bezárólag, opcionális per-jellel és betűvel)
+            match = re.search(r'^[^0-9]+\d+(?:\s*/\s*[a-z0-9]+)?(?:\s*[a-z]\b)?', text_no_zip)
+            if match:
+                return re.sub(r'\W+', '', match.group(0))
+            return re.sub(r'\W+', '', text_no_zip)
         
         addr_prev = clean_addr(res.iloc[i-1]['Cím'])
         addr_curr = clean_addr(res.iloc[i]['Cím'])
         
-        if addr_prev == addr_curr and addr_curr != "":
+        # Ha a letisztított báziscímek megegyeznek, VAGY az egyik közvetlen részhalmaza a másiknak: csoportosítunk!
+        if (addr_prev == addr_curr or (addr_prev in addr_curr and len(addr_prev) > 8) or (addr_curr in addr_prev and len(addr_curr) > 8)) and addr_curr != "":
             if res.iloc[i-1]['Csoport'] == 0:
                 res.at[res.index[i-1], 'Csoport'] = group_id
                 res.at[res.index[i], 'Csoport'] = group_id

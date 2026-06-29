@@ -429,27 +429,26 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
     )
 
     # ==============================================================================
-    # 🎨 SZUPER KOMPAKT FEJLÉC: LOGÓ ÉS KIJELENTKEZÉS EGY SORBAN + FUTÁR ADATOK
+    # 🎨 FEJLÉC: LOGÓ ÉS KILÉPÉS GOMB TISZTÁN, EGYMÁS ALATT (A BIZTONSÁGOS MŰKÖDÉSÉRT)
     # ==============================================================================
-    col_logo, col_logout = st.columns([1.8, 1.2])
-    
-    with col_logo:
-        if os.path.exists("interfood-logo.png"):
-            # Harmadára csökkentett logóméret szélesség korlátozással
-            st.image("interfood-logo.png", width=110)
-        else:
-            st.markdown("<h3 style='color: #139D43; margin: 0;'>🟢 Interfood</h3>", unsafe_allow_html=True)
-            
-    with col_logout:
-        # 🚪 JAVÍTOTT, STABIL KIJELENTKEZÉS GOMB (Minden adatot alaphelyzetbe állít)
-        if st.button("🚪 Kilépés", key="desktop_sidebar_logout_btn", use_container_width=True):
-            st.session_state.bejelentkezve = False
-            st.session_state.user_nev = None
-            st.session_state.user_szerep = None
-            st.session_state.user_tel = None
-            st.rerun()
+    if os.path.exists("interfood-logo.png"):
+        # Elegáns, csökkentett logóméret
+        st.image("interfood-logo.png", width=110)
+    else:
+        st.markdown("<h3 style='color: #139D43; margin: 0;'>🟢 Interfood</h3>", unsafe_allow_html=True)
+        
+    # Egy kis szünet a logó után
+    st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
 
-    # Futár személyes adatai közvetlenül a logósor alá rendezve
+    # 🚪 GOLYÓÁLLÓ KIJELENTKEZÉS GOMB (Külön sorban, teljes szélességgel, fixen működik!)
+    if st.button("🚪 Kilépés a rendszerből", key="desktop_sidebar_logout_clean_btn", use_container_width=True):
+        st.session_state.bejelentkezve = False
+        st.session_state.user_nev = None
+        st.session_state.user_szerep = None
+        st.session_state.user_tel = None
+        st.rerun()
+
+    # Futár személyes adatai közvetlenül a Kilépés gomb alá rendezve
     futar_nev = st.session_state.get('user_nev', 'Ismeretlen Futár')
     futar_tel = st.session_state.get('user_tel') or st.query_params.get('token_tel', '')
     

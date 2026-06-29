@@ -441,8 +441,12 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             st.markdown("<h3 style='color: #139D43; margin: 0;'>🟢 Interfood</h3>", unsafe_allow_html=True)
             
     with col_logout:
+        # 🚪 JAVÍTOTT, STABIL KIJELENTKEZÉS GOMB (Minden adatot alaphelyzetbe állít)
         if st.button("🚪 Kilépés", key="desktop_sidebar_logout_btn", use_container_width=True):
             st.session_state.bejelentkezve = False
+            st.session_state.user_nev = None
+            st.session_state.user_szerep = None
+            st.session_state.user_tel = None
             st.rerun()
 
     # Futár személyes adatai közvetlenül a logósor alá rendezve

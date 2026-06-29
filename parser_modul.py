@@ -351,15 +351,17 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     if zip_match:
                         pre_zip = clean_context[:zip_match.start()].replace(full_id, "").strip()
                         if pre_zip:
-                            if "/" in pre_zip:
-                                megj_resz_1 = pre_zip.split("/")[0].strip()
-                            else:
-                                t_megj = pre_zip
-                                if admin_name:
-                                    for w in admin_name.split():
-                                        if len(w) > 2:
-                                            t_megj = re.sub(rf'\b{re.escape(w)}\b', '', t_megj, flags=re.IGNORECASE)
-                                megj_resz_1 = t_megj.strip()
+                            # 💡 ÚJ LOGIKA: Nem a perjelet vágjuk, hanem teljesen töröljük a formázott telefonszámot a pre_zip-ből
+                            t_megj = re.sub(PHONE_PAT, '', pre_zip).strip()
+                            
+                            # Ha van megadott ügyintéző név, azt is lefejtjük a szövegből
+                            if admin_name:
+                                for w in admin_name.split():
+                                    if len(w) > 2:
+                                        t_megj = re.sub(rf'\b{re.escape(w)}\b', '', t_megj, flags=re.IGNORECASE)
+                            
+                            # A tiszta maradvány (pl. "Würth Shop" vagy "Vörösmarty Iskola") megy az első megjegyzés részbe
+                            megj_resz_1 = t_megj.strip(" ,.-/|*")
 
                     if address in clean_context:
                         anchor_pos = clean_context.find(address) + len(address)

@@ -476,13 +476,10 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                     full_note = re.sub(r'(Összesítés:|Csillagozott|Összesen:).*', '', full_note, flags=re.IGNORECASE)
 
-                    for num in ["20", "30", "70", "06"]:
-                        full_note = full_note.replace(f"| {num} |", "|")
-                        full_note = full_note.replace(f"|{num}|", "|")
-                        full_note = full_note.replace(f"| {num}", "|")
-                        full_note = full_note.replace(f"{num} |", "|")
-                    
-                    full_note = re.sub(r'\b(20|30|70|06)\b(?!\s*/|\s*\d)', '', full_note)
+                    # 💡 INTELLIGENS TELEFONSZÁM-GYOMLÁLÓ: Csak a teljes, hosszú telefonszámokat törli a megjegyzésből!
+                    full_note = re.sub(r'\b(06|36|20|30|70)[\s\./]*\d(?:[\s\.,-]*\d){5,8}\b', '', full_note)
+                    # Tisztítjuk a megmaradt üres elválasztó karaktereket
+                    full_note = re.sub(r'\|\s*\|', '|', full_note).strip(" ,.-/|*")
 
                     if "|" in full_note:
                         parts = [p.strip() for p in full_note.split("|")]

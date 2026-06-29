@@ -395,8 +395,11 @@ def main():
     else:
         is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
         
-        # 💡 MEGOLDÁS: Csak tisztán meghívjuk a modulokat, mert a nezetek_modul intéz mindent!
-        admin_funkcio = render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE)
+        # 💡 FIX: Visszatesszük az oldalsáv keretet, hogy a menü a bal oldalon maradjon!
+        with st.sidebar:
+            admin_funkcio = render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE)
+            
+        # Ez a sor maradjon kint a szélén, mert ez rajzolja a nagy középső táblázatokat!
         render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, admin_funkcio, is_admin)
 
 if __name__ == "__main__":

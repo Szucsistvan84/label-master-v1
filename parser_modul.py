@@ -71,25 +71,21 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 if y_bottom <= y_top: 
                     y_bottom = y_top + 60 
 
-                # --- JAVÍTOTT, 100%-IG GOLYÓÁLLÓ OSZLOP-ALAPÚ SZÖVEGGYŰJTÉS ---
+# --- WIDE-SCAN OSZLOP-ALAPÚ SZÖVEGGYŰJTÉS (BAL SZÉLTŐL INDÍTVA) ---
                 current_id = anchor['text']
                 y_top = max(0, anchor['top'] - 4)
                 
-                # Meghatározzuk a zóna alját: a következő horgonytól függetlenül adunk neki teret,
-                # vagy a lap aljáig engedjük
                 next_anchor_top = anchors[i+1]['top'] - 2 if i+1 < len(anchors) else page_cutoff
-                y_bottom = max(next_anchor_top, anchor['top'] + 120)
+                y_bottom = max(next_anchor_top, anchor['top'] + 140) # Még mélyebb ablak
                 y_bottom = min(y_bottom, page_cutoff)
 
-                # Nem bbox-ot vágunk, hanem az összes szót szűrjük, ami a zónába esik
                 line_words = [w for w in words if y_top <= w['top'] < y_bottom]
                 
-                # Csak az Ügyfél/Cím/Megjegyzés oszlop szavait gyűjtjük össze (v_lines[0] és v_lines[2] között)
-                # Így a tőle jobbra lévő oszlopok (Telefon, Rendelés) garantáltan nem zavarnak be!
-                ugyfel_sav_words = [w for w in line_words if v_lines[0] <= (w['x0'] + w['x1'])/2 < v_lines[2]]
+                # A trükk: 0-tól (a lap bal szélétől) gyűjtjük a szavakat v_lines[2]-ig,
+                # így a balra kicsúszott, sorszám alá törött megjegyzések is meglesznek!
+                ugyfel_sav_words = [w for w in line_words if 0 <= (w['x0'] + w['x1'])/2 < v_lines[2]]
                 ugyfel_sav_words.sort(key=lambda x: (x['top'], x['x0']))
                 
-                # Összefűzzük a szavakat soronként (ha a 'top' eltérés kicsi, egy sornak vesszük)
                 lines = []
                 if ugyfel_sav_words:
                     current_line_words = [ugyfel_sav_words[0]]
@@ -108,8 +104,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 for idx, l in enumerate(lines):
                     if current_id in l:
                         raw_line = l.replace(current_id, "").strip()
-                        
-                        # Tisztítsuk meg a sor eleji esetleges sorszám-maradványoktól (pl. "6", "7")
                         raw_line = re.sub(r'^\d+\s*', '', raw_line)
                         
                         name_parts = []
@@ -127,9 +121,10 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 hosszu_megj_lista = []
 
                 for idx, l_strip in enumerate(lines):
-                    # Ha egy másik ügyfél kódja keveredne ide, azt azonnal eldobjuk
-                    if any(a['text'] in l_strip for idx_a, a in enumerate(anchors) if idx_a != i):
+                    # Ha egy másik ÜGYFÉLKÓD (S-XXXXXX) szerepel a sorban, és az NEM a miénk, kihagyjuk
+                    if re.search(r'\b[A-Za-z0-9]{1,3}-\d{5,7}\b', l_strip) and not current_id in l_strip:
                         continue
+                        
                     if any(x in l_strip for x in ["Debrecen", "Ebes", "Hajdú", "Nyomtatva:"]): 
                         continue
                     if re.search(PHONE_PAT, l_strip) or re.search(MONEY_PAT, l_strip):
@@ -137,14 +132,17 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                     if idx == name_line_index:
                         maradek = l_strip.replace(current_id, "").replace(local_customer_name, "").strip()
-                        maradek = re.sub(r'^\d+\s*', '', maradek) # Sorszám takarítás
+                        maradek = re.sub(r'^\d+\s*', '', maradek)
                         if len(maradek) > 1:
                             if maradek[0].islower():
                                 hosszu_megj_lista.append(maradek)
                             else:
                                 reszleg_ceg_lista.append(maradek)
                     else:
-                        hosszu_megj_lista.append(l_strip)
+                        # Levágjuk a sor eleji kósza sorszámokat (pl. "6", "7")
+                        tiszta_sor = re.sub(r'^\d+\s*', '', l_strip).strip()
+                        if tiszta_sor:
+                            hosszu_megj_lista.append(tiszta_sor)
 
                 megj_resz_1 = " | ".join(reszleg_ceg_lista)
                 megj_resz_2 = " | ".join(hosszu_megj_lista)

@@ -154,8 +154,12 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 megj_resz_2 = " | ".join(hosszu_megj_lista)
                 customer_name = local_customer_name
             
-                next_anchor_top = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else page_cutoff
-                y_bottom = min(next_anchor_top, page_cutoff)
+                if i + 1 < len(anchors):
+                    # Garantálunk 140 pixelnyi mélységet lefelé, hogy a megjegyzés sorai beleférjenek
+                    y_bottom = max(anchors[i+1]['top'] + 5, anchor['top'] + 140)
+                else:
+                    y_bottom = min(page_cutoff, anchor['top'] + 180)
+                y_bottom = min(y_bottom, page_cutoff)
                 
                 line_words = [w for w in words if y_top <= w['top'] < y_bottom]
                 

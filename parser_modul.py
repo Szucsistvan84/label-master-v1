@@ -71,40 +71,18 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 if y_bottom <= y_top: 
                     y_bottom = y_top + 60 
 
-# --- WIDE-SCAN OSZLOP-ALAPÚ SZÖVEGGYŰJTÉS (BAL SZÉLTŐL INDÍTVA) ---
-                current_id = anchor['text']
-                y_top = max(0, anchor['top'] - 4)
+                full_row_box = pg.within_bbox((20, y_top, 585, y_bottom))
+                raw_text = full_row_box.extract_text() or ""
+                lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
                 
-                next_anchor_top = anchors[i+1]['top'] - 2 if i+1 < len(anchors) else page_cutoff
-                y_bottom = max(next_anchor_top, anchor['top'] + 140) # Még mélyebb ablak
-                y_bottom = min(y_bottom, page_cutoff)
-
-                line_words = [w for w in words if y_top <= w['top'] < y_bottom]
-                
-                # A trükk: 0-tól (a lap bal szélétől) gyűjtjük a szavakat v_lines[2]-ig,
-                # így a balra kicsúszott, sorszám alá törött megjegyzések is meglesznek!
-                ugyfel_sav_words = [w for w in line_words if 0 <= (w['x0'] + w['x1'])/2 < v_lines[2]]
-                ugyfel_sav_words.sort(key=lambda x: (x['top'], x['x0']))
-                
-                lines = []
-                if ugyfel_sav_words:
-                    current_line_words = [ugyfel_sav_words[0]]
-                    for w in ugyfel_sav_words[1:]:
-                        if abs(w['top'] - current_line_words[-1]['top']) < 4:
-                            current_line_words.append(w)
-                        else:
-                            lines.append(" ".join([x['text'] for x in current_line_words]))
-                            current_line_words = [w]
-                    lines.append(" ".join([x['text'] for x in current_line_words]))
-
                 # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE ---
+                current_id = anchor['text']
                 local_customer_name = ""
                 name_line_index = -1
                 
                 for idx, l in enumerate(lines):
                     if current_id in l:
                         raw_line = l.replace(current_id, "").strip()
-                        raw_line = re.sub(r'^\d+\s*', '', raw_line)
                         
                         name_parts = []
                         for word in raw_line.split():
@@ -116,7 +94,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         name_line_index = idx
                         break
 
-# --- 3. INTELLIGENS SZÉTVÁLOGATÁS (IDEGEN ID-K KINYÍRÁSA, SZÖVEG MEGMENTÉSE) ---
+                # --- 3. SZÉTVÁLOGATÁS ---
                 reszleg_ceg_lista = []
                 hosszu_megj_lista = []
 
@@ -126,40 +104,22 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     if re.search(PHONE_PAT, l_strip) or re.search(MONEY_PAT, l_strip):
                         continue
 
-                    # Ha a sorban benne van a mi horgonyunk
                     if idx == name_line_index:
                         maradek = l_strip.replace(current_id, "").replace(local_customer_name, "").strip()
-                        maradek = re.sub(r'^\d+\s*', '', maradek)
                         if len(maradek) > 1:
                             if maradek[0].islower():
                                 hosszu_megj_lista.append(maradek)
                             else:
                                 reszleg_ceg_lista.append(maradek)
                     else:
-                        # Ha a sorban egy IDEGEN ügyfélkód van, nem dobjuk el a sort! 
-                        # Csak letakarítjuk az idegen ID-t és mindent, ami utána van (mert az már a másik ügyfél neve/címe)
-                        foreign_id_match = re.search(r'\b[A-Za-z0-9]{1,3}-\d{5,7}\b', l_strip)
-                        if foreign_id_match:
-                            foreign_id = foreign_id_match.group(0)
-                            if foreign_id != current_id:
-                                # Csak a külföldi ID ELŐTTI részt tartjuk meg, mert az még a mi megjegyzésünk!
-                                l_strip = l_strip.split(foreign_id)[0].strip()
-
-                        # Letakarítjuk a sor eleji kósza sorszámokat
-                        tiszta_sor = re.sub(r'^\d+\s*', '', l_strip).strip()
-                        if tiszta_sor and len(tiszta_sor) > 2:
-                            hosszu_megj_lista.append(tiszta_sor)
+                        hosszu_megj_lista.append(l_strip)
 
                 megj_resz_1 = " | ".join(reszleg_ceg_lista)
                 megj_resz_2 = " | ".join(hosszu_megj_lista)
                 customer_name = local_customer_name
             
-                if i + 1 < len(anchors):
-                    # Garantálunk 140 pixelnyi mélységet lefelé, hogy a megjegyzés sorai beleférjenek
-                    y_bottom = max(anchors[i+1]['top'] + 5, anchor['top'] + 140)
-                else:
-                    y_bottom = min(page_cutoff, anchor['top'] + 180)
-                y_bottom = min(y_bottom, page_cutoff)
+                next_anchor_top = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else page_cutoff
+                y_bottom = min(next_anchor_top, page_cutoff)
                 
                 line_words = [w for w in words if y_top <= w['top'] < y_bottom]
                 
@@ -404,14 +364,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     if address in clean_context:
                         anchor_pos = clean_context.find(address) + len(address)
                         after_address = clean_context[anchor_pos:].strip()
-                        
-                        # Golyóálló védelem az összefolyó táblázatok ellen:
-                        # Ha a szövegben felbukkan a következő ügyfél kódja, ott azonnal kettétörjük a sztringet,
-                        # így a tiszta első felét (Váradi Lajosné valódi megjegyzését) 100%-osan megmentjük!
-                        next_id = anchors[i+1]['text'] if i + 1 < len(anchors) else "CSAK_EGY_ID_VAN"
-                        if next_id in after_address:
-                            after_address = after_address.split(next_id)[0].strip()
-                            
                         end_m = re.search(re.escape(phone_val), after_address)
                         megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
 

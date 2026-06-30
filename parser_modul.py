@@ -71,12 +71,37 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 if y_bottom <= y_top: 
                     y_bottom = y_top + 60 
 
+                # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA (KIBŐVÍTETT MEGJ-VÉDELEMMEL) ---
+                current_id = anchor['text']
+                y_top = max(0, anchor['top'] - 12)
+                
+                if i + 1 < len(anchors):
+                    # Ha a következő horgony becsúszott a hosszú megjegyzés alá, 
+                    # lejjebb toljuk a doboz alját, hogy ne vágja el a szöveget
+                    y_bottom = max(anchors[i+1]['top'] + 5, anchor['top'] + 35)
+                else:
+                    y_bottom = min(page_cutoff, anchor['top'] + 180)
+                
+                if y_bottom <= y_top: 
+                    y_bottom = y_top + 60 
+
                 full_row_box = pg.within_bbox((20, y_top, 585, y_bottom))
                 raw_text = full_row_box.extract_text() or ""
-                lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
+                
+                # Sorok tisztítása + a következő ügyfél azonosítójának és közvetlen adatának szűrése ebből a blokkból
+                lines = []
+                next_id = anchors[i+1]['text'] if i + 1 < len(anchors) else "CSAK_EGY_ID_VAN"
+                
+                for l in raw_text.split('\n'):
+                    l_strip = l.strip()
+                    if not l_strip:
+                        continue
+                    # Ha a következő ügyfél sora (ID-val kezdődve) becsúszna ide a bbox tágítása miatt, azt kihagyjuk
+                    if next_id in l_strip and not current_id in l_strip:
+                        continue
+                    lines.append(l_strip)
                 
                 # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE ---
-                current_id = anchor['text']
                 local_customer_name = ""
                 name_line_index = -1
                 

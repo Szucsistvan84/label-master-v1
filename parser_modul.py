@@ -404,6 +404,14 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     if address in clean_context:
                         anchor_pos = clean_context.find(address) + len(address)
                         after_address = clean_context[anchor_pos:].strip()
+                        
+                        # Golyóálló védelem az összefolyó táblázatok ellen:
+                        # Ha a szövegben felbukkan a következő ügyfél kódja, ott azonnal kettétörjük a sztringet,
+                        # így a tiszta első felét (Váradi Lajosné valódi megjegyzését) 100%-osan megmentjük!
+                        next_id = anchors[i+1]['text'] if i + 1 < len(anchors) else "CSAK_EGY_ID_VAN"
+                        if next_id in after_address:
+                            after_address = after_address.split(next_id)[0].strip()
+                            
                         end_m = re.search(re.escape(phone_val), after_address)
                         megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
 

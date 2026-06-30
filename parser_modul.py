@@ -116,20 +116,17 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         name_line_index = idx
                         break
 
-                # --- 3. SZÉTVÁLOGATÁS ---
+# --- 3. INTELLIGENS SZÉTVÁLOGATÁS (IDEGEN ID-K KINYÍRÁSA, SZÖVEG MEGMENTÉSE) ---
                 reszleg_ceg_lista = []
                 hosszu_megj_lista = []
 
                 for idx, l_strip in enumerate(lines):
-                    # Ha egy másik ÜGYFÉLKÓD (S-XXXXXX) szerepel a sorban, és az NEM a miénk, kihagyjuk
-                    if re.search(r'\b[A-Za-z0-9]{1,3}-\d{5,7}\b', l_strip) and not current_id in l_strip:
-                        continue
-                        
                     if any(x in l_strip for x in ["Debrecen", "Ebes", "Hajdú", "Nyomtatva:"]): 
                         continue
                     if re.search(PHONE_PAT, l_strip) or re.search(MONEY_PAT, l_strip):
                         continue
 
+                    # Ha a sorban benne van a mi horgonyunk
                     if idx == name_line_index:
                         maradek = l_strip.replace(current_id, "").replace(local_customer_name, "").strip()
                         maradek = re.sub(r'^\d+\s*', '', maradek)
@@ -139,9 +136,18 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                             else:
                                 reszleg_ceg_lista.append(maradek)
                     else:
-                        # Levágjuk a sor eleji kósza sorszámokat (pl. "6", "7")
+                        # Ha a sorban egy IDEGEN ügyfélkód van, nem dobjuk el a sort! 
+                        # Csak letakarítjuk az idegen ID-t és mindent, ami utána van (mert az már a másik ügyfél neve/címe)
+                        foreign_id_match = re.search(r'\b[A-Za-z0-9]{1,3}-\d{5,7}\b', l_strip)
+                        if foreign_id_match:
+                            foreign_id = foreign_id_match.group(0)
+                            if foreign_id != current_id:
+                                # Csak a külföldi ID ELŐTTI részt tartjuk meg, mert az még a mi megjegyzésünk!
+                                l_strip = l_strip.split(foreign_id)[0].strip()
+
+                        # Letakarítjuk a sor eleji kósza sorszámokat
                         tiszta_sor = re.sub(r'^\d+\s*', '', l_strip).strip()
-                        if tiszta_sor:
+                        if tiszta_sor and len(tiszta_sor) > 2:
                             hosszu_megj_lista.append(tiszta_sor)
 
                 megj_resz_1 = " | ".join(reszleg_ceg_lista)

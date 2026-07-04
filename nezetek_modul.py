@@ -118,64 +118,82 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
         
         driver_records = []
         if all_rows:
-            # 🛰️ OSZLOPNÉV CSAPDA ELHÁRÍTÁSA: Megkeressük, hogy a Sheets-ben mi az oszlop pontos neve
-            sample_row = all_rows[0]
             futar_col_key = None
-            for k in sample_row.keys():
-                k_clean = str(k).strip().lower()
-                if k_clean in ['futár', 'futar', 'feldolgozó futár', 'feldolgozo futar']:
+            for k in all_rows[0].keys():
+                if str(k).strip().lower() in ['futár', 'futar', 'feldolgozó futár', 'feldolgozo futar']:
                     futar_col_key = k
                     break
             
-            # Ha megtaláltuk a pontos kulcsot, az alapján szűrünk, ha nem, a biztonság kedvéért mindent átnézünk
             if futar_col_key:
                 driver_records = [r for r in all_rows if str(r.get(futar_col_key, '')).strip().lower() == futar_keresett]
-            else:
-                driver_records = [
-                    r for r in all_rows 
-                    if str(r.get('Futár', r.get('Futar', r.get('Feldolgozó Futár', '')))).strip().lower() == futar_keresett
-                ]
+            
+            # 💡 FOTELES TESZT AUTOMATIKUS ÁTKAPCSOLÓ
+            # Ha fotelben ülve tesztelünk üres online menettervvel, átengedjük az összes sort szimulációnak
+            if not driver_records:
+                driver_records = all_rows
+                st.markdown(
+                    """
+                    <div style="background-color: #FEF3C7; border-left: 4px solid #D97706; padding: 10px; border-radius: 6px; margin: 10px 0; width: 100%;">
+                        <p style="margin: 0; font-weight: bold; color: #92400E; font-size: 0.85rem;">🧪 Szimulációs Nézet Aktív</p>
+                        <p style="margin: 2px 0 0 0; color: #78350F; font-size: 0.78rem; line-height: 1.3;">
+                            Múltbéli adatok tesztelése fut. A műszerfal a hivatalos raklista-összesítő motor alapján dinamikusan számol.
+                        </p>
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
 
-        # 💡 FOTELES TESZT FIX: Ha a szimuláció során nincs online kiosztott fuvar, kiírjuk az infót, de NEM szakítjuk meg a futást!
-        if not driver_records:
-            st.markdown(
-                """
-                <div style="background-color: #FEF3C7; border-left: 4px solid #D97706; padding: 10px; border-radius: 6px; margin: 10px 0; width: 100%;">
-                    <p style="margin: 0; font-weight: bold; color: #92400E; font-size: 0.85rem;">💡 Szimulációs megjegyzés</p>
-                    <p style="margin: 2px 0 0 0; color: #78350F; font-size: 0.78rem; line-height: 1.3;">
-                        Nincs közvetlen online fuvar hozzárendelve a nevedhez a Sheets-ben, élő mérők szimulálása aktív.
-                    </p>
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
+        # 📊 VALÓDI DINAMIKUS RAKLISTA-ÖSSZESÍTŐ MOTOR (ZÉRÓ HARDCODE!)
+        osszes_cim = len(driver_records)
+        egyedi_cimek = set(str(r.get('Cím', r.get('Cim', ''))).strip() for r in driver_records)
+        osszes_megallo = len(egyedi_cimek)
+        
+        etlap = st.session_state.get('etlap_adatok', {})
+        label_to_prefix = {"Hé": "H", "Ke": "K", "Sze": "S", "Csü": "C", "Pé": "P", "Szo": "Z"}
+        prefix_to_num = {"H": "1", "K": "2", "S": "3", "C": "4", "P": "5", "Z": "6"}
+        ORDER_PAT = r'(\d+)-([A-Z0-9\*]+)'
+        
+        counts = {}
+        # 1. Kigyűjtjük a rendelési kódok darabszámait pontosan úgy, mint a raklistán
+        for r in driver_records:
+            order_str = str(r.get('Rendelés_Full', r.get('Rendeles_Full', r.get('Rendelés', r.get('Rendeles', '')))))
+            day_parts = order_str.split('|')
+            for part in day_parts:
+                part = part.strip()
+                prefix = ""
+                for label, pfx in label_to_prefix.items():
+                    if f"{label}:" in part:
+                        prefix = pfx
+                        break
+                if not prefix: 
+                    continue
+                
+                found = re.findall(ORDER_PAT, part)
+                for qty, code in found:
+                    full_key = f"{prefix}_{code.strip().upper()}"
+                    counts[full_key] = counts.get(full_key, 0) + int(qty)
 
-        # Kiszámoljuk a mérőket: ha üres a driver_records, kap egy szép alapértéket a szimulációhoz
-        osszes_cim = len(driver_records) if driver_records else 103
-        egyedi_cimek = set(str(r.get('Cím', r.get('Cim', ''))).strip() for r in driver_records) if driver_records else set(["Debrecen"])
-        osszes_megallo = len(egyedi_cimek) if driver_records else 84
+        # 2. Dinamikusan megszorozzuk az étlap áraival az utolsó fillérig
+        for full_key, db in counts.items():
+            prefix = full_key.split('_')[0]
+            code_label = full_key.split('_')[1]
+            
+            keresett_kod = code_label.replace('*', '').strip()
+            num_prefix = prefix_to_num.get(prefix, "1")
+            sheets_key = f"{num_prefix}_{keresett_kod}"
+            
+            info = etlap.get(sheets_key, {})
+            nyers_ar = str(info.get('ar', '0')).replace('Ft', '').replace(' ', '').strip()
+            ar = int(nyers_ar) if nyers_ar and nyers_ar.isdigit() else 0
+            
+            osszes_etel += db
+            forgalmi_ertek += (db * ar)
         
-        if driver_records:
-            for r in driver_records:
-                try: 
-                    osszes_etel += int(float(str(r.get('Összesen', 1))))
-                except: 
-                    osszes_etel += 1
-                try:
-                    p_nyers = str(r.get('Pénz', r.get('Penz', '0'))).replace('Ft', '').replace(' ', '').strip()
-                    if p_nyers and p_nyers.isdigit(): 
-                        forgalmi_ertek += int(p_nyers)
-                except: 
-                    pass
-        else:
-            # Szigorú tartalék értékek a foteles teszthez a tegnapi exportból kinyerve
-            osszes_etel = 103
-            forgalmi_ertek = 124350
-        
+        # 3. Teljesen dinamikus futárjutalék számítás (13%)
         jutalek = int(forgalmi_ertek * 0.13)
 
     except Exception as e:
-        st.sidebar.error(f"Hiba az adatok számításakor: {e}")
+        st.sidebar.error(f"Hiba az adatok dinamikus számításakor: {e}")
         return
 
     # Élő kiszállítási mérők kiszámítása a Session State-ből

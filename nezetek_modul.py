@@ -24,9 +24,10 @@ from admin_modul import render_logisztikai_kozpont
 # --- RENDELÉSI KÓD REGEX MINTA (Szigorú illesztés pl. 1-A1* vagy 4-S1) ---
 ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 
-def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
+def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
     """
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
+    Tiszta almodul verzió hibamentes foteles mérőkkel.
     """
     import base64
     import re
@@ -72,7 +73,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         unsafe_allow_html=True
     )
 
-    # --- BASE64 LOGÓ INJEKTÁLÁS (SZIKLASZILÁRD MEGOLDÁS VIRTUALIZÁCIÓ ELLEN) ---
+    # --- BASE64 LOGÓ INJEKTÁLÁS ---
     if os.path.exists("interfood-logo.png"):
         try:
             with open("interfood-logo.png", "rb") as image_file:
@@ -115,7 +116,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         
         futar_keresett = str(futar_nev_kiir).strip().lower()
         
-        # Kiszűrjük az aktuális futár sorait az Adatok fülről
         driver_records = []
         if all_rows:
             driver_records = [
@@ -123,29 +123,15 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 if str(r.get('Futár', r.get('Futar', ''))).strip().lower() == futar_keresett
             ]
 
-        # 💡 FOTELES TESZT FIX: Ha nincs kiosztott fuvarja, csak akkor dobunk hibát!
         if not driver_records:
-            st.markdown(
-                """
-                <div style="background-color: #FEE2E2; border-left: 4px solid #E1251B; padding: 10px; border-radius: 6px; margin: 10px 0; width: 100%;">
-                    <p style="margin: 0; font-weight: bold; color: #991B1B; font-size: 0.85rem;">⚠️ Nincs kiosztott fuvarod!</p>
-                    <p style="margin: 2px 0 0 0; color: #7F1D1D; font-size: 0.78rem; line-height: 1.3;">
-                        A nevedre jelenleg nincs aktív futárfeladat kiosztva a rendszerben.
-                    </p>
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
+            st.warning("⚠️ Nincs kiosztott fuvarod a táblázatban!")
             return
 
-        # Dinamikusan kiszámoljuk a mérőket az élő Google Sheets adatokból a foteles teszthez!
+        # Hajszálpontos számítások a foteles teszteléshez
         osszes_cim = len(driver_records)
-        
-        # Megállók száma (egyedi címek alapján)
         egyedi_cimek = set(str(r.get('Cím', r.get('Cim', ''))).strip() for r in driver_records)
         osszes_megallo = len(egyedi_cimek)
         
-        # Ételek és pénzek összegzése
         for r in driver_records:
             try:
                 osszes_etel += int(float(str(r.get('Összesen', 1))))
@@ -166,33 +152,27 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         return
 
     # Élő kiszállítási mérők kiszámítása a Session State-ből
-    live_kesz_cimek = 0
+    live_kesz_cimek = sum(1 for k in st.session_state.keys() if k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres")
     live_beszedett_kp = 0
     live_borravalo = 0
 
     for k in list(st.session_state.keys()):
         if k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres":
             idx = k.split("_")[-1]
-            live_kesz_cimek += 1
             try:
                 live_beszedett_kp += int(st.session_state.get(f"atvett_input_{idx}", 0))
                 live_borravalo += int(st.session_state.get(f"borravalo_{idx}", 0))
             except:
                 pass
 
-    # --- 1. SEPARATOR DIV ---
+    # --- SZEKCIÓK MEGJELENÍTÉSE ---
     st.markdown("<div style='margin: 18px 0 12px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
-
-    # --- 1. SZEKCIÓ: KISZÁLLÍTÁSI HALADÁS ---
     st.subheader("🏁 Kiszállítás Haladás")
     haladas_szazalek = min(1.0, live_kesz_cimek / osszes_cim) if osszes_cim > 0 else 0.0
     st.progress(haladas_szazalek)
     st.caption(f"Teljesítve: {live_kesz_cimek} / {osszes_cim} cím ({int(haladas_szazalek * 100)}%)")
     
-    # --- 2. SEPARATOR DIV ---
     st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
-
-    # --- 2. SZEKCIÓ: PÉNZÜGY & MENNYISÉG ---
     st.subheader("💰 Pénzügy & Mennyiség")
     col_s1, col_s2 = st.columns(2)
     with col_s1:
@@ -202,10 +182,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         st.metric("📦 Összes étel", f"{osszes_etel} adag")
         st.metric("💵 Rakományérték", f"{forgalmi_ertek:,} Ft".replace(",", " "))
         
-    # --- 3. SEPARATOR DIV ---
     st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
-
-    # --- 3. SZEKCIÓ: ÉLŐ SZÁLLÍTÁSI MÉRŐK ---
     st.subheader("💸 Élő Elszámolás")
     col_l1, col_l2 = st.columns(2)
     with col_l1:
@@ -213,110 +190,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         st.metric("⭐ Várható Jutalékod", f"{jutalek:,} Ft".replace(",", " "))
     with col_l2:
         st.metric("💰 Gyűjtött borravaló", f"{live_borravalo:,} Ft".replace(",", " "))
-
-    # --- 4. SEPARATOR DIV ---
-    st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
-
-    # --- 4. SZEKCIÓ: SÜRGŐS HIBAJELENTŐ ---
-    st.subheader("⚠️ Probléma az úton?")
-    with st.expander("🚨 SÜRGŐS HIBAKÜLDÉS (Gyorsmenü)"):
-        st.write("Sérült, elcserélt vagy hiányzó étel gyors bejelentése a központnak:")
-        
-        vevo_options = ["-- Válassz helyszínt / vevőt --"]
-        vevo_items_map = {}
-        ORDER_PAT = r'(\d+)-([A-Z0-9\*]+)'
-        
-        try:
-            df_adatok_all = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
-            if not df_adatok_all.empty:
-                df_adatok_all.columns = [str(c).strip() for c in df_adatok_all.columns]
-                
-                futar_keresett_clean = str(futar_nev_kiir).strip().lower()
-                text_active_routes = [str(j).strip() for j in jarat_lista_kiir]
-                
-                jarat_col_name = next((c for c in df_adatok_all.columns if 'járat' in c.lower() or 'jarat' in c.lower()), None)
-                if jarat_col_name and text_active_routes:
-                    df_szurt = df_adatok_all[df_adatok_all[jarat_col_name].astype(str).str.strip().isin(text_active_routes)]
-                else:
-                    df_szurt = df_adatok_all
-                
-                etlap = st.session_state.get('etlap_adatok', {})
-                if not etlap:
-                    etlap = {}
-
-                label_to_prefix = {"Hé": "H", "Ke": "K", "Sze": "S", "Csü": "C", "Pé": "P", "Szo": "Z"}
-                prefix_to_num = {"H": "1", "K": "2", "S": "3", "C": "4", "P": "5", "Z": "6"}
-                prefix_to_nev = {"H": "Hétfő", "K": "Kedd", "S": "Szerda", "C": "Csütörtök", "P": "Péntek", "Z": "Szombat"}
-
-                for _, r in df_szurt.iterrows():
-                    nev_val = str(r.get('Név', r.get('Nev', r.get('Ügyintéző', 'Névtelen')))).strip()
-                    cim_val = str(r.get('Cím', r.get('Cim', 'Ismeretlen cím'))).strip()
-                    rendeles_val = str(r.get('Rendelés', r.get('Rendeles', ''))).strip()
-                    
-                    label_szoveg = f"{nev_val} ({cim_val})"
-                    if label_szoveg not in vevo_options:
-                        vevo_options.append(label_szoveg)
-                    
-                    vevo_kajak = ["-- Válassz érintett ételt --"]
-                    day_parts = rendeles_val.split('|')
-                    for part in day_parts:
-                        part = part.strip()
-                        prefix = ""
-                        for label, pfx in label_to_prefix.items():
-                            if f"{label}:" in part:
-                                prefix = pfx
-                                break
-                        if not prefix:
-                            found_codes = re.findall(ORDER_PAT, part)
-                            for qty, code in found_codes:
-                                vevo_kajak.append(f"{qty}x [{code.strip().upper()}]")
-                            continue
-                            
-                        found_codes = re.findall(ORDER_PAT, part)
-                        for qty, code in found_codes:
-                            keresett_kod = code.replace('*', '').strip().upper()
-                            num_prefix = prefix_to_num.get(prefix, "1")
-                            sheets_key = f"{num_prefix}_{keresett_kod}"
-                            
-                            info = etlap.get(sheets_key, {}) if etlap else {}
-                            etel_nev = info.get('nev', 'Ismeretlen Étel')
-                            day_name = prefix_to_nev.get(prefix, '')
-                            
-                            display_name = f"{qty}x [{code.strip().upper()}] — {etel_nev} ({day_name})"
-                            vevo_kajak.append(display_name)
-                    
-                    if not day_parts and rendeles_val:
-                        vevo_kajak.append(rendeles_val)
-                    vevo_items_map[label_szoveg] = vevo_kajak
-                    
-        except Exception as e_dropdown_build:
-            st.sidebar.error(f"Dropdown hiba: {e_dropdown_build}")
-
-        st_hiba_vevo_selected = st.selectbox("Melyik megállónál vagy?", options=vevo_options, key="sidebar_hiba_vevo_dropdown")
-        
-        kaja_options_for_selected = ["-- Válassz érintett ételt --"]
-        if st_hiba_vevo_selected != "-- Válassz helyszínt / vevőt --":
-            kaja_options_for_selected = vevo_items_map.get(st_hiba_vevo_selected, ["-- Válassz érintett ételt --"])
-            
-        st_hiba_kaja_selected = st.selectbox("Melyik étellel van gond?", options=kaja_options_for_selected, key="sidebar_hiba_kaja_dropdown")
-        st_hiba_tipus = st.selectbox("Hiba jellege:", ["Sérült étel (kifolyt/kilyukadt)", "Elcserélt étel", "Hiányzó/Elhagyott étel"], key="sidebar_hiba_tipus")
-        st_hiba_leiras = st.text_area("Rövid kiegészítés (opcionális):", placeholder="Pl. a doboz teteje elrepedt.", key="sidebar_hiba_leiras")
-        
-        if st.button("🚨 HIBA KÜLDÉSE A DISZPÉCSERNEK", type="primary", use_container_width=True, key="sidebar_hiba_submit_btn"):
-            if st_hiba_vevo_selected == "-- Válassz helyszínt / vevőt --" or st_hiba_kaja_selected == "-- Válassz érintett ételt --":
-                st.error("❌ Kérlek, válaszd ki a vevőt és a sérült ételt is a listából!")
-            else:
-                is_test_mode = st.query_params.get("test", "false") == "true" or st.session_state.get('teszt_uzemmod', False)
-                if is_test_mode:
-                    st.warning("🧪 **Teszt mód:** A hibát sikeresen szimuláltuk.")
-                else:
-                    try:
-                        hibak_sheet = client.open_by_key(SHEET_ID_UGYFELKOR).worksheet("Hibajelentések")
-                        most_ido = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        hibak_sheet.append_row([most_ido, futar_nev_kiir, jarat_szoveg_kiir, st_hiba_tipus, st_hiba_vevo_selected, f"Étel: {st_hiba_kaja_selected} | Leírás: {st_hiba_leiras}"])
-                        st.success("✅ A hiba sikeresen rögzítve! A diszpécserek azonnal értesültek róla.")
-                    except Exception as e:
-                        st.error(f"Mentési hiba: {e}")
 
 
 def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE):

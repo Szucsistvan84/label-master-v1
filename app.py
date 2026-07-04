@@ -20,6 +20,7 @@ import pandas as pd
 import logging
 import os
 import time
+import datetime
 
 # --- Globális konstansok ---
 LOG_FILE = "app.log"
@@ -59,22 +60,28 @@ def main():
         st.session_state['client'] = client
 
     # URL paraméterek lekérése az ágak eldöntéséhez
-    view = st.query_params.get("view", None)
+    view = st.query_params.get("view", "desktop")
     url_jarat = st.query_params.get("jarat", "")
     url_teszt = st.query_params.get("test", "false") == "true"
     is_mobile_view = (view == "mobile")
 
+    # --- MOBIL FOLYAMAT JELZŐ ÁLLAPOT INICIALIZÁLÁSA ---
+    if 'current_mobile_tab_state' not in st.session_state:
+        url_tab_param = st.query_params.get("active_tab", "aruatvetel")
+        tab_mapping_init = {"aruatvetel": "1. Áruátvétel 📦", "bepakolas": "2. Címekre szedés 📥", "kiszallitas": "3. Kiszállítás 🚚"}
+        st.session_state.current_mobile_tab_state = tab_mapping_init.get(url_tab_param, "1. Áruátvétel 📦")
+
     # ==============================================================================
-    # 🛰️ 2. PONT FIX: AUTOMATIKUS VISSZALÉPTETŐ MOTOR BÖNGÉSZŐ FRISSÍTÉS (F5) ESETÉN
+    # 🛰️ AUTOMATIKUS VISSZALÉPTETŐ MOTOR BÖNGÉSZŐ FRISSÍTÉS (F5 / LEHÚZÁS) ESETÉN
     # ==============================================================================
     if 'bejelentkezve' not in st.session_state: st.session_state.bejelentkezve = False
     
-    # Ha a memóriából kiesett a belépés, de az URL-ben ott vannak a futár adatai, visszaléptetjük!
     if not st.session_state.bejelentkezve and "token_name" in st.query_params:
         st.session_state.bejelentkezve = True
         st.session_state.user_nev = str(st.query_params["token_name"])
         st.session_state.user_szerep = str(st.query_params.get("token_role", "futar"))
         st.session_state.user_jarat_lista = str(st.query_params.get("token_routes", "")).split(",")
+        st.session_state.user_tel = str(st.query_params.get("token_tel", ""))
         if "active_tab" in st.query_params:
             tab_param = st.query_params["active_tab"]
             tab_mapping_rev = {"aruatvetel": "1. Áruátvétel 📦", "bepakolas": "2. Címekre szedés 📥", "kiszallitas": "3. Kiszállítás 🚚"}
@@ -127,10 +134,11 @@ def main():
         except Exception as e:
             st.error(f"Hiba az átsorrendezés során: {e}")
 
-    # --- ATOMBIZTOS PREMIUM CSS DESIGN ÉS INJEKTÁLT ELEM ELREJTŐK (ULTRA-KOMPAKT FUTÁR UX) ---
+    # --- ATOMBIZTOS PREMIUM CSS DESIGN ÉS INTERFACE FINOMHANGOLÁSOK (ULTRA-KOMPAKT FUTÁR UX) ---
     st.markdown(
         """
         <style>
+        /* 1. Teljes Streamlit/GitHub sallangmentesítés */
         footer {visibility: hidden !important; display: none !important;}
         [data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
         [data-testid="stDecoration"] {display: none !important;}
@@ -141,59 +149,122 @@ def main():
         
         header, [data-testid="stHeader"] { 
             background-color: transparent !important; 
-            z-index: 999999 !important; 
+            z-index: 99999 !important; 
             display: block !important;
-            height: 45px !important;
+            height: 40px !important;
         }
 
-        /* Sidebar megnyitó gomb állandó, stabil szürke dizájnja - BEBETONOZVA */
+        /* 2. Sidebar megnyitó gomb eltolása és fixálása (Golyóálló reszponzivitás, nem úszik rá a tartalomra) */
         [data-testid="stSidebarCollapseButton"] {
             visibility: visible !important; 
             display: inline-flex !important;
             background-color: #E5E7EB !important; 
             border: 1.5px solid #9CA3AF !important;
             border-radius: 8px !important; 
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08) !important;
-            margin-left: 8px !important; 
-            margin-top: 6px !important; 
-            z-index: 1000000 !important;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1) !important;
+            margin-left: 12px !important; 
+            margin-top: 12px !important; 
+            z-index: 100000 !important;
             color: #374151 !important;
         }
         [data-testid="stSidebarCollapseButton"]:hover { border-color: #139D43 !important; background-color: #D1D5DB !important; }
         
         [data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
-        .block-container { padding-top: 0.5rem !important; padding-bottom: 2rem !important; }
+        
+        /* 3. Mobil-specifikus kompakt térközök és gigantikus címek zsugorítása */
+        .block-container { 
+            padding-top: 0.5rem !important; 
+            padding-bottom: 7rem !important; /* Helyet hagyunk az alsó rögzített navigációnak */
+            padding-left: 0.7rem !important;
+            padding-right: 0.7rem !important;
+        }
+        h1 { font-size: 1.5rem !important; font-weight: 700 !important; margin-bottom: 0.4rem !important; }
+        h2 { font-size: 1.25rem !important; margin-bottom: 0.4rem !important; }
+        h3 { font-size: 1.05rem !important; }
 
-        /* 5. PONT KÉNYSZERÍTETT RESZPONZÍV JAVÍTÁS: A gombok SOHA nem törnek két sorba! */
-        div[data-testid="stSegmentedControl"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            width: 100% !important;
-        }
-        div[data-testid="stSegmentedControl"] button {
-            flex: 1 1 0% !important;
-            min-width: 0 !important;
-            padding: 4px 1px !important;
-        }
-        div[data-testid="stSegmentedControl"] button div p {
-            font-size: 11px !important;
-            white-space: nowrap !important; /* Nem engedjük a sortörést a gombon belül */
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-            text-align: center !important;
-            font-weight: bold !important;
+        /* 4. Az alsó fix navigációs sáv stílusai */
+        .fixed-nav-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: #FFFFFF;
+            padding: 10px 15px;
+            box-shadow: 0px -4px 12px rgba(0,0,0,0.08);
+            z-index: 99999;
+            border-top: 1.5px solid #E5E7EB;
         }
 
-        @media (max-width: 768px) {
-            div[data-testid="stAppViewContainer"]::after, .stApp::after {
-                content: "" !important; position: fixed !important; bottom: 0 !important; left: 0 !important;
-                width: 100% !important; height: 65px !important; background-color: #FFFFFF !important;
-                z-index: 999990 !important; border-top: 1.5px solid #F3F4F6 !important; pointer-events: none;
-            }
-            .block-container { padding-bottom: 120px !important; }
+        /* 5. A Pöttyös Stepper folyamatjelző reszponzív stílusai */
+        .stepper-wrapper {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            margin-top: 5px;
+            padding: 0 5px;
         }
+        .step-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+            position: relative;
+        }
+        .step-item::after {
+            content: "";
+            position: absolute;
+            background: #E5E7EB;
+            height: 3px;
+            width: 100%;
+            top: 14px;
+            left: 50%;
+            z-index: 1;
+        }
+        .step-item:last-child::after { content: none; }
+        .step-counter {
+            position: relative;
+            z-index: 5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: #E5E7EB;
+            color: #4B5563;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .step-name {
+            font-size: 10px;
+            margin-top: 5px;
+            color: #6B7280;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        /* Aktív állapot (ahol a futár épp tart) */
+        .step-item.active .step-counter {
+            background: #139D43; /* Interfood Zöld */
+            color: white;
+            box-shadow: 0 0 8px rgba(19, 157, 67, 0.4);
+        }
+        .step-item.active .step-name { color: #139D43; font-weight: bold; }
+        /* Kész állapot (amin már túl van) */
+        .step-item.completed .step-counter {
+            background: #1F2937; /* Sötétszürke lezárt */
+            color: white;
+        }}
+        .step-item.completed .step-name { color: #1F2937; }
         </style>
+        
+        <script>
+            const width = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
+            if (width <= 768) {
+                window.parent.document.title = "MOBILE_DETECTED";
+            } else {
+                window.parent.document.title = "DESKTOP_DETECTED";
+            }
+        </script>
         """,
         unsafe_allow_html=True
     )
@@ -210,27 +281,9 @@ def main():
     if 'user_szerep' not in st.session_state: st.session_state.user_szerep = "futar"
     if 'nevnapok_df' not in st.session_state: st.session_state.nevnapok_df = pd.DataFrame()
     if 'keresztnevek_df' not in st.session_state: st.session_state.keresztnevek_df = pd.DataFrame()
-
-    # Golyóálló fixek a járatmentes induláshoz és a nyomtatási modulokhoz
     if 'c_n' not in st.session_state: st.session_state.c_n = ""
     if 'c_p' not in st.session_state: st.session_state.c_p = ""
     if 'edited_df' not in st.session_state: st.session_state.edited_df = None
-    
-    # 💡 Ikonok és betűtípusok kényszerített fixálása a generáláshoz:
-    from nyomtatas_modulok import register_fonts
-    register_fonts()
-
-    # ==============================================================================
-    # 🚨 VISSZAÁLLÍTOTT SZABAD ASZTALI/MOBILKAPCSOLÓ (MINDENKINEK JÁR A DESKTOP)
-    # ==============================================================================
-    if view is None:
-        if 'edited_df' in st.session_state: 
-            view = "desktop"
-        else:
-            # Ha tiszta URL-lel érkezik be a futár az asztali gépen, asztali módot kap!
-            view = "desktop"
-            st.query_params.update(view="desktop")
-            st.rerun()
 
     # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
@@ -243,17 +296,40 @@ def main():
             jarat_input = st.text_input("JÁRATSZÁM (vagy Admin):", value=url_jarat, key="login_jarat_field", placeholder="Pl. 4002")
             password_input = st.text_input("JELSZÓ / KÓD:", type="password", key="login_password_field", placeholder="••••••••")
             
+            # Lekérdezzük a rejtett HTML címből, hogy mit észlelt a JavaScript detektor
+            is_detected_mobile = False
+            try:
+                # Egyszerű fallback/Streamlit alapú szélességbecslés, ha a JS még nem futott le
+                if st.session_state.get('viewport_width', 1000) <= 768:
+                    is_detected_mobile = True
+            except: pass
+
+            st.write("---")
+            st.markdown("<p style='font-size:12px; font-weight:bold; color:#4B5563; margin-bottom:2px;'>Válassz munkakörnyezetet:</p>", unsafe_allow_html=True)
+            
+            # Kettős beléptető gombrendszer (Mindig mindkettő elérhető és kattintható!)
+            btn_mob_type = "primary" if is_detected_mobile else "secondary"
+            btn_desk_type = "secondary" if is_detected_mobile else "primary"
+            
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                submit_mobile = st.button("📱 Mobil Terminál", type=btn_mob_type, use_container_width=True, key="login_as_mobile_trigger")
+            with col_b2:
+                submit_desktop = st.button("🖥️ Asztali Dashboard", type=btn_desk_type, use_container_width=True, key="login_as_desktop_trigger")
+
+            # Ha teszt üzemmód kért az URL, egy kattintással beengedjük
             if url_teszt and jarat_input:
-                if st.button("🧪 TESZT BELÉPÉS JELSZÓ NÉLKÜL", type="primary", use_container_width=True):
+                if st.button("🧪 TESZT BELÉPÉS JELSZÓ NÉLKÜL", type="secondary", use_container_width=True):
                     st.session_state.bejelentkezve = True
                     st.session_state.user_nev = "Teszt Futár"
                     st.session_state.user_jarat_lista = [jarat_input.strip()]
                     st.session_state.user_szerep = "futar"
-                    # Rögzítjük az URL-be az auto-login tokeneket!
-                    st.query_params.update(view="mobile", token_name="Teszt Futár", token_role="futar", token_routes=jarat_input.strip())
+                    st.query_params.update(view="mobile" if is_detected_mobile else "desktop", token_name="Teszt Futár", token_role="futar", token_routes=jarat_input.strip())
                     st.rerun()
 
-            if st.button("🔑 BIZTONSÁGOS BELÉPÉS", use_container_width=True):
+            # Belépési logika feldolgozása
+            if submit_mobile or submit_desktop:
+                target_view_mode = "mobile" if submit_mobile else "desktop"
                 tisztitott_input_jarat = str(jarat_input).strip().lower()
                 tisztitott_input_pass = str(password_input).strip()
                 
@@ -262,7 +338,7 @@ def main():
                     st.session_state.user_nev = "Rendszergazda"
                     st.session_state.user_jarat_lista = ["4002"]
                     st.session_state.user_szerep = "superadmin"
-                    st.query_params.update(view="mobile", token_name="Rendszergazda", token_role="superadmin", token_routes="4002")
+                    st.query_params.update(view=target_view_mode, token_name="Rendszergazda", token_role="superadmin", token_routes="4002")
                     st.rerun()
                 
                 with st.spinner("⏳ Hitelesítés..."):
@@ -282,25 +358,19 @@ def main():
                     st.session_state.user_nev = talalt_futar.get('Név', 'Futár')
                     st.session_state.user_jarat_lista = [j.strip() for j in str(talalt_futar.get('Járat', '')).split(",") if j.strip()]
                     st.session_state.user_szerep = str(talalt_futar.get('Szerep', 'futar'))
-                    
-                    # 💡 MODOSÍTÁS: Elmentjük a telefonszámot és a járatokat is fixen a session_state-be a Google Sheetből!
                     st.session_state.user_tel = str(talalt_futar.get('Telefon', ''))
                     
                     routes_str = ",".join(st.session_state.user_jarat_lista)
-                    
-                    # Ha üres lenne a routes_str, az asztali feldolgozáshoz a beírt járatot használjuk fallbackként
                     if not routes_str and 'login_jarat_field' in st.session_state:
                         routes_str = str(st.session_state.login_jarat_field).strip()
                         st.session_state.user_jarat_lista = [routes_str]
                     
-                    # 💡 INTELLIGENS JAVÍTÁS: Minden adatot – a telefont is – beégetünk az URL-be!
-                    current_view = view if view else "desktop"
                     st.query_params.update(
-                        view=current_view, 
+                        view=target_view_mode, 
                         token_name=st.session_state.user_nev, 
                         token_role=st.session_state.user_szerep, 
                         token_routes=routes_str,
-                        token_tel=st.session_state.user_tel  # <- EZT MENTJÜK EL PLUSZBAN!
+                        token_tel=st.session_state.user_tel
                     )
                     st.rerun()
                 else:
@@ -326,10 +396,9 @@ def main():
     master_df = etelek_master_df
 
     # =========================================================================
-    # 📱 MOBIL ÁG
+    # 📱 MOBIL ÁG (Futár terminál felület)
     # =========================================================================
     if is_mobile_view:
-        # 1. PONT FIX: ELTÜNTETTÜK A DUPLA LOGÓT! CSAK A RENDER ENGEDÉLYEZETT
         with st.sidebar:
             render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID_MASTER)
             if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
@@ -339,14 +408,13 @@ def main():
                     st.cache_data.clear()
                     st.cache_resource.clear()
                     for k in list(st.session_state.keys()):
-                        if k not in ['bejelentkezve', 'user_nev', 'user_szerep', 'client']: st.session_state.pop(k, None)
+                        if k not in ['bejelentkezve', 'user_nev', 'user_szerep', 'client', 'user_tel']: st.session_state.pop(k, None)
                     st.query_params.clear()
                     st.query_params.update(view="mobile")
                     st.toast("🔥 Minden gyorsítótár és beragadt URL törölve!")
                     time.sleep(0.5)
                     st.rerun()
 
-            # 3. PONT FIX: KIJELENTKEZÉS BEBETONOZVA A SIDEBAR ALJÁRA
             st.write("---")
             if st.button("🚪 Kijelentkezés", key="mob_logout", use_container_width=True):
                 st.session_state.bejelentkezve = False
@@ -356,50 +424,82 @@ def main():
                 time.sleep(0.5)
                 st.rerun()
 
-        # --- 🔄 NAVIGÁCIÓS SÁV ---
-        tab_mapping = {
-            "aruatvetel": "1. Áruátvétel 📦",
-            "bepakolas": "2. Címekre szedés 📥",
-            "kiszallitas": "3. Kiszállítás 🚚"
-        }
+        # --- 🔄 A TE "PÖTTYÖS" FOLYAMATJELZŐD (STEPPER) TISZTA HTML KÖNTÖSBEN ---
+        # Lekérjük az aktuális állapotot a session-ből
+        tab_mapping_inv = {"1. Áruátvétel 📦": "aruatvetel", "2. Címekre szedés 📥": "bepakolas", "3. Kiszállítás 🚚": "kiszallitas"}
+        current_state = st.session_state.current_mobile_tab_state
         
-        if "current_mobile_tab_state" not in st.session_state:
-            url_tab_param = st.query_params.get("active_tab", "aruatvetel")
-            st.session_state.current_mobile_tab_state = tab_mapping.get(url_tab_param, "1. Áruátvétel 📦")
-            
-        st.session_state["mobil_segmented_nav_bar_live"] = st.session_state.current_mobile_tab_state
-        
-        selected_mobil_tab = st.segmented_control(
-            "Navigáció", options=list(tab_mapping.values()), selection_mode="single", label_visibility="collapsed", key="mobil_segmented_nav_bar_live"
-        )
-        
-        if selected_mobil_tab and selected_mobil_tab != st.session_state.current_mobile_tab_state:
-            st.session_state.current_mobile_tab_state = selected_mobil_tab
-            inv_map = {v: k for k, v in tab_mapping.items()}
-            st.query_params.update(active_tab=inv_map[selected_mobil_tab])
-            st.rerun()
+        # Státuszok kiszámolása a CSS színezéshez
+        cls1 = "active" if current_state == "1. Áruátvétel 📦" else "completed"
+        cls2 = "active" if current_state == "2. Címekre szedés 📥" else ("completed" if current_state == "3. Kiszállítás 🚚" else "")
+        cls3 = "active" if current_state == "3. Kiszállítás 🚚" else ""
 
+        st.markdown(f"""
+            <div class="stepper-wrapper">
+                <div class="step-item {cls1}">
+                    <div class="step-counter">1</div>
+                    <div class="step-name">Áruátvétel</div>
+                </div>
+                <div class="step-item {cls2}">
+                    <div class="step-counter">2</div>
+                    <div class="step-name">Címekre szedés</div>
+                </div>
+                <div class="step-item {cls3}">
+                    <div class="step-counter">3</div>
+                    <div class="step-name">Kiszállítás</div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("<div style='margin-top: -5px; margin-bottom: 15px; border-top: 1px solid #E5E7EB;'></div>", unsafe_allow_html=True)
+
+        # --- AKTÍV MODUL TARTALMÁNAK RENDERE ---
         try:
-            if st.session_state.current_mobile_tab_state == "1. Áruátvétel 📦":
+            if current_state == "1. Áruátvétel 📦":
                 render_mobil_aruatvetel(client)
-            elif st.session_state.current_mobile_tab_state == "2. Címekre szedés 📥":
+            elif current_state == "2. Címekre szedés 📥":
                 render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR)
-            elif st.session_state.current_mobile_tab_state == "3. Kiszállítás 🚚":
+            elif current_state == "3. Kiszállítás 🚚":
                 render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)
         except Exception as e:
-            st.error(f"❌ Hiba: {e}")
+            st.error(f"❌ Hiba a modul futtatása közben: {e}")
+
+        # --- 📌 ALSÓ, RÖGZÍTETT NAVIGÁCIÓS GOMB SÁV (GOLYÓÁLLÓ LÉPTETÉS) ---
+        st.markdown('<div class="fixed-nav-bar">', unsafe_allow_html=True)
+        col_prev, col_spacer, col_next = st.columns([4, 2, 4])
+        
+        state_order = ["1. Áruátvétel 📦", "2. Címekre szedés 📥", "3. Kiszállítás 🚚"]
+        curr_idx = state_order.index(current_state)
+        
+        with col_prev:
+            if curr_idx > 0:
+                if st.button("⬅️ Előző", use_container_width=True, key="stepper_prev_btn_action"):
+                    new_state = state_order[curr_idx - 1]
+                    st.session_state.current_mobile_tab_state = new_state
+                    st.query_params.update(active_tab=tab_mapping_inv[new_state])
+                    st.rerun()
+                    
+        with col_next:
+            if curr_idx < 2:
+                if st.button("Következő ➡️", type="primary", use_container_width=True, key="stepper_next_btn_action"):
+                    new_state = state_order[curr_idx + 1]
+                    st.session_state.current_mobile_tab_state = new_state
+                    st.query_params.update(active_tab=tab_mapping_inv[new_state])
+                    st.rerun()
+            else:
+                if st.button("🏁 Lezárás", type="primary", use_container_width=True, key="stepper_close_btn_action"):
+                    st.toast("🎉 Szép munka! Minden mai debreceni címet sikeresen teljesítettél!")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # =========================================================================
-    # 🖥️ ASZTALI ÁG
+    # 🖥️ ASZTALI ÁG (Központi adminisztrációs és feldolgozó műszerfal)
     # =========================================================================
     else:
         is_admin = st.session_state.user_szerep in ["admin", "superadmin"]
         
-        # 💡 FIX: Visszatesszük az oldalsáv keretet, hogy a menü a bal oldalon maradjon!
         with st.sidebar:
             admin_funkcio = render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE)
             
-        # Ez a sor maradjon kint a szélén, mert ez rajzolja a nagy középső táblázatokat!
         render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, admin_funkcio, is_admin)
 
 if __name__ == "__main__":

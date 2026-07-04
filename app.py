@@ -147,36 +147,44 @@ def main():
         [data-testid="stAppDeployButton"] {display: none !important;}
         [data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
         
+        /* 2. KULCS JAVÍTÁS: A láthatatlan header ne blokkolja a gombot a sarokban */
         header, [data-testid="stHeader"] { 
             background-color: transparent !important; 
             z-index: 99999 !important; 
             display: block !important;
-            height: 40px !important;
+            height: 0px !important; /* Nem foglal helyet függőlegesen */
+            pointer-events: none !important; /* Átenged minden kattintást az alatta lévő elemekre */
         }
 
-        /* 2. JAVÍTOTT: Sidebar megnyitó gomb kényszerített, kontrasztos kiemelése */
+        /* 3. BIZTONSÁGI SIDEBAR NYITÓGOMB: Mindig látható, fix pozíció, rácsúszás kizárva */
         [data-testid="stSidebarCollapseButton"] {
             visibility: visible !important; 
             display: inline-flex !important;
-            background-color: #1F2937 !important; /* Erős sötétszürke háttér */
-            border: 2px solid #139D43 !important; /* Interfood zöld keret, hogy ordítson a fehér háttér előtt is */
+            pointer-events: auto !important; /* A kikapcsolt header ellenére ez kattintható marad */
+            background-color: #1F2937 !important; /* Elegáns sötétszürke */
+            border: 2px solid #139D43 !important; /* Markáns Interfood Zöld keret */
             border-radius: 8px !important; 
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important;
-            margin-left: 12px !important; 
-            margin-top: 12px !important; 
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2) !important;
+            position: fixed !important;
+            left: 12px !important; 
+            top: 12px !important; 
             z-index: 1000000 !important;
+            width: 38px !important;
+            height: 38px !important;
+            justify-content: center !important;
+            align-items: center !important;
         }
         [data-testid="stSidebarCollapseButton"] svg {
-            fill: #FFFFFF !important; /* Fehér nyíl ikon */
+            fill: #FFFFFF !important; /* Vakítóan fehér nyíl ikon */
             color: #FFFFFF !important;
         }
         [data-testid="stSidebarCollapseButton"]:hover { background-color: #111827 !important; border-color: #0E7F35 !important; }
         
         [data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
         
-        /* 3. Mobil-specifikus kompakt térközök */
+        /* 4. Mobil-specifikus kompakt térközök */
         .block-container { 
-            padding-top: 0.5rem !important; 
+            padding-top: 3.5rem !important; /* Férőhelyet hagyunk a rögzített sarokgombnak */
             padding-bottom: 7rem !important; 
             padding-left: 0.7rem !important;
             padding-right: 0.7rem !important;
@@ -185,7 +193,7 @@ def main():
         h2 { font-size: 1.25rem !important; margin-bottom: 0.4rem !important; }
         h3 { font-size: 1.05rem !important; }
 
-        /* 4. Az alsó fix navigációs sáv */
+        /* 5. Az alsó fix navigációs sáv */
         .fixed-nav-bar {
             position: fixed;
             bottom: 0;
@@ -198,7 +206,7 @@ def main():
             border-top: 1.5px solid #E5E7EB;
         }
 
-        /* 5. A Pöttyös Stepper folyamatjelző stílusai */
+        /* 6. A Pöttyös Stepper folyamatjelző stílusai */
         .stepper-wrapper {
             display: flex;
             justify-content: space-between;
@@ -277,11 +285,11 @@ def main():
     if 'c_p' not in st.session_state: st.session_state.c_p = ""
     if 'edited_df' not in st.session_state: st.session_state.edited_df = None
 
-    # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
+    # --- JAVÍTOTT PIN KÓDOS BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
-        # JAVÍTOTT LOKÁLIS LOGÓ KEZELÉS (Ha létezik a fájl, betölti, ha nem, szép zöld szöveges fejlécet ad)
+        # TÖKÉLETESEN KÖZÉPRE IGAZÍTOTT LOKÁLIS LOGÓ HTML+CSS FLUXUS-SAL
         if os.path.exists("interfood-logo.png"):
-            st.image("interfood-logo.png", width=160)
+            st.markdown('<div style="display: flex; justify-content: center; width: 100%; margin-bottom: 10px; margin-top: 10px;"><img src="app/static/interfood-logo.png" style="width: 150px; height: auto;"></div>', unsafe_allow_html=True)
         else:
             st.markdown("<h1 style='text-align: center; color: #139D43; margin-top:10px; margin-bottom:0;'>🟢 INTERFOOD</h1>", unsafe_allow_html=True)
             

@@ -8,6 +8,7 @@ st.set_page_config(page_title="Interfood Label Master", layout="wide")
 # --- KÉNYSZERÍTETT MODUL HOT-RELOAD (GARANTÁLT FRISSÍTÉS) ---
 import sys
 import importlib
+import base64
 
 modules_to_reload = ["parser_modul", "mobil_modulok", "nezetek_modul", "adatbazis_modul", "geokodolo_modul", "vizualizacio"]
 for mod_name in modules_to_reload:
@@ -59,8 +60,8 @@ def main():
     if 'client' not in st.session_state or st.session_state['client'] is None:
         st.session_state['client'] = client
 
-    # URL paraméterek lekérése az ágak eldöntéséhez
-    view = st.query_params.get("view", "desktop")
+    # URL paraméterek lekérése az ágak eldöntéséhez (Default: mobile ha nincs megadva)
+    view = st.query_params.get("view", "mobile")
     url_jarat = st.query_params.get("jarat", "")
     url_teszt = st.query_params.get("test", "false") == "true"
     is_mobile_view = (view == "mobile")
@@ -147,44 +148,39 @@ def main():
         [data-testid="stAppDeployButton"] {display: none !important;}
         [data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
         
-        /* 2. KULCS JAVÍTÁS: A láthatatlan header ne blokkolja a gombot a sarokban */
         header, [data-testid="stHeader"] { 
             background-color: transparent !important; 
             z-index: 99999 !important; 
             display: block !important;
-            height: 0px !important; /* Nem foglal helyet függőlegesen */
-            pointer-events: none !important; /* Átenged minden kattintást az alatta lévő elemekre */
+            height: 40px !important;
         }
 
-        /* 3. BIZTONSÁGI SIDEBAR NYITÓGOMB: Mindig látható, fix pozíció, rácsúszás kizárva */
+        /* 2. FIXÁLT SIDEBAR COLLAPSE GOMB: Világos, tiszta háttér, jól látható sötét nyilakkal, gyári helyén megtartva */
         [data-testid="stSidebarCollapseButton"] {
             visibility: visible !important; 
             display: inline-flex !important;
-            pointer-events: auto !important; /* A kikapcsolt header ellenére ez kattintható marad */
-            background-color: #1F2937 !important; /* Elegáns sötétszürke */
-            border: 2px solid #139D43 !important; /* Markáns Interfood Zöld keret */
+            background-color: #E5E7EB !important; /* Világos, tiszta szürke */
+            border: 2px solid #139D43 !important; /* Határozott Interfood Zöld keret */
             border-radius: 8px !important; 
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2) !important;
-            position: fixed !important;
-            left: 12px !important; 
-            top: 12px !important; 
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12) !important;
+            margin-left: 10px !important; 
+            margin-top: 8px !important; 
             z-index: 1000000 !important;
-            width: 38px !important;
-            height: 38px !important;
-            justify-content: center !important;
-            align-items: center !important;
+            transition: all 0.2s ease !important;
         }
         [data-testid="stSidebarCollapseButton"] svg {
-            fill: #FFFFFF !important; /* Vakítóan fehér nyíl ikon */
-            color: #FFFFFF !important;
+            fill: #111827 !important; /* Kristálytiszta éjfekete nyilak! */
+            color: #111827 !important;
+            width: 20px !important;
+            height: 20px !important;
         }
-        [data-testid="stSidebarCollapseButton"]:hover { background-color: #111827 !important; border-color: #0E7F35 !important; }
+        [data-testid="stSidebarCollapseButton"]:hover { background-color: #D1D5DB !important; border-color: #0E7F35 !important; }
         
         [data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
         
-        /* 4. Mobil-specifikus kompakt térközök */
+        /* 3. Mobil-specifikus kompakt térközök */
         .block-container { 
-            padding-top: 3.5rem !important; /* Férőhelyet hagyunk a rögzített sarokgombnak */
+            padding-top: 0.2rem !important; 
             padding-bottom: 7rem !important; 
             padding-left: 0.7rem !important;
             padding-right: 0.7rem !important;
@@ -193,7 +189,7 @@ def main():
         h2 { font-size: 1.25rem !important; margin-bottom: 0.4rem !important; }
         h3 { font-size: 1.05rem !important; }
 
-        /* 5. Az alsó fix navigációs sáv */
+        /* 4. Az alsó fix navigációs sáv */
         .fixed-nav-bar {
             position: fixed;
             bottom: 0;
@@ -206,7 +202,7 @@ def main():
             border-top: 1.5px solid #E5E7EB;
         }
 
-        /* 6. A Pöttyös Stepper folyamatjelző stílusai */
+        /* 5. A Pöttyös Stepper folyamatjelző stílusai */
         .stepper-wrapper {
             display: flex;
             justify-content: space-between;
@@ -287,13 +283,25 @@ def main():
 
     # --- JAVÍTOTT PIN KÓDOS BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
-        # TÖKÉLETESEN KÖZÉPRE IGAZÍTOTT LOKÁLIS LOGÓ HTML+CSS FLUXUS-SAL
+        # TŰPONTOS KÖZÉPRE IGAZÍTOTT LOGÓ BASE64 INFÚZIÓVAL
         if os.path.exists("interfood-logo.png"):
-            st.markdown('<div style="display: flex; justify-content: center; width: 100%; margin-bottom: 10px; margin-top: 10px;"><img src="app/static/interfood-logo.png" style="width: 150px; height: auto;"></div>', unsafe_allow_html=True)
+            try:
+                with open("interfood-logo.png", "rb") as img_f:
+                    enc_logo = base64.b64encode(img_f.read()).decode()
+                st.markdown(
+                    f"""
+                    <div style="display: flex; justify-content: center; width: 100%; margin-bottom: 15px; margin-top: 10px;">
+                        <img src="data:image/png;base64,{enc_logo}" style="width: 130px; height: auto;">
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
+            except:
+                st.markdown("<h1 style='text-align: center; color: #139D43; margin-top:10px; margin-bottom:0;'>🟢 INTERFOOD</h1>", unsafe_allow_html=True)
         else:
             st.markdown("<h1 style='text-align: center; color: #139D43; margin-top:10px; margin-bottom:0;'>🟢 INTERFOOD</h1>", unsafe_allow_html=True)
             
-        st.markdown("<p style='text-align: center; color: #6B7280; font-size: 14px; margin-top: 0;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #6B7280; font-size: 14px; margin-top: 5px;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:
@@ -301,38 +309,29 @@ def main():
             jarat_input = st.text_input("JÁRATSZÁM (vagy Admin):", value=url_jarat, key="login_jarat_field", placeholder="Pl. 4002")
             password_input = st.text_input("JELSZÓ / KÓD:", type="password", key="login_password_field", placeholder="••••••••")
             
-            # Lekérdezzük a rejtett HTML címből, hogy mit észlelt a JavaScript detektor
-            is_detected_mobile = False
-            try:
-                # Egyszerű fallback/Streamlit alapú szélességbecslés, ha a JS még nem futott le
-                if st.session_state.get('viewport_width', 1000) <= 768:
-                    is_detected_mobile = True
-            except: pass
+            # --- INTELLIGENS SZERVEROLDALI ROUTER DIVERZIFIKÁCIÓ ---
+            # Megnézzük az aktuális URL paramétert, és annak megfelelően emeljük ki a gombot zölddel!
+            m_type = "primary" if view == "mobile" else "secondary"
+            d_type = "primary" if view == "desktop" else "secondary"
 
             st.write("---")
             st.markdown("<p style='font-size:12px; font-weight:bold; color:#4B5563; margin-bottom:2px;'>Válassz munkakörnyezetet:</p>", unsafe_allow_html=True)
             
-            # Kettős beléptető gombrendszer (Mindig mindkettő elérhető és kattintható!)
-            btn_mob_type = "primary" if is_detected_mobile else "secondary"
-            btn_desk_type = "secondary" if is_detected_mobile else "primary"
-            
             col_b1, col_b2 = st.columns(2)
             with col_b1:
-                submit_mobile = st.button("📱 Mobil Terminál", type=btn_mob_type, use_container_width=True, key="login_as_mobile_trigger")
+                submit_mobile = st.button("📱 Mobil Terminál", type=m_type, use_container_width=True, key="login_as_mobile_trigger")
             with col_b2:
-                submit_desktop = st.button("🖥️ Asztali Dashboard", type=btn_desk_type, use_container_width=True, key="login_as_desktop_trigger")
+                submit_desktop = st.button("🖥️ Asztali Dashboard", type=d_type, use_container_width=True, key="login_as_desktop_trigger")
 
-            # Ha teszt üzemmód kért az URL, egy kattintással beengedjük
             if url_teszt and jarat_input:
                 if st.button("🧪 TESZT BELÉPÉS JELSZÓ NÉLKÜL", type="secondary", use_container_width=True):
                     st.session_state.bejelentkezve = True
                     st.session_state.user_nev = "Teszt Futár"
                     st.session_state.user_jarat_lista = [jarat_input.strip()]
                     st.session_state.user_szerep = "futar"
-                    st.query_params.update(view="mobile" if is_detected_mobile else "desktop", token_name="Teszt Futár", token_role="futar", token_routes=jarat_input.strip())
+                    st.query_params.update(view=view, token_name="Teszt Futár", token_role="futar", token_routes=jarat_input.strip())
                     st.rerun()
 
-            # Belépési logika feldolgozása
             if submit_mobile or submit_desktop:
                 target_view_mode = "mobile" if submit_mobile else "desktop"
                 tisztitott_input_jarat = str(jarat_input).strip().lower()
@@ -401,7 +400,7 @@ def main():
     master_df = etelek_master_df
 
     # =========================================================================
-    # 📱 MOBIL ÁG (Futár terminál felület)
+    # 📱 MOBIL ÁG
     # =========================================================================
     if is_mobile_view:
         with st.sidebar:
@@ -429,12 +428,9 @@ def main():
                 time.sleep(0.5)
                 st.rerun()
 
-        # --- 🔄 A TE "PÖTTYÖS" FOLYAMATJELZŐD (STEPPER) TISZTA HTML KÖNTÖSBEN ---
-        # Lekérjük az aktuális állapotot a session-ből
         tab_mapping_inv = {"1. Áruátvétel 📦": "aruatvetel", "2. Címekre szedés 📥": "bepakolas", "3. Kiszállítás 🚚": "kiszallitas"}
         current_state = st.session_state.current_mobile_tab_state
         
-        # Státuszok kiszámolása a CSS színezéshez
         cls1 = "active" if current_state == "1. Áruátvétel 📦" else "completed"
         cls2 = "active" if current_state == "2. Címekre szedés 📥" else ("completed" if current_state == "3. Kiszállítás 🚚" else "")
         cls3 = "active" if current_state == "3. Kiszállítás 🚚" else ""
@@ -458,7 +454,6 @@ def main():
         
         st.markdown("<div style='margin-top: -5px; margin-bottom: 15px; border-top: 1px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
-        # --- AKTÍV MODUL TARTALMÁNAK RENDERE ---
         try:
             if current_state == "1. Áruátvétel 📦":
                 render_mobil_aruatvetel(client)
@@ -469,7 +464,6 @@ def main():
         except Exception as e:
             st.error(f"❌ Hiba a modul futtatása közben: {e}")
 
-        # --- 📌 ALSÓ, RÖGZÍTETT NAVIGÁCIÓS GOMB SÁV (GOLYÓÁLLÓ LÉPTETÉS) ---
         st.markdown('<div class="fixed-nav-bar">', unsafe_allow_html=True)
         col_prev, col_spacer, col_next = st.columns([4, 2, 4])
         
@@ -497,7 +491,7 @@ def main():
         st.markdown('</div>', unsafe_allow_html=True)
 
     # =========================================================================
-    # 🖥️ ASZTALI ÁG (Központi adminisztrációs és feldolgozó műszerfal)
+    # 🖥️ ASZTALI ÁG
     # =========================================================================
     else:
         is_admin = st.session_state.user_szerep in ["admin", "superadmin"]

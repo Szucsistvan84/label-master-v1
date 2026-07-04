@@ -330,36 +330,38 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             p.setFont(f_reg, 7)
             p.drawRightString(x + lw - inner_m, top_y - (3 * mm) + biztonsagi_emeles, f"ID: {str(r.get('temp_id', 'N/A'))}")
 
-            # 📦 VALÓDI RACE PACK ENGINE: Csoportosított megálló/rekesz jelölés (CS1 | 3/1 formátum)
+            # 📦 VALÓDI RACE PACK ENGINE: Csoportosított megálló/rekesz jelölés (Dinamikusan méretezett háttérrel)
             if 'Csoport' in df.columns:
                 c_kod = str(r.get('Csoport', '')).strip().lower()
-                # Itt is lefejtjük a tizedesjegyet (pl. "1.0" -> "1")
                 if c_kod.endswith('.0'):
                     c_kod = c_kod[:-2]
                     
-                # Ha a címke érvényes csoporthoz tartozik, és a csoportban több címke is van
                 if c_kod and c_kod not in ['0', '0.0', 'nan', 'none', ''] and csoport_osszesen.get(c_kod, 0) >= 2:
-                    # Növeljük a számlálót, hogy hanyadiknál járunk ebben a rekeszben
                     csoport_aktualis[c_kod] += 1
                     
-                    # Szép tiszta, nagybetűs csoport kód (pl. 1 -> CS1)
                     csoport_nev_szep = f"CS{c_kod.upper()}" if c_kod.isdigit() else c_kod.upper()
                     teljes_pakk_szam = csoport_osszesen[c_kod]
                     aktualis_pakk_szam = csoport_aktualis[c_kod]
                     
-                    # Elkészítjük a kért pontos feliratot
                     race_pack_text = f"{csoport_nev_szep} | {teljes_pakk_szam}/{aktualis_pakk_szam}"
                     
                     p.saveState()
                     fejlec_kozep_x = x + (lw / 2)
                     fejlec_y = top_y - (3 * mm) + biztonsagi_emeles
                     
-                    # Szuper kontrasztos, inverz sötétszürke téglalap alap
-                    p.setFillColor(colors.HexColor("#1F2937"))
-                    p.rect(fejlec_kozep_x - 14*mm, fejlec_y - 1*mm, 28*mm, 4.2*mm, fill=1, stroke=0)
-                    
-                    # Vakítóan fehér, félkövér csoportjelzés a téglalap közepén
+                    # 💡 DINAMIKUS MÉRETEZÉS: Lemérjük a pontos szövegszélességet DejaVu-Bold 8-as fonttal
                     p.setFont(f_bold, 8)
+                    szoveg_szelesseg_pont = p.stringWidth(race_pack_text, f_bold, 8)
+                    
+                    # Átváltjuk a pontot milliméterre, és adunk hozzá egy finom, esztétikus oldalsó margót (paddings)
+                    doboz_szelesseg = szoveg_szelesseg_pont + (5 * mm) 
+                    doboz_magassag = 4.2 * mm
+                    
+                    # Kirajzoljuk a tökéletesen szabott sötétszürke alap téglalapot
+                    p.setFillColor(colors.HexColor("#1F2937"))
+                    p.rect(fejlec_kozep_x - (doboz_szelesseg / 2), fejlec_y - 1*mm, doboz_szelesseg, doboz_magassag, fill=1, stroke=0)
+                    
+                    # Ráhelyezzük a vakítóan fehér szöveget pontosan a közepére
                     p.setFillColor(colors.white)
                     p.drawCentredString(fejlec_kozep_x, fejlec_y, race_pack_text)
                     p.restoreState()

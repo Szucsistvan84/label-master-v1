@@ -126,24 +126,24 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
             
             if futar_col_key:
                 driver_records = [r for r in all_rows if str(r.get(futar_col_key, '')).strip().lower() == futar_keresett]
-            
-            # 💡 FOTELES TESZT AUTOMATIKUS ÁTKAPCSOLÓ
-            # Ha fotelben ülve tesztelünk üres online menettervvel, átengedjük az összes sort szimulációnak
-            if not driver_records:
-                driver_records = all_rows
-                st.markdown(
-                    """
-                    <div style="background-color: #FEF3C7; border-left: 4px solid #D97706; padding: 10px; border-radius: 6px; margin: 10px 0; width: 100%;">
-                        <p style="margin: 0; font-weight: bold; color: #92400E; font-size: 0.85rem;">🧪 Szimulációs Nézet Aktív</p>
-                        <p style="margin: 2px 0 0 0; color: #78350F; font-size: 0.78rem; line-height: 1.3;">
-                            Múltbéli adatok tesztelése fut. A műszerfal a hivatalos raklista-összesítő motor alapján dinamikusan számol.
-                        </p>
-                    </div>
-                    """, 
-                    unsafe_allow_html=True
-                )
 
-        # 📊 VALÓDI DINAMIKUS RAKLISTA-ÖSSZESÍTŐ MOTOR (ZÉRÓ HARDCODE!)
+        # 💡 FOTELES TESZT ÜZEMMÓD: Ha a futárnév alapján üres a lista, beolvassuk az összes sort,
+        # így dinamikusan a teljes raklista adatai (237 adag, valós forgalom) jelennek meg!
+        if not driver_records and all_rows:
+            driver_records = all_rows
+            st.markdown(
+                """
+                <div style="background-color: #FEF3C7; border-left: 4px solid #D97706; padding: 10px; border-radius: 6px; margin: 10px 0; width: 100%;">
+                    <p style="margin: 0; font-weight: bold; color: #92400E; font-size: 0.85rem;">🧪 Szimulációs Nézet Aktív</p>
+                    <p style="margin: 2px 0 0 0; color: #78350F; font-size: 0.78rem; line-height: 1.3;">
+                        A menetterv teljes statisztikáját látod dinamikusan betöltve a hivatalos raklista-összesítő motor alapján.
+                    </p>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+
+        # 📊 RAKLISTA ÖSSZESÍTŐ MOTOR INTEGRÁCIÓ
         osszes_cim = len(driver_records)
         egyedi_cimek = set(str(r.get('Cím', r.get('Cim', ''))).strip() for r in driver_records)
         osszes_megallo = len(egyedi_cimek)
@@ -154,7 +154,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
         ORDER_PAT = r'(\d+)-([A-Z0-9\*]+)'
         
         counts = {}
-        # 1. Kigyűjtjük a rendelési kódok darabszámait pontosan úgy, mint a raklistán
         for r in driver_records:
             order_str = str(r.get('Rendelés_Full', r.get('Rendeles_Full', r.get('Rendelés', r.get('Rendeles', '')))))
             day_parts = order_str.split('|')
@@ -173,7 +172,6 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
                     full_key = f"{prefix}_{code.strip().upper()}"
                     counts[full_key] = counts.get(full_key, 0) + int(qty)
 
-        # 2. Dinamikusan megszorozzuk az étlap áraival az utolsó fillérig
         for full_key, db in counts.items():
             prefix = full_key.split('_')[0]
             code_label = full_key.split('_')[1]
@@ -189,7 +187,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
             osszes_etel += db
             forgalmi_ertek += (db * ar)
         
-        # 3. Teljesen dinamikus futárjutalék számítás (13%)
+        # Dinamikus jutalék
         jutalek = int(forgalmi_ertek * 0.13)
 
     except Exception as e:

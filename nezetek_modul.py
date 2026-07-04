@@ -163,12 +163,16 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     jutalek = 0
 
     try:
-        sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
-        summary_records_df = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Mobil_Summary")
-        summary_records = summary_records_df.to_dict('records') if not summary_records_df.empty else []
-        
+        # 1. Először lekérjük a sessionből az aktuális dátumot
         kivalasztott = st.session_state.get('kivalasztott_datum', datetime.date.today())
         kivalasztott_iso = kivalasztott.strftime("%Y-%m-%d") if isinstance(kivalasztott, datetime.date) else str(kivalasztott)
+        
+        # 2. Megnyitjuk a táblázatot
+        sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
+        
+        # 3. A cache kulcs végére odatűzzük a dátumot, így napváltáskor kényszerítjük a frissítést!
+        summary_records_df = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, f"Mobil_Summary_{kivalasztott_iso}")
+        summary_records = summary_records_df.to_dict('records') if not summary_records_df.empty else []
 
         futar_keresett = str(futar_nev_kiir).strip().lower()
 

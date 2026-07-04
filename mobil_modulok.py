@@ -449,10 +449,11 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
 
                                 found_items = re.findall(ORDER_PAT, part)
                                 if found_items:
-                                    badges_html = '<div style="margin-top: 2px; margin-bottom: 4px; display: flex; flex-wrap: wrap;">'
+                                    badges_html = '<div style="margin-top: 2px; margin-bottom: 4px; display: flex; flex-wrap: wrap; gap: 4px;">'
                                     for qty, code in found_items:
-                                        style_kaja = "font-weight: 900; background-color: #FEF2F2; color: #991B1B;" if is_szombat else "font-weight: normal; background-color: #EFF6FF; color: #1E40AF;"
-                                        badges_html += f'<span class="item-badge" style="{style_kaja}">{qty}x {code}</span>'
+                                        # 🎯 HIVATALOS INTERFOOD DESIGN: Félkövér kiemelés, mennyiség kötőjel ételkód formátumban (pl: 1-L3K)
+                                        style_kaja = "font-weight: 900; background-color: #FEF2F2; color: #991B1B; padding: 2px 6px; border-radius: 4px;" if is_szombat else "font-weight: bold; background-color: #EFF6FF; color: #1E40AF; padding: 2px 6px; border-radius: 4px;"
+                                        badges_html += f'<span class="item-badge" style="{style_kaja}">{qty.strip()}-{code.strip()}</span>'
                                     badges_html += '</div>'
                                     st.markdown(badges_html, unsafe_allow_html=True)
 

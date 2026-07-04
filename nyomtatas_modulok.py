@@ -333,12 +333,16 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
             # 📦 VALÓDI RACE PACK ENGINE: Csoportosított megálló/rekesz jelölés (CS1 | 3/1 formátum)
             if 'Csoport' in df.columns:
                 c_kod = str(r.get('Csoport', '')).strip().lower()
+                # Itt is lefejtjük a tizedesjegyet (pl. "1.0" -> "1")
+                if c_kod.endswith('.0'):
+                    c_kod = c_kod[:-2]
+                    
                 # Ha a címke érvényes csoporthoz tartozik, és a csoportban több címke is van
                 if c_kod and c_kod not in ['0', '0.0', 'nan', 'none', ''] and csoport_osszesen.get(c_kod, 0) >= 2:
                     # Növeljük a számlálót, hogy hanyadiknál járunk ebben a rekeszben
                     csoport_aktualis[c_kod] += 1
                     
-                    # Szép tiszta, nagybetűs csoport kód (pl. 1 -> CS1, vagy ha eleve szöveges)
+                    # Szép tiszta, nagybetűs csoport kód (pl. 1 -> CS1)
                     csoport_nev_szep = f"CS{c_kod.upper()}" if c_kod.isdigit() else c_kod.upper()
                     teljes_pakk_szam = csoport_osszesen[c_kod]
                     aktualis_pakk_szam = csoport_aktualis[c_kod]
@@ -347,7 +351,6 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
                     race_pack_text = f"{csoport_nev_szep} | {teljes_pakk_szam}/{aktualis_pakk_szam}"
                     
                     p.saveState()
-                    # Kiszámoljuk a fejléc közepét
                     fejlec_kozep_x = x + (lw / 2)
                     fejlec_y = top_y - (3 * mm) + biztonsagi_emeles
                     

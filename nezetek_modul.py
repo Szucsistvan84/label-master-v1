@@ -208,6 +208,9 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
             except:
                 pass
 
+    # 🛰️ MULTI-TENANT JÖVŐÁLLÓ FIX: Dinamikus bérlői pénznem lekérése (alapértelmezett a Ft, de likvidáltuk a fix beégetést)
+    penznem = st.session_state.get('tenant_currency', 'Ft')
+
     # --- SZEKCIÓK MEGJELENÍTÉSE ---
     st.markdown("<div style='margin: 18px 0 12px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
     st.subheader("🏁 Kiszállítás Haladás")
@@ -223,16 +226,9 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
         st.metric("🏠 Összes cím (vevő)", f"{osszes_cim} db")
     with col_s2:
         st.metric("📦 Összes étel", f"{osszes_etel} adag")
-        st.metric("💵 Rakományérték", f"{forgalmi_ertek:,} Ft".replace(",", " "))
+        st.metric("💵 Rakományérték", f"{forgalmi_ertek:,} {penznem}".replace(",", " "))
         
-    st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
-    st.subheader("💸 Élő Elszámolás")
-    col_l1, col_l2 = st.columns(2)
-    with col_l1:
-        st.metric("💵 Beszedett KP aznap", f"{live_beszedett_kp:,} Ft".replace(",", " "))
-        st.metric("⭐ Várható Jutalékod", f"{jutalek:,} Ft".replace(",", " "))
-    with col_l2:
-        st.metric("💰 Gyűjtött borravaló", f"{live_borravalo:,} Ft".replace(",", " "))
+    st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe
 
 
 def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE):

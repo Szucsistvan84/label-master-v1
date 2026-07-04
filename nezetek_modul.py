@@ -218,7 +218,18 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 except:
                     pass
         else:
-            st.error("A Mobil_Summary munkalap teljesen üres!")
+            # JAVÍTOTT, COMPAKT, BARÁTSÁGOS FUTÁR HIBAÜZENET RÁCSÚSZÁS ELLEN
+            st.markdown(
+                """
+                <div style="background-color: #FEE2E2; border-left: 4px solid #E1251B; padding: 10px; border-radius: 6px; margin: 10px 0; width: 100%;">
+                    <p style="margin: 0; font-weight: bold; color: #991B1B; font-size: 0.85rem;">⚠️ Nincs mai menetterv!</p>
+                    <p style="margin: 2px 0 0 0; color: #7F1D1D; font-size: 0.78rem; line-height: 1.3;">
+                        Mára még nincs feldolgozott adatod ebben a járatban. Kérlek, töltsd fel a mai PDF-et az asztali felületen!
+                    </p>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
             return
     except Exception as e:
         st.error(f"❌ Nem sikerült elérni a Google Sheets-et: {e}")

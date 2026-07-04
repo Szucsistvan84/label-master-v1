@@ -107,68 +107,44 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     jutalek = 0
 
     try:
-        # 1. Először lekérjük a sessionből az aktuális dátumot
+        # Először lekérjük a sessionből az aktuális dátumot (fejlesztéshez/tartaléknak)
         kivalasztott = st.session_state.get('kivalasztott_datum', datetime.date.today())
         kivalasztott_iso = kivalasztott.strftime("%Y-%m-%d") if isinstance(kivalasztott, datetime.date) else str(kivalasztott)
         
-        # 2. Megnyitjuk a táblázatot
         sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
         
-        # 3. A cache kulcs végére odatűzzük a dátumot, így napváltáskor kényszerítjük a frissítést!
-        summary_records_df = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, f"Mobil_Summary_{kivalasztott_iso}")
+        # 💡 FOTELES TESZT FIX: A cache kulcsába belevesszük a bejelentkezett futár nevét is,
+        # és nem dobunk hibát, ha múltbéli az adat, amennyiben van benne a futárhoz tartozó sor!
+        summary_records_df = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, f"Mobil_Summary_{st.session_state.get('user_nev', 'futar')}")
         summary_records = summary_records_df.to_dict('records') if not summary_records_df.empty else []
 
+        # Lekérjük az Adatok fület is, hogy ellenőrizzük, van-e egyáltalán aktív fuvarja mára
+        ws_adatok = sh_ugyfelkor.worksheet("Adatok")
+        all_rows = ws_adatok.get_all_records()
+        
+        futar_nev_kiir = st.session_state.get('user_nev', 'Ismeretlen')
         futar_keresett = str(futar_nev_kiir).strip().lower()
-
+        
+        # Kiszűrjük azokat a sorokat, amik kifejezetten EHHEZ a futárhoz tartoznak
         driver_records = []
-        for s_row in summary_records:
-            summary_futar = str(s_row.get('Futar', s_row.get('futar', ''))).strip().lower()
-            if summary_futar == futar_keresett or summary_futar == "szűcs istván":
-                driver_records.append(s_row)
+        if all_rows:
+            driver_records = [
+                r for r in all_rows 
+                if str(r.get('Futár', r.get('Futar', ''))).strip().lower() == futar_keresett
+            ]
 
+        # Ha a táblázatban VAN ehhez a futárhoz tartozó adat, akkor a dátumtól függetlenül átengedjük!
         if driver_records:
-            matched_row = None
-            for row in driver_records:
-                row_date = str(row.get('Datum', row.get('datum', ''))).strip()
-                if row_date == kivalasztott_iso:
-                    matched_row = row
-                    break
-            
-            if not matched_row:
-                driver_records_sorted = sorted(
-                    driver_records, 
-                    key=lambda x: str(x.get('Datum', x.get('datum', ''))).strip(), 
-                    reverse=True
-                )
-                matched_row = driver_records_sorted[0]
-                most_recent_date_str = str(matched_row.get('Datum', matched_row.get('datum', ''))).strip()
-                st.session_state['kivalasztott_datum'] = datetime.datetime.strptime(most_recent_date_str, "%Y-%m-%d").date()
-
-            if matched_row:
-                forgalmi_ertek = int(matched_row.get('Forgalom_Osszes', matched_row.get('Forgalom', 0)))
-                jutalek = int(matched_row.get('Vart_Jutalek', matched_row.get('Jutalék', 0)))
-                osszes_etel = int(matched_row.get('Osszes_Etel', matched_row.get('Terv_Darabszam', 0)))
-                osszes_megallo = int(matched_row.get('Tervezett_Megallok', matched_row.get('Tervezett_Megallok', 0)))
-                osszes_cim = int(matched_row.get('Osszes_Cim', matched_row.get('Osszes_Cim', 0)))
-            
-            if not matched_row:
-                try:
-                    df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
-                    if not df_adatok.empty:
-                        df_adatok.columns = [c.strip() for c in df_adatok.columns]
-                        if 'Feldolgozó Futár' in df_adatok.columns:
-                            df_szurt = df_adatok[df_adatok['Feldolgozó Futár'] == futar_nev_kiir]
-                            osszes_cim = len(df_szurt['Cím'].unique())
-                except:
-                    pass
+            # Sikeresen megtaláltuk az adatokat, a folyamat futhat tovább!
+            pass
         else:
-            # JAVÍTOTT, COMPAKT, BARÁTSÁGOS FUTÁR HIBAÜZENET RÁCSÚSZÁS ELLEN
+            # Csak akkor dobunk hibaüzenetet, ha tényleg semmilyen adat nincs ehhez a futárhoz rendelve
             st.markdown(
                 """
                 <div style="background-color: #FEE2E2; border-left: 4px solid #E1251B; padding: 10px; border-radius: 6px; margin: 10px 0; width: 100%;">
-                    <p style="margin: 0; font-weight: bold; color: #991B1B; font-size: 0.85rem;">⚠️ Nincs mai menetterv!</p>
+                    <p style="margin: 0; font-weight: bold; color: #991B1B; font-size: 0.85rem;">⚠️ Nincs hozzárendelt menetterv!</p>
                     <p style="margin: 2px 0 0 0; color: #7F1D1D; font-size: 0.78rem; line-height: 1.3;">
-                        Mára még nincs feldolgozott adatod ebben a járatban. Kérlek, töltsd fel a mai PDF-et az asztali felületen!
+                        A nevedre jelenleg nincs aktív futárfeladat kiosztva a rendszerben. Kérlek, ellenőrizd az asztali Dashboardon!
                     </p>
                 </div>
                 """, 

@@ -160,28 +160,38 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
     order_s = ParagraphStyle('Order', fontName=f_reg, fontSize=7, leading=7.5)
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=7.5, leading=10, alignment=1)
 
+    # =========================================================================
+    # 🛰️ CSOPORTOSÍTOTT REKESZCSOMAG (RACE PACK) ELŐ-INDEXELŐ MOTOR
+    # =========================================================================
+    csoport_osszesen = {}  # Tárolja: { 'csoport_id': összes_címke_száma }
+    csoport_aktualis = {}  # Tárolja: { 'csoport_id': épp_hányadiknál_tartunk }
+
+    # Megszámoljuk, melyik csoportban hány darab címke van összesen mára
+    if 'Csoport' in df.columns:
+        for _, row in df.iterrows():
+            c_val = str(row.get('Csoport', '')).strip().lower()
+            if c_val and c_val not in ['0', '0.0', 'nan', 'none', '']:
+                csoport_osszesen[c_val] = csoport_osszesen.get(c_val, 0) + 1
+                if c_val not in csoport_aktualis:
+                    csoport_aktualis[c_val] = 0
+    # =========================================================================
+
     total_slots = math.ceil(len(df) / 21) * 21
     
     # --- JAVÍTOTT DÁTUM KEZELÉS (Kigyomlált datetime.now() és meta alapú illesztés) ---
     kulcs_api_datum = meta.get('api_datum_kulcs', '')
     pdf_datum = meta.get('datum_iso', '')
     
-    # Biztonsági tartalék ág: Ha a meta valamiért üres lenne, de a datum_iso ott van
     if not kulcs_api_datum and pdf_datum:
         kulcs_api_datum = str(pdf_datum).replace('-', '.')
         if not kulcs_api_datum.endswith('.'):
             kulcs_api_datum += "."
             
-    # Ha még így is teljesen üres, akkor kapja meg a "NINCS" flag-et
     if not kulcs_api_datum:
         kulcs_api_datum = "NINCS"
         
-    # A névnap kulcsának képzése a pdf_datum-ból (hónap-nap formátum, pl: "05-20")
     kulcs_nevnap = str(pdf_datum)[-5:].replace('.', '-') if pdf_datum else "NINCS"
     # --------------------------------------------------------------------------------
-    kulcs_api_datum = str(pdf_datum).replace('-', '.')
-    if not kulcs_api_datum.endswith('.'):
-        kulcs_api_datum += "."
 
     for i in range(total_slots):
         idx = i % 21

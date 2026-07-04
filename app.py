@@ -89,7 +89,7 @@ def main():
             st.session_state.current_mobile_tab_state = tab_mapping_rev.get(tab_param, "1. Áruátvétel 📦")
 
     # ==============================================================================
-    # 🛰️ ÉLES ÚTVONAL-RENDEZŐ ENGINE HOOK
+    # 🛰️ ÉLES ÚTVONAL-RENDEZŐ ENGINE HOOK (JAVÍTOTT TOKEN-MEGŐRZŐS VÁLTOZAT)
     # ==============================================================================
     if "action" in st.query_params and "target_id" in st.query_params:
         action = st.query_params["action"]
@@ -129,7 +129,14 @@ def main():
                     st.session_state.mdf = df_sheets
                     st.cache_data.clear()
                     
-                    st.query_params.update(view="mobile", active_tab="kiszallitas")
+                    # 💡 FIX: Átsorolás után is kényszerítve visszaírjuk a belépési adatokat az URL-be, így nincs fehér kifagyás!
+                    st.query_params.update(
+                        view="mobile", 
+                        active_tab="kiszallitas",
+                        token_name=st.session_state.get('user_nev', ''),
+                        token_role=st.session_state.get('user_szerep', 'futar'),
+                        token_routes=",".join(st.session_state.get('user_jarat_lista', []))
+                    )
                     st.session_state.current_mobile_tab_state = "3. Kiszállítás 🚚"
                     st.rerun()
         except Exception as e:

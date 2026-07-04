@@ -47,9 +47,9 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             border-radius: 8px !important;
         }
         
-        /* Műszerfal felső padding igazítása */
+        /* Műszerfal felső rész igazítása, helyet hagyva a gyári gombnak */
         div[data-testid="stSidebarUserContent"] {
-            padding-top: 0.5rem !important;
+            padding-top: 2.2rem !important;
             margin-top: -1.5rem !important;
         }
         /* Metric kártyák tömörítése */
@@ -67,13 +67,14 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         unsafe_allow_html=True
     )
 
-    # --- JAVÍTOTT: LEHARMADOLT, STABIL MEGJELENÉSŰ SIDEBAR LOGÓ ---
+    # --- AUTOMATIKUS LOGÓ BEOLVASÁS LEMEZRŐL (GOLYÓÁLLÓ MEGOLDÁS) ---
     if os.path.exists("interfood-logo.png"):
-        # Kényszerített maximális szélesség a harmadoláshoz, és középre helyezés div-vel
-        st.markdown('<div style="display: flex; justify-content: center; margin-bottom: 5px;"><img src="app/static/interfood-logo.png" style="width: 80px; height: auto;"></div>', unsafe_allow_html=True)
+        # Egy extra konténer oszlopokkal, hogy a leharcolt logó tökéletesen középre kerüljön és kicsi legyen
+        logo_col1, logo_col2, logo_col3 = st.columns([1, 1, 1])
+        with logo_col2:
+            st.image("interfood-logo.png", width=65, use_container_width=False)
     else:
         st.markdown("<h2 style='text-align: center; color: #139D43; margin-top:0;'>🟢 Interfood</h2>", unsafe_allow_html=True)
-
     st.markdown("<h2 style='text-align: center; color: #139D43; margin-bottom: 6px;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
     
     futar_nev_kiir = st.session_state.get('user_nev', 'Ismeretlen Futár')

@@ -42,7 +42,6 @@ from mobil_modulok import render_mobil_aruatvetel, render_mobil_bepakolas, rende
 
 # --- KISZERVEZETT ÚJ NÉZET RENDEREK ---
 from nezetek_modul import (
-    render_mobil_sidebar_dashboard, 
     render_desktop_sidebar_controls, 
     render_desktop_main_content
 )

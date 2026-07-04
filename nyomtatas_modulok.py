@@ -161,7 +161,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
     promo_s = ParagraphStyle('Promo', fontName=f_reg, fontSize=7.5, leading=10, alignment=1)
 
     # =========================================================================
-    # 🛰️ CSOPORTOSÍTOTT REKESZCSOMAG (RACE PACK) ELŐ-INDEXELŐ MOTOR
+    # 🛰️ CSOPORTOSÍTOTT REKESZCSOMAG (RACE PACK) ELŐ-INDEXELŐ MOTOR (JAVÍTOTT FORMÁTUM-TOLERÁNS)
     # =========================================================================
     csoport_osszesen = {}  # Tárolja: { 'csoport_id': összes_címke_száma }
     csoport_aktualis = {}  # Tárolja: { 'csoport_id': épp_hányadiknál_tartunk }
@@ -169,11 +169,15 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
     # Megszámoljuk, melyik csoportban hány darab címke van összesen mára
     if 'Csoport' in df.columns:
         for _, row in df.iterrows():
-            c_val = str(row.get('Csoport', '')).strip().lower()
-            if c_val and c_val not in ['0', '0.0', 'nan', 'none', '']:
-                csoport_osszesen[c_val] = csoport_osszesen.get(c_val, 0) + 1
-                if c_val not in csoport_aktualis:
-                    csoport_aktualis[c_val] = 0
+            raw_c = str(row.get('Csoport', '')).strip().lower()
+            # Ha float formátumban jön (pl. "1.0"), lefejtjük a tizedest a tiszta egyezésért
+            if raw_c.endswith('.0'):
+                raw_c = raw_c[:-2]
+                
+            if raw_c and raw_c not in ['0', '0.0', 'nan', 'none', '']:
+                csoport_osszesen[raw_c] = csoport_osszesen.get(raw_c, 0) + 1
+                if raw_c not in csoport_aktualis:
+                    csoport_aktualis[raw_c] = 0
     # =========================================================================
 
     total_slots = math.ceil(len(df) / 21) * 21

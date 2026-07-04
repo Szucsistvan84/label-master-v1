@@ -29,6 +29,9 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
     """
     import base64
+    import re
+    import datetime
+    import os
     
     st.markdown(
         """
@@ -49,7 +52,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             border-radius: 8px !important;
         }
         
-        /* Műszerfal felső rész igazítása, helyet hagyva a gyári gombnak */
+        /* Műszerfal felső részének teljes letömörítése, az üresség kiiktatása */
         div[data-testid="stSidebarUserContent"] {
             padding-top: 0rem !important;
             margin-top: -3.8rem !important;
@@ -93,13 +96,12 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     jarat_lista_kiir = st.session_state.get('user_jarat_lista', [])
     jarat_szoveg_kiir = ", ".join(map(str, jarat_lista_kiir)) if jarat_lista_kiir else "Nincs"
     
-    # 💡 FIX: Lekérjük a telefonszámot is, és ha létezik, elegánsan kiírjuk a név alá/mellé!
     futar_tel_kiir = st.session_state.get('user_tel', '')
     tel_resz = f" | 📞 {futar_tel_kiir}" if futar_tel_kiir else ""
     
     st.write(f"👤 **Futár:** {futar_nev_kiir}{tel_resz}<br>🚚 **Járat:** {jarat_szoveg_kiir}", unsafe_allow_html=True)
 
-    # Alapértelmezett elszámolási mérők
+    # Inicializáljuk a mérőket
     osszes_cim = 0
     osszes_megallo = 0
     osszes_etel = 0
@@ -107,25 +109,13 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     jutalek = 0
 
     try:
-        # Először lekérjük a sessionből az aktuális dátumot (fejlesztéshez/tartaléknak)
-        kivalasztott = st.session_state.get('kivalasztott_datum', datetime.date.today())
-        kivalasztott_iso = kivalasztott.strftime("%Y-%m-%d") if isinstance(kivalasztott, datetime.date) else str(kivalasztott)
-        
         sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
-        
-        # 💡 FOTELES TESZT FIX: A cache kulcsába belevesszük a bejelentkezett futár nevét is,
-        # és nem dobunk hibát, ha múltbéli az adat, amennyiben van benne a futárhoz tartozó sor!
-        summary_records_df = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, f"Mobil_Summary_{st.session_state.get('user_nev', 'futar')}")
-        summary_records = summary_records_df.to_dict('records') if not summary_records_df.empty else []
-
-        # Lekérjük az Adatok fület is, hogy ellenőrizzük, van-e egyáltalán aktív fuvarja mára
         ws_adatok = sh_ugyfelkor.worksheet("Adatok")
         all_rows = ws_adatok.get_all_records()
         
-        futar_nev_kiir = st.session_state.get('user_nev', 'Ismeretlen')
         futar_keresett = str(futar_nev_kiir).strip().lower()
         
-        # Kiszűrjük azokat a sorokat, amik kifejezetten EHHEZ a futárhoz tartoznak
+        # Kiszűrjük az aktuális futár sorait az Adatok fülről
         driver_records = []
         if all_rows:
             driver_records = [
@@ -133,15 +123,14 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 if str(r.get('Futár', r.get('Futar', ''))).strip().lower() == futar_keresett
             ]
 
-        # 💡 JAVÍTÁS: Ha nincs adat, AKKOR írjuk ki a hibát és leállítjuk a renderelést.
-        # Ha van adat, a kód csendben átugorja ezt, és semmit nem rajzol ki a háttérben!
+        # 💡 FOTELES TESZT FIX: Ha nincs kiosztott fuvarja, csak akkor dobunk hibát!
         if not driver_records:
             st.markdown(
                 """
                 <div style="background-color: #FEE2E2; border-left: 4px solid #E1251B; padding: 10px; border-radius: 6px; margin: 10px 0; width: 100%;">
-                    <p style="margin: 0; font-weight: bold; color: #991B1B; font-size: 0.85rem;">⚠️ Nincs hozzárendelt menetterv!</p>
+                    <p style="margin: 0; font-weight: bold; color: #991B1B; font-size: 0.85rem;">⚠️ Nincs kiosztott fuvarod!</p>
                     <p style="margin: 2px 0 0 0; color: #7F1D1D; font-size: 0.78rem; line-height: 1.3;">
-                        A nevedre jelenleg nincs aktív futárfeladat kiosztva a rendszerben. Kérlek, ellenőrizd az asztali Dashboardon!
+                        A nevedre jelenleg nincs aktív futárfeladat kiosztva a rendszerben.
                     </p>
                 </div>
                 """, 
@@ -149,14 +138,34 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             )
             return
 
+        # Dinamikusan kiszámoljuk a mérőket az élő Google Sheets adatokból a foteles teszthez!
+        osszes_cim = len(driver_records)
+        
+        # Megállók száma (egyedi címek alapján)
+        egyedi_cimek = set(str(r.get('Cím', r.get('Cim', ''))).strip() for r in driver_records)
+        osszes_megallo = len(egyedi_cimek)
+        
+        # Ételek és pénzek összegzése
+        for r in driver_records:
+            try:
+                osszes_etel += int(float(str(r.get('Összesen', 1))))
+            except:
+                osszes_etel += 1
+                
+            try:
+                p_nyers = str(r.get('Pénz', r.get('Penz', '0'))).replace('Ft', '').replace(' ', '').strip()
+                if p_nyers and p_nyers.isdigit():
+                    forgalmi_ertek += int(p_nyers)
+            except:
+                pass
+        
+        jutalek = int(forgalmi_ertek * 0.13)
+
     except Exception as e:
-        st.sidebar.error(f"Hiba a műszerfal betöltésekor: {e}")
+        st.sidebar.error(f"Hiba az adatok számításakor: {e}")
         return
 
-    # Ide csak akkor jut el a kód, ha VAN driver_records, így itt már biztonságosan rajzolunk!
-    st.markdown("<h2 style='text-align: center; color: #139D43; margin-bottom: 6px; font-size: 1.15rem;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
-
-    # Élő kiszállítási mérők a Session State-ből
+    # Élő kiszállítási mérők kiszámítása a Session State-ből
     live_kesz_cimek = 0
     live_beszedett_kp = 0
     live_borravalo = 0
@@ -215,6 +224,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         
         vevo_options = ["-- Válassz helyszínt / vevőt --"]
         vevo_items_map = {}
+        ORDER_PAT = r'(\d+)-([A-Z0-9\*]+)'
         
         try:
             df_adatok_all = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
@@ -232,11 +242,7 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 
                 etlap = st.session_state.get('etlap_adatok', {})
                 if not etlap:
-                    try:
-                        etlap = load_etlap_from_sheets(SHEET_ID)
-                        st.session_state.etlap_adatok = etlap
-                    except:
-                        etlap = {}
+                    etlap = {}
 
                 label_to_prefix = {"Hé": "H", "Ke": "K", "Sze": "S", "Csü": "C", "Pé": "P", "Szo": "Z"}
                 prefix_to_num = {"H": "1", "K": "2", "S": "3", "C": "4", "P": "5", "Z": "6"}

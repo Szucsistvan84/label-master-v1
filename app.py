@@ -407,11 +407,116 @@ def main():
     master_df = etelek_master_df
 
     # =========================================================================
-    # 📱 MOBIL ÁG
+    # 📱 MOBIL ÁG (KÉNYSZERÍTETT ÉLŐ MŰSZERFAL ÉS FOLYAMAT-VEZÉRLŐ ENGINE)
     # =========================================================================
     if is_mobile_view:
         with st.sidebar:
-            render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID_MASTER)
+            import base64
+            
+            st.markdown(
+                """
+                <style>
+                div[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -3.8rem !important; }
+                [data-testid="stSidebarUserContent"] [data-testid="stMetricValue"] { font-size: 1.05rem !important; font-weight: 800 !important; color: #139D43 !important; }
+                [data-testid="stSidebarUserContent"] [data-testid="stMetricLabel"] { font-size: 0.68rem !important; font-weight: 600; }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
+
+            # --- BASE64 LOGÓ INJEKTÁLÁS ---
+            if os.path.exists("interfood-logo.png"):
+                try:
+                    with open("interfood-logo.png", "rb") as img_file:
+                        enc_img = base64.b64encode(img_file.read()).decode()
+                    st.markdown(f'<div style="display: flex; justify-content: center; width: 100%; margin-bottom: 8px;"><img src="data:image/png;base64,{enc_img}" style="width: 75px; height: auto;"></div>', unsafe_allow_html=True)
+                except: st.markdown("<h3 style='text-align: center; color: #139D43; margin-top:0;'>🟢 Interfood</h3>", unsafe_allow_html=True)
+            else: st.markdown("<h3 style='text-align: center; color: #139D43; margin-top:0;'>🟢 Interfood</h3>", unsafe_allow_html=True)
+
+            st.markdown("<h2 style='text-align: center; color: #139D43; margin-bottom: 6px; font-size: 1.15rem;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
+            
+            futar_nev_kiir = st.session_state.get('user_nev', 'Ismeretlen Futár')
+            jarat_lista_kiir = st.session_state.get('user_jarat_lista', [])
+            jarat_szoveg_kiir = ", ".join(map(str, jarat_lista_kiir)) if jarat_lista_kiir else "Nincs"
+            futar_tel_kiir = st.session_state.get('user_tel', '')
+            tel_resz = f" | 📞 {futar_tel_kiir}" if futar_tel_kiir else ""
+            
+            st.write(f"👤 **Futár:** {futar_nev_kiir}{tel_resz}<br>🚚 **Járat:** {jarat_szoveg_kiir}", unsafe_allow_html=True)
+
+            # Mérők alapértékei
+            osszes_cim = 0
+            osszes_megallo = 0
+            osszes_etel = 0
+            forgalmi_ertek = 0
+
+            try:
+                sh_ugyfelkor = st.session_state.client.open_by_key(SHEET_ID_UGYFELKOR)
+                ws_adatok = sh_ugyfelkor.worksheet("Adatok")
+                all_rows = ws_adatok.get_all_records()
+                
+                futar_keresett = str(futar_nev_kiir).strip().lower()
+                driver_records = [r for r in all_rows if str(r.get('Futár', r.get('Futar', ''))).strip().lower() == futar_keresett] if all_rows else []
+
+                if driver_records:
+                    osszes_cim = len(driver_records)
+                    egyedi_cimek = set(str(r.get('Cím', r.get('Cim', ''))).strip() for r in driver_records)
+                    osszes_megallo = len(egyedi_cimek)
+                    for r in driver_records:
+                        try: osszes_etel += int(float(str(r.get('Összesen', 1))))
+                        except: osszes_etel += 1
+                        try:
+                            p_nyers = str(r.get('Pénz', r.get('Penz', '0'))).replace('Ft', '').replace(' ', '').strip()
+                            if p_nyers and p_nyers.isdigit(): forgalmi_ertek += int(p_nyers)
+                        except: pass
+                else:
+                    st.warning("⚠️ Nincs kiosztott fuvarod mára!")
+            except Exception as e:
+                st.error(f"Hiba az adatok betöltésekor: {e}")
+
+            # Élő elszámolás számítása a megállókból
+            live_kesz_cimek = sum(1 for k in st.session_state.keys() if k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres")
+            live_beszedett_kp = 0
+            live_borravalo = 0
+            for k in list(st.session_state.keys()):
+                if k.startswith("kiszallitott_statusz_") and st.session_state[k] == "Sikeres":
+                    idx = k.split("_")[-1]
+                    try:
+                        live_beszedett_kp += int(st.session_state.get(f"atvett_input_{idx}", 0))
+                        live_borravalo += int(st.session_state.get(f"borravalo_{idx}", 0))
+                    except: pass
+
+            st.markdown("<div style='margin: 18px 0 12px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
+            st.subheader("🏁 Kiszállítás Haladás")
+            haladas_szazalek = min(1.0, live_kesz_cimek / osszes_cim) if osszes_cim > 0 else 0.0
+            st.progress(haladas_szazalek)
+            st.caption(f"Teljesítve: {live_kesz_cimek} / {osszes_cim} cím ({int(haladas_szazalek * 100)}%)")
+            
+            st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
+            st.subheader("💰 Pénzügy & Mennyiség")
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                st.metric("📍 Tervezett megállók", f"{osszes_megallo} db")
+                st.metric("🏠 Összes cím (vevő)", f"{osszes_cim} db")
+            with col_s2:
+                st.metric("📦 Összes étel", f"{osszes_etel} adag")
+                st.metric("💵 Rakományérték", f"{forgalmi_ertek:,} Ft".replace(",", " "))
+                
+            st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
+            st.subheader("💸 Élő Elszámolás")
+            col_l1, col_l2 = st.columns(2)
+            with col_l1:
+                st.metric("💵 Beszedett KP aznap", f"{live_beszedett_kp:,} Ft".replace(",", " "))
+                st.metric("⭐ Várható Jutelék", f"{int(forgalmi_ertek * 0.13):,} Ft".replace(",", " "))
+            with col_l2:
+                st.metric("💰 Gyűjtött borravaló", f"{live_borravalo:,} Ft".replace(",", " "))
+
+            # --- SÜRGŐS HIBAJELENTŐ ---
+            st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
+            st.subheader("⚠️ Probléma az úton?")
+            with st.expander("🚨 SÜRGŐS HIBAKÜLDÉS"):
+                st.info("Ha sérült vagy hiányzó étellel találkozol, használd a főképernyő gyorsgombjait!")
+
+            # --- RENDSZERGAZDA ESZKÖZÖK ---
             if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
                 st.write("---")
                 st.markdown("### 🛠️ Rendszergazda Eszközök")
@@ -435,6 +540,7 @@ def main():
                 time.sleep(0.5)
                 st.rerun()
 
+        # --- STEPPER PROCESS VISUALIZER ---
         tab_mapping_inv = {"1. Áruátvétel 📦": "aruatvetel", "2. Címekre szedés 📥": "bepakolas", "3. Kiszállítás 🚚": "kiszallitas"}
         current_state = st.session_state.current_mobile_tab_state
         
@@ -461,16 +567,18 @@ def main():
         
         st.markdown("<div style='margin-top: -5px; margin-bottom: 15px; border-top: 1px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 
+        # --- AKTÍV FOLYAMAT MODULOK RENDERE ---
         try:
             if current_state == "1. Áruátvétel 📦":
-                render_mobil_aruatvetel(client)
+                render_mobil_aruatvetel(st.session_state.client)
             elif current_state == "2. Címekre szedés 📥":
-                render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR)
+                render_mobil_bepakolas(st.session_state.client, SHEET_ID_UGYFELKOR)
             elif current_state == "3. Kiszállítás 🚚":
-                render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR)
+                render_mobil_kiszallitas(st.session_state.client, SHEET_ID_UGYFELKOR)
         except Exception as e:
             st.error(f"❌ Hiba a modul futtatása közben: {e}")
 
+        # --- ALSÓ FIX NAVIGÁCIÓS SÁV ---
         st.markdown('<div class="fixed-nav-bar">', unsafe_allow_html=True)
         col_prev, col_spacer, col_next = st.columns([4, 2, 4])
         
@@ -482,7 +590,12 @@ def main():
                 if st.button("⬅️ Előző", use_container_width=True, key="stepper_prev_btn_action"):
                     new_state = state_order[curr_idx - 1]
                     st.session_state.current_mobile_tab_state = new_state
-                    st.query_params.update(active_tab=tab_mapping_inv[new_state])
+                    st.query_params.update(
+                        active_tab=tab_mapping_inv[new_state],
+                        token_name=st.session_state.get('user_nev', ''),
+                        token_role=st.session_state.get('user_szerep', 'futar'),
+                        token_routes=",".join(st.session_state.get('user_jarat_lista', []))
+                    )
                     st.rerun()
                     
         with col_next:
@@ -490,7 +603,12 @@ def main():
                 if st.button("Következő ➡️", type="primary", use_container_width=True, key="stepper_next_btn_action"):
                     new_state = state_order[curr_idx + 1]
                     st.session_state.current_mobile_tab_state = new_state
-                    st.query_params.update(active_tab=tab_mapping_inv[new_state])
+                    st.query_params.update(
+                        active_tab=tab_mapping_inv[new_state],
+                        token_name=st.session_state.get('user_nev', ''),
+                        token_role=st.session_state.get('user_szerep', 'futar'),
+                        token_routes=",".join(st.session_state.get('user_jarat_lista', []))
+                    )
                     st.rerun()
             else:
                 if st.button("🏁 Lezárás", type="primary", use_container_width=True, key="stepper_close_btn_action"):

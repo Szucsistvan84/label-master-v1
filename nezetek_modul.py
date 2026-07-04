@@ -73,10 +73,19 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             background-color: #F9FBF9 !important;
         }
         
-        /* Sidebar felső sáv finomítása */
+        /* Sidebar megnyitó gomb mobil specifikus elszeparálása */
+        [data-testid="stSidebarCollapseButton"] {
+            background-color: #1F2937 !important; /* Sötétszürke háttér, hogy kiemelkedjen */
+            color: #FFFFFF !important; /* Fehér nyíl */
+            border-radius: 8px !important;
+            padding: 2px !important;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.15) !important;
+        }
+        
+        /* Sidebar felső sáv finomítása, hogy ne csússzon rá a gombra */
         div[data-testid="stSidebarUserContent"] {
-            padding-top: 0.8rem !important;
-            margin-top: -2.2rem !important;
+            padding-top: 1.5rem !important;
+            margin-top: -1.8rem !important;
         }
         /* Metric kártyák tömörítése és zöldítése */
         [data-testid="stSidebarUserContent"] [data-testid="stMetricValue"] {

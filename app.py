@@ -279,8 +279,13 @@ def main():
 
     # --- PIN KÓDOS BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
-        st.markdown('<div style="text-align: center; width: 100%; margin-bottom: 15px; margin-top: 10px;"><img src="https://www.interfood.hu/images/logo.png" style="max-width: 140px; height: auto; display: block; margin: 0 auto;"></div>', unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #6B7280; font-size: 14px;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
+        # JAVÍTOTT LOKÁLIS LOGÓ KEZELÉS (Ha létezik a fájl, betölti, ha nem, szép zöld szöveges fejlécet ad)
+        if os.path.exists("interfood-logo.png"):
+            st.image("interfood-logo.png", width=160)
+        else:
+            st.markdown("<h1 style='text-align: center; color: #139D43; margin-top:10px; margin-bottom:0;'>🟢 INTERFOOD</h1>", unsafe_allow_html=True)
+            
+        st.markdown("<p style='text-align: center; color: #6B7280; font-size: 14px; margin-top: 0;'>Biztonságos azonosítás a rendszer használatához</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:

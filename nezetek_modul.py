@@ -28,6 +28,8 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     """
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
     """
+    import base64
+    
     st.markdown(
         """
         <style>
@@ -67,15 +69,25 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         unsafe_allow_html=True
     )
 
-    # --- AUTOMATIKUS LOGÓ BEOLVASÁS LEMEZRŐL (GOLYÓÁLLÓ MEGOLDÁS) ---
+    # --- BASE64 LOGÓ INJEKTÁLÁS (SZIKLASZILÁRD MEGOLDÁS VIRTUALIZÁCIÓ ELLEN) ---
     if os.path.exists("interfood-logo.png"):
-        # Egy extra konténer oszlopokkal, hogy a leharcolt logó tökéletesen középre kerüljön és kicsi legyen
-        logo_col1, logo_col2, logo_col3 = st.columns([1, 1, 1])
-        with logo_col2:
-            st.image("interfood-logo.png", width=65, use_container_width=False)
+        try:
+            with open("interfood-logo.png", "rb") as image_file:
+                encoded_string = base64.b64encode(image_file.read()).decode()
+            st.markdown(
+                f"""
+                <div style="display: flex; justify-content: center; width: 100%; margin-bottom: 8px;">
+                    <img src="data:image/png;base64,{encoded_string}" style="width: 75px; height: auto;">
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+        except:
+            st.markdown("<h3 style='text-align: center; color: #139D43; margin-top:0;'>🟢 Interfood</h3>", unsafe_allow_html=True)
     else:
-        st.markdown("<h2 style='text-align: center; color: #139D43; margin-top:0;'>🟢 Interfood</h2>", unsafe_allow_html=True)
-    st.markdown("<h2 style='text-align: center; color: #139D43; margin-bottom: 6px;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #139D43; margin-top:0;'>🟢 Interfood</h3>", unsafe_allow_html=True)
+
+    st.markdown("<h2 style='text-align: center; color: #139D43; margin-bottom: 6px; font-size: 1.15rem;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
     
     futar_nev_kiir = st.session_state.get('user_nev', 'Ismeretlen Futár')
     jarat_lista_kiir = st.session_state.get('user_jarat_lista', [])

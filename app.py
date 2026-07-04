@@ -154,27 +154,30 @@ def main():
             height: 40px !important;
         }
 
-        /* 2. Sidebar megnyitó gomb eltolása és fixálása (Golyóálló reszponzivitás, nem úszik rá a tartalomra) */
+        /* 2. JAVÍTOTT: Sidebar megnyitó gomb kényszerített, kontrasztos kiemelése */
         [data-testid="stSidebarCollapseButton"] {
             visibility: visible !important; 
             display: inline-flex !important;
-            background-color: #E5E7EB !important; 
-            border: 1.5px solid #9CA3AF !important;
+            background-color: #1F2937 !important; /* Erős sötétszürke háttér */
+            border: 2px solid #139D43 !important; /* Interfood zöld keret, hogy ordítson a fehér háttér előtt is */
             border-radius: 8px !important; 
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1) !important;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important;
             margin-left: 12px !important; 
             margin-top: 12px !important; 
-            z-index: 100000 !important;
-            color: #374151 !important;
+            z-index: 1000000 !important;
         }
-        [data-testid="stSidebarCollapseButton"]:hover { border-color: #139D43 !important; background-color: #D1D5DB !important; }
+        [data-testid="stSidebarCollapseButton"] svg {
+            fill: #FFFFFF !important; /* Fehér nyíl ikon */
+            color: #FFFFFF !important;
+        }
+        [data-testid="stSidebarCollapseButton"]:hover { background-color: #111827 !important; border-color: #0E7F35 !important; }
         
         [data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
         
-        /* 3. Mobil-specifikus kompakt térközök és gigantikus címek zsugorítása */
+        /* 3. Mobil-specifikus kompakt térközök */
         .block-container { 
             padding-top: 0.5rem !important; 
-            padding-bottom: 7rem !important; /* Helyet hagyunk az alsó rögzített navigációnak */
+            padding-bottom: 7rem !important; 
             padding-left: 0.7rem !important;
             padding-right: 0.7rem !important;
         }
@@ -182,7 +185,7 @@ def main():
         h2 { font-size: 1.25rem !important; margin-bottom: 0.4rem !important; }
         h3 { font-size: 1.05rem !important; }
 
-        /* 4. Az alsó fix navigációs sáv stílusai */
+        /* 4. Az alsó fix navigációs sáv */
         .fixed-nav-bar {
             position: fixed;
             bottom: 0;
@@ -195,7 +198,7 @@ def main():
             border-top: 1.5px solid #E5E7EB;
         }
 
-        /* 5. A Pöttyös Stepper folyamatjelző reszponzív stílusai */
+        /* 5. A Pöttyös Stepper folyamatjelző stílusai */
         .stepper-wrapper {
             display: flex;
             justify-content: space-between;
@@ -242,29 +245,18 @@ def main():
             font-weight: 600;
             white-space: nowrap;
         }
-        /* Aktív állapot (ahol a futár épp tart) */
         .step-item.active .step-counter {
-            background: #139D43; /* Interfood Zöld */
+            background: #139D43; 
             color: white;
             box-shadow: 0 0 8px rgba(19, 157, 67, 0.4);
         }
         .step-item.active .step-name { color: #139D43; font-weight: bold; }
-        /* Kész állapot (amin már túl van) */
         .step-item.completed .step-counter {
-            background: #1F2937; /* Sötétszürke lezárt */
+            background: #1F2937; 
             color: white;
-        }}
+        }
         .step-item.completed .step-name { color: #1F2937; }
         </style>
-        
-        <script>
-            const width = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
-            if (width <= 768) {
-                window.parent.document.title = "MOBILE_DETECTED";
-            } else {
-                window.parent.document.title = "DESKTOP_DETECTED";
-            }
-        </script>
         """,
         unsafe_allow_html=True
     )

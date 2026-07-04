@@ -133,12 +133,9 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 if str(r.get('Futár', r.get('Futar', ''))).strip().lower() == futar_keresett
             ]
 
-        # Ha a táblázatban VAN ehhez a futárhoz tartozó adat, akkor a dátumtól függetlenül átengedjük!
-        if driver_records:
-            # Sikeresen megtaláltuk az adatokat, a folyamat futhat tovább!
-            pass
-        else:
-            # Csak akkor dobunk hibaüzenetet, ha tényleg semmilyen adat nincs ehhez a futárhoz rendelve
+        # 💡 JAVÍTÁS: Ha nincs adat, AKKOR írjuk ki a hibát és leállítjuk a renderelést.
+        # Ha van adat, a kód csendben átugorja ezt, és semmit nem rajzol ki a háttérben!
+        if not driver_records:
             st.markdown(
                 """
                 <div style="background-color: #FEE2E2; border-left: 4px solid #E1251B; padding: 10px; border-radius: 6px; margin: 10px 0; width: 100%;">
@@ -151,9 +148,13 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
                 unsafe_allow_html=True
             )
             return
+
     except Exception as e:
-        st.error(f"❌ Nem sikerült elérni a Google Sheets-et: {e}")
+        st.sidebar.error(f"Hiba a műszerfal betöltésekor: {e}")
         return
+
+    # Ide csak akkor jut el a kód, ha VAN driver_records, így itt már biztonságosan rajzolunk!
+    st.markdown("<h2 style='text-align: center; color: #139D43; margin-bottom: 6px; font-size: 1.15rem;'>📊 Mai Műszerfal</h2>", unsafe_allow_html=True)
 
     # Élő kiszállítási mérők a Session State-ből
     live_kesz_cimek = 0

@@ -27,13 +27,10 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
     """
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
-    Szuper kompakt elrendezésben, dinamikus és név-pontos hibabejelentővel, precíz div-alapú elválasztóvonalakkal.
-    Az Interfood márka arculatához igazított prémium színekkel és lekerekítésekkel.
     """
     st.markdown(
         """
         <style>
-        /* Globális Interfood stílusok injektálása */
         /* Elsődleges gombok - Interfood Zöld */
         .stButton > button[kind="primary"] {
             background-color: #139D43 !important;
@@ -41,105 +38,39 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
             border: none !important;
             border-radius: 8px !important;
             font-weight: bold !important;
-            transition: all 0.3s ease !important;
         }
-        .stButton > button[kind="primary"]:hover {
-            background-color: #0E7F35 !important;
-            box-shadow: 0 4px 12px rgba(19, 157, 67, 0.3) !important;
-        }
-        /* Másodlagos gombok */
-        .stButton > button[kind="secondary"] {
-            border-radius: 8px !important;
-            font-weight: 500 !important;
-            transition: all 0.2s ease !important;
-        }
-        /* Danger gombok (Kijelentkezés, Letöltések, Reset) - Interfood Piros */
-        button[key*="logout"], button[key*="dl_"], button[key*="reset"], button[key*="delete"], button[key*="superadmin_"], button[key*="test_reset"] {
+        /* Danger gombok - Interfood Piros */
+        button[key*="logout"], button[key*="dl_"], button[key*="reset"], button[key*="delete"] {
             background-color: #E1251B !important;
             color: white !important;
             border: none !important;
             border-radius: 8px !important;
-            font-weight: bold !important;
-        }
-        button[key*="logout"]:hover, button[key*="dl_"]:hover, button[key*="reset"]:hover, button[key*="test_reset"]:hover {
-            background-color: #B81D17 !important;
-            box-shadow: 0 4px 12px rgba(225, 37, 27, 0.3) !important;
-        }
-        /* File feltöltő zöld kerettel */
-        [data-testid="stFileUploader"] {
-            border: 2px dashed #139D43 !important;
-            border-radius: 10px !important;
-            padding: 10px !important;
-            background-color: #F9FBF9 !important;
         }
         
-        /* Sidebar megnyitó gomb mobil specifikus elszeparálása */
-        [data-testid="stSidebarCollapseButton"] {
-            background-color: #1F2937 !important; /* Sötétszürke háttér, hogy kiemelkedjen */
-            color: #FFFFFF !important; /* Fehér nyíl */
-            border-radius: 8px !important;
-            padding: 2px !important;
-            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.15) !important;
-        }
-        
-        /* Sidebar felső sáv finomítása, hogy ne csússzon rá a gombra */
+        /* Műszerfal felső padding igazítása */
         div[data-testid="stSidebarUserContent"] {
-            padding-top: 1.5rem !important;
-            margin-top: -1.8rem !important;
+            padding-top: 0.5rem !important;
+            margin-top: -1.5rem !important;
         }
-        /* Metric kártyák tömörítése és zöldítése */
+        /* Metric kártyák tömörítése */
         [data-testid="stSidebarUserContent"] [data-testid="stMetricValue"] {
             font-size: 1.05rem !important;
             font-weight: 800 !important;
-            line-height: 1.1 !important;
-            color: #139D43 !important; /* Interfood Zöld */
+            color: #139D43 !important;
         }
         [data-testid="stSidebarUserContent"] [data-testid="stMetricLabel"] {
             font-size: 0.68rem !important;
-            font-weight: 600 !important;
-            line-height: 1.1 !important;
-            color: #4B5563 !important;
-            margin-bottom: 2px !important;
-        }
-        [data-testid="stSidebarUserContent"] [data-testid="stMetric"] {
-            padding: 0px !important;
-            margin-bottom: 1px !important;
-        }
-        [data-testid="stSidebarUserContent"] div[data-testid="stVerticalBlock"] {
-            gap: 0.3rem !important;
-        }
-        [data-testid="stSidebarUserContent"] h2 {
-            font-size: 1.15rem !important;
-            margin-top: 0px !important;
-            margin-bottom: 4px !important;
-            color: #139D43 !important;
-        }
-        [data-testid="stSidebarUserContent"] h3 {
-            font-size: 0.85rem !important;
-            margin-top: 4px !important;
-            margin-bottom: 2px !important;
-        }
-        [data-testid="stSidebarUserContent"] hr {
-            display: none !important;
-            margin-top: 0px !important;
-            margin-bottom: 0px !important;
-        }
-        [data-testid="stSidebarUserContent"] p, [data-testid="stSidebarUserContent"] span {
-            margin-top: 0px !important;
-            margin-bottom: 0px !important;
-            line-height: 1.2 !important;
-        }
-        [data-testid="stSidebarUserContent"] div[data-baseweb="select"] {
-            font-size: 0.8rem !important;
+            font-weight: 600;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
 
-    # --- FALLBACK LOGÓ VÉDELEM ---
+    # --- JAVÍTOTT: LEHARMADOLT, STABIL MEGJELENÉSŰ SIDEBAR LOGÓ ---
     if os.path.exists("interfood-logo.png"):
-        st.image("interfood-logo.png", use_container_width=True)
+        # Kényszerített maximális szélesség a harmadoláshoz, és középre helyezés div-vel
+        st.markdown('<div style="display: flex; justify-content: center; margin-bottom: 5px;"><img src="app/static/interfood-logo.png" style="width: 80px; height: auto;"></div>', unsafe_allow_html=True)
     else:
         st.markdown("<h2 style='text-align: center; color: #139D43; margin-top:0;'>🟢 Interfood</h2>", unsafe_allow_html=True)
 

@@ -51,8 +51,8 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR, SHEET_ID):
         
         /* Műszerfal felső rész igazítása, helyet hagyva a gyári gombnak */
         div[data-testid="stSidebarUserContent"] {
-            padding-top: 2.2rem !important;
-            margin-top: -1.5rem !important;
+            padding-top: 0rem !important;
+            margin-top: -3.8rem !important;
         }
         /* Metric kártyák tömörítése */
         [data-testid="stSidebarUserContent"] [data-testid="stMetricValue"] {

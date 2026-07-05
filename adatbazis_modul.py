@@ -669,15 +669,19 @@ def save_futar_to_sheets(df, sheet_id):
 def sync_master_database(sheet_id, ev, start_het, end_het):
     """
     Frissíti a Master Étlap Adatbázist az adott hetek összesített adatai alapján.
+    Golyóálló gspread .update() szintaxissal és Session State szinkronizációval.
     """
     import pandas as pd
     import requests
     from io import BytesIO
     from utils import clean_text
+    import streamlit as st
+    import time
+
     client = st.session_state.get('client')
     try:
         try:
-            worksheet = sheet.open_by_key(sheet_id).worksheet("Master_Adatbazis")
+            worksheet = client.open_by_key(sheet_id).worksheet("Master_Adatbazis")
             existing_data = worksheet.get_all_records()
             master_dict = {
                 str(row['Tisztított Név']): {
@@ -690,13 +694,25 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
             worksheet = client.open_by_key(sheet_id).add_worksheet(title="Master_Adatbazis", rows="5000", cols="10")
             master_dict = {}
 
-        for het in range(start_het, end_het + 1):
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        # 🎯 MEGBÍZHATÓ HÉT-INTERVALLUM LEKÉRÉS: Használjuk a widgetek session értékeit, ha léteznek
+        s_w = int(st.session_state.get('admin_sync_start_w', start_het))
+        e_w = int(st.session_state.get('admin_sync_end_w', end_het))
+
+        for het in range(s_w, e_w + 1):
             url = f"https://ia.interfood.hu/api/v3/excel-export?year={ev}&week={het}"
-            response = requests.get(url, headers={'User-Agent': 'Mozilla'}, timeout=15)
-            if response.status_code == 200:
+            try:
+                time.sleep(0.5)
+                response = requests.get(url, headers=headers, timeout=15)
+                if response.status_code != 200:
+                    continue
+                
                 df = pd.read_excel(BytesIO(response.content), header=None, engine='openpyxl')
-                # 🎯 PYARROW FIX: Minden cellát kényszerítsünk tiszta szöveggé, hogy a kevert int/string ne borítsa ki a motort!
-                df = df.astype(str)
+                df = df.astype(str) # PyArrow fix továbbra is élesítve
+                
                 for i in range(len(df)):
                     elso_cella = str(df.iloc[i, 0]).strip()
                     if " - " in elso_cella:
@@ -704,22 +720,29 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
                         for nap_idx in range(1, 7):
                             eredeti_nev = str(df.iloc[i, nap_idx]).strip()
                             tiszta_nev = clean_text(eredeti_nev)
-                            if tiszta_nev and tiszta_nev != "":
+                            if tiszta_nev and tiszta_nev != "" and tiszta_nev.lower() != "nan":
                                 ar = str(df.iloc[i + 1, nap_idx]).strip().replace('Ft', '').replace(' ', '') if i + 1 < len(df) else ""
                                 kod_ar_par = f"{alap_kod}:{ar} (w{het})"
                                 if tiszta_nev in master_dict:
                                     master_dict[tiszta_nev]['Gyakoriság'] += 1
-                                    if kod_ar_par not in master_dict[tiszta_nev]['KodAr_List']: master_dict[tiszta_nev]['KodAr_List'].append(kod_ar_par)
+                                    if kod_ar_par not in master_dict[tiszta_nev]['KodAr_List']: 
+                                        master_dict[tiszta_nev]['KodAr_List'].append(kod_ar_par)
                                 else:
                                     master_dict[tiszta_nev] = {
                                         "Eredeti Név": eredeti_nev.replace('*', '').strip(),
                                         "KodAr_List": [kod_ar_par], "Kellék": "", "Gyakoriság": 1
                                     }
+            except:
+                continue
+
         output_rows = [["Tisztított Név", "Eredeti Név", "Kódok és Árak", "Kellék", "Gyakoriság"]]
         for tiszta, adat in master_dict.items():
             output_rows.append([tiszta, adat["Eredeti Név"], ", ".join(adat["KodAr_List"]), adat["Kellék"], adat["Gyakoriság"]])
+        
+        # 🎯 GPROS GSPREAD FRISSÍTÉS FIX (Modern, lezárt formátum)
         worksheet.clear()
-        worksheet.update('A1', output_rows)
+        worksheet.update(range_name='A1', values=output_rows, value_input_option='USER_ENTERED')
         return True
     except Exception as e:
+        st.sidebar.error(f"❌ Sheets mentési hiba: {e}")
         return False

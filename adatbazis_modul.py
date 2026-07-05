@@ -693,6 +693,8 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
             response = requests.get(url, headers={'User-Agent': 'Mozilla'}, timeout=15)
             if response.status_code == 200:
                 df = pd.read_excel(BytesIO(response.content), header=None, engine='openpyxl')
+                # 🎯 PYARROW FIX: Minden cellát kényszerítsünk tiszta szöveggé, hogy a kevert int/string ne borítsa ki a motort!
+                df = df.astype(str)
                 for i in range(len(df)):
                     elso_cella = str(df.iloc[i, 0]).strip()
                     if " - " in elso_cella:

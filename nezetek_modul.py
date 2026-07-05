@@ -1076,6 +1076,36 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                 st.session_state.c_p = st.session_state.user_tel
 
             if st.button("🚀 DOKUMENTUMOK GENERÁLÁSA", type="primary", width='stretch', key="doc_gen_btn"):
+                # =========================================================================
+                # 🎯 TÖKÉLETES SZINERGIA: Sorrend és Sorszámok mentése a felhőbe a generálás előtt
+                # =========================================================================
+                with st.spinner("⏳ Menetterv és egyedi sorrend (Biciklis blokk) rögzítése a felhőben..."):
+                    try:
+                        sh_sync = client.open_by_key(SHEET_ID_UGYFELKOR)
+                        ws_adatok_sync = sh_sync.worksheet("Adatok")
+                        
+                        # Másolatot készítünk a képernyőn látható, rendezett adatokból
+                        df_mobilra = edited_df.copy()
+                        
+                        # Létrehozzuk/felülírjuk a 'Sorszám' oszlopot a fizikai sorrend alapján (1, 2, 3...)
+                        df_mobilra['Sorszám'] = range(1, len(df_mobilra) + 1)
+                        
+                        # Minden oszlopot tiszta szöveggé alakítunk a PyArrow / gspread kompatibilitás miatt
+                        df_mobilra = df_mobilra.astype(str)
+                        
+                        # Frissítjük az Adatok fület a Google Sheets-ben, lezárva a mobil sorrendjét
+                        ws_adatok_sync.clear()
+                        ws_adatok_sync.update(range_name='A1', values=[df_mobilra.columns.tolist()] + df_mobilra.values.tolist(), value_input_option='USER_ENTERED')
+                        
+                        # Kitakarítjuk a lokális cache-t, hogy a mobil app azonnal az új adatokat lássa megnyitáskor
+                        st.cache_data.clear()
+                        st.toast("📱 A végleges sorrend sikeresen szinkronizálva a mobil terminállal!", icon="✅")
+                    except Exception as e_mobil_sync:
+                        st.error(f"❌ Hiba a mobil sorrend szinkronizálásakor: {e_mobil_sync}")
+
+                # =========================================================================
+                # EREDETI PDF GENERÁLÁSI FOLYAMATOD INDÍTÁSA
+                # =========================================================================
                 with st.spinner("⏳ PDF-ek generálása..."):
                     try:
                         st.session_state['ready_label_pdf'] = create_label_pdf(
@@ -1089,6 +1119,7 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                             st.session_state.etlap_api_df
                         ).getvalue()
                         st.session_state['ready_manifest_pdf'] = create_manifest_pdf(edited_df, st.session_state.c_n,
+                                                                                     st.session_state.c_p,
                                                                                      meta).getvalue()
                         st.session_state['ready_raklista_pdf'] = create_raklista_pdf(edited_df, aktualis_jaratok, meta,
                                                                                      client.open_by_key(

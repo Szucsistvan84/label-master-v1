@@ -474,6 +474,11 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                 if st.button("📦 LÁDÁZÁS ÉS BEPAKOLÁS KÉSZ (Indulás)", use_container_width=True, type="primary", key="futar_bepakolas_kesz_btn"):
                     st.session_state.kiszallitas_folyamatban = True
                     
+                    # 🕒 PONTOS IDŐBÉLYEG GENERÁLÁSA (Óra:Perc)
+                    import datetime
+                    mostani_ido_eta = datetime.datetime.now().strftime("%H:%M")
+                    st.session_state.reggeli_indulas_pontos = mostani_ido_eta
+                    
                     if st.session_state.get('teszt_uzemmod', False) or st.query_params.get("test", "false") == "true":
                         st.warning("🧪 Teszt üzemmód!")
                         time.sleep(1.0)
@@ -482,9 +487,27 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         st.query_params.update(view="mobile", active_tab="kiszallitas")
                         st.rerun()
                     else:
-                        with st.spinner("⏳ Mentés a felhőbe..."):
+                        with st.spinner("⏳ Mentés a felhőbe és ETA indítása..."):
                             try:
                                 sh = client.open_by_key(SHEET_ID_UGYFELKOR)
+                                
+                                # 🚀 PONTOS INDULÁSI IDŐ BEÍRÁSA A FUTÁROK MUNKALAPRA
+                                try:
+                                    ws_futar_sync = sh.worksheet("Futárok")
+                                    futar_rows_sync = ws_futar_sync.get_all_records()
+                                    fejlec_futar_sync = ws_futar_sync.row_values(1)
+                                    
+                                    for idx_f, f_row in enumerate(futar_rows_sync, start=2):
+                                        if str(f_row.get('Név', '')).strip().lower() == str(futar_neve).strip().lower():
+                                            indulas_col_idx = fejlec_futar_sync.index('Reggeli_Indulas') + 1
+                                            ws_futar_sync.update_cell(idx_f, indulas_col_idx, mostani_ido_eta)
+                                            break
+                                except Exception as e_futar_time:
+                                    print(f"Nem sikerült a Futárok fül frissítése: {e_futar_time}")
+
+                                # -----------------------------------------------------------
+                                # EREDETI ADATMENTÉSI LOGIKÁD MEGTARTÁSA
+                                # -----------------------------------------------------------
                                 ws_adatok = sh.worksheet("Adatok")
                                 adatok_rows = ws_adatok.get_all_values()
                                 
@@ -502,7 +525,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 ws_adatok.update('A1', [header] + df_save.values.tolist(), value_input_option='USER_ENTERED')
                                 
                                 idok_sheet = sh.worksheet("Mobil_Idobelyegek")
-                                most = datetime.now()
+                                most = datetime.datetime.now()
                                 bepakolas_vege_ido = most.strftime("%H:%M:%S")
                                 mai_datum = most.strftime("%Y-%m-%d")
                                 jarat_szoveg = ", ".join(map(str, valasztott_jaratok))

@@ -469,7 +469,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     </div>
                                     {megjegyzes_box}
                                 </div>
-                                """,
+                                """, 
                                 unsafe_allow_html=True
                             )
 
@@ -510,9 +510,8 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 frissit_bepakolas_felhoben(idx, val_toggle)
                                 st.rerun()
 
-                        # A megálló fő zöld kártyájának (grouped-card) tiszta lezárása a vevőciklus legvégén
+                        # A megálló fő grouped-card keretének lezárása a vevőciklus legvégén
                         st.markdown('</div>', unsafe_allow_html=True)
-
                 render_kartyak(df_adatok_filtered, rendezett_cimek)
                 
                 st.write("---")

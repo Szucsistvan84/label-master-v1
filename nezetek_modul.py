@@ -424,7 +424,7 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
             st.warning(f"📡 GPS Szerver: {status_msg}")
             
         # ==============================================================================
-        # 🛰️ GPS BATCH PÓTLÓ ESZKÖZ - MINDEN ADMINNAK LÁTAPATÓ ÉS ELÉRHETŐ!
+        # 🛰️ GPS BATCH PÓTLÓ ESZKÖZ - MINDEN ADMINNAK LÁTHATÓ ÉS ELÉRHETŐ!
         # ==============================================================================
         with st.expander("🛰️ GPS Koordináták Tömeges Pótlása"):
             st.write("Megkeresi azokat az ügyfeleket a törzsadatbázisban, akiknek nincs mentett koordinátája, és automatikusan pótolja azokat az ArcGIS geokódoló segítségével (max 20 menetben).")
@@ -432,15 +432,33 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
                 from adatbazis_modul import batch_potol_hianyozo_gps
                 batch_potol_hianyozo_gps(client, SHEET_ID_UGYFELKOR)
 
+        # ==============================================================================
+        # 📅 INTERFOOD MASTER ÉTLAP GENERÁTOR (MANUÁLIS Frissítés jövőbeli hetekre)
+        # ==============================================================================
+        st.markdown("---")
+        st.markdown("#### 📅 Étlapok Előrejelzése & Frissítése")
+        
         ev_most, het_most = get_latest_week_from_master(SHEET_ID_MASTER, client)
-        if het_most < 24:
-            st.error(f"⚠️ Étlap figyelmeztetés: Csak a **{het_most}. hétig** van feltöltve!")
-            if st.button("🔄 Master Frissítése"):
-                with st.spinner("Frissítés..."):
-                    sync_master_database(SHEET_ID_MASTER, 2026, het_most + 1, 24)
+        st.write(f"Legutolsó Master hét az adatbázisban: **W{het_most}**")
+        
+        # Dinamikus hétválasztó a jövőbeli hetek letöltéséhez
+        col_w1, col_w2 = st.columns(2)
+        with col_w1:
+            target_start_week = st.number_input("Kezdő hét:", min_value=1, max_value=53, value=int(het_most) if het_most > 0 else 24, step=1, key="admin_sync_start_w")
+        with col_w2:
+            target_end_week = st.number_input("Záró (előre 3 hét):", min_value=1, max_value=53, value=int(het_most+3) if het_most > 0 else 27, step=1, key="admin_sync_end_w")
+            
+        if st.button("🔄 MEGHATÁROZOTT HETEK LETÖLTÉSE", key="sidebar_manual_master_sync_btn", use_container_width=True):
+            with st.spinner(f"⏳ Étlapok és új ételek letöltése W{target_start_week} és W{target_end_week} között..."):
+                success = sync_master_database(SHEET_ID_MASTER, 2026, target_start_week, target_end_week)
+                if success:
+                    st.success("🎉 A kijelölt hetek és az új ételek sikeresen szinkronizálva a Master Adatbázisba!")
+                    st.balloons()
+                    time.sleep(1.5)
                     st.rerun()
-        else:
-            st.success("✅ Étlapok naprakészek.")
+                else:
+                    st.error("❌ Hiba történt a letöltés során. Ellenőrizd az Interfood API kapcsolatot!")
+        st.markdown("---")
 
         with st.expander("👤 Felhasználó Kezelés"):
             if 'futar_df' not in st.session_state: st.session_state.futar_df = load_futar_from_sheets(SHEET_ID_UGYFELKOR)

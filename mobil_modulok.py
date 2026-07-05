@@ -456,7 +456,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             if megjegyzes_val and megjegyzes_val.lower() != "nan":
                                 megjegyzes_box = f"<div style='background-color: #FEF3C7; border-left: 4px solid #D97706; padding: 5px; border-radius: 4px; margin-top: 5px; font-size: 0.78rem; color: #92400E;'>📌 <b>Megjegyzés:</b> {megjegyzes_val}</div>"
 
-                            # Ügyfél kártya kirajzolása a tiszta darabszámmal
+                            # Ügyfél kártya kirajzolása a tiszta darabszámmal (BIZTONSÁGOSAN LEZÁRVA)
                             st.markdown(
                                 f"""
                                 <div class="customer-item">

@@ -28,12 +28,16 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
     """
     Kirajzolja a mobil nézet élő Google Sheets adataira épülő műszerfalát.
-    Tiszta almodul verzió hibamentes foteles mérőkkel, lezárt HTML tagekkel.
+    Tiszta almodul verzió hibamentes foteles mérőkkel, lezárt HTML tagekkel,
+    beépített Hibabejelentővel és Kijelentkezés gombbal.
     """
     import base64
     import re
     import datetime
     import os
+    import time
+    import pandas as pd
+    import streamlit as st
 
     st.markdown(
         """
@@ -47,11 +51,12 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
             font-weight: bold !important;
         }
         /* Danger gombok - Interfood Piros */
-        button[key*="logout"], button[key*="dl_"], button[key*="reset"], button[key*="delete"] {
+        button[key*="logout"], button[key*="dl_"], button[key*="reset"], button[key*="delete"], button[key*="mobil_logout_btn"] {
             background-color: #E1251B !important;
             color: white !important;
             border: none !important;
             border-radius: 8px !important;
+            color: white !important;
         }
 
         /* Műszerfal felső részének teljes letömörítése, az üresség kiiktatása */
@@ -119,25 +124,30 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
 
         sh_ugyfelkor = client.open_by_key(SHEET_ID_UGYFELKOR)
         ws_adatok = sh_ugyfelkor.worksheet("Adatok")
-        all_rows = ws_adatok.get_all_records()
+        all_rows = ws_adatok.get_all_values()
 
         futar_keresett = str(futar_nev_kiir).strip().lower()
 
         driver_records = []
         if all_rows:
+            header = all_rows[0]
             futar_col_key = None
-            for k in all_rows[0].keys():
+            for k in header:
                 if str(k).strip().lower() in ['futár', 'futar', 'feldolgozó futár', 'feldolgozo futar']:
                     futar_col_key = k
                     break
 
             if futar_col_key:
-                driver_records = [r for r in all_rows if
-                                  str(r.get(futar_col_key, '')).strip().lower() == futar_keresett]
+                futar_idx = header.index(futar_col_key)
+                # DataFrame-szerű szűrés dict listává alakítva
+                for row in all_rows[1:]:
+                    if len(row) > futar_idx and str(row[futar_idx]).strip().lower() == futar_keresett:
+                        driver_records.append(dict(zip(header, row)))
 
         # 💡 FOTELES TESZT ÜZEMMÓD AUTOMATIKUS ÁTKAPCSOLÓ
-        if not driver_records and all_rows:
-            driver_records = all_rows
+        if not driver_records and len(all_rows) > 1:
+            header = all_rows[0]
+            driver_records = [dict(zip(header, row)) for row in all_rows[1:]]
             st.markdown(
                 """
                 <div style="background-color: #FEF3C7; border-left: 4px solid #D97706; padding: 10px; border-radius: 6px; margin: 10px 0; width: 100%;">
@@ -251,6 +261,44 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
     with col_l2:
         st.metric("💰 Gyűjtött borravaló", f"{live_borravalo:,} {penznem}".replace(",", " "))
 
+    # ==============================================================================
+    # 🚨 1. LÉPÉS: HIBABEJELENTŐ INTEGRÁCIÓ PONTOSAN A MŰSZERFAL ALÁ
+    # ==============================================================================
+    st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
+    with st.expander("🚨 Hiba / Probléma bejelentése"):
+        st.write("Valami nem működik? Írd le röviden, és az adminisztrátor azonnal látni fogja!")
+        hiba_szoveg = st.text_area("Hiba részletei:", key="futar_hiba_input_field", placeholder="Pl: A 12-es címnél nem nyílik meg a Waze...")
+        
+        if st.button("📩 HIBAKÜLDÉS ÉLESBEN", key="futar_hiba_submit_btn", width='stretch', type="secondary"):
+            if hiba_szoveg.strip():
+                try:
+                    sh = client.open_by_key(SHEET_ID_UGYFELKOR)
+                    try:
+                        ws_idok = sh.worksheet("Mobil_Idobelyegek")
+                        now_log = datetime.datetime.now()
+                        ws_idok.append_row([now_log.strftime("%Y-%m-%d"), "HIBAJELENTÉS", futar_nev_kiir, hiba_szoveg.strip(), now_log.strftime("%H:%M:%S")])
+                    except:
+                        pass
+                    st.success("🎉 Hibajelentés sikeresen rögzítve!")
+                    time.sleep(1.0)
+                    st.rerun()
+                except Exception as e_hibalog:
+                    st.error(f"Mentési hiba: {e_hibalog}")
+            else:
+                st.warning("Kérjük, írd le a hibát küldés előtt!")
+
+    # ==============================================================================
+    # 🚪 2. LÉPÉS: GOLYÓÁLLÓ MOBIL KIJELENTKEZÉS GOMB (A címsort is teljesen letakarítja)
+    # ==============================================================================
+    st.markdown("---")
+    if st.button("🚪 Kijelentkezés a terminálból", key="mobil_logout_btn", width='stretch'):
+        st.query_params.clear()
+        st.session_state.bejelentkezve = False
+        st.session_state.user_nev = None
+        st.session_state.user_szerep = None
+        st.session_state.user_tel = None
+        st.session_state.user_jarat_lista = []
+        st.rerun()
 
 def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, LOG_FILE):
     """

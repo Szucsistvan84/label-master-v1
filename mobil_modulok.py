@@ -451,12 +451,12 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             if is_multi_client_stop:
                                 badge_html += f"<span style='background-color:#4B5563; color:white; padding:2px 6px; border-radius:4px; font-size:0.72rem; margin-right:4px; font-weight:bold; display:inline-block; margin-top:2px;'>📦 CS1 | {total_clients_at_this_address}/{client_order_idx}</span>"
 
-                            # 📌 MEGJEGYZÉS DOBOZ SZINTAXIS
+                            # 📌 MEGJEGYZÉS DOBOZ SZINTAXIS (HA NINCS MEGJEGYZÉS, ÜRES MARAD, NINCS KÓD-KIFOLYÁS)
                             megjegyzes_box = ""
-                            if megjegyzes_val and megjegyzes_val.lower() != "nan":
-                                megjegyzes_box = f"<div style='background-color: #FEF3C7; border-left: 4px solid #D97706; padding: 5px; border-radius: 4px; margin-top: 5px; font-size: 0.78rem; color: #92400E;'>📌 <b>Megjegyzés:</b> {megjegyzes_val}</div>"
+                            if megjegyzes_val and megjegyzes_val.lower() != "nan" and megjegyzes_val.strip() != "":
+                                megjegyzes_box = f"<div style='background-color: #FEF3C7; border-left: 4px solid #D97706; padding: 6px; border-radius: 4px; margin-top: 5px; font-size: 0.78rem; color: #92400E;'>📌 <b>Megjegyzés:</b> {megjegyzes_val}</div>"
 
-                            # Ügyfél kártya kirajzolása a tiszta darabszámmal (BIZTONSÁGOSAN LEZÁRVA)
+                            # Ügyfél kártya alapstruktúrájának kirajzolása (TISZTÁN EGYETLEN KÁRTYÁBAN)
                             st.markdown(
                                 f"""
                                 <div class="customer-item">
@@ -475,6 +475,8 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 """, 
                                 unsafe_allow_html=True
                             )
+
+                            # 📋 Részletes ételkódok listája napok szerint (Innentől folytatódik az eredeti logikád!)
 
                             # Részletes ételkódok listája napok szerint
                             for part in day_parts:

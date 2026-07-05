@@ -418,23 +418,24 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         if addr_idx > 0:
                             st.markdown("<div style='margin: 15px 0 15px 0; border-top: 3px dashed #139D43; opacity: 0.4;'></div>", unsafe_allow_html=True)
 
-                        # 🛍️ ÖSSZEVONT MEGÁLLÓ ELLENŐRZÉSE
+                        # 🛍️ ÖSSZEVONT MEGÁLLÓ JELZÉSE
                         is_multi_client_stop = len(df_addr) > 1
                         total_clients_at_this_address = len(df_addr)
-                        szatyor_tipp = ""
+                        
                         if is_multi_client_stop:
-                            szatyor_tipp = "<div style='background-color: #E0F2FE; color: #0369A1; padding: 6px; border-radius: 6px; font-size: 0.78rem; font-weight: bold; margin-bottom: 8px;'>🛍️ ÖSSZEVONT MEGÁLLÓ: Ezt már most összeszedheted egy nagy közös szatyorba!</div>"
+                            st.info(f"🛍️ ÖSSZEVONT MEGÁLLÓ: Erre a címre {total_clients_at_this_address} külön vevő csomagja megy! Fogd össze őket előre!")
 
-                        st.markdown(f'<div class="grouped-card">{szatyor_tipp}<div style="font-size: 16px; font-weight: bold; color: #1E3A8A; margin-bottom: 6px;">📍 Megálló: {addr}</div>', unsafe_allow_html=True)
+                        # MEGÁLLÓ CÍM KIEMELÉSE VIZUÁLISAN
+                        st.markdown(f'### 📍 Megálló: {addr}')
 
-                        # 🎯 JAVÍTÁS: Számláljuk a vevőket a megállón belül az etikett szinkronhoz!
+                        # Vevők listázása a megállón binnen
                         for client_order_idx, (idx, row) in enumerate(df_addr.iterrows(), start=1):
                             vevo_nev = str(row[nev_oszlop]).strip()
                             címke_szama = row[rendezes_aktiv]
                             rendeles_val = str(row[rendeles_oszlop]).strip() if rendeles_oszlop else ""
                             megjegyzes_val = str(row[megjegyzes_oszlop]).strip() if megjegyzes_oszlop else ""
 
-                            # 🔢 1. TÉTELSZÁM KISZÁMÍTÁSA ÖNELLENŐRZÉSHEZ
+                            # 🔢 1. TÉTELSZÁM KISZÁMÍTÁSA
                             total_items_for_this_client = 0
                             day_parts = rendeles_val.split('|')
                             for part in day_parts:
@@ -443,75 +444,58 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 for qty, code in found_items:
                                     total_items_for_this_client += int(qty)
 
-                            # 🎯 2. REFORMÁLT LOGIKA: CSAK csoportosított címeknél jelenik meg a CS1 | X/Y jelölés!
-                            badge_html = ""
-                            if is_multi_client_stop:
-                                badge_html += f"<span style='background-color:#4B5563; color:white; padding:2px 6px; border-radius:4px; font-size:0.72rem; margin-right:4px; font-weight:bold; display:inline-block; margin-top:2px;'>📦 CS1 | {total_clients_at_this_address}/{client_order_idx}</span>"
+                            # 🎯 ATOMBIZTOS STREAMLIT DOBOZ (Minden vevő zárt konténert kap)
+                            with st.container(border=True):
+                                # Fejléc adatai: Név, darabszám, sorszám
+                                col_v1, col_v2 = st.columns([2, 1])
+                                with col_v1:
+                                    st.markdown(f"**👤 {vevo_nev}**")
+                                with col_v2:
+                                    st.markdown(f"`🔢 {total_items_for_this_client} tétel` `#{címke_szama}`")
 
-                            # 📌 MEGJEGYZÉS DOBOZ SZINTAXIS (HA NINCS MEGJEGYZÉS, ÜRES MARAD)
-                            megjegyzes_box = ""
-                            if megjegyzes_val and megjegyzes_val.lower() != "nan" and megjegyzes_val.strip() != "":
-                                megjegyzes_box = f"<div style='background-color: #FEF3C7; border-left: 4px solid #D97706; padding: 6px; border-radius: 4px; margin-top: 5px; font-size: 0.78rem; color: #92400E;'>📌 <b>Megjegyzés:</b> {megjegyzes_val}</div>"
+                                # Részcsomag jelölő (CS1 | X/Y) natív sorként, ha összevont a cím
+                                if is_multi_client_stop:
+                                    st.markdown(f"**📦 CS1 | {total_clients_at_this_address}/{client_order_idx}**")
 
-                            # Ügyfél kártya alapstruktúrájának kirajzolása (TISZTÁN EGYETLEN KÁRTYÁBAN)
-                            st.markdown(
-                                f"""
-                                <div class="customer-item">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                        <span style="font-size: 13.5px; font-weight: bold; color: #374151;">👤 {vevo_nev}</span>
-                                        <div style="display: flex; gap: 4px;">
-                                            <span style="font-size: 11px; background-color: #139D43; color: white; padding: 2px 6px; border-radius: 6px; font-weight: bold;">🔢 {total_items_for_this_client} tétel</span>
-                                            <span style="font-size: 11px; background-color: #E5E7EB; color: #374151; padding: 2px 6px; border-radius: 6px; font-weight: bold;"># {címke_szama}</span>
-                                        </div>
-                                    </div>
-                                    <div style="margin-bottom: 6px; margin-top:4px; display: block;">
-                                        {badge_html}
-                                    </div>
-                                    {megjegyzes_box}
-                                </div>
-                                """, 
-                                unsafe_allow_html=True
-                            )
+                                # Sárga megjegyzés doboz natív figyelmeztetéssel (Zárt komponens)
+                                if megjegyzes_val and megjegyzes_val.lower() != "nan" and megjegyzes_val.strip() != "":
+                                    st.warning(f"📌 **Megjegyzés:** {megjegyzes_val}")
 
-                            # 📋 Részletes ételkódok listája napok szerint
-                            for part in day_parts:
-                                part = part.strip()
-                                if not part: continue
-                                is_szombat = "Szo:" in part or "Szombat:" in part
-                                day_title = ""
-                                if "Hé:" in part: day_title = "🗓️ Hétfő:"
-                                elif "Ke:" in part: day_title = "🗓️ Kedd:"
-                                elif "Sze:" in part: day_title = "🗓️ Szerda:"
-                                elif "Csü:" in part: day_title = "🗓️ Csütörtök:"
-                                elif "Pé:" in part: day_title = "🗓️ Péntek:"
-                                elif "Szo:" in part: day_title = "📆 Szombat (Hétvége):"
+                                # Ételek részletezése napok szerint
+                                for part in day_parts:
+                                    part = part.strip()
+                                    if not part: continue
+                                    is_szombat = "Szo:" in part or "Szombat:" in part
+                                    day_title = ""
+                                    if "Hé:" in part: day_title = "🗓️ Hétfő:"
+                                    elif "Ke:" in part: day_title = "🗓️ Kedd:"
+                                    elif "Sze:" in part: day_title = "🗓️ Szerda:"
+                                    elif "Csü:" in part: day_title = "🗓️ Csütörtök:"
+                                    elif "Pé:" in part: day_title = "🗓️ Péntek:"
+                                    elif "Szo:" in part: day_title = "📆 Szombat (Hétvége):"
+                                    
+                                    if day_title:
+                                        if is_szombat:
+                                            st.markdown(f":red[{day_title}]")
+                                        else:
+                                            st.caption(day_title)
+
+                                    found_items = re.findall(ORDER_PAT, part)
+                                    if found_items:
+                                        kaja_list = [f"**{qty.strip()}-{code.strip()}**" for qty, code in found_items]
+                                        st.markdown(" / ".join(kaja_list))
+
+                                st.write("") # Térköz a kapcsoló előtt
+
+                                # Toggle kapcsoló a bepakoláshoz
+                                lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
+                                tarolt_lada_ertek = st.session_state.get(lada_tarolt_kulcs, None)
+                                label_text = f"🟢 Bepakolva ide: {tarolt_lada_ertek}" if tarolt_lada_ertek else f"⚪ Bepakolás a ládába"
                                 
-                                if day_title:
-                                    style_szoveg = "color: #DC2626; font-weight: bold;" if is_szombat else "color: #4B5563; font-weight: 500;"
-                                    st.markdown(f'<div style="font-size: 11px; {style_szoveg}">{day_title}</div>', unsafe_allow_html=True)
-
-                                found_items = re.findall(ORDER_PAT, part)
-                                if found_items:
-                                    badges_html = '<div style="margin-top: 2px; margin-bottom: 4px; display: flex; flex-wrap: wrap; gap: 4px;">'
-                                    for qty, code in found_items:
-                                        style_kaja = "font-weight: 900; background-color: #FEF2F2; color: #991B1B; padding: 1px 5px; border-radius: 4px; font-size:11px;" if is_szombat else "font-weight: bold; background-color: #EFF6FF; color: #1E40AF; padding: 1px 5px; border-radius: 4px; font-size:11px;"
-                                        badges_html += f'<span style="{style_kaja}">{qty.strip()}-{code.strip()}</span>'
-                                    badges_html += '</div>'
-                                    st.markdown(badges_html, unsafe_allow_html=True)
-
-                            # Toggle kapcsoló a bepakoláshoz
-                            bepakolt_kulcs = f"bepak_allapot_{idx}"
-                            lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
-                            tarolt_lada_ertek = st.session_state.get(lada_tarolt_kulcs, None)
-                            label_text = f"🟢 Bepakolva ide: {tarolt_lada_ertek}" if tarolt_lada_ertek else f"⚪ Bepakolás a ládába"
-                            
-                            val_toggle = st.toggle(label_text, value=st.session_state[bepakolt_kulcs], key=f"chk_{idx}")
-                            if val_toggle != st.session_state[bepakolt_kulcs]:
-                                frissit_bepakolas_felhoben(idx, val_toggle)
-                                st.rerun()
-
-                        # A megálló fő grouped-card keretének lezárása a vevőciklus legvégén
-                        st.markdown('</div>', unsafe_allow_html=True)
+                                val_toggle = st.toggle(label_text, value=st.session_state[f"bepak_allapot_{idx}"], key=f"chk_{idx}")
+                                if val_toggle != st.session_state[f"bepak_allapot_{idx}"]:
+                                    frissit_bepakolas_felhoben(idx, val_toggle)
+                                    st.rerun()
                 render_kartyak(df_adatok_filtered, rendezett_cimek)
                 
                 st.write("---")

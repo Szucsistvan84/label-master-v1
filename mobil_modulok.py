@@ -426,7 +426,12 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
 
                         st.markdown(f'<div class="grouped-card">{szatyor_tipp}<div style="font-size: 16px; font-weight: bold; color: #1E3A8A; margin-bottom: 6px;">📍 Megálló: {addr}</div>', unsafe_allow_html=True)
 
-                        for idx, row in df_addr.iterrows():
+                        # 🛍️ ÖSSZEVONT MEGÁLLÓ ELLENŐRZÉSE A CÍMEN
+                        is_multi_client_stop = len(df_addr) > 1
+                        total_clients_at_this_address = len(df_addr)
+
+                        # 🎯 JAVÍTÁS: Számláljuk a vevőket a megállón belül az etikett szinkronhoz!
+                        for client_order_idx, (idx, row) in enumerate(df_addr.iterrows(), start=1):
                             vevo_nev = str(row[nev_oszlop]).strip()
                             címke_szama = row[rendezes_aktiv]
                             rendeles_val = str(row[rendeles_oszlop]).strip() if rendeles_oszlop else ""
@@ -441,12 +446,10 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 for qty, code in found_items:
                                     total_items_for_this_client += int(qty)
 
-                            # 🎯 2. TEGNAPI RECEPTÚRA: HAJSZÁLPONTOS CS1 | X/Y JELÖLÉSEK GENERÁLÁSA
+                            # 🎯 2. REFORMÁLT LOGIKA: CSAK csoportosított címeknél jelenik meg a CS1 | X/Y jelölés!
                             badge_html = ""
-                            if total_items_for_this_client > 0:
-                                # Minden ételdarab egy önálló részcsomagnak felel meg a tiszta etikett-szinergia szerint
-                                for cs_idx in range(1, total_items_for_this_client + 1):
-                                    badge_html += f"<span style='background-color:#4B5563; color:white; padding:2px 6px; border-radius:4px; font-size:0.72rem; margin-right:4px; font-weight:bold; display:inline-block; margin-top:2px;'>📦 CS1 | {total_items_for_this_client}/{cs_idx}</span>"
+                            if is_multi_client_stop:
+                                badge_html += f"<span style='background-color:#4B5563; color:white; padding:2px 6px; border-radius:4px; font-size:0.72rem; margin-right:4px; font-weight:bold; display:inline-block; margin-top:2px;'>📦 CS1 | {total_clients_at_this_address}/{client_order_idx}</span>"
 
                             # 📌 MEGJEGYZÉS DOBOZ SZINTAXIS
                             megjegyzes_box = ""

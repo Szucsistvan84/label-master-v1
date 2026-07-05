@@ -458,6 +458,9 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
                     st.rerun()
                 else:
                     st.error("❌ Hiba történt a letöltés során. Ellenőrizd az Interfood API kapcsolatot!")
+                    # Kérjük le a legutóbbi session hibát, ha van, vagy az API df-et
+                    if 'etlap_api_df' in st.session_state:
+                        st.write(st.session_state.etlap_api_df)
         st.markdown("---")
 
         with st.expander("👤 Felhasználó Kezelés"):

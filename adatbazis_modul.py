@@ -591,6 +591,8 @@ def sync_interfood_etlap(year, week, sheet_id):
         response = requests.get(api_url, headers=headers, timeout=15)
         if response.status_code != 200: return False
         df = pd.read_excel(BytesIO(response.content))
+        # 🎯 PYARROW FIX: Itt is egységesítünk szöveggé
+        df = df.astype(str)
         client = st.session_state.get('client')
         sheet = client.open_by_key(sheet_id)
         try: worksheet = sheet.worksheet("Etlap_API")

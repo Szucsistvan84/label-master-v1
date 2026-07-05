@@ -471,6 +471,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                         {badge_html}
                                     </div>
                                     {megjegyzes_box}
+                                </div>
                                 """, 
                                 unsafe_allow_html=True
                             )

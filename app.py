@@ -430,15 +430,6 @@ def main():
                     time.sleep(0.5)
                     st.rerun()
 
-            st.write("---")
-            if st.button("🚪 Kijelentkezés", key="mob_logout", use_container_width=True):
-                st.session_state.bejelentkezve = False
-                st.query_params.clear()
-                st.query_params.update(view="mobile")
-                st.toast("👋 Kijelentkezve!")
-                time.sleep(0.5)
-                st.rerun()
-
         # --- STEPPER PROCESS VISUALIZER ---
         tab_mapping_inv = {"1. Áruátvétel 📦": "aruatvetel", "2. Címekre szedés 📥": "bepakolas", "3. Kiszállítás 🚚": "kiszallitas"}
         current_state = st.session_state.current_mobile_tab_state

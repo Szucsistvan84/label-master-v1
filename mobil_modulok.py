@@ -503,6 +503,8 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                         badges_html += f'<span style="{style_kaja}">{qty.strip()}-{code.strip()}</span>'
                                     badges_html += '</div>'
                                     st.markdown(badges_html, unsafe_allow_html=True)
+                                    
+                            # 🔥 FIGYELEM: A korábbi plusz st.markdown(megjegyzes_box) és st.markdown('</div>') sorokat innen teljesen kitöröltük!
 
                             # Toggle kapcsoló a bepakoláshoz
                             bepakolt_kulcs = f"bepak_allapot_{idx}"

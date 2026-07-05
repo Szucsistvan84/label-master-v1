@@ -569,6 +569,8 @@ def process_uploaded_pdfs(up_files, client, sheet_id, ugyfelkor_sheet_id, kivala
         if session_key not in st.session_state:
             with st.spinner(f"Étlap szinkronizálása ({ev}/W{het})..."):
                 sync_interfood_etlap(ev, het, sheet_id)
+                # 🚀 AUTOMATIKUS TÖRZSADATBÁZIS FRISSÍTÉS ÉS ÚJ ÉTELEK FELVITELE:
+                sync_master_database(sheet_id, ev, het, het)
                 st.session_state[session_key] = True
 
     with st.spinner("Étlap adatok beolvasása..."):

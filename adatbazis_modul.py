@@ -746,3 +746,47 @@ def sync_master_database(sheet_id, ev, start_het, end_het):
     except Exception as e:
         st.sidebar.error(f"❌ Sheets mentési hiba: {e}")
         return False
+
+def ellenoriz_es_potol_depo_gps(client, sheet_id, futar_nev):
+    """
+    Ha a bejelentkezett futár depó koordinátái hiányoznak, az ArcGIS segítségével
+    automatikusan geokódolja a Depo_Cim-et és beírja a Google Sheets-be.
+    """
+    import pandas as pd
+    import streamlit as st
+    from adatbazis_modul import geokodol_arcgis # A meglévő, jól működő geokódolónk
+    
+    try:
+        sh = client.open_by_key(sheet_id)
+        ws_futar = sh.worksheet("Futárok")
+        data = ws_futar.get_all_records()
+        fejlec = ws_futar.row_values(1)
+        
+        # Keressük meg a futár sorát
+        row_idx = None
+        futar_sor = None
+        for idx, row in enumerate(data, start=2):
+            if str(row.get('Név', '')).strip().lower() == str(futar_nev).strip().lower():
+                row_idx = idx
+                futar_sor = row
+                break
+                
+        if row_idx and futar_sor:
+            depo_cim = str(futar_sor.get('Depo_Cim', '')).strip()
+            depo_lat = str(futar_sor.get('Depo_Lat', '')).strip()
+            depo_lon = str(futar_sor.get('Depo_Lon', '')).strip()
+            
+            # Ha van cím, de hiányoznak a koordináták
+            if depo_cim and (not depo_lat or depo_lat == 'nan' or depo_lat == '0' or not depo_lon or depo_lon == 'nan' or depo_lon == '0'):
+                with st.spinner("🛰️ Új depó észlelve! Indulási GPS koordináták kiszámítása..."):
+                    lat, lon = geokodol_arcgis(depo_cim)
+                    if lat and lon:
+                        lat_col_idx = fejlec.index('Depo_Lat') + 1
+                        lon_col_idx = fejlec.index('Depo_Lon') + 1
+                        
+                        ws_futar.update_cell(row_idx, lat_col_idx, str(lat))
+                        ws_futar.update_cell(row_idx, lon_col_idx, str(lon))
+                        st.toast(f"✅ Depó koordináták rögzítve: {lat}, {lon}", icon="🛰️")
+                        st.cache_data.clear()
+    except Exception as e:
+        print(f"Hiba a depó geokódolásakor: {e}")

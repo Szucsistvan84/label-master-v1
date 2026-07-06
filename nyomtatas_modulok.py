@@ -451,7 +451,7 @@ def create_label_pdf(df, fn, ft, meta, master_df, nevnapok_df, keresztnevek_df, 
 # =========================================================================
 # 📂 2. MODUL: PAPÍR ALAPÚ MENETTERV GENERÁLÓ (create_manifest_pdf)
 # =========================================================================
-def create_manifest_pdf(df, c_n, meta):
+def create_manifest_pdf(df, c_n, c_p, meta):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=5*mm, leftMargin=5*mm, topMargin=8*mm, bottomMargin=12*mm)
     f_reg, f_bold = register_fonts()

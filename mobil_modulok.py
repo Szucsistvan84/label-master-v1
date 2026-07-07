@@ -491,7 +491,8 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     
                                     found_items = re.findall(ORDER_PAT, part)
                                     if found_items:
-                                        kaja_string = ", ".join([f"{qty.strip()}-{code.strip()}" for qty, code in found_orders])
+                                        # ✨ ITT JAVÍTVA: found_items-re cserélve a korábbi found_orders elírás!
+                                        kaja_string = ", ".join([f"{qty.strip()}-{code.strip()}" for qty, code in found_items])
                                         
                                         if is_szombat:
                                             szombat_sorok_list.append(f"📆 <b>{day_title}:</b> {kaja_string}")
@@ -510,17 +511,15 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
                                 tarolt_lada_ertek = st.session_state.get(lada_tarolt_kulcs, None)
                                 
-                                # 🟢/⚪ Lámpácska és a szöveg összerakása dinamikusan
                                 if tarolt_lada_ertek:
                                     label_text = f"🟢 Bepakolva ide: {tarolt_lada_ertek}"
                                 else:
                                     label_text = "⚪ Bepakolás a ládába"
                                 
-                                # CSS trükk: Elrendezzük a HTML-t egy sorba, és közéjük szúrjuk be a Streamlit gombot widgetként
+                                # Flexbox-os kényszerített formázás
                                 st.markdown(
                                     f"""
                                     <style>
-                                    /* Előírjuk a kapcsolót tartalmazó Streamlit konténernek, hogy tolja magát jobbra és maradjon egy sorban */
                                     div[data-testid="stBlock"] {{
                                         display: flex !important;
                                         flex-direction: row !important;
@@ -536,7 +535,6 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     unsafe_allow_html=True
                                 )
                                 
-                                # Ez a gomb fog beilleszkedni a fenti stílus miatt szorosan a jobb szélre, kényszerítve egyetlen sorba!
                                 val_toggle = st.toggle("Láda", value=st.session_state[f"bepak_allapot_{idx}"], key=f"chk_{idx}", label_visibility="collapsed")
                                 
                                 if val_toggle != st.session_state[f"bepak_allapot_{idx}"]:

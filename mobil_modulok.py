@@ -472,7 +472,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 if megjegyzes_val and megjegyzes_val.lower() != "nan" and megjegyzes_val.strip() != "":
                                     st.markdown(f"<div style='font-size: 0.75rem; color: #B45309; background-color: #FFFBEB; padding: 3px 6px; border-radius: 4px; margin-bottom: 4px; border-left: 3px solid #D97706;'>📌 <i>{megjegyzes_val}</i></div>", unsafe_allow_html=True)
 
-                                # 📋 SORFOLYTONOS NAPOK ÉS ÉTELEK (Nincs többé csúnya ** karakter!)
+                                # 📋 SORFOLYTONOS NAPOK ÉS ÉTELEK
                                 kaja_sorok_list = []
                                 szombat_sorok_list = []
 
@@ -491,15 +491,14 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     
                                     found_items = re.findall(ORDER_PAT, part)
                                     if found_items:
-                                        # 🔀 JAVÍTÁS: Kigyomláltuk a ** karaktereket, tiszta szöveg vesszővel elválasztva
-                                        kaja_string = ", ".join([f"{qty.strip()}-{code.strip()}" for qty, code in found_items])
+                                        kaja_string = ", ".join([f"{qty.strip()}-{code.strip()}" for qty, code in found_orders])
                                         
                                         if is_szombat:
                                             szombat_sorok_list.append(f"📆 <b>{day_title}:</b> {kaja_string}")
                                         else:
                                             kaja_sorok_list.append(f"🗓️ <b>{day_title}:</b> {kaja_string}")
 
-                                # Hétköznapok kirajzolása tiszta HTML-ben
+                                # Hétköznapok kirajzolása
                                 if kaja_sorok_list:
                                     st.markdown(f"<div style='font-size: 0.82rem; color: #4B5563; line-height: 1.3; margin-bottom: 6px;'>{' | '.join(kaja_sorok_list)}</div>", unsafe_allow_html=True)
                                 
@@ -507,18 +506,38 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 for sz_sor in szombat_sorok_list:
                                     st.markdown(f"<div style='font-size: 0.82rem; color: #DC2626; background-color: #FEF2F2; padding: 2px 4px; border-radius: 4px; margin-bottom: 6px;'>{sz_sor}</div>", unsafe_allow_html=True)
 
-                                # 🔀 JOBBKEZES BEPAKOLÁS GOMB (Tökéletes, egy sorba kényszerített flexbox elrendezés!)
+                                # 🔀 ABSZOLÚT FIX GOLYÓÁLLÓ ELRENDEZÉS EGYETLEN HTML BLOKKBAN
                                 lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
                                 tarolt_lada_ertek = st.session_state.get(lada_tarolt_kulcs, None)
-                                label_text = f"🟢 Bepakolva ide: {tarolt_lada_ertek}" if tarolt_lada_ertek else "Bepakolás a ládába"
                                 
-                                # Egy sorba rendezzük őket, a szöveg bal oldalon igazítva, a toggle szorosan mellette a jobb szélen
-                                col_txt, col_tgl = st.columns([3, 1])
-                                with col_txt:
-                                    # Kicsit lejjebb toljuk a szöveget (padding-top), hogy függőlegesen pont egy vonalba essen a gombbal
-                                    st.markdown(f"<div style='font-size: 0.85rem; font-weight: bold; color: #374151; text-align: right; padding-top: 4px;'>{label_text}</div>", unsafe_allow_html=True)
-                                with col_tgl:
-                                    val_toggle = st.toggle("Láda", value=st.session_state[f"bepak_allapot_{idx}"], key=f"chk_{idx}", label_visibility="collapsed")
+                                # 🟢/⚪ Lámpácska és a szöveg összerakása dinamikusan
+                                if tarolt_lada_ertek:
+                                    label_text = f"🟢 Bepakolva ide: {tarolt_lada_ertek}"
+                                else:
+                                    label_text = "⚪ Bepakolás a ládába"
+                                
+                                # CSS trükk: Elrendezzük a HTML-t egy sorba, és közéjük szúrjuk be a Streamlit gombot widgetként
+                                st.markdown(
+                                    f"""
+                                    <style>
+                                    /* Előírjuk a kapcsolót tartalmazó Streamlit konténernek, hogy tolja magát jobbra és maradjon egy sorban */
+                                    div[data-testid="stBlock"] {{
+                                        display: flex !important;
+                                        flex-direction: row !important;
+                                        justify-content: space-between !important;
+                                        align-items: center !important;
+                                        width: 100% !important;
+                                    }}
+                                    </style>
+                                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 4px;">
+                                        <div style="font-size: 0.85rem; font-weight: bold; color: #374151; text-align: left;">{label_text}</div>
+                                    </div>
+                                    """, 
+                                    unsafe_allow_html=True
+                                )
+                                
+                                # Ez a gomb fog beilleszkedni a fenti stílus miatt szorosan a jobb szélre, kényszerítve egyetlen sorba!
+                                val_toggle = st.toggle("Láda", value=st.session_state[f"bepak_allapot_{idx}"], key=f"chk_{idx}", label_visibility="collapsed")
                                 
                                 if val_toggle != st.session_state[f"bepak_allapot_{idx}"]:
                                     frissit_bepakolas_felhoben(idx, val_toggle)

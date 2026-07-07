@@ -426,10 +426,10 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         total_clients_at_this_address = len(df_addr)
                         
                         if is_multi_client_stop:
-                            st.info(f"🛍️ ÖSSZEVONT MEGÁLLÓ: Erre a címre {total_clients_at_this_address} külön vevő csomagja megy! Fogd össze őket előre!")
+                            st.markdown(f"<div style='background-color: #E0F2FE; color: #0369A1; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; margin-bottom: 4px;'>🛍️ ÖSSZEVONT: {total_clients_at_this_address} külön vevő!</div>", unsafe_allow_html=True)
 
                         # MEGÁLLÓ CÍM KIEMELÉSE VIZUÁLISAN
-                        st.markdown(f'### 📍 Megálló: {addr}')
+                        st.markdown(f'<h4 style="margin: 2px 0 6px 0; color: #1E3A8A; font-size: 0.95rem;">📍 Megálló: {addr}</h4>', unsafe_allow_html=True)
 
                         # Vevők listázása a megállón binnen
                         for client_order_idx, (idx, row) in enumerate(df_addr.iterrows(), start=1):
@@ -438,7 +438,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                             rendeles_val = str(row[rendeles_oszlop]).strip() if rendeles_oszlop else ""
                             megjegyzes_val = str(row[megjegyzes_oszlop]).strip() if megjegyzes_oszlop else ""
 
-                            # 🔢 1. TÉTELSZÁM KISZÁMÍTÁSA
+                            # 🔢 TÉTELSZÁM KISZÁMÍTÁSA
                             total_items_for_this_client = 0
                             day_parts = rendeles_val.split('|')
                             for part in day_parts:
@@ -447,11 +447,16 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 for qty, code in found_items:
                                     total_items_for_this_client += int(qty)
 
-                            # 🎯 ULTRA-KOMPAKT ELRENDEZÉS: Név balra, sorszám és tételek jobbra zárva
+                            # Részcsomag jelölő (CS1 | X/Y)
+                            badge_text = ""
+                            if is_multi_client_stop:
+                                badge_text = f" <span style='color: #4B5563; font-weight: 800; font-size: 0.8rem;'>[CS1 | {total_clients_at_this_address}/{client_order_idx}]</span>"
+
+                            # Név balra, sorszám és tételek jobbra zárva egyetlen tiszta sorban
                             st.markdown(
                                 f"""
                                 <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 2px; padding: 2px 0;">
-                                    <div style="font-size: 0.9rem; font-weight: bold; color: #111827;">👤 {vevo_nev}</div>
+                                    <div style="font-size: 0.9rem; font-weight: bold; color: #111827;">👤 {vevo_nev}{badge_text}</div>
                                     <div style="font-size: 0.8rem; color: #4B5563; font-weight: 600; text-align: right;">
                                         <span style="background-color: #E5E7EB; padding: 2px 6px; border-radius: 4px; margin-right: 4px;">#{címke_szama}</span>
                                         <span style="background-color: #139D43; color: white; padding: 2px 6px; border-radius: 4px;">🔢 {total_items_for_this_client} db</span>
@@ -461,17 +466,13 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 unsafe_allow_html=True
                             )
 
-                            # 🎯 ATOMBIZTOS STREAMLIT DOBOZ BELSEJE (Zárt konténer az ételeknek és gomboknak)
+                            # 🎯 ATOMBIZTOS STREAMLIT DOBOZ BELSEJE
                             with st.container(border=True):
-                                # Részcsomag jelölő (CS1 | X/Y) natív sorként, ha összevont a cím
-                                if is_multi_client_stop:
-                                    st.markdown(f"**📦 CS1 | {total_clients_at_this_address}/{client_order_idx}**")
-
-                                # 📌 MINIMALIZÁLT MEGJEGYZÉS DOBOZ (Kisebb betűméret, diszkrét dizájn a szatyrozáshoz)
+                                # 📌 MINIMALIZÁLT MEGJEGYZÉS DOBOZ
                                 if megjegyzes_val and megjegyzes_val.lower() != "nan" and megjegyzes_val.strip() != "":
                                     st.markdown(f"<div style='font-size: 0.75rem; color: #B45309; background-color: #FFFBEB; padding: 3px 6px; border-radius: 4px; margin-bottom: 4px; border-left: 3px solid #D97706;'>📌 <i>{megjegyzes_val}</i></div>", unsafe_allow_html=True)
 
-                                # 📋 SORFOLYTONOS NAPOK ÉS ÉTELEK VESSZŐVEL ELVÁLASZTVA
+                                # 📋 SORFOLYTONOS NAPOK ÉS ÉTELEK (Nincs többé csúnya ** karakter!)
                                 kaja_sorok_list = []
                                 szombat_sorok_list = []
 
@@ -490,33 +491,33 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                     
                                     found_items = re.findall(ORDER_PAT, part)
                                     if found_items:
-                                        # 🔀 VESSZŐS ELVÁLASZTÁS A LÁDÁK KÖZÖTT
-                                        kaja_string = ", ".join([f"**{qty.strip()}-{code.strip()}**" for qty, code in found_items])
+                                        # 🔀 JAVÍTÁS: Kigyomláltuk a ** karaktereket, tiszta szöveg vesszővel elválasztva
+                                        kaja_string = ", ".join([f"{qty.strip()}-{code.strip()}" for qty, code in found_items])
                                         
                                         if is_szombat:
-                                            szombat_sorok_list.append(f"📆 **{day_title}:** {kaja_string}")
+                                            szombat_sorok_list.append(f"📆 <b>{day_title}:</b> {kaja_string}")
                                         else:
-                                            kaja_sorok_list.append(f"🗓️ **{day_title}:** {kaja_string}")
+                                            kaja_sorok_list.append(f"🗓️ <b>{day_title}:</b> {kaja_string}")
 
-                                # Kirajzoljuk a hétköznapokat egyetlen sorfolytonos blokkban
+                                # Hétköznapok kirajzolása tiszta HTML-ben
                                 if kaja_sorok_list:
-                                    st.markdown(f"<div style='font-size: 0.82rem; color: #4B5563; line-height: 1.25; margin-bottom: 2px;'>{' | '.join(kaja_sorok_list)}</div>", unsafe_allow_html=True)
+                                    st.markdown(f"<div style='font-size: 0.82rem; color: #4B5563; line-height: 1.3; margin-bottom: 6px;'>{' | '.join(kaja_sorok_list)}</div>", unsafe_allow_html=True)
                                 
-                                # Ha van hétvégi tétel, az szigorúan új, pirosas kiemelt sorba kerül azonnal
+                                # Szombat kiemelt sorban
                                 for sz_sor in szombat_sorok_list:
-                                    st.markdown(f"<div style='font-size: 0.82rem; color: #DC2626; background-color: #FEF2F2; padding: 2px 4px; border-radius: 4px; margin-bottom: 2px;'>{sz_sor}</div>", unsafe_allow_html=True)
+                                    st.markdown(f"<div style='font-size: 0.82rem; color: #DC2626; background-color: #FEF2F2; padding: 2px 4px; border-radius: 4px; margin-bottom: 6px;'>{sz_sor}</div>", unsafe_allow_html=True)
 
-                                st.write("") # Térköz a kapcsoló előtt
-
-                                # 🔀 JOBBKEZES BEPAKOLÁS GOMB ÉS INTERAKTÍV TOGGLE ELRENDEZÉS
+                                # 🔀 JOBBKEZES BEPAKOLÁS GOMB (Tökéletes, egy sorba kényszerített flexbox elrendezés!)
                                 lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
                                 tarolt_lada_ertek = st.session_state.get(lada_tarolt_kulcs, None)
-                                label_text = f"🟢 Bepakolva ide: {tarolt_lada_ertek}" if tarolt_lada_ertek else "⚪ Bepakolás a ládába"
+                                label_text = f"🟢 Bepakolva ide: {tarolt_lada_ertek}" if tarolt_lada_ertek else "Bepakolás a ládába"
                                 
-                                c_txt, c_tgl = st.columns([3, 1])
-                                with c_txt:
-                                    st.markdown(f"<div style='font-size: 0.82rem; font-weight: 600; color: #374151; margin-top: 6px; text-align: right;'>{label_text}</div>", unsafe_allow_html=True)
-                                with c_tgl:
+                                # Egy sorba rendezzük őket, a szöveg bal oldalon igazítva, a toggle szorosan mellette a jobb szélen
+                                col_txt, col_tgl = st.columns([3, 1])
+                                with col_txt:
+                                    # Kicsit lejjebb toljuk a szöveget (padding-top), hogy függőlegesen pont egy vonalba essen a gombbal
+                                    st.markdown(f"<div style='font-size: 0.85rem; font-weight: bold; color: #374151; text-align: right; padding-top: 4px;'>{label_text}</div>", unsafe_allow_html=True)
+                                with col_tgl:
                                     val_toggle = st.toggle("Láda", value=st.session_state[f"bepak_allapot_{idx}"], key=f"chk_{idx}", label_visibility="collapsed")
                                 
                                 if val_toggle != st.session_state[f"bepak_allapot_{idx}"]:

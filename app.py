@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import streamlit as Object
 import streamlit as st
 
 # --- 1. STREAMLIT ALAPBEÁLLÍTÁS - Kötelezően mindenen kívül, a legelső sorban! ---
@@ -61,10 +60,11 @@ def main():
     if 'client' not in st.session_state or st.session_state['client'] is None:
         st.session_state['client'] = client
 
-    # URL és Session állapot lekérése (Alapértelmezett: desktop)
+    # URL és munkamenet állapot (Alapértelmezett: desktop)
     if 'view_mode' not in st.session_state:
         st.session_state.view_mode = st.query_params.get("view", "desktop")
 
+    # Ha a böngésző címsorában kifejezetten szerepel a view paraméter, az az irányadó
     if "view" in st.query_params:
         view = st.query_params.get("view")
         st.session_state.view_mode = view
@@ -98,7 +98,7 @@ def main():
             st.session_state.current_mobile_tab_state = tab_mapping_rev.get(tab_param, "1. Áruátvétel 📦")
 
     # ==============================================================================
-    # 🛰️ ÉLES ÚTVONAL-RENDEZŐ ENGINE HOOK (JAVÍTOTT TOKEN-MEGŐRZŐS VÁLTOZAT)
+    # 🛰️ ÉLES ÚTVONAL-RENDEZŐ ENGINE HOOK
     # ==============================================================================
     if "action" in st.query_params and "target_id" in st.query_params:
         action = st.query_params["action"]
@@ -138,7 +138,6 @@ def main():
                     st.session_state.mdf = df_sheets
                     st.cache_data.clear()
                     
-                    # 💡 FIX: Átsorolás után is kényszerítve visszaírjuk a belépési adatokat az URL-be, így nincs fehér kifagyás!
                     st.query_params.update(
                         view="mobile", 
                         active_tab="kiszallitas",
@@ -151,11 +150,10 @@ def main():
         except Exception as e:
             st.error(f"Hiba az átsorrendezés során: {e}")
 
-    # --- ATOMBIZTOS PREMIUM CSS DESIGN ÉS INTERFACE FINOMHANGOLÁSOK (ULTRA-KOMPAKT FUTÁR UX) ---
+    # CSS stílusok
     st.markdown(
         """
         <style>
-        /* 1. Teljes Streamlit/GitHub sallangmentesítés */
         footer {visibility: hidden !important; display: none !important;}
         [data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
         [data-testid="stDecoration"] {display: none !important;}
@@ -171,12 +169,11 @@ def main():
             height: 40px !important;
         }
 
-        /* 2. FIXÁLT SIDEBAR COLLAPSE GOMB: Világos, tiszta háttér, jól látható sötét nyilakkal, gyári helyén megtartva */
         [data-testid="stSidebarCollapseButton"] {
             visibility: visible !important; 
             display: inline-flex !important;
-            background-color: #E5E7EB !important; /* Világos, tiszta szürke */
-            border: 2px solid #139D43 !important; /* Határozott Interfood Zöld keret */
+            background-color: #E5E7EB !important;
+            border: 2px solid #139D43 !important;
             border-radius: 8px !important; 
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12) !important;
             margin-left: 10px !important; 
@@ -185,7 +182,7 @@ def main():
             transition: all 0.2s ease !important;
         }
         [data-testid="stSidebarCollapseButton"] svg {
-            fill: #111827 !important; /* Kristálytiszta éjfekete nyilak! */
+            fill: #111827 !important;
             color: #111827 !important;
             width: 20px !important;
             height: 20px !important;
@@ -194,7 +191,6 @@ def main():
         
         [data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
         
-        /* 3. Mobil-specifikus kompakt térközök */
         .block-container { 
             padding-top: 0.2rem !important; 
             padding-bottom: 7rem !important; 
@@ -205,7 +201,6 @@ def main():
         h2 { font-size: 1.25rem !important; margin-bottom: 0.4rem !important; }
         h3 { font-size: 1.05rem !important; }
 
-        /* 4. Az alsó fix navigációs sáv */
         .fixed-nav-bar {
             position: fixed;
             bottom: 0;
@@ -218,7 +213,6 @@ def main():
             border-top: 1.5px solid #E5E7EB;
         }
 
-        /* 5. A Pöttyös Stepper folyamatjelző stílusai */
         .stepper-wrapper {
             display: flex;
             justify-content: space-between;
@@ -285,7 +279,7 @@ def main():
     from nyomtatas_modulok import register_fonts
     register_fonts()
 
-    # Session State alapértékek biztonságos beállítása
+    # Session State alapértékek
     if 'mdf' not in st.session_state: st.session_state.mdf = None
     if 'meta_data' not in st.session_state: st.session_state.meta_data = {}
     if 'weights' not in st.session_state: st.session_state.weights = {}
@@ -297,9 +291,8 @@ def main():
     if 'c_p' not in st.session_state: st.session_state.c_p = ""
     if 'edited_df' not in st.session_state: st.session_state.edited_df = None
 
-    # --- JAVÍTOTT PIN KÓDOS BELÉPTETŐ RENDSZER ---
+    # --- BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
-        # TŰPONTOS KÖZÉPRE IGAZÍTOTT LOGÓ BASE64 INFÚZIÓVAL
         if os.path.exists("interfood-logo.png"):
             try:
                 with open("interfood-logo.png", "rb") as img_f:
@@ -325,8 +318,6 @@ def main():
             jarat_input = st.text_input("JÁRATSZÁM (vagy Admin):", value=url_jarat, key="login_jarat_field", placeholder="Pl. 4002")
             password_input = st.text_input("JELSZÓ / KÓD:", type="password", key="login_password_field", placeholder="••••••••")
             
-            # --- INTELLIGENS SZERVEROLDALI ROUTER DIVERZIFIKÁCIÓ ---
-            # Megnézzük az aktuális URL paramétert, és annak megfelelően emeljük ki a gombot zölddel!
             m_type = "primary" if view == "mobile" else "secondary"
             d_type = "primary" if view == "desktop" else "secondary"
 
@@ -345,11 +336,13 @@ def main():
                     st.session_state.user_nev = "Teszt Futár"
                     st.session_state.user_jarat_lista = [jarat_input.strip()]
                     st.session_state.user_szerep = "futar"
-                    st.query_params.update(view=view, token_name="Teszt Futár", token_role="futar", token_routes=jarat_input.strip())
+                    st.session_state.view_mode = "desktop"
+                    st.query_params.update(view="desktop", token_name="Teszt Futár", token_role="futar", token_routes=jarat_input.strip())
                     st.rerun()
 
             if submit_mobile or submit_desktop:
                 target_view_mode = "mobile" if submit_mobile else "desktop"
+                st.session_state.view_mode = target_view_mode
                 tisztitott_input_jarat = str(jarat_input).strip().lower()
                 tisztitott_input_pass = str(password_input).strip()
                 
@@ -416,11 +409,10 @@ def main():
     master_df = etelek_master_df
 
     # =========================================================================
-    # 📱 MOBIL ÁG (TISZTA MODULÁRIS MEGOLDÁS HOT-RELOAD KÉNYSZERÍTÉSSEL)
+    # 📱 MOBIL ÁG
     # =========================================================================
     if is_mobile_view:
         with st.sidebar:
-            # Tisztán a külső modulból hívjuk meg a felületet, az app.py mentesül a tehertől!
             from nezetek_modul import render_mobil_sidebar_dashboard
             render_mobil_sidebar_dashboard(st.session_state.client, SHEET_ID_UGYFELKOR)
 

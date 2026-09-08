@@ -61,8 +61,16 @@ def main():
     if 'client' not in st.session_state or st.session_state['client'] is None:
         st.session_state['client'] = client
 
-    # URL paraméterek lekérése az ágak eldöntéséhez (Default: mobile ha nincs megadva)
-    view = st.query_params.get("view", "mobile")
+    # URL és Session állapot lekérése (Alapértelmezett: desktop)
+    if 'view_mode' not in st.session_state:
+        st.session_state.view_mode = st.query_params.get("view", "desktop")
+
+    if "view" in st.query_params:
+        view = st.query_params.get("view")
+        st.session_state.view_mode = view
+    else:
+        view = st.session_state.view_mode
+
     url_jarat = st.query_params.get("jarat", "")
     url_teszt = st.query_params.get("test", "false") == "true"
     is_mobile_view = (view == "mobile")

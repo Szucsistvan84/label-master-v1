@@ -226,9 +226,9 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     admin_name = " ".join(final_parts).strip(" -/|.,*")
                     admin_name = " ".join(admin_name.split())
 
-                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (JAVÍTVA!) ---
+                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (ÉTLAP-VALIDÁLT MOTOR) ---
                     width = page.width 
-                    x_start_limit = width * 0.54 
+                    x_start_limit = width * 0.585
                     x_end_limit = width * 0.94    
 
                     folyoso_words = sorted([
@@ -241,19 +241,34 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         txt = w['text'].strip()
                         if any(stop in txt for stop in ["Összesítés:", "Csilagozott", "Összesen:"]):
                             break
-                        if re.match(r'^\d{2}/\d+', txt):
+                        if re.match(r'^\d{2}/\d+', txt): # Telefonszám kizárása
+                            continue
+                        if "Ft" in txt: # Pénzmaradvány kizárása
                             continue
                         tiszta_elemek.append(txt)
 
                     raw_folyoso_text = " ".join(tiszta_elemek)
 
-                    # 💡 MULTILINE STITCHER: A kötőjelnél eltört sorok összeforrasztása (pl. "4- \n R4" -> "4-R4")
+                    # 💡 MULTILINE STITCHER: Kötőjelnél eltört sorok összeforrasztása (4- \n R4 -> 4-R4 és 1- \n VG3 -> 1-VG3)
                     fixed_text = re.sub(r'(\d+)\s*([-\u2013\u2014\u2212])\s*', r'\1\2', raw_folyoso_text)
                     fixed_text = re.sub(r'(\d+[-\u2013\u2014\u2212])\s+([A-Z0-9*+]+)', r'\1\2', fixed_text)
 
-                    # 💡 FIX: Megszüntettük a veszélyes fallbacket! Csak a folyosóból olvas rendelést.
-                    raw_orders = re.findall(ORDER_PAT, fixed_text)
-                    rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
+                    # Nyers párok kinyerése regex-szel
+                    potential_orders = re.findall(ORDER_PAT, fixed_text)
+
+                    # 🛡️ 2. VÉDELMI VONAL: Szigorú napi étlapkód-validáció
+                    # Ha az étlap elérhető, kizárólag a valós ételeket engedjük át (a 223, R, stb. azonnal kiesik!)
+                    ervenyes_orders = []
+                    tiszta_etlap_set = {str(k).strip().upper().replace('*', '') for k in napi_etlap_kodok if str(k).strip()}
+
+                    for qty, code in potential_orders:
+                        c_clean = code.strip().upper().replace('*', '')
+                        # Csak akkor vesszük fel, ha a kód szerepel az aznapi kínálatban
+                        if not tiszta_etlap_set or c_clean in tiszta_etlap_set:
+                            ervenyes_orders.append((qty, code.strip()))
+
+                    rendeles_str = ", ".join([f"{q}-{c}" for q, c in ervenyes_orders])
+                    raw_orders = ervenyes_orders
                     
                     # CÍM meghatározása (v_lines[2] és x40 között)
                     address = " ".join([w['text'] for w in sorted([w for w in row_words if v_lines[2] <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()

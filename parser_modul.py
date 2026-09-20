@@ -65,53 +65,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 if y_bottom <= y_top: 
                     y_bottom = y_top + 60 
 
-                full_row_box = pg.within_bbox((20, y_top, 585, y_bottom))
-                raw_text = full_row_box.extract_text() or ""
-                lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
-                
-                # --- 2. AZONOSÍTÁS ÉS NÉV KINYERÉSE ---
-                current_id = anchor['text']
-                local_customer_name = ""
-                name_line_index = -1
-                
-                for idx, l in enumerate(lines):
-                    if current_id in l:
-                        raw_line = l.replace(current_id, "").strip()
-                        
-                        name_parts = []
-                        for word in raw_line.split():
-                            if word[0].isupper() or word.startswith("Dr.") or word.lower() in ["id.", "ifj.", "özv."]:
-                                name_parts.append(word)
-                            else:
-                                break
-                        local_customer_name = " ".join(name_parts)
-                        name_line_index = idx
-                        break
-
-                # --- 3. SZÉTVÁLOGATÁS ---
-                reszleg_ceg_lista = []
-                hosszu_megj_lista = []
-
-                for idx, l_strip in enumerate(lines):
-                    if any(x in l_strip for x in ["Debrecen", "Ebes", "Hajdú", "Nyomtatva:"]): 
-                        continue
-                    if re.search(PHONE_PAT, l_strip) or re.search(MONEY_PAT, l_strip):
-                        continue
-
-                    if idx == name_line_index:
-                        maradek = l_strip.replace(current_id, "").replace(local_customer_name, "").strip()
-                        if len(maradek) > 1:
-                            if maradek[0].islower():
-                                hosszu_megj_lista.append(maradek)
-                            else:
-                                reszleg_ceg_lista.append(maradek)
-                    else:
-                        hosszu_megj_lista.append(l_strip)
-
-                megj_resz_1 = " | ".join(reszleg_ceg_lista)
-                megj_resz_2 = " | ".join(hosszu_megj_lista)
-                customer_name = local_customer_name
-            
                 next_anchor_top = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else page_cutoff
                 y_bottom = min(next_anchor_top, page_cutoff)
                 
@@ -182,7 +135,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                             else:
                                 money_val = "0Ft"
 
-                    # --- ÜGYINTÉZŐ KERESÉSE ---
+                    # --- 3. ÜGYINTÉZŐ KERESÉSE ---
                     x_start_admin = (38 / 88) * W
                     x_end_admin = (54 / 88) * W
                     
@@ -226,7 +179,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     admin_name = " ".join(final_parts).strip(" -/|.,*")
                     admin_name = " ".join(admin_name.split())
 
-                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (ÉTLAP-VALIDÁLT MOTOR) ---
+                    # --- 4. RENDELÉS FOLYOSÓ ÉS ÉTLAPKÓD-VALIDÁLÁS ---
                     width = page.width 
                     x_start_limit = width * 0.585
                     x_end_limit = width * 0.94    
@@ -249,28 +202,25 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                     raw_folyoso_text = " ".join(tiszta_elemek)
 
-                    # 💡 MULTILINE STITCHER: Kötőjelnél eltört sorok összeforrasztása (4- \n R4 -> 4-R4 és 1- \n VG3 -> 1-VG3)
+                    # Multiline stitcher a törött rendelések összeforrasztásához
                     fixed_text = re.sub(r'(\d+)\s*([-\u2013\u2014\u2212])\s*', r'\1\2', raw_folyoso_text)
                     fixed_text = re.sub(r'(\d+[-\u2013\u2014\u2212])\s+([A-Z0-9*+]+)', r'\1\2', fixed_text)
 
-                    # Nyers párok kinyerése regex-szel
                     potential_orders = re.findall(ORDER_PAT, fixed_text)
 
-                    # 🛡️ 2. VÉDELMI VONAL: Szigorú napi étlapkód-validáció
-                    # Ha az étlap elérhető, kizárólag a valós ételeket engedjük át (a 223, R, stb. azonnal kiesik!)
+                    # Szigorú napi étlapkód validáció (kizárja a 223, R, stb. maradványokat)
                     ervenyes_orders = []
                     tiszta_etlap_set = {str(k).strip().upper().replace('*', '') for k in napi_etlap_kodok if str(k).strip()}
 
                     for qty, code in potential_orders:
                         c_clean = code.strip().upper().replace('*', '')
-                        # Csak akkor vesszük fel, ha a kód szerepel az aznapi kínálatban
                         if not tiszta_etlap_set or c_clean in tiszta_etlap_set:
                             ervenyes_orders.append((qty, code.strip()))
 
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in ervenyes_orders])
                     raw_orders = ervenyes_orders
                     
-                    # CÍM meghatározása (v_lines[2] és x40 között)
+                    # --- 5. CÍM MEGHATÁROZÁSA ---
                     address = " ".join([w['text'] for w in sorted([w for w in row_words if v_lines[2] <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
 
                     if admin_name and address:
@@ -286,30 +236,28 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                 break
                         address = " ".join(address_parts).strip(" ,.|/-")
 
-                    # Megjegyzések kinyerése a bal zónából
+                    # --- 6. MEGJEGYZÉS 1 (CÉG/RÉSZLEG) ÉS MEGJEGYZÉS 2 (KAPUKÓD/INSTRUKCIÓ) ---
                     left_words = [w for w in line_words if (w['x0'] + w['x1'])/2 < x_start_limit]
                     line_words_sorted = sorted(left_words, key=lambda x: (round(x['top'] / 3) * 3, x['x0']))
                     full_block_text = " ".join([w['text'] for w in line_words_sorted])
                     
-                    id_pattern = r'[A-Za-z0-9]{1,3}-\d{6}'
+                    id_pattern = r'[A-Za-z0-9]{1,3}-\d{5,7}'
                     id_match_context = re.search(id_pattern, full_block_text)
                     working_context = full_block_text[id_match_context.start():] if id_match_context else full_block_text
+
+                    clean_context = re.sub(ORDER_PAT, '', working_context)
+                    clean_context = re.sub(MONEY_PAT, '', clean_context)
+                    if phone_val:
+                        clean_context = clean_context.replace(phone_val, " ")
 
                     megj_resz_1 = "" 
                     megj_resz_2 = "" 
 
-                    clean_context = re.sub(ORDER_PAT, '', working_context)
-                    clean_context = re.sub(MONEY_PAT, '', clean_context)
-                    if 'phone_val' in locals() and phone_val:
-                        clean_context = clean_context.replace(phone_val, "")
-
-                    # --- ZIP-CODE ANCHOR LOCK ---
+                    # MEGJEGYZÉS 1: Cím előtti cégnév / részleg
                     addr_zip_match = re.search(r'\b\d{4}\b', address)
-                    if addr_zip_match:
-                        target_zip = addr_zip_match.group(0)
-                        zip_match = re.search(rf'\b{target_zip}\b', clean_context)
-                    else:
-                        zip_match = re.search(r'\b\d{4}\b', clean_context)
+                    target_zip = addr_zip_match.group(0) if addr_zip_match else ""
+                    
+                    zip_match = re.search(rf'\b{target_zip}\b', clean_context) if target_zip else re.search(r'\b\d{4}\b', clean_context)
 
                     if zip_match:
                         pre_zip = clean_context[:zip_match.start()].replace(full_id, "").strip()
@@ -324,123 +272,59 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                             t_megj = re.sub(rf'\b{re.escape(w)}\b', '', t_megj, flags=re.IGNORECASE)
                                 megj_resz_1 = t_megj.strip()
 
-                    if address in clean_context:
+                    # MEGJEGYZÉS 2: Cím utáni instrukciók és kapukódok
+                    if address and address in clean_context:
                         anchor_pos = clean_context.find(address) + len(address)
                         after_address = clean_context[anchor_pos:].strip()
-                        end_m = re.search(re.escape(phone_val), after_address)
-                        megj_resz_2 = after_address[:end_m.start()].strip() if end_m else after_address
+                        megj_resz_2 = after_address
+                    else:
+                        megj_resz_2 = clean_context
 
-                    all_notes = []
-                    if megj_resz_1.strip():
-                        all_notes.append(megj_resz_1.strip())
-                    if megj_resz_2.strip():
-                        all_notes.append(megj_resz_2.strip())
+                    # 🛡️ Tisztítás: Ügyintéző és lebegő előhívók levágása Megjegyzés 1-ből
+                    if megj_resz_1:
+                        if admin_name:
+                            megj_resz_1 = re.sub(rf'\b{re.escape(admin_name)}\b', '', megj_resz_1, flags=re.IGNORECASE).strip()
+                            for w in admin_name.split():
+                                if len(w) > 2:
+                                    megj_resz_1 = re.sub(rf'\b{re.escape(w)}\b', '', megj_resz_1, flags=re.IGNORECASE).strip()
+                        megj_resz_1 = re.sub(r'(?:^|\s)(?:20|30|70)(?:\s|$)', ' ', megj_resz_1).strip(" -/|.,*")
 
-                    seen = set()
-                    final_parts = []
-                    for n in all_notes:
-                        n_clean = n.strip()
-                        if not n_clean: continue
-                        if n_clean.lower() not in seen:
-                            final_parts.append(n_clean)
-                            seen.add(n_clean.lower())
+                    # 🛡️ Tisztítás: Ügyintéző és lebegő előhívók levágása Megjegyzés 2-ből (Kapukód-védelemmel)
+                    if megj_resz_2:
+                        if admin_name:
+                            megj_resz_2 = re.sub(rf'\b{re.escape(admin_name)}\b', '', megj_resz_2, flags=re.IGNORECASE).strip()
+                            for w in admin_name.split():
+                                if len(w) > 2:
+                                    megj_resz_2 = re.sub(rf'\b{re.escape(w)}\b', '', megj_resz_2, flags=re.IGNORECASE).strip()
+                        # Csak a lebegő, önálló 20/30/70 számokat vágja le, a kcs:20, 30k2480 stb. kapukódokat MEGÓVJA
+                        megj_resz_2 = re.sub(r'(?:^|\s)(?:20|30|70)(?=\s*(?:\||$))', ' ', megj_resz_2).strip(" -/|.,*")
 
-                    clean_customer = " | ".join(final_parts)
-
+                    # Felesleges rendszerfeliratok törlése
                     junk_list = [
                         "Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj",
                         "Csilagozott betűnél kiegészítő is van!!!",
-                        "Csilagozott betűnél kiegészítő is van"
+                        "Csilagozott betűnél kiegészítő is van",
+                        "Összesítés:", "Összesen:"
                     ]
-                    
                     for junk in junk_list:
-                        clean_customer = clean_customer.replace(junk, "")
+                        megj_resz_1 = megj_resz_1.replace(junk, "").strip()
+                        megj_resz_2 = megj_resz_2.replace(junk, "").strip()
 
-                    clean_customer = re.sub(r'\s+', ' ', clean_customer)
-                    clean_customer = clean_customer.strip(" -/|.,")
+                    # VÉGLEGES ÖSSZEFŰZÉS: Megjegyzés 1 (Cég) | Megjegyzés 2 (Kapukód)
+                    final_parts = []
+                    r1 = megj_resz_1.strip(" -/|.,*")
+                    r2 = megj_resz_2.strip(" -/|.,*")
+
+                    if r1 and len(r1) > 1 and r1.lower() != admin_name.lower():
+                        final_parts.append(r1)
+                    if r2 and len(r2) > 1 and r2.lower() != admin_name.lower():
+                        if not final_parts or r2.lower() != final_parts[0].lower():
+                            final_parts.append(r2)
+
+                    full_note = " | ".join(final_parts)
                     
-                    reszleg = ""
-                    extra_instructions = clean_customer
-                    if "/" in clean_customer:
-                        c_parts = clean_customer.split("/")
-                        potential_reszleg = c_parts[0].strip()
-                        if admin_name and potential_reszleg.lower() != admin_name.lower():
-                            reszleg = potential_reszleg
-                    
-                    if reszleg: extra_instructions = extra_instructions.replace(reszleg, "")
-                    if admin_name:
-                        for n_part in admin_name.split():
-                            if len(n_part) > 2:
-                                extra_instructions = re.sub(rf'\b{re.escape(n_part)}\b', '', extra_instructions, flags=re.IGNORECASE)
-
-                    extra_instructions = extra_instructions.replace("/", "").strip(" -/|.,")
-
-                    if admin_name:
-                        clean_customer = re.sub(rf'\b{re.escape(admin_name)}\b', '', clean_customer, flags=re.IGNORECASE)
-                        for name_part in admin_name.split():
-                            if len(name_part) > 2:
-                                clean_customer = re.sub(rf'\b{re.escape(name_part)}\b', '', clean_customer, flags=re.IGNORECASE)
-
-                    clean_customer = re.sub(r'[,.;:|*]{2,}', ' ', clean_customer)
-
-                    final_note_parts = []
-                    r_clean = reszleg.strip(" ,.-/|*")
-                    e_clean = extra_instructions.strip(" ,.-/|*")
-                    
-                    for kod in sorted(napi_etlap_kodok, key=len, reverse=True):
-                        if len(kod) > 1:
-                            minta = r'\d*\s*[-\u2013\u2014\u2212]?\s*\b' + re.escape(kod) + r'\b'
-                            e_clean = re.sub(minta, '', e_clean)
-                        else:
-                            minta = r'\d+\s*[-\u2013\u2014\u2212]\s*\b' + re.escape(kod) + r'\b'
-                            e_clean = re.sub(minta, '', e_clean)
-
-                    e_clean = re.sub(r'[-\u2013\u2014\u2212]{2,}', '-', e_clean)
-                    e_clean = e_clean.replace('  ', ' ').strip(" ,.-/|*")
-
-                    if r_clean and len(r_clean) > 1:
-                        final_note_parts.append(r_clean)
-                    if e_clean and len(e_clean) > 1:
-                        if not final_note_parts or e_clean.lower() != final_note_parts[0].lower():
-                            final_note_parts.append(e_clean)
-                    
-                    full_note = " | ".join(final_note_parts)
-                    
-                    if not full_note or len(full_note.strip()) < 3:
-                        raw_comment_parts = []
-                        kk_match = re.search(r'\b(kcs|kk|kapukód|kapukod|kulcs)\b.*?(\d+[a-zA-Z0-9]*)', working_context, flags=re.IGNORECASE)
-                        if kk_match:
-                            start_pos = max(0, kk_match.start() - 5)
-                            raw_comment_parts.append(working_context[start_pos : kk_match.end() + 15].strip(" ,.-/|*"))
-                        
-                        if raw_comment_parts:
-                            full_note = " | ".join(raw_comment_parts)
-                            if admin_name:
-                                full_note = re.sub(rf'\b{re.escape(admin_name)}\b', '', full_note, flags=re.IGNORECASE)
-                                for name_part in admin_name.split():
-                                    if len(name_part) > 2:
-                                        full_note = re.sub(rf'\b{re.escape(name_part)}\b', '', full_note, flags=re.IGNORECASE)
-                            full_note = re.sub(ORDER_PAT, '', full_note)
-                            full_note = re.sub(MONEY_PAT, '', full_note)
-                            full_note = re.sub(r'\s+', ' ', full_note).strip(" ,.-/|*")
-
-                    full_note = re.sub(r'(Összesítés:|Csillagozott|Összesen:).*', '', full_note, flags=re.IGNORECASE)
-
-                    # 💡 FIX: Kapukód-védett telefonszám szűrő (csak ha perjel vagy 8-9 számjegy kíséri)
-                    for num in ["20", "30", "70", "06"]:
-                        full_note = full_note.replace(f"| {num} |", "|")
-                        full_note = full_note.replace(f"|{num}|", "|")
-
-                    if "|" in full_note:
-                        parts = [p.strip() for p in full_note.split("|")]
-                        if len(parts) > 1 and parts[1].lower().startswith(parts[0].lower()):
-                            parts[1] = parts[1][len(parts[0]):].strip()
-                        full_note = " | ".join(dict.fromkeys([p for p in parts if p]))
-
-                    full_note = re.sub(r'([ ,.]*[,.][ ,.]*){2,}', ' ', full_note)
-                    full_note = re.sub(r'\|\s*[,. ]+', '| ', full_note)
-                    full_note = re.sub(r'[,. ]+\s*\|', ' |', full_note)
-                    full_note = re.sub(r'(\|[ \t]*)+', ' | ', full_note)
+                    # Végső formázási simítások
+                    full_note = re.sub(r'\|\s*\|', '|', full_note)
                     full_note = re.sub(r'\s+', ' ', full_note)
                     full_note = full_note.strip(" ,.-/|*")
                     

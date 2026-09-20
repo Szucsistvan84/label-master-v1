@@ -169,7 +169,8 @@ def main():
             height: 40px !important;
         }
 
-        [data-testid="stSidebarCollapseButton"] {
+        /* 2. FIXÁLT SIDEBAR COLLAPSE GOMB MINDEN STREAMLIT VERZIÓRA */
+        [data-testid="stSidebarCollapseButton"], [data-testid="collapsedControl"] {
             visibility: visible !important; 
             display: inline-flex !important;
             background-color: #E5E7EB !important;
@@ -181,11 +182,11 @@ def main():
             z-index: 1000000 !important;
             transition: all 0.2s ease !important;
         }
-        [data-testid="stSidebarCollapseButton"] svg {
+        [data-testid="stSidebarCollapseButton"] svg, [data-testid="collapsedControl"] svg {
             fill: #111827 !important;
             color: #111827 !important;
-            width: 20px !important;
-            height: 20px !important;
+            width: 22px !important;
+            height: 22px !important;
         }
         [data-testid="stSidebarCollapseButton"]:hover { background-color: #D1D5DB !important; border-color: #0E7F35 !important; }
         

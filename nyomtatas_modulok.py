@@ -609,7 +609,119 @@ def create_manifest_pdf(df, c_n, c_p, meta):
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle(table_styles))
     elements.append(t)
-    
+
+    # =========================================================================
+    # 📊 MAI MŰSZERFAL ÖSSZEGZŐ KÁRTYA A MENETTERV VÉGÉRE (NYOMTATÁSI NÉZET)
+    # =========================================================================
+    elements.append(Spacer(1, 4 * mm))
+
+    # Adatok előkészítése a képernyőn látható műszerfal alapján
+    osszes_cim_szam = len(df)
+    osszes_megallo_szam = (
+        int(df['Cím'].nunique()) if 'Cím' in df.columns else osszes_cim_szam
+    )
+
+    # Darabszám összegzés
+    total_db_sum = 0
+    for _, r_db in df.iterrows():
+      try:
+        total_db_sum += int(
+            float(str(r_db.get('Összesen', 0)).replace("'", "").strip() or 0)
+        )
+      except:
+        pass
+
+    # Rakományérték és jutalék számítása
+    total_penz_sum = 0
+    for _, r_p in df.iterrows():
+      p_raw = str(r_p.get('Pénz', '')).strip()
+      p_clean = (
+          p_raw.replace('Ft', '')
+          .replace(' ', '')
+          .replace('\xa0', '')
+          .replace('.', '')
+      )
+      if p_clean.isdigit() or (
+          p_clean.startswith('-') and p_clean[1:].isdigit()
+      ):
+        total_penz_sum += int(p_clean)
+
+    forgalom_ertek = meta.get('total_ertek', total_penz_sum)
+    jutalek_ertek = meta.get('futar_jutalek', int(forgalom_ertek * 0.13))
+
+    m_card_data = [
+        [
+            Paragraph(
+                '<b>📊 MAI MŰSZERFAL ÖSSZESÍTÉS</b>',
+                ParagraphStyle(
+                    'MT',
+                    fontName=f_bold,
+                    fontSize=9,
+                    leading=11,
+                    textColor=colors.HexColor('#139D43'),
+                ),
+            ),
+            Paragraph(
+                f"Járat: <b>{j_str}</b>",
+                ParagraphStyle(
+                    'MJ',
+                    fontName=f_reg,
+                    fontSize=8,
+                    leading=10,
+                    alignment=2,
+                    textColor=colors.HexColor('#4B5563'),
+                ),
+            ),
+        ],
+        [
+            Paragraph(
+                f"""
+            📍 Tervezett megállók: <b>{osszes_megallo_szam} db</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
+            🏠 Összes cím (vevő): <b>{osszes_cim_szam} db</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
+            📦 Összes étel: <b>{total_db_sum} adag</b>
+            """,
+                ParagraphStyle(
+                    'MRow1', fontName=f_reg, fontSize=8, leading=10
+                ),
+            ),
+            '',
+        ],
+        [
+            Paragraph(
+                f"""
+            💵 Rakományérték: <b>{forgalom_ertek:,} Ft</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
+            ⭐ Várható Jutalék (13%): <b>{jutalek_ertek:,} Ft</b>
+            """.replace(
+                    ',', ' '
+                ),
+                ParagraphStyle(
+                    'MRow2',
+                    fontName=f_bold,
+                    fontSize=8.5,
+                    leading=11,
+                    textColor=colors.HexColor('#1F2937'),
+                ),
+            ),
+            '',
+        ],
+    ]
+
+    m_table = Table(m_card_data, colWidths=[140 * mm, 55 * mm])
+    m_table.setStyle(
+        TableStyle([
+            ('SPAN', (0, 1), (1, 1)),
+            ('SPAN', (0, 2), (1, 2)),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F9FAFB')),
+            ('BOX', (0, 0), (-1, -1), 1.2, colors.HexColor('#139D43')),
+            ('LINEBELOW', (0, 0), (-1, 0), 0.6, colors.HexColor('#E5E7EB')),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ])
+    )
+    elements.append(m_table)
+
     # --- UTOLSÓ OLDAL: QR-KÓD GENERÁLÁS MOBIL NÉZETHEZ ---
     elements.append(PageBreak()) 
     elements.append(Spacer(1, 40*mm)) 

@@ -169,21 +169,15 @@ def main():
             height: 40px !important;
         }
 
-        /* 2.1 NYITÓ GOMB (CSAK AKKOR LÁTHATÓ, HA AZ OLDALSÁV ZÁRVA VAN) */
+        /* 2.1 NYITÓ GOMB */
         [data-testid="stSidebarCollapsedControl"] {
             display: block !important;
             visibility: visible !important;
             position: fixed !important;
             top: 10px !important;
             left: 10px !important;
-            z-index: 99999 !important;
-        }
-
-        /* Ha az oldalsáv nyitva van, a lebegő gomb eltűnik és nem takarja ki a felületet */
-        section[data-testid="stSidebar"][aria-expanded="true"] ~ div [data-testid="stSidebarCollapsedControl"],
-        body:has(section[data-testid="stSidebar"][aria-expanded="true"]) [data-testid="stSidebarCollapsedControl"] {
-            display: none !important;
-            pointer-events: none !important;
+            z-index: 9999 !important;
+            pointer-events: none !important; /* Nem blokkol semmilyen kattintást a környezetében */
         }
 
         [data-testid="stSidebarCollapsedControl"] button {
@@ -197,6 +191,7 @@ def main():
             justify-content: center !important;
             box-shadow: 0 4px 12px rgba(19, 157, 67, 0.45) !important;
             cursor: pointer !important;
+            pointer-events: auto !important; /* Csak a zöld gomb fogad kattintást */
             transition: transform 0.15s ease, background-color 0.2s ease !important;
         }
 
@@ -213,23 +208,31 @@ def main():
             height: 26px !important;
         }
 
-        /* 2.2 BECSUKÓ GOMB (AZ OLDALSÁV BELSŐ FEJLÉCÉBEN, NYITOTT ÁLLAPOTBAN) */
+        /* 2.2 BECSUKÓ GOMB (A NYITOTT OLDALSÁVBAN) */
+        section[data-testid="stSidebar"] {
+            z-index: 1000000 !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"],
+        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
+        section[data-testid="stSidebar"] button[kind="header"] {
+            position: relative !important;
+            z-index: 1000005 !important;
+            pointer-events: auto !important;
+            cursor: pointer !important;
+        }
+
         section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
         section[data-testid="stSidebar"] button[kind="header"] {
             background-color: #E5E7EB !important;
-            border: 1.5px solid #139D43 !important;
+            border: 2px solid #139D43 !important;
             border-radius: 8px !important;
-            width: 36px !important;
-            height: 36px !important;
+            width: 38px !important;
+            height: 38px !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1) !important;
-            cursor: pointer !important;
-            margin-top: 4px !important;
-            margin-right: 4px !important;
-            z-index: 1000001 !important;
-            pointer-events: auto !important;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15) !important;
         }
 
         section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button:hover,
@@ -241,6 +244,7 @@ def main():
         section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg,
         section[data-testid="stSidebar"] button[kind="header"] svg {
             fill: #139D43 !important;
+            stroke: #139D43 !important;
             color: #139D43 !important;
             width: 22px !important;
             height: 22px !important;

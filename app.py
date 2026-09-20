@@ -169,26 +169,42 @@ def main():
             height: 40px !important;
         }
 
-        /* 2. FIXÁLT SIDEBAR COLLAPSE GOMB MINDEN STREAMLIT VERZIÓRA */
-        [data-testid="stSidebarCollapseButton"], [data-testid="collapsedControl"] {
-            visibility: visible !important; 
-            display: inline-flex !important;
-            background-color: #E5E7EB !important;
-            border: 2px solid #139D43 !important;
-            border-radius: 8px !important; 
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12) !important;
-            margin-left: 10px !important; 
-            margin-top: 8px !important; 
-            z-index: 1000000 !important;
-            transition: all 0.2s ease !important;
+        /* 2. KIEMELT, LEBEGŐ MŰSZERFAL-NYITÓ GOMB (MOBIL & DESKTOP, SÖTÉT/VILÁGOS MÓD-IMMUNIS) */
+        [data-testid="stSidebarCollapsedControl"] {
+            display: block !important;
+            visibility: visible !important;
+            position: fixed !important;
+            top: 10px !important;
+            left: 10px !important;
+            z-index: 999999 !important;
         }
-        [data-testid="stSidebarCollapseButton"] svg, [data-testid="collapsedControl"] svg {
-            fill: #111827 !important;
-            color: #111827 !important;
-            width: 22px !important;
-            height: 22px !important;
+
+        [data-testid="stSidebarCollapsedControl"] button {
+            background-color: #139D43 !important;
+            border: 2px solid #ffffff !important;
+            border-radius: 10px !important;
+            width: 44px !important;
+            height: 44px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            box-shadow: 0 4px 12px rgba(19, 157, 67, 0.45) !important;
+            cursor: pointer !important;
+            transition: transform 0.15s ease, background-color 0.2s ease !important;
         }
-        [data-testid="stSidebarCollapseButton"]:hover { background-color: #D1D5DB !important; border-color: #0E7F35 !important; }
+
+        [data-testid="stSidebarCollapsedControl"] button:hover {
+            transform: scale(1.08) !important;
+            background-color: #0E7F35 !important;
+        }
+
+        [data-testid="stSidebarCollapsedControl"] svg {
+            fill: #ffffff !important;
+            stroke: #ffffff !important;
+            color: #ffffff !important;
+            width: 26px !important;
+            height: 26px !important;
+        }
         
         [data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
         

@@ -581,7 +581,7 @@ def create_manifest_pdf(df, c_n, c_p, meta):
         ])
 
     # =========================================================================
-    # 💡 ÖSSZESÍTŐ SOR HOZZÁADÁSA A TÁBLÁZAT LEGALJÁRA (AUDIT REKORD)
+    # 💡 1. ÖSSZESÍTŐ SOR A TÁBLÁZAT LEGALJÁRA (AUDIT REKORD)
     # =========================================================================
     summary_row_idx = len(table_data)
     penz_formatum = f"{total_penz_sum:,} Ft".replace(",", " ")
@@ -596,7 +596,6 @@ def create_manifest_pdf(df, c_n, c_p, meta):
         Paragraph(f"<b>{total_db_sum}</b>", styles['SummaryBold'])
     ])
 
-    # Összesítő sor kiemelése a táblázatban
     table_styles.extend([
         ('BACKGROUND', (0, summary_row_idx), (-1, summary_row_idx), colors.HexColor('#E5E7EB')),
         ('BOX', (0, summary_row_idx), (-1, summary_row_idx), 1.5, colors.black),
@@ -611,35 +610,19 @@ def create_manifest_pdf(df, c_n, c_p, meta):
     elements.append(t)
 
     # =========================================================================
-    # 📱 UTOLSÓ OLDAL: MAI MŰSZERFAL ÖSSZESÍTÉS ÉS DIGITÁLIS TERMINÁL QR-KÓD
+    # 📱 2. ZÁRÓ OLDAL: MAI MŰSZERFAL ÖSSZESÍTÉS + QR-KÓD (EGYSZER, EGYBEN)
     # =========================================================================
     elements.append(PageBreak())
     elements.append(Spacer(1, 10*mm))
 
-    # Adatok előkészítése a műszerfalhoz
     osszes_cim_szam = len(df)
     osszes_megallo_szam = int(df['Cím'].nunique()) if 'Cím' in df.columns else osszes_cim_szam
 
-    total_db_sum = 0
-    for _, r_db in df.iterrows():
-        try:
-            total_db_sum += int(float(str(r_db.get('Összesen', 0)).replace("'", "").strip() or 0))
-        except:
-            pass
-
-    total_penz_sum = 0
-    for _, r_p in df.iterrows():
-        p_raw = str(r_p.get('Pénz', '')).strip()
-        p_clean = p_raw.replace('Ft', '').replace(' ', '').replace('\xa0', '').replace('.', '')
-        if p_clean.isdigit() or (p_clean.startswith('-') and p_clean[1:].isdigit()):
-            total_penz_sum += int(p_clean)
-
     forgalom_ertek = meta.get('total_ertek', total_penz_sum)
     jutalek_ertek = meta.get('futar_jutalek', int(forgalom_ertek * 0.13))
-    penz_formatum = f"{forgalom_ertek:,} Ft".replace(",", " ")
+    forgalom_formatum = f"{forgalom_ertek:,} Ft".replace(",", " ")
     jutalek_formatum = f"{jutalek_ertek:,} Ft".replace(",", " ")
 
-    # DejaVu betűkészlettel garantáltan megjelenő tipográfia (nincs hiányzó emoji / üres doboz)
     m_card_data = [
         [
             Paragraph("<b>MAI MŰSZERFAL ÖSSZESÍTÉS</b>", ParagraphStyle('MT', fontName=f_bold, fontSize=11, leading=13, textColor=colors.HexColor('#139D43'))),
@@ -651,7 +634,7 @@ def create_manifest_pdf(df, c_n, c_p, meta):
         ],
         [
             Paragraph(f"Összes étel: <b>{total_db_sum} adag</b>", ParagraphStyle('M3', fontName=f_bold, fontSize=9, leading=11, textColor=colors.HexColor('#139D43'))),
-            Paragraph(f"Rakományérték: <b>{penz_formatum}</b>", ParagraphStyle('M4', fontName=f_bold, fontSize=9, leading=11, alignment=2))
+            Paragraph(f"Rakományérték: <b>{forgalom_formatum}</b>", ParagraphStyle('M4', fontName=f_bold, fontSize=9, leading=11, alignment=2))
         ],
         [
             Paragraph(f"Várható Jutalék (13%): <b>{jutalek_formatum}</b>", ParagraphStyle('M5', fontName=f_bold, fontSize=9.5, leading=12, textColor=colors.HexColor('#B45309'))),
@@ -664,8 +647,8 @@ def create_manifest_pdf(df, c_n, c_p, meta):
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F9FAFB')),
         ('BOX', (0,0), (-1,-1), 1.2, colors.HexColor('#139D43')),
         ('LINEBELOW', (0,0), (-1,0), 0.8, colors.HexColor('#139D43')),
-        ('TOPPADDING', (0,0), (-1,-1), 4),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
         ('LEFTPADDING', (0,0), (-1,-1), 8),
         ('RIGHTPADDING', (0,0), (-1,-1), 8),
     ]))

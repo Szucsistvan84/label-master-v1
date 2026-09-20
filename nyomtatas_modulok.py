@@ -611,121 +611,69 @@ def create_manifest_pdf(df, c_n, c_p, meta):
     elements.append(t)
 
     # =========================================================================
-    # 📊 MAI MŰSZERFAL ÖSSZEGZŐ KÁRTYA A MENETTERV VÉGÉRE (NYOMTATÁSI NÉZET)
+    # 📱 UTOLSÓ OLDAL: MAI MŰSZERFAL ÖSSZESÍTÉS ÉS DIGITÁLIS TERMINÁL QR-KÓD
     # =========================================================================
-    elements.append(Spacer(1, 4 * mm))
+    elements.append(PageBreak())
+    elements.append(Spacer(1, 10*mm))
 
-    # Adatok előkészítése a képernyőn látható műszerfal alapján
+    # Adatok előkészítése a műszerfalhoz
     osszes_cim_szam = len(df)
-    osszes_megallo_szam = (
-        int(df['Cím'].nunique()) if 'Cím' in df.columns else osszes_cim_szam
-    )
+    osszes_megallo_szam = int(df['Cím'].nunique()) if 'Cím' in df.columns else osszes_cim_szam
 
-    # Darabszám összegzés
     total_db_sum = 0
     for _, r_db in df.iterrows():
-      try:
-        total_db_sum += int(
-            float(str(r_db.get('Összesen', 0)).replace("'", "").strip() or 0)
-        )
-      except:
-        pass
+        try:
+            total_db_sum += int(float(str(r_db.get('Összesen', 0)).replace("'", "").strip() or 0))
+        except:
+            pass
 
-    # Rakományérték és jutalék számítása
     total_penz_sum = 0
     for _, r_p in df.iterrows():
-      p_raw = str(r_p.get('Pénz', '')).strip()
-      p_clean = (
-          p_raw.replace('Ft', '')
-          .replace(' ', '')
-          .replace('\xa0', '')
-          .replace('.', '')
-      )
-      if p_clean.isdigit() or (
-          p_clean.startswith('-') and p_clean[1:].isdigit()
-      ):
-        total_penz_sum += int(p_clean)
+        p_raw = str(r_p.get('Pénz', '')).strip()
+        p_clean = p_raw.replace('Ft', '').replace(' ', '').replace('\xa0', '').replace('.', '')
+        if p_clean.isdigit() or (p_clean.startswith('-') and p_clean[1:].isdigit()):
+            total_penz_sum += int(p_clean)
 
     forgalom_ertek = meta.get('total_ertek', total_penz_sum)
     jutalek_ertek = meta.get('futar_jutalek', int(forgalom_ertek * 0.13))
+    penz_formatum = f"{forgalom_ertek:,} Ft".replace(",", " ")
+    jutalek_formatum = f"{jutalek_ertek:,} Ft".replace(",", " ")
 
+    # DejaVu betűkészlettel garantáltan megjelenő tipográfia (nincs hiányzó emoji / üres doboz)
     m_card_data = [
         [
-            Paragraph(
-                '<b>📊 MAI MŰSZERFAL ÖSSZESÍTÉS</b>',
-                ParagraphStyle(
-                    'MT',
-                    fontName=f_bold,
-                    fontSize=9,
-                    leading=11,
-                    textColor=colors.HexColor('#139D43'),
-                ),
-            ),
-            Paragraph(
-                f"Járat: <b>{j_str}</b>",
-                ParagraphStyle(
-                    'MJ',
-                    fontName=f_reg,
-                    fontSize=8,
-                    leading=10,
-                    alignment=2,
-                    textColor=colors.HexColor('#4B5563'),
-                ),
-            ),
+            Paragraph("<b>MAI MŰSZERFAL ÖSSZESÍTÉS</b>", ParagraphStyle('MT', fontName=f_bold, fontSize=11, leading=13, textColor=colors.HexColor('#139D43'))),
+            Paragraph(f"Járat: <b>{j_str}</b>", ParagraphStyle('MJ', fontName=f_bold, fontSize=9, leading=11, alignment=2, textColor=colors.HexColor('#1F2937')))
         ],
         [
-            Paragraph(
-                f"""
-            📍 Tervezett megállók: <b>{osszes_megallo_szam} db</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
-            🏠 Összes cím (vevő): <b>{osszes_cim_szam} db</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
-            📦 Összes étel: <b>{total_db_sum} adag</b>
-            """,
-                ParagraphStyle(
-                    'MRow1', fontName=f_reg, fontSize=8, leading=10
-                ),
-            ),
-            '',
+            Paragraph(f"Tervezett megállók: <b>{osszes_megallo_szam} db</b>", ParagraphStyle('M1', fontName=f_reg, fontSize=8.5, leading=11)),
+            Paragraph(f"Összes cím (vevő): <b>{osszes_cim_szam} db</b>", ParagraphStyle('M2', fontName=f_reg, fontSize=8.5, leading=11, alignment=2))
         ],
         [
-            Paragraph(
-                f"""
-            💵 Rakományérték: <b>{forgalom_ertek:,} Ft</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
-            ⭐ Várható Jutalék (13%): <b>{jutalek_ertek:,} Ft</b>
-            """.replace(
-                    ',', ' '
-                ),
-                ParagraphStyle(
-                    'MRow2',
-                    fontName=f_bold,
-                    fontSize=8.5,
-                    leading=11,
-                    textColor=colors.HexColor('#1F2937'),
-                ),
-            ),
-            '',
+            Paragraph(f"Összes étel: <b>{total_db_sum} adag</b>", ParagraphStyle('M3', fontName=f_bold, fontSize=9, leading=11, textColor=colors.HexColor('#139D43'))),
+            Paragraph(f"Rakományérték: <b>{penz_formatum}</b>", ParagraphStyle('M4', fontName=f_bold, fontSize=9, leading=11, alignment=2))
         ],
+        [
+            Paragraph(f"Várható Jutalék (13%): <b>{jutalek_formatum}</b>", ParagraphStyle('M5', fontName=f_bold, fontSize=9.5, leading=12, textColor=colors.HexColor('#B45309'))),
+            Paragraph(f"Futár: <b>{c_n}</b>", ParagraphStyle('M6', fontName=f_reg, fontSize=8, leading=10, alignment=2, textColor=colors.HexColor('#4B5563')))
+        ]
     ]
 
-    m_table = Table(m_card_data, colWidths=[140 * mm, 55 * mm])
-    m_table.setStyle(
-        TableStyle([
-            ('SPAN', (0, 1), (1, 1)),
-            ('SPAN', (0, 2), (1, 2)),
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F9FAFB')),
-            ('BOX', (0, 0), (-1, -1), 1.2, colors.HexColor('#139D43')),
-            ('LINEBELOW', (0, 0), (-1, 0), 0.6, colors.HexColor('#E5E7EB')),
-            ('TOPPADDING', (0, 0), (-1, -1), 3),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-            ('LEFTPADDING', (0, 0), (-1, -1), 6),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-        ])
-    )
+    m_table = Table(m_card_data, colWidths=[100*mm, 95*mm])
+    m_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F9FAFB')),
+        ('BOX', (0,0), (-1,-1), 1.2, colors.HexColor('#139D43')),
+        ('LINEBELOW', (0,0), (-1,0), 0.8, colors.HexColor('#139D43')),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (0,0), (-1,-1), 8),
+        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+    ]))
     elements.append(m_table)
+    elements.append(Spacer(1, 15*mm))
 
-    # --- UTOLSÓ OLDAL: QR-KÓD GENERÁLÁS MOBIL NÉZETHEZ ---
-    elements.append(PageBreak()) 
-    elements.append(Spacer(1, 40*mm)) 
-    elements.append(Paragraph("📱 DIGITÁLIS FUTÁR TERMINÁL INDÍTÁSA", styles['QRTitle']))
+    # --- DIGITÁLIS TERMINÁL INDÍTÁSA (QR-KÓD) ---
+    elements.append(Paragraph("DIGITÁLIS FUTÁR TERMINÁL INDÍTÁSA", styles['QRTitle']))
     
     alap_url = "https://interfood-menetterv-etikett-generator.streamlit.app"
     jarat_id = meta.get('jarat', '')
@@ -741,7 +689,7 @@ def create_manifest_pdf(df, c_n, c_p, meta):
     d.hAlign = 'CENTER'
     
     elements.append(d)
-    elements.append(Spacer(1, 10*mm))
+    elements.append(Spacer(1, 8*mm))
     
     magyarazat = f"""
     Szkenneld be a fenti QR-kódot a telefonoddal a mobilra optimalizált nézet megnyitásához!<br/><br/>

@@ -507,35 +507,20 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                                 for sz_sor in szombat_sorok_list:
                                     st.markdown(f"<div style='font-size: 0.82rem; color: #DC2626; background-color: #FEF2F2; padding: 2px 4px; border-radius: 4px; margin-bottom: 6px;'>{sz_sor}</div>", unsafe_allow_html=True)
 
-                                # 🔀 ABSZOLÚT FIX GOLYÓÁLLÓ ELRENDEZÉS EGYETLEN HTML BLOKKBAN
+                                # --- 📦 NATÍV, EGYSOROS BEPAKOLÁS KAPCSOLÓ ---
                                 lada_tarolt_kulcs = f"lada_szam_tarolt_{idx}"
                                 tarolt_lada_ertek = st.session_state.get(lada_tarolt_kulcs, None)
                                 
                                 if tarolt_lada_ertek:
-                                    label_text = f"🟢 Bepakolva ide: {tarolt_lada_ertek}"
+                                    toggle_label = f"🟢 Bepakolva ide: {tarolt_lada_ertek}"
                                 else:
-                                    label_text = "⚪ Bepakolás a ládába"
-                                
-                                # Flexbox-os kényszerített formázás
-                                st.markdown(
-                                    f"""
-                                    <style>
-                                    div[data-testid="stBlock"] {{
-                                        display: flex !important;
-                                        flex-direction: row !important;
-                                        justify-content: space-between !important;
-                                        align-items: center !important;
-                                        width: 100% !important;
-                                    }}
-                                    </style>
-                                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 4px;">
-                                        <div style="font-size: 0.85rem; font-weight: bold; color: #374151; text-align: left;">{label_text}</div>
-                                    </div>
-                                    """, 
-                                    unsafe_allow_html=True
+                                    toggle_label = "⚪ Bepakolás a ládába"
+
+                                val_toggle = st.toggle(
+                                    toggle_label,
+                                    value=st.session_state[f"bepak_allapot_{idx}"],
+                                    key=f"chk_{idx}"
                                 )
-                                
-                                val_toggle = st.toggle("Láda", value=st.session_state[f"bepak_allapot_{idx}"], key=f"chk_{idx}", label_visibility="collapsed")
                                 
                                 if val_toggle != st.session_state[f"bepak_allapot_{idx}"]:
                                     frissit_bepakolas_felhoben(idx, val_toggle)

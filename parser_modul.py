@@ -17,16 +17,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
     rows = []
     metadata = {'year': None, 'week': None, 'day': None, 'jaratok': []}
     
-    stop_words = [
-        "Összesítés:", 
-        "Csilagozott betűnél", 
-        "Összesen:", 
-        "Nyomtatta:", 
-        "Oldal:", 
-        "Menetlevél", 
-        "Vége"
-    ]
-
     with pdfplumber.open(pdf_file) as pdf:
         page = pdf.pages[0]
         W = page.width
@@ -56,15 +46,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                 # --- 1. ZÓNA ÉS SZÖVEG BEOLVASÁSA ---
                 y_top = max(0, anchor['top'] - 12)
-                
-                if i + 1 < len(anchors):
-                    y_bottom = anchors[i+1]['top'] + 5 
-                else:
-                    y_bottom = min(page_cutoff, anchor['top'] + 180)
-                
-                if y_bottom <= y_top: 
-                    y_bottom = y_top + 60 
-
                 next_anchor_top = anchors[i+1]['top'] - 5 if i+1 < len(anchors) else page_cutoff
                 y_bottom = min(next_anchor_top, page_cutoff)
                 
@@ -81,9 +62,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 line_text_full = " ".join([w['text'] for w in line_words])
                 header_keywords = ["sor", "ügyfél", "ügyintéző", "telefon", "rendelése", "össz"]
                 matched_header_words = sum(1 for kw in header_keywords if kw in line_text_full.lower())
-                
-                if matched_header_words >= 3:
-                    continue 
+                if matched_header_words >= 3: continue 
                 
                 tiltott_szavak = ["járat", "menetterve", "Év:", "Hét:", "Nap:", "InterFood", "oldal", "Nyomtatva", "Összesítés:", "Csilagozott", "Összesen:"]
                 if any(stop in line_text_full for stop in tiltott_szavak):
@@ -109,7 +88,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
                     row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
 
-                    # --- 2. TELEFON ÉS PÉNZ ---
+                    # --- 2. TELEFON ÉS PÉNZ KINYERÉSE ---
                     tel_money_words = sorted([w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5], key=lambda w: w['top'])
                     
                     phone_val, money_val = "", "0Ft"
@@ -194,21 +173,17 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         txt = w['text'].strip()
                         if any(stop in txt for stop in ["Összesítés:", "Csilagozott", "Összesen:"]):
                             break
-                        if re.match(r'^\d{2}/\d+', txt): # Telefonszám kizárása
+                        if re.match(r'^\d{2}/\d+', txt):
                             continue
-                        if "Ft" in txt: # Pénzmaradvány kizárása
+                        if "Ft" in txt:
                             continue
                         tiszta_elemek.append(txt)
 
                     raw_folyoso_text = " ".join(tiszta_elemek)
-
-                    # Multiline stitcher a törött rendelések összeforrasztásához
                     fixed_text = re.sub(r'(\d+)\s*([-\u2013\u2014\u2212])\s*', r'\1\2', raw_folyoso_text)
                     fixed_text = re.sub(r'(\d+[-\u2013\u2014\u2212])\s+([A-Z0-9*+]+)', r'\1\2', fixed_text)
 
                     potential_orders = re.findall(ORDER_PAT, fixed_text)
-
-                    # Szigorú napi étlapkód validáció (kizárja a 223, R, stb. maradványokat)
                     ervenyes_orders = []
                     tiszta_etlap_set = {str(k).strip().upper().replace('*', '') for k in napi_etlap_kodok if str(k).strip()}
 
@@ -245,8 +220,8 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     id_match_context = re.search(id_pattern, full_block_text)
                     working_context = full_block_text[id_match_context.start():] if id_match_context else full_block_text
 
-                    clean_context = re.sub(ORDER_PAT, '', working_context)
-                    clean_context = re.sub(MONEY_PAT, '', clean_context)
+                    # 💡 FIX: NEM futtatunk ORDER_PAT-ot working_context-en, mert megenné a "2-26", "1-11" házszámokat!
+                    clean_context = re.sub(MONEY_PAT, '', working_context)
                     if phone_val:
                         clean_context = clean_context.replace(phone_val, " ")
 
@@ -278,26 +253,31 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         after_address = clean_context[anchor_pos:].strip()
                         megj_resz_2 = after_address
                     else:
-                        megj_resz_2 = clean_context
+                        # Ha a cím apró eltéréssel nem talál egybe, az irányítószám + utca utáni részt vágjuk le
+                        if zip_match:
+                            megj_resz_2 = clean_context[zip_match.end():].strip()
+                            # Levágjuk a városnevet és az utcanevet a megjegyzés 2 elejéről
+                            megj_resz_2 = re.sub(r'^(?:Debrecen|Ebes|Hajdú[a-zA-Z]*)[^,]*,\s*[^.]*\.\s*', '', megj_resz_2).strip()
+                        else:
+                            megj_resz_2 = clean_context
 
-                    # 🛡️ Tisztítás: Ügyintéző és lebegő előhívók levágása Megjegyzés 1-ből
-                    if megj_resz_1:
-                        if admin_name:
-                            megj_resz_1 = re.sub(rf'\b{re.escape(admin_name)}\b', '', megj_resz_1, flags=re.IGNORECASE).strip()
-                            for w in admin_name.split():
-                                if len(w) > 2:
-                                    megj_resz_1 = re.sub(rf'\b{re.escape(w)}\b', '', megj_resz_1, flags=re.IGNORECASE).strip()
-                        megj_resz_1 = re.sub(r'(?:^|\s)(?:20|30|70)(?:\s|$)', ' ', megj_resz_1).strip(" -/|.,*")
+                    # 🛡️ TISZTÍTÁS: ID törlése
+                    megj_resz_1 = re.sub(r'\b[A-Za-z0-9]{1,3}-\d{5,7}\b', '', megj_resz_1).strip()
+                    megj_resz_2 = re.sub(r'\b[A-Za-z0-9]{1,3}-\d{5,7}\b', '', megj_resz_2).strip()
 
-                    # 🛡️ Tisztítás: Ügyintéző és lebegő előhívók levágása Megjegyzés 2-ből (Kapukód-védelemmel)
-                    if megj_resz_2:
-                        if admin_name:
-                            megj_resz_2 = re.sub(rf'\b{re.escape(admin_name)}\b', '', megj_resz_2, flags=re.IGNORECASE).strip()
-                            for w in admin_name.split():
-                                if len(w) > 2:
-                                    megj_resz_2 = re.sub(rf'\b{re.escape(w)}\b', '', megj_resz_2, flags=re.IGNORECASE).strip()
-                        # Csak a lebegő, önálló 20/30/70 számokat vágja le, a kcs:20, 30k2480 stb. kapukódokat MEGÓVJA
-                        megj_resz_2 = re.sub(r'(?:^|\s)(?:20|30|70)(?=\s*(?:\||$))', ' ', megj_resz_2).strip(" -/|.,*")
+                    # 🛡️ TISZTÍTÁS: Ügyintéző levágása
+                    if admin_name:
+                        megj_resz_1 = re.sub(rf'\b{re.escape(admin_name)}\b', '', megj_resz_1, flags=re.IGNORECASE).strip()
+                        megj_resz_2 = re.sub(rf'\b{re.escape(admin_name)}\b', '', megj_resz_2, flags=re.IGNORECASE).strip()
+                        for w in admin_name.split():
+                            if len(w) > 2:
+                                megj_resz_1 = re.sub(rf'\b{re.escape(w)}\b', '', megj_resz_1, flags=re.IGNORECASE).strip()
+                                megj_resz_2 = re.sub(rf'\b{re.escape(w)}\b', '', megj_resz_2, flags=re.IGNORECASE).strip()
+
+                    # 🛡️ TISZTÍTÁS: Árva előhívók levágása PERJELLEL ÉS ANÉLKÜL IS (pl. "20/", "30/", "70/")
+                    # Figyelem: a valódi kapukódokat (pl. 30k2480, kcs: 20) és a telefonszámokat VÉDI!
+                    megj_resz_1 = re.sub(r'(?:^|[\s|])(?:20|30|70)\s*/?\s*(?=[^\d\w]|$)', ' ', megj_resz_1).strip(" -/|.,*")
+                    megj_resz_2 = re.sub(r'(?:^|[\s|])(?:20|30|70)\s*/?\s*(?=[^\d\w]|$)', ' ', megj_resz_2).strip(" -/|.,*")
 
                     # Felesleges rendszerfeliratok törlése
                     junk_list = [
@@ -322,9 +302,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                             final_parts.append(r2)
 
                     full_note = " | ".join(final_parts)
-                    
-                    # Végső formázási simítások
-                    full_note = re.sub(r'\|\s*\|', '|', full_note)
+                    full_note = re.sub(r'(?:\s*\|\s*)+', ' | ', full_note)
                     full_note = re.sub(r'\s+', ' ', full_note)
                     full_note = full_note.strip(" ,.-/|*")
                     

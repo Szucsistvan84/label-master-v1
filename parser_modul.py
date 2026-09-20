@@ -7,9 +7,9 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# --- GLOBÁLIS REGEX MINTÁK (PDF FELDOLGOZÁSHOZ - FRISSÍTVE A HIBÁS PONTOZÁS ÉS ÖSSZEFOLYÁS ELLEN) ---
+# --- GLOBÁLIS REGEX MINTÁK ---
 PHONE_PAT = r'(\d{2}/[\.\s]*\d(?:[\s\.,-]*\d){5,6})'
-ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z][A-Z0-9*+]*)'
+ORDER_PAT = r'(\d+)\s*[-\u2013\u2014\u2212]\s*([A-Z0-9*+]+)'
 MONEY_PAT = r'([-\u2013\u2014\u2212]?\s*\d+[\d\s]*\s*Ft)'
 
 # --- FŐ FÜGGVÉNY: PDF BEOLVASÁS ÉS BLOKKOSÍTÁS ---
@@ -33,25 +33,19 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
         def c(kocka): return (kocka / 88) * W
         v_lines = [c(0), c(5.5), c(21.5), c(39.5), c(47), c(52), c(82.5), c(88)]
 
-        # Kinyerjük a napot az első oldalról gyorsan, hogy a sorszám-ragadásos horgonyoknál tudjuk a napot
         first_page_text = pdf.pages[0].extract_text() or ""
         nap_m = re.search(r'Nap:\s*([a-zA-ZáéíóöőúüűÁÉÍÓÖŐÚÜŰ]+)', first_page_text)
         detect_day = nap_m.group(1).strip().lower() if nap_m else ""
 
         for pg in pdf.pages:
             words = pg.extract_words(x_tolerance=3, y_tolerance=3)
-            
-            # Horgonyok gyűjtése (Sorszám-ragadás elleni védelemmel)
             anchors = [w for w in words if re.search(r'\b[A-Za-z0-9]{1,3}-\d{5,7}\b', w['text'])]
             
-            # --- JAVÍTOTT, DINAMIKUS LÁBLÉC-SOROMPÓ (MINDEN LAP ALÁN MEGBÍZHATÓAN LEZÁR) ---
-            # Csak az utolsó érvényes horgony alatt keresünk lábléc elemeket, így a rövid lapokon is tökéletes
             last_anchor_top = max([a['top'] for a in anchors]) if anchors else 120
             
             footer_elements = []
             for w in words:
                 txt = w['text']
-                # Ékezet- és kódolás-immunis részstring alapú lábléc szűrő
                 if any(tag.lower() in txt.lower() for tag in ["Összesítés", "osszesites", "Csilagozott", "csillagozott", "Összesen", "osszesen", "nyomtatta", "oldal", "menetlevél", "menetlevel"]) and w['top'] > last_anchor_top:
                     footer_elements.append(w)
             
@@ -131,9 +125,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                 full_id_area = get_col_text(v_lines[0], v_lines[2])
                 id_match = re.search(r'([A-Za-z0-9]{1,3}-\d{5,7})', full_id_area)
                 
-                # --- 0. BIZTONSÁGOS, KONTEXTUS-ALAPÚ FEJLÉC ÉS LÁBLÉC SZŰRÉS ---
                 line_text_full = " ".join([w['text'] for w in line_words])
-                
                 header_keywords = ["sor", "ügyfél", "ügyintéző", "telefon", "rendelése", "össz"]
                 matched_header_words = sum(1 for kw in header_keywords if kw in line_text_full.lower())
                 
@@ -164,7 +156,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     y_anchor = (anchor['top'] + anchor['bottom']) / 2
                     row_words = [w for w in line_words if abs(((w['top'] + w['bottom']) / 2) - y_anchor) < 8]
 
-                    # --- 2. TELEFON ÉS PÉNZ (PONTOZÁST ÉS ÖSSZEFOLYÁST TISZTÍTÓ LOGIKÁVAL) ---
+                    # --- 2. TELEFON ÉS PÉNZ ---
                     tel_money_words = sorted([w for w in row_words if x40 <= (w['x0'] + w['x1'])/2 < x52_5], key=lambda w: w['top'])
                     
                     phone_val, money_val = "", "0Ft"
@@ -190,7 +182,7 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                             else:
                                 money_val = "0Ft"
 
-                    # --- ÜGYINTÉZŐ KERESÉSE (SZIGORÚ NÉV-SZŰRÉS) ---
+                    # --- ÜGYINTÉZŐ KERESÉSE ---
                     x_start_admin = (38 / 88) * W
                     x_end_admin = (54 / 88) * W
                     
@@ -211,7 +203,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                             if re.search(r'\d-[A-Z]', t_clean): continue
                             if t_clean.isdigit() and len(t_clean) < 4: continue
                             
-                            # SZIGORÚ JAVÍTOTT NÉV-SZŰRÉS (Csak nagybetűs szavak)
                             if not (t_clean[0].isupper() or t_clean.startswith("Dr.") or t_clean.lower() in ["id.", "ifj.", "özv."]):
                                 continue
                                 
@@ -235,10 +226,10 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     admin_name = " ".join(final_parts).strip(" -/|.,*")
                     admin_name = " ".join(admin_name.split())
 
-                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA ---
+                    # --- 4. RENDELÉS ÉS MEGJEGYZÉS SZÉTVÁLASZTÁSA (JAVÍTVA!) ---
                     width = page.width 
-                    x_start_limit = width * 0.596 
-                    x_end_limit = width * 0.91    
+                    x_start_limit = width * 0.54 
+                    x_end_limit = width * 0.94    
 
                     folyoso_words = sorted([
                         w for w in line_words 
@@ -250,36 +241,20 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         txt = w['text'].strip()
                         if any(stop in txt for stop in ["Összesítés:", "Csilagozott", "Összesen:"]):
                             break
-                        if re.match(r'\d{2}/\d+', txt):
+                        if re.match(r'^\d{2}/\d+', txt):
                             continue
-                        if re.search(r'/[\d\-\u2013\u2014\u2212A-Z\*]', txt):
-                            tiszta_elemek.append(txt)
+                        tiszta_elemek.append(txt)
 
                     raw_folyoso_text = " ".join(tiszta_elemek)
+
+                    # 💡 MULTILINE STITCHER: A kötőjelnél eltört sorok összeforrasztása (pl. "4- \n R4" -> "4-R4")
                     fixed_text = re.sub(r'(\d+)\s*([-\u2013\u2014\u2212])\s*', r'\1\2', raw_folyoso_text)
+                    fixed_text = re.sub(r'(\d+[-\u2013\u2014\u2212])\s+([A-Z0-9*+]+)', r'\1\2', fixed_text)
 
+                    # 💡 FIX: Megszüntettük a veszélyes fallbacket! Csak a folyosóból olvas rendelést.
                     raw_orders = re.findall(ORDER_PAT, fixed_text)
-                    if not raw_orders:
-                        box_content = " ".join([w['text'] for w in line_words])
-                        potential_orders = re.findall(ORDER_PAT, box_content)
-                        raw_orders = potential_orders
-
                     rendeles_str = ", ".join([f"{q}-{c}" for q, c in raw_orders])
                     
-                    full_line_text = " ".join([w['text'] for w in sorted(line_words, key=lambda x: x['x0'])])
-                    clean_comment = full_line_text
-                    
-                    for q, c in raw_orders:
-                        p = rf'{q}\s*[-\u2013\u2014\u2212]\s*{re.escape(c)}'
-                        clean_comment = re.sub(p, '', clean_comment, count=1)
-                    
-                    clean_comment = re.sub(PHONE_PAT, '', clean_comment)
-                    clean_comment = re.sub(MONEY_PAT, '', clean_comment)
-                    clean_comment = re.sub(r'^[S|C|P]-\d+\s+', '', clean_comment)
-                    
-                    megjegyzes = clean_comment.strip(", ").strip()
-                    megjegyzes = re.sub(r'\s+', ' ', megjegyzes).strip()
-
                     # CÍM meghatározása (v_lines[2] és x40 között)
                     address = " ".join([w['text'] for w in sorted([w for w in row_words if v_lines[2] <= (w['x0']+w['x1'])/2 < x40], key=lambda x: x['x0'])]).strip()
 
@@ -296,39 +271,12 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                 break
                         address = " ".join(address_parts).strip(" ,.|/-")
 
-                    raw_line = line_text_full 
-                    megj_resz_1 = "" 
-                    megj_resz_2 = ""
-                    parts = []  
-
-                    id_pattern = r'[A-Za-z0-9]{1,3}-\d{6}'
-                    id_match = re.search(id_pattern, raw_line)
-                    working_line = raw_line
-                    if id_match:
-                        working_line = raw_line[id_match.start():]
-
-                    phone_for_clean = ""
-                    p_match = re.search(PHONE_PAT, working_line)
-                    if p_match: phone_for_clean = p_match.group(1)
-
-                    money_for_clean = ""
-                    m_match = re.search(MONEY_PAT, working_line)
-                    if m_match: money_for_clean = m_match.group(1)
-
-                    address_for_clean = ""
-                    city_match = re.search(r'\b\d{4}\b', working_line)
-                    if city_match:
-                        start_idx = city_match.start()
-                        end_pat = f"{re.escape(phone_for_clean)}|{re.escape(money_for_clean)}|Ft|{ORDER_PAT}"
-                        end_match = re.search(end_pat, working_line[start_idx:])
-                        if end_match:
-                            address_for_clean = working_line[start_idx : start_idx + end_match.start()].strip()
-                        else:
-                            address_for_clean = working_line[start_idx:].strip()
-
-                    line_words_sorted = sorted(line_words, key=lambda x: (round(x['top'] / 3) * 3, x['x0']))
+                    # Megjegyzések kinyerése a bal zónából
+                    left_words = [w for w in line_words if (w['x0'] + w['x1'])/2 < x_start_limit]
+                    line_words_sorted = sorted(left_words, key=lambda x: (round(x['top'] / 3) * 3, x['x0']))
                     full_block_text = " ".join([w['text'] for w in line_words_sorted])
                     
+                    id_pattern = r'[A-Za-z0-9]{1,3}-\d{6}'
                     id_match_context = re.search(id_pattern, full_block_text)
                     working_context = full_block_text[id_match_context.start():] if id_match_context else full_block_text
 
@@ -372,7 +320,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         all_notes.append(megj_resz_1.strip())
                     if megj_resz_2.strip():
                         all_notes.append(megj_resz_2.strip())
-                    all_notes.extend(parts)
 
                     seen = set()
                     final_parts = []
@@ -385,7 +332,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                     clean_customer = " | ".join(final_parts)
 
-                    # --- JUNK LIST CUSTOMER ---
                     junk_list = [
                         "Felnőtt", "Nyugdíjas", "Gyerek", "Vendég", "Dr.", "idősb", "ifj",
                         "Csilagozott betűnél kiegészítő is van!!!",
@@ -414,8 +360,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                     extra_instructions = extra_instructions.replace("/", "").strip(" -/|.,")
 
-                    clean_customer = re.sub(r'\b(20|30|70)\b(?![/\d])', '', clean_customer)
-
                     if admin_name:
                         clean_customer = re.sub(rf'\b{re.escape(admin_name)}\b', '', clean_customer, flags=re.IGNORECASE)
                         for name_part in admin_name.split():
@@ -423,14 +367,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                                 clean_customer = re.sub(rf'\b{re.escape(name_part)}\b', '', clean_customer, flags=re.IGNORECASE)
 
                     clean_customer = re.sub(r'[,.;:|*]{2,}', ' ', clean_customer)
-
-                    reszleg = ""
-                    extra_instructions = clean_customer
-                    if "/" in clean_customer:
-                        if not re.search(r'\d/\d', clean_customer):
-                            c_parts = clean_customer.split("/")
-                            reszleg = c_parts[0].strip()
-                            extra_instructions = "/".join(c_parts[1:]).strip()
 
                     final_note_parts = []
                     r_clean = reszleg.strip(" ,.-/|*")
@@ -455,7 +391,6 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     
                     full_note = " | ".join(final_note_parts)
                     
-                    # --- GOLYÓÁLLÓ AUTODETECT / FALLBACK SAFETY NET (EMESE KÓDJÁNAK MENTÉSE) ---
                     if not full_note or len(full_note.strip()) < 3:
                         raw_comment_parts = []
                         kk_match = re.search(r'\b(kcs|kk|kapukód|kapukod|kulcs)\b.*?(\d+[a-zA-Z0-9]*)', working_context, flags=re.IGNORECASE)
@@ -476,13 +411,10 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
 
                     full_note = re.sub(r'(Összesítés:|Csillagozott|Összesen:).*', '', full_note, flags=re.IGNORECASE)
 
+                    # 💡 FIX: Kapukód-védett telefonszám szűrő (csak ha perjel vagy 8-9 számjegy kíséri)
                     for num in ["20", "30", "70", "06"]:
                         full_note = full_note.replace(f"| {num} |", "|")
                         full_note = full_note.replace(f"|{num}|", "|")
-                        full_note = full_note.replace(f"| {num}", "|")
-                        full_note = full_note.replace(f"{num} |", "|")
-                    
-                    full_note = re.sub(r'\b(20|30|70|06)\b(?!\s*/|\s*\d)', '', full_note)
 
                     if "|" in full_note:
                         parts = [p.strip() for p in full_note.split("|")]
@@ -505,12 +437,11 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         "Pénz": money_val, "Rendelés": rendeles_str, "Megjegyzés": full_note,
                         "Összesen": sum(int(q) for q, c in raw_orders) if raw_orders else 0,
                         "Rendelés_Full": full_rendeles_text, "temp_id": full_id.split('-')[-1],
-                        "Prefix": prefix, "Csoport": current_group_id if 'current_group_id' in locals() else 0
+                        "Prefix": prefix
                     })
     
     if not rows: return [], metadata
     df = pd.DataFrame(rows)
-    df['Csoport'] = df.groupby('temp_id').ngroup() + 1
     return df.to_dict('records'), metadata
 
 def extract_all_meta(pdf_files):
@@ -547,17 +478,11 @@ def extract_all_meta(pdf_files):
         try:
             nap_tisztitott = all_meta['nap'].lower().strip()
             nap_szamok = {
-                'hetfo': 1, 'hétfő': 1,
-                'kedd': 2,
-                'szerda': 3,
-                'csutortok': 4, 'csütörtök': 4,
-                'pente': 5, 'pénte': 5, 'pentek': 5, 'péntek': 5,
-                'szombat': 6,
-                'vasarnap': 7, 'vasárnap': 7
+                'hetfo': 1, 'hétfő': 1, 'kedd': 2, 'szerda': 3,
+                'csutortok': 4, 'csütörtök': 4, 'pente': 5, 'pénte': 5,
+                'pentek': 5, 'péntek': 5, 'szombat': 6, 'vasarnap': 7, 'vasárnap': 7
             }
-            
             nap_szoveg_kulcs = next((k for k in nap_szamok if k in nap_tisztitott), None)
-            
             if nap_szoveg_kulcs:
                 nap_szama = nap_szamok[nap_szoveg_kulcs]
                 target_year = int(all_meta['ev'])
@@ -565,7 +490,7 @@ def extract_all_meta(pdf_files):
                 kalkulalt_datum = datetime.strptime(f"{target_year}-{target_week}-{nap_szama}", "%G-%V-%u")
                 all_meta['datum_iso'] = kalkulalt_datum.strftime("%Y-%m-%d")
                 all_meta['api_datum_kulcs'] = kalkulalt_datum.strftime("%Y.%m.%d.")
-        except Exception as e:
+        except Exception:
             pass
 
     return all_meta
@@ -608,9 +533,6 @@ def split_name_logic(raw_text, name_db):
     return " ".join(name_parts), " ".join(comment_parts)
 
 def merge_data(all_rows):
-    import pandas as pd
-    import re
-
     if not all_rows: 
         return pd.DataFrame()
     
@@ -684,12 +606,9 @@ def merge_data(all_rows):
     res['Csoport'] = 0
     group_id = 1
     for i in range(1, len(res)):
-        # 💡 INTELLIGENS SZELETELŐS CÍMTISZTÍTÓ: Házszám szintig tisztít a csoportosításhoz!
         def clean_addr(s):
             text = str(s).lower().replace('utca', 'u').replace('út', 'u').replace('.', ' ').replace(',', ' ')
-            # Lehámozzuk az elejéről az irányítószámot, hogy ne zavarjon be
             text_no_zip = re.sub(r'^\s*\d{4}\s*', '', text)
-            # Megkeressük a város + utca + házszámot (az első számblokkig bezárólag, opcionális per-jellel és betűvel)
             match = re.search(r'^[^0-9]+\d+(?:\s*/\s*[a-z0-9]+)?(?:\s*[a-z]\b)?', text_no_zip)
             if match:
                 return re.sub(r'\W+', '', match.group(0))
@@ -698,7 +617,6 @@ def merge_data(all_rows):
         addr_prev = clean_addr(res.iloc[i-1]['Cím'])
         addr_curr = clean_addr(res.iloc[i]['Cím'])
         
-        # Ha a letisztított báziscímek megegyeznek, VAGY az egyik közvetlen részhalmaza a másiknak: csoportosítunk!
         if (addr_prev == addr_curr or (addr_prev in addr_curr and len(addr_prev) > 8) or (addr_curr in addr_prev and len(addr_curr) > 8)) and addr_curr != "":
             if res.iloc[i-1]['Csoport'] == 0:
                 res.at[res.index[i-1], 'Csoport'] = group_id

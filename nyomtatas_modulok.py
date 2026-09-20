@@ -462,6 +462,8 @@ def create_manifest_pdf(df, c_n, c_p, meta):
         'Header': ParagraphStyle('Header', fontName=f_bold, fontSize=10, leading=11, alignment=1),
         'NameBold': ParagraphStyle('NameBold', fontName=f_bold, fontSize=8.5, leading=9),
         'IDStyle': ParagraphStyle('IDStyle', fontName=f_reg, fontSize=7.5, leading=9, alignment=2, textColor=colors.gray),
+        'SummaryBold': ParagraphStyle('SummaryBold', fontName=f_bold, fontSize=8.5, leading=10, alignment=1),
+        'SummaryRight': ParagraphStyle('SummaryRight', fontName=f_bold, fontSize=8.5, leading=10, alignment=2),
         'QRTitle': ParagraphStyle('QRTitle', fontName=f_bold, fontSize=14, leading=16, alignment=1, spaceAfter=15),
         'QRText': ParagraphStyle('QRText', fontName=f_reg, fontSize=10, leading=14, alignment=1)
     }
@@ -509,6 +511,10 @@ def create_manifest_pdf(df, c_n, c_p, meta):
                     table_styles.append(('BACKGROUND', (0, r_s), (-1, r_e), colors.Color(0.96, 0.96, 0.96)))
                     start_idx = None
 
+    # Összesítők inicializálása
+    total_db_sum = 0
+    total_penz_sum = 0
+
     for i, row in df.iterrows():
         r_full = str(row.get('Rendelés_Full', ''))
         kulonleges = False
@@ -544,6 +550,10 @@ def create_manifest_pdf(df, c_n, c_p, meta):
             info_flow.append(Paragraph(megj, styles['Small']))
 
         p_raw = str(row.get('Pénz', '')).strip()
+        p_clean = p_raw.replace('Ft', '').replace(' ', '').replace('\xa0', '').replace('.', '')
+        if p_clean.isdigit() or (p_clean.startswith('-') and p_clean[1:].isdigit()):
+            total_penz_sum += int(p_clean)
+
         digits_only = "".join(re.findall(r'\d+', p_raw))
         penz_val = p_raw if (digits_only and int(digits_only) > 0) else "" 
         
@@ -553,6 +563,13 @@ def create_manifest_pdf(df, c_n, c_p, meta):
         except:
             sorszam_vegleges = str(i+1)
 
+        # Darabszám összegzés
+        try:
+            db_val = int(float(str(row.get('Összesen', 0)).replace("'", "").strip() or 0))
+        except:
+            db_val = 0
+        total_db_sum += db_val
+
         table_data.append([
             sorszam_vegleges,                                    
             info_flow,                                           
@@ -560,8 +577,34 @@ def create_manifest_pdf(df, c_n, c_p, meta):
             Checkbox(10),                                        
             Paragraph(f"<b>{penz_val}</b>", styles['Normal']),   
             Paragraph(str(row.get('Telefon', '')), styles['Small']), 
-            str(row.get('Összesen', ''))                         
+            str(db_val)                         
         ])
+
+    # =========================================================================
+    # 💡 ÖSSZESÍTŐ SOR HOZZÁADÁSA A TÁBLÁZAT LEGALJÁRA (AUDIT REKORD)
+    # =========================================================================
+    summary_row_idx = len(table_data)
+    penz_formatum = f"{total_penz_sum:,} Ft".replace(",", " ")
+
+    table_data.append([
+        "Σ",
+        Paragraph(f"<b>ÖSSZESEN: {len(df)} cím / megálló</b>", styles['SummaryBold']),
+        Paragraph(f"<b>{total_db_sum} adag</b>", styles['SummaryBold']),
+        "",
+        Paragraph(f"<b>{penz_formatum}</b>", styles['SummaryRight']),
+        "",
+        Paragraph(f"<b>{total_db_sum}</b>", styles['SummaryBold'])
+    ])
+
+    # Összesítő sor kiemelése a táblázatban
+    table_styles.extend([
+        ('BACKGROUND', (0, summary_row_idx), (-1, summary_row_idx), colors.HexColor('#E5E7EB')),
+        ('BOX', (0, summary_row_idx), (-1, summary_row_idx), 1.5, colors.black),
+        ('LINEABOVE', (0, summary_row_idx), (-1, summary_row_idx), 1.2, colors.black),
+        ('VALIGN', (0, summary_row_idx), (-1, summary_row_idx), 'MIDDLE'),
+        ('TOPPADDING', (0, summary_row_idx), (-1, summary_row_idx), 3),
+        ('BOTTOMPADDING', (0, summary_row_idx), (-1, summary_row_idx), 3),
+    ])
 
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle(table_styles))

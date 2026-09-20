@@ -869,12 +869,25 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
             final_column_order = [c for c in preferred_order if c in df_view.columns] + [c for c in df_view.columns if c not in preferred_order]
             df_view = df_view[final_column_order]
 
-            edited_df = st.data_editor(
-                df_view, column_order=final_column_order,
-                column_config={"Sorrend": st.column_config.NumberColumn("Sorrend", format="%.1f", step=0.1), "temp_id": None},
-                num_rows="dynamic", use_container_width=True, hide_index=True
-            )
+            # Biztosítjuk, hogy a lebegőpontos értékek floatként maradjanak
+            df_view['Sorrend'] = pd.to_numeric(df_view['Sorrend'], errors='coerce').fillna(999.0).astype(float)
 
+            edited_df = st.data_editor(
+                df_view, 
+                column_order=final_column_order,
+                column_config={
+                    "Sorrend": st.column_config.NumberColumn(
+                        "Sorrend", 
+                        help="Két cím közé besoroláshoz használj tizedest (pl. 12.5), majd nyomj a Sorrend frissítése gombra!",
+                        step=0.1,
+                        required=True
+                    ), 
+                    "temp_id": None
+                },
+                num_rows="dynamic", 
+                use_container_width=True, 
+                hide_index=True
+            )
             # =========================================================================
             # 📊 MAI MŰSZERFAL ÖSSZESÍTŐ (KOMPAKT EGYSOROS ASZTALI NÉZET)
             # =========================================================================

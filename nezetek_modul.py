@@ -875,6 +875,54 @@ def render_desktop_main_content(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR, adm
                 num_rows="dynamic", use_container_width=True, hide_index=True
             )
 
+            # =========================================================================
+            # 📊 MAI MŰSZERFAL ÖSSZESÍTŐ KÁRTYA (ÚJRAHASZNOSÍTVA A MOBIL NÉZETBŐL)
+            # =========================================================================
+            meta_m = st.session_state.get('meta_data', {})
+            osszes_megallo = meta_m.get('osszes_megallo', int(edited_df['Cím'].nunique()) if 'Cím' in edited_df.columns else len(edited_df))
+            osszes_cim = meta_m.get('osszes_cim', len(edited_df))
+            osszes_etel = meta_m.get('osszes_etel', 0)
+            if osszes_etel == 0 and 'Összesen' in edited_df.columns:
+                osszes_etel = int(pd.to_numeric(edited_df['Összesen'], errors='coerce').fillna(0).sum())
+            
+            forgalom = meta_m.get('total_ertek', 0)
+            penznem = st.session_state.get('tenant_currency', 'Ft')
+            jutalek = meta_m.get('futar_jutalek', int(forgalom * 0.13))
+
+            st.markdown(
+                f"""
+                <div style="background: #F9FAFB; border: 1.5px solid #139D43; border-radius: 12px; padding: 14px 18px; margin-top: 15px; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #E5E7EB; padding-bottom: 8px; margin-bottom: 12px;">
+                        <span style="font-size: 1.05rem; font-weight: 800; color: #139D43;">📊 Mai Műszerfal Összesítés</span>
+                        <span style="font-size: 0.85rem; color: #6B7280; font-weight: 600;">Járat: {", ".join(meta_m.get('jaratok', ['4002']))}</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; text-align: center;">
+                        <div style="background: white; border: 1px solid #E5E7EB; border-radius: 8px; padding: 8px;">
+                            <div style="font-size: 0.72rem; color: #4B5563; font-weight: 600;">📍 Tervezett megállók</div>
+                            <div style="font-size: 1.15rem; font-weight: 800; color: #139D43; margin-top: 2px;">{osszes_megallo} db</div>
+                        </div>
+                        <div style="background: white; border: 1px solid #E5E7EB; border-radius: 8px; padding: 8px;">
+                            <div style="font-size: 0.72rem; color: #4B5563; font-weight: 600;">🏠 Összes cím (vevő)</div>
+                            <div style="font-size: 1.15rem; font-weight: 800; color: #139D43; margin-top: 2px;">{osszes_cim} db</div>
+                        </div>
+                        <div style="background: white; border: 1px solid #E5E7EB; border-radius: 8px; padding: 8px;">
+                            <div style="font-size: 0.72rem; color: #4B5563; font-weight: 600;">📦 Összes étel</div>
+                            <div style="font-size: 1.15rem; font-weight: 800; color: #139D43; margin-top: 2px;">{osszes_etel} adag</div>
+                        </div>
+                        <div style="background: white; border: 1px solid #E5E7EB; border-radius: 8px; padding: 8px;">
+                            <div style="font-size: 0.72rem; color: #4B5563; font-weight: 600;">💵 Rakományérték</div>
+                            <div style="font-size: 1.15rem; font-weight: 800; color: #139D43; margin-top: 2px;">{forgalom:,} {penznem}</div>
+                        </div>
+                        <div style="background: white; border: 1px solid #E5E7EB; border-radius: 8px; padding: 8px;">
+                            <div style="font-size: 0.72rem; color: #4B5563; font-weight: 600;">⭐ Várható Jutalék</div>
+                            <div style="font-size: 1.15rem; font-weight: 800; color: #D97706; margin-top: 2px;">{jutalek:,} {penznem}</div>
+                        </div>
+                    </div>
+                </div>
+                """.replace(",", " "),
+                unsafe_allow_html=True
+            )
+            
             with st.expander("🗺️ Útvonal megtekintése a térképen", expanded=False):
                 utvonal_terkep(df_napi=edited_df, sheet_id=SHEET_ID_UGYFELKOR)
 

@@ -374,40 +374,65 @@ def extract_all_meta(pdf_files):
 
 def load_all_names(sheet_df):
     all_names = set()
-    titulusok = {"Dr.", "id.", "ifj.", "özv.", "dr.", "vitéz"}
+    titulusok = {"dr.", "dr", "id.", "id", "ifj.", "ifj", "özv.", "özv", "vitéz"}
     all_names.update(titulusok)
     
     if sheet_df is not None:
-        if 'Családnév' in sheet_df.columns:
-            csalad_nevek = sheet_df['Családnév'].dropna().unique()
-            all_names.update([str(n).strip() for n in csalad_nevek if str(n).strip()])
+        # kezeli ha 'Vezetéknév' vagy 'Családnév' az oszlop neve
+        v_col = next((c for c in sheet_df.columns if c.lower() in ['vezetéknév', 'vezeteknev', 'családnév', 'csaladnev']), None)
+        if v_col:
+            for n in sheet_df[v_col].dropna().unique():
+                val = str(n).strip()
+                if val:
+                    all_names.add(val.lower())
             
-        if 'Keresztnév' in sheet_df.columns:
-            kereszt_nevek = sheet_df['Keresztnév'].dropna().unique()
-            for n in kereszt_nevek:
+        k_col = next((c for c in sheet_df.columns if c.lower() in ['keresztnév', 'keresztnev']), None)
+        if k_col:
+            for n in sheet_df[k_col].dropna().unique():
                 nev = str(n).strip()
                 if nev:
-                    all_names.add(nev)
-                    all_names.add(nev + "né")
+                    all_names.add(nev.lower())
+                    all_names.add((nev + "né").lower())
+                    
     return all_names
 
+
 def split_name_logic(raw_text, name_db):
-    if not raw_text: return "", ""
+    if not raw_text:
+        return "", ""
+        
     words = raw_text.split()
     name_parts = []
     comment_parts = []
     is_name_part = True
     
+    # kisbetűsített ellenőrző halmaz
+    name_db_lower = {str(n).strip().lower() for n in name_db}
+    
     for word in words:
-        if not word: continue
-        clean = word.strip(",./-")
-        if is_name_part and (clean in name_db or (word[0].isupper() if len(word) > 0 else False)):
+        if not word:
+            continue
+            
+        clean_word = word.strip(" ,./|-*").lower()
+        
+        # Kötőjeles összetett vezetéknevek kezelése (pl. Szabó-Salák)
+        sub_words = [sw for sw in clean_word.split("-") if sw]
+        is_in_db = (clean_word in name_db_lower) or (sub_words and all(sw in name_db_lower for sw in sub_words))
+        
+        # Ha még a név tartományban vagyunk és az adott szó valóban szerepel a névtárban
+        if is_name_part and is_in_db:
             name_parts.append(word)
         else:
+            # Amint nem-név szó jön (pl. 'Érkezés', 'KCS', 'porta'), a név véget ér
             is_name_part = False
             comment_parts.append(word)
             
-    return " ".join(name_parts), " ".join(comment_parts)
+    # Ha a szigorú szótár miatt véletlenül üres maradt volna a név (pl. külföldi név), megtartjuk az eredeti első 2 szót
+    if not name_parts and words:
+        name_parts = words[:2]
+        comment_parts = words[2:]
+            
+    return " ".join(name_parts).strip(" -/|.,*"), " ".join(comment_parts).strip(" -/|.,*")
 
 def merge_data(all_rows):
     if not all_rows: 

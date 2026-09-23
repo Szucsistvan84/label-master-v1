@@ -160,6 +160,15 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     admin_name = " ".join(final_parts).strip(" -/|.,*")
                     admin_name = " ".join(admin_name.split())
 
+                    # 🛡️ BIZTONSÁGOS ÉTLAPKÓD-VÉDELEM: Ha a név végére ételkód ragadt (pl. "Kovácsné Mária CK")
+                    admin_parts = admin_name.split()
+                    if len(admin_parts) > 2:
+                        last_part = admin_parts[-1].strip(" ,.|/-*")
+                        # Ha az utolsó szó csupa nagybetű, 1-3 karakteres és étlapkód:
+                        if last_part.isupper() and (last_part in napi_etlap_kodok or last_part in ["CK", "AK", "DK", "GK", "UK", "KM"]):
+                            admin_parts.pop()
+                            admin_name = " ".join(admin_parts)
+
                     # --- 4. RENDELÉS FOLYOSÓ ÉS ÉTLAPKÓD-VALIDÁLÁS ---
                     width = page.width 
                     x_start_limit = width * 0.585

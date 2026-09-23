@@ -123,11 +123,12 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     raw_name_parts = []
                     stop_keywords = ["Összesen", "Összesítés", "Össz"]
                     
+                    # 💡 FIX: Tűrés csökkentése 35-ről 14-re, hogy a lentebbi megjegyzéssorokat (pl. Érkezés) ne rántsa be!
                     for w in sorted(admin_candidates, key=lambda x: (x['top'], x['x0'])):
                         t_clean = w['text'].strip()
                         if any(stop.lower() in t_clean.lower() for stop in stop_keywords):
                             break
-                        if abs(w['top'] - y_start) < 35:
+                        if abs(w['top'] - y_start) < 14:
                             if w['x1'] > x_end_admin * 1.02 and len(t_clean) < 6:
                                 continue
                             if "Ft" in t_clean: continue
@@ -145,7 +146,8 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                     clean_name = re.sub(r'\d+', '', clean_name)
                     clean_name = re.sub(r'-[A-Z0-9]{1,3}\b', '', clean_name)
                     
-                    junk_words = ["közöt", "között", "köz", "D", "S", "adag", "db"]
+                    # 🛡️ Tiltott megjegyzésszavak kizárása a névből
+                    junk_words = ["közöt", "között", "köz", "D", "S", "adag", "db", "érkezés", "erkezes", "max", "porta", "recepció", "recepcio"]
                     final_parts = []
                     for part in clean_name.split():
                         p_stripped = part.strip(" ,.|/-")

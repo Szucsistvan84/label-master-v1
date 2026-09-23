@@ -256,8 +256,8 @@ def parse_interfood_pdf(pdf_file, napi_etlap_kodok):
                         # Ha a cím apró eltéréssel nem talál egybe, az irányítószám + utca utáni részt vágjuk le
                         if zip_match:
                             megj_resz_2 = clean_context[zip_match.end():].strip()
-                            # Levágjuk a városnevet és az utcanevet a megjegyzés 2 elejéről
-                            megj_resz_2 = re.sub(r'^(?:Debrecen|Ebes|Hajdú[a-zA-Z]*)[^,]*,\s*[^.]*\.\s*', '', megj_resz_2).strip()
+                            # Bármilyen magyar településnév és utcanév levágása (irányítószám mögül)
+                            megj_resz_2 = re.sub(r'^[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű\s-]+,\s*[^.]*\.\s*', '', megj_resz_2).strip()
                         else:
                             megj_resz_2 = clean_context
 

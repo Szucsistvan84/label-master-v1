@@ -552,6 +552,25 @@ def main():
             if curr_idx < 2:
                 if st.button("Következő ➡️", type="primary", use_container_width=True, key="stepper_next_btn_action"):
                     new_state = state_order[curr_idx + 1]
+                    
+                    # 🚀 AUTOMATIKUS BEMUTATÓ GYORSÍTÓ (SZIMULÁCIÓS MOTOR):
+                    # Ha a 'Címekre szedésről' lépünk át a 'Kiszállításra', és még nincsenek ládák kiosztva,
+                    # akkor az összes címet virtuálisan berakjuk az 1-es ládába!
+                    if new_state == "3. Kiszállítás 🚚":
+                        # Címek számának megállapítása (mdf-ből vagy adatokból)
+                        total_items = 150
+                        if 'mdf' in st.session_state and st.session_state.mdf is not None and not st.session_state.mdf.empty:
+                            total_items = len(st.session_state.mdf)
+                        elif 'meta_data' in st.session_state and st.session_state.meta_data.get('osszes_cim'):
+                            total_items = int(st.session_state.meta_data['osszes_cim'])
+                        
+                        # Minden cím állapotát bepakoltra és 1-es ládára állítjuk
+                        for idx in range(total_items + 1):
+                            if f"lada_szam_tarolt_{idx}" not in st.session_state or not st.session_state.get(f"lada_szam_tarolt_{idx}"):
+                                st.session_state[f"lada_szam_tarolt_{idx}"] = "1"
+                                st.session_state[f"lada_szam_{idx}"] = "1"
+                                st.session_state[f"bepak_allapot_{idx}"] = True
+
                     st.session_state.current_mobile_tab_state = new_state
                     st.query_params.update(
                         active_tab=tab_mapping_inv[new_state],

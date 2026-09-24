@@ -840,7 +840,20 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             
             # Gombok egy sorban
             maps_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(aktualis_cim)}"
-            hivas_html = f'<a href="tel:{vevo_tel}" target="_blank" style="width:100%; text-decoration:none;"><button style="width:100%; height:38px; background-color:#25D366; color:white; border:none; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">📞 Hívás</button></a>' if vevo_tel and vevo_tel != "nan" else '<button style="width:100%; height:38px; background-color:#9CA3AF; color:white; border:none; border-radius:8px; font-weight:bold; font-size:14px; opacity:0.5;" disabled>📞 Nincs tel.</button>'
+            
+            # 📞 Szabványos, közvetlenül tárcsázható +36 formátum előállítása
+            tiszta_szamjegyek = re.sub(r'\D', '', str(vevo_tel)) if vevo_tel and str(vevo_tel).strip().lower() != "nan" else ""
+            if tiszta_szamjegyek:
+                if tiszta_szamjegyek.startswith("06"):
+                    tarcsazhato_tel = "+36" + tiszta_szamjegyek[2:]
+                elif tiszta_szamjegyek.startswith("36"):
+                    tarcsazhato_tel = "+" + tiszta_szamjegyek
+                else:
+                    tarcsazhato_tel = "+36" + tiszta_szamjegyek
+            else:
+                tarcsazhato_tel = ""
+
+            hivas_html = f'<a href="tel:{tarcsazhato_tel}" target="_blank" style="width:100%; text-decoration:none;"><button style="width:100%; height:38px; background-color:#25D366; color:white; border:none; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">📞 Hívás</button></a>' if tarcsazhato_tel else '<button style="width:100%; height:38px; background-color:#9CA3AF; color:white; border:none; border-radius:8px; font-weight:bold; font-size:14px; opacity:0.5;" disabled>📞 Nincs tel.</button>'
             nav_html = f'<a href="{maps_url}" target="_blank" style="width:100%; text-decoration:none;"><button style="width:100%; height:38px; background-color:#4285F4; color:white; border:none; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">🗺️ Navigáció</button></a>'
             
             st.markdown(f"""

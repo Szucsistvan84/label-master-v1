@@ -514,6 +514,12 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
         st.session_state.user_szerep = None
         st.session_state.user_tel = None
         st.session_state.user_jarat_lista = []
+        
+        # 💡 Nézetváltozók kényszerített visszaállítása alaphelyzetbe
+        for view_key in ["view", "current_view", "aktiv_nezet", "active_tab"]:
+            if view_key in st.session_state:
+                st.session_state[view_key] = "desktop"
+                
         st.rerun()
 
 
@@ -579,6 +585,11 @@ def render_desktop_sidebar_controls(client, SHEET_ID_MASTER, SHEET_ID_UGYFELKOR,
         st.session_state.user_nev = None
         st.session_state.user_szerep = None
         st.session_state.user_tel = None
+        
+        for view_key in ["view", "current_view", "aktiv_nezet", "active_tab"]:
+            if view_key in st.session_state:
+                st.session_state[view_key] = "desktop"
+                
         st.rerun()
 
     futar_nev = st.session_state.get('user_nev', 'Ismeretlen Futár')

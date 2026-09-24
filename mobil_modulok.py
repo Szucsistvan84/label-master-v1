@@ -805,18 +805,26 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 elokeszitett_sorok.insert(0, talalt_kiemelt)
 
         # --- 📋 4. KÁRTYÁK KIRAJZOLÁSA ---
-        for sorszam, (idx, row) in enumerate(elokeszitett_sorok, 1):
+        for futo_sorszam, (idx, row) in enumerate(elokeszitett_sorok, 1):
+            # 📦 Ládaszám kiolvasása és formázása
             melyik_lada = st.session_state.get(f"lada_szam_tarolt_{idx}")
-            if not melyik_lada: melyik_lada = str(row.get('Láda', 'Nincs láda'))
-            
+            if not melyik_lada: 
+                melyik_lada = str(row.get('Láda', '1'))
+            melyik_lada_tiszta = str(melyik_lada).strip() if str(melyik_lada).strip() else "1"
+            lada_badge = f'<span style="background-color: #EEF2FF; color: #4338CA; font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 6px; border: 1px solid #C7D2FE; letter-spacing: 0.3px;">📦 {melyik_lada_tiszta}. láda</span>'
+
             aktualis_cim = str(row[cim_oszlop]).strip()
             vevo_neve = str(row[nev_oszlop]).strip()
             vevo_tel = str(row.get(tel_oszlop, '')).strip()
             customer_id = str(row['ID']).strip()
             aktualis_rendeles = str(row[rendeles_oszlop]).strip() if rendeles_oszlop in row else "Nincs adat"
             
-            eredeti_sorszam = int(row["Sorrend_num"])
-            
+            # 📍 Helyes megállósorszám meghatározása a fix sorrend alapján (NEM a hátralévő lista pozíciója!)
+            try:
+                eredeti_sorszam = int(float(row.get("Sorrend_num", row.get("Sorrend", futo_sorszam))))
+            except:
+                eredeti_sorszam = futo_sorszam
+
             # 4. PONT FIX: MATEMATIKAI DARABSZÁM ÖSSZEGZÉS A REDUNDÁNS ADAT HELYETT
             osszes_db = 0
             try:
@@ -825,17 +833,30 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             except:
                 osszes_db = 1
                 
-            if eredeti_sorszam != sorszam:
-                sorszam_felirat = f"📍 #{sorszam}. megálló <span style='font-size:11px; color:#EA580C;'>(Átrendezve)</span> — {melyik_lada}"
-            else:
-                sorszam_felirat = f"📍 #{sorszam}. megálló — {melyik_lada}"
+            # Fejléc sor összeállítása: bal oldalon a megálló, jobb oldalon a láda badge
+            sorszam_felirat = f"""
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 2px;">
+                <span style="font-size: 15px; font-weight: 800; color: #1E293B;">📍 #{eredeti_sorszam}. megálló</span>
+                {lada_badge}
+            </div>
+            """
 
             is_kiemelt = (customer_id == kiemelt_id)
             bg_style = "background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2.5px solid #F59E0B;" if is_kiemelt else "background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD;"
-            kiemelt_szoveg = "⚠️ <b>TÉRKÉPEN KIJELÖLT CÍM!</b><br>" if is_kiemelt else ""
+            kiemelt_szoveg = "<div style='color: #B45309; font-weight: 800; font-size: 12px; margin-bottom: 4px;'>⚠️ TÉRKÉPEN KIJELÖLT CÍM!</div>" if is_kiemelt else ""
 
-            # Letisztított kártya az összesített darabszámmal, felesleges dobozszám nélkül
-            html_kartyadisz = f"""<div style="{bg_style} border-radius: 12px; padding: 10px 14px; margin-top: 8px;">{kiemelt_szoveg}<b>{sorszam_felirat}</b><br><span style="font-size:18px; font-weight:bold; color:#1E3A8A;">👤 {vevo_neve}</span><br><span style="font-size:14px; color:#4B5563;">🏠 {aktualis_cim}</span><br><hr style="margin: 6px 0; border: 0; border-top: 1px solid #BFDBFE;"><span style="font-size:13px; font-weight:bold; color:#4B5563;">🛍️ Összes rendelési tétel: {osszes_db} db</span><br><span style="font-size:14px; font-weight:bold; color:#DC2626;">📦 Rendelés: {aktualis_rendeles}</span></div>"""
+            # Letisztított kártya: elegáns fejléc, név, cím, összes darabszám és rendelés
+            html_kartyadisz = f"""
+            <div style="{bg_style} border-radius: 12px; padding: 12px 14px; margin-top: 8px;">
+                {kiemelt_szoveg}
+                {sorszam_felirat}
+                <div style="font-size: 18px; font-weight: bold; color: #1E3A8A; margin-top: 2px;">👤 {vevo_neve}</div>
+                <div style="font-size: 13.5px; color: #4B5563; margin-top: 2px;">🏠 {aktualis_cim}</div>
+                <hr style="margin: 8px 0; border: 0; border-top: 1px solid #BFDBFE;">
+                <div style="font-size: 13px; font-weight: bold; color: #4B5563;">🛍️ Összes rendelési tétel: {osszes_db} db</div>
+                <div style="font-size: 13.5px; font-weight: bold; color: #DC2626; margin-top: 2px;">📦 Rendelés: {aktualis_rendeles}</div>
+            </div>
+            """
             st.markdown(html_kartyadisz, unsafe_allow_html=True)
             
             # Gombok egy sorban

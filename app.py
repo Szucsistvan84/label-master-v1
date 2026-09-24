@@ -60,6 +60,16 @@ def main():
     if 'client' not in st.session_state or st.session_state['client'] is None:
         st.session_state['client'] = client
 
+    # 🛡️ ÁRVA PARAMÉTEREK TISZTÍTÁSA:
+    # Ha a felhasználó NINCS bejelentkezve (nincs token), de az URL-ben ott ragadt a mobil nézet
+    # és az active_tab, akkor azt takarítsuk el, hogy ne ragadjon be a bejelentkező képernyő!
+    if not st.session_state.get('bejelentkezve', False) and "token_name" not in st.query_params:
+        if "active_tab" in st.query_params:
+            # Csak az active_tab-ot és az árva mobil nézetet takarítjuk, a jarat/test paraméter maradhat!
+            st.query_params.pop("active_tab", None)
+            if "view" in st.query_params and "jarat" not in st.query_params:
+                st.query_params.pop("view", None)
+
     # URL és munkamenet állapot (Alapértelmezett: desktop)
     if 'view_mode' not in st.session_state:
         st.session_state.view_mode = st.query_params.get("view", "desktop")

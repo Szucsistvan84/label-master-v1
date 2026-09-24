@@ -853,15 +853,93 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             else:
                 tarcsazhato_tel = ""
 
-            hivas_html = f'<a href="tel:{tarcsazhato_tel}" target="_blank" style="width:100%; text-decoration:none;"><button style="width:100%; height:38px; background-color:#25D366; color:white; border:none; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">📞 Hívás</button></a>' if tarcsazhato_tel else '<button style="width:100%; height:38px; background-color:#9CA3AF; color:white; border:none; border-radius:8px; font-weight:bold; font-size:14px; opacity:0.5;" disabled>📞 Nincs tel.</button>'
-            nav_html = f'<a href="{maps_url}" target="_blank" style="width:100%; text-decoration:none;"><button style="width:100%; height:38px; background-color:#4285F4; color:white; border:none; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">🗺️ Navigáció</button></a>'
-            
-            st.markdown(f"""
-            <div style="display: flex; gap: 8px; width: 100%; margin-top: 6px; margin-bottom: 4px;">
-                <div style="flex: 1;">{hivas_html}</div>
-                <div style="flex: 1;">{nav_html}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            # 1. HÍVÁS GOMB (Zöld)
+            if tarcsazhato_tel:
+                hivas_html = f'<a href="tel:{tarcsazhato_tel}" target="_blank" style="width:100%; text-decoration:none;"><button style="width:100%; height:38px; background-color:#25D366; color:white; border:none; border-radius:8px; font-weight:bold; font-size:13px; cursor:pointer;">📞 Hívás</button></a>'
+            else:
+                hivas_html = '<button style="width:100%; height:38px; background-color:#9CA3AF; color:white; border:none; border-radius:8px; font-weight:bold; font-size:13px; opacity:0.5;" disabled>📞 Nincs</button>'
+
+            # 3. NAVIGÁCIÓ GOMB (Kék)
+            maps_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(aktualis_cim)}"
+            nav_html = f'<a href="{maps_url}" target="_blank" style="width:100%; text-decoration:none;"><button style="width:100%; height:38px; background-color:#4285F4; color:white; border:none; border-radius:8px; font-weight:bold; font-size:13px; cursor:pointer;">🗺️ Navigáció</button></a>'
+
+            # 📱 GOMBOK MEGJELENÍTÉSE EGY SORBAN: Hívás | Üzenet Lenyitó | Navigáció
+            col_b1, col_b2, col_b3 = st.columns([1, 1, 1])
+            with col_b1:
+                st.markdown(hivas_html, unsafe_allow_html=True)
+            with col_b2:
+                # Az Üzenet gomb vezérli a lenyíló panelt
+                msg_panel_key = f"show_msg_panel_{idx}"
+                if msg_panel_key not in st.session_state:
+                    st.session_state[msg_panel_key] = False
+                
+                btn_color = "#7360F2" if not st.session_state[msg_panel_key] else "#5644C9"
+                if st.button("💬 Üzenet", key=f"toggle_msg_btn_{idx}", use_container_width=True):
+                    st.session_state[msg_panel_key] = not st.session_state[msg_panel_key]
+                    st.rerun()
+            with col_b3:
+                st.markdown(nav_html, unsafe_allow_html=True)
+
+            # =========================================================================
+            # 💬 LENYÍLÓ ÜZENETKÜLDŐ PANEL (SMS / VIBER + SABLONOK + EGYEDI SZÖVEG)
+            # =========================================================================
+            if st.session_state.get(f"show_msg_panel_{idx}", False):
+                st.markdown(
+                    """
+                    <div style="background-color: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px; margin-top: 6px; margin-bottom: 8px;">
+                        <span style="font-size: 12px; font-weight: bold; color: #475569;">✉️ Gyors üzenet küldése az ügyfélnek:</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                if not tarcsazhato_tel:
+                    st.warning("Ehhez a címhez nincs megadva érvényes telefonszám!")
+                else:
+                    # Előre definiált sablonok
+                    sablon_opciok = [
+                        "Jó napot kívánok! Megérkeztem az InterFood ebéddel a címre.",
+                        "2 perc és ott vagyok az étellel...",
+                        "A recepción/portán hagytam az ételt, jó étvágyat kívánok hozzá!",
+                        "Itt állok a kapuban/lépcsőháznál, kérem vegye át az ételt!",
+                        "✏️ Egyedi üzenetet írok..."
+                    ]
+                    
+                    valasztott_sablon = st.selectbox(
+                        "Válassz sablont:",
+                        sablon_opciok,
+                        key=f"msg_sablon_select_{idx}",
+                        label_visibility="collapsed"
+                    )
+
+                    # Ha egyedit választott, megjelenik a beviteli mező
+                    if valasztott_sablon == "✏️ Egyedi üzenetet írok...":
+                        vegleges_uzenet = st.text_input(
+                            "Egyedi üzenet szövege:",
+                            value="2 perc és ott vagyok az étellel...",
+                            key=f"custom_msg_input_{idx}"
+                        )
+                    else:
+                        vegleges_uzenet = valasztott_sablon
+
+                    encoded_msg = urllib.parse.quote(vegleges_uzenet)
+                    
+                    # Küldési linkek
+                    sms_link = f"sms:{tarcsazhato_tel}?body={encoded_msg}"
+                    viber_link = f"viber://chat?number={urllib.parse.quote(tarcsazhato_tel)}"
+
+                    # Csatorna választó gombok: SMS és Viber
+                    col_send1, col_send2 = st.columns(2)
+                    with col_send1:
+                        st.markdown(
+                            f'<a href="{sms_link}" target="_blank" style="text-decoration:none;"><button style="width:100%; height:36px; background-color:#0284C7; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">📨 Küldés SMS-ben</button></a>',
+                            unsafe_allow_html=True
+                        )
+                    with col_send2:
+                        st.markdown(
+                            f'<a href="{viber_link}" target="_blank" style="text-decoration:none;"><button style="width:100%; height:36px; background-color:#7360F2; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">🟣 Megnyitás Viberen</button></a>',
+                            unsafe_allow_html=True
+                        )
 
             # --- 2. PONT FIX: AZ ÖSSZES FUNKCIÓ (KERESŐ + SORSZÁMOZÓ) EGYETLEN EXPANDER ALATT ---
             with st.expander("🛠️ Cím korrigálása és Átrendezés"):

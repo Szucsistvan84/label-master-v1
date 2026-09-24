@@ -833,30 +833,25 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             except:
                 osszes_db = 1
                 
-            # Fejléc sor összeállítása: bal oldalon a megálló, jobb oldalon a láda badge
-            sorszam_felirat = f"""
-            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 2px;">
-                <span style="font-size: 15px; font-weight: 800; color: #1E293B;">📍 #{eredeti_sorszam}. megálló</span>
-                {lada_badge}
-            </div>
-            """
+            # Fejléc sor összeállítása: bal oldalon a megálló, jobb oldalon a láda badge (egy sorban, szóközmentesen!)
+            sorszam_felirat = f'<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 4px;"><span style="font-size: 15px; font-weight: 800; color: #1E293B;">📍 #{eredeti_sorszam}. megálló</span>{lada_badge}</div>'
 
             is_kiemelt = (customer_id == kiemelt_id)
             bg_style = "background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2.5px solid #F59E0B;" if is_kiemelt else "background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD;"
             kiemelt_szoveg = "<div style='color: #B45309; font-weight: 800; font-size: 12px; margin-bottom: 4px;'>⚠️ TÉRKÉPEN KIJELÖLT CÍM!</div>" if is_kiemelt else ""
 
-            # Letisztított kártya: elegáns fejléc, név, cím, összes darabszám és rendelés
-            html_kartyadisz = f"""
-            <div style="{bg_style} border-radius: 12px; padding: 12px 14px; margin-top: 8px;">
-                {kiemelt_szoveg}
-                {sorszam_felirat}
-                <div style="font-size: 18px; font-weight: bold; color: #1E3A8A; margin-top: 2px;">👤 {vevo_neve}</div>
-                <div style="font-size: 13.5px; color: #4B5563; margin-top: 2px;">🏠 {aktualis_cim}</div>
-                <hr style="margin: 8px 0; border: 0; border-top: 1px solid #BFDBFE;">
-                <div style="font-size: 13px; font-weight: bold; color: #4B5563;">🛍️ Összes rendelési tétel: {osszes_db} db</div>
-                <div style="font-size: 13.5px; font-weight: bold; color: #DC2626; margin-top: 2px;">📦 Rendelés: {aktualis_rendeles}</div>
-            </div>
-            """
+            # 💡 FIX: Egyetlen folytonos HTML blokk behúzások nélkül, hogy a Markdown ne higgye kódblokknak!
+            html_kartyadisz = (
+                f'<div style="{bg_style} border-radius: 12px; padding: 12px 14px; margin-top: 8px;">'
+                f'{kiemelt_szoveg}'
+                f'{sorszam_felirat}'
+                f'<div style="font-size: 18px; font-weight: bold; color: #1E3A8A; margin-top: 2px;">👤 {vevo_neve}</div>'
+                f'<div style="font-size: 13.5px; color: #4B5563; margin-top: 2px;">🏠 {aktualis_cim}</div>'
+                f'<hr style="margin: 8px 0; border: 0; border-top: 1px solid #BFDBFE;">'
+                f'<div style="font-size: 13px; font-weight: bold; color: #4B5563;">🛍️ Összes rendelési tétel: {osszes_db} db</div>'
+                f'<div style="font-size: 13.5px; font-weight: bold; color: #DC2626; margin-top: 2px;">📦 Rendelés: {aktualis_rendeles}</div>'
+                f'</div>'
+            )
             st.markdown(html_kartyadisz, unsafe_allow_html=True)
             
             # Gombok egy sorban

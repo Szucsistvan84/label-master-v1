@@ -853,32 +853,58 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             else:
                 tarcsazhato_tel = ""
 
-            # 1. HÍVÁS GOMB (Zöld)
+            # 1. HÍVÁS GOMB
             if tarcsazhato_tel:
-                hivas_html = f'<a href="tel:{tarcsazhato_tel}" target="_blank" style="width:100%; text-decoration:none;"><button style="width:100%; height:38px; background-color:#25D366; color:white; border:none; border-radius:8px; font-weight:bold; font-size:13px; cursor:pointer;">📞 Hívás</button></a>'
+                hivas_btn = f'<a href="tel:{tarcsazhato_tel}" target="_blank" style="flex: 1; text-decoration: none;"><button type="button" style="width: 100%; height: 40px; background-color: #22C55E; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;">📞 Hívás</button></a>'
             else:
-                hivas_html = '<button style="width:100%; height:38px; background-color:#9CA3AF; color:white; border:none; border-radius:8px; font-weight:bold; font-size:13px; opacity:0.5;" disabled>📞 Nincs</button>'
+                hivas_btn = '<div style="flex: 1;"><button type="button" style="width: 100%; height: 40px; background-color: #9CA3AF; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; opacity: 0.5;" disabled>📞 Nincs</button></div>'
 
-            # 3. NAVIGÁCIÓ GOMB (Kék)
+            # 2. ÜZENET GOMB (A lenyíló panelt kapcsolgató Streamlit gombot közvetlenül a sorba ágyazzuk)
+            # 3. NAVIGÁCIÓ GOMB
             maps_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(aktualis_cim)}"
-            nav_html = f'<a href="{maps_url}" target="_blank" style="width:100%; text-decoration:none;"><button style="width:100%; height:38px; background-color:#4285F4; color:white; border:none; border-radius:8px; font-weight:bold; font-size:13px; cursor:pointer;">🗺️ Navigáció</button></a>'
+            nav_btn = f'<a href="{maps_url}" target="_blank" style="flex: 1; text-decoration: none;"><button type="button" style="width: 100%; height: 40px; background-color: #3B82F6; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;">🗺️ Navigáció</button></a>'
 
-            # 📱 GOMBOK MEGJELENÍTÉSE EGY SORBAN: Hívás | Üzenet Lenyitó | Navigáció
-            col_b1, col_b2, col_b3 = st.columns([1, 1, 1])
+            # 📱 3 GOMB GARANTÁLTAN EGY SORBAN (Mobil flexbox)
+            col_b1, col_b2, col_b3 = st.columns([1, 1, 1], gap="small")
             with col_b1:
-                st.markdown(hivas_html, unsafe_allow_html=True)
+                st.markdown(hivas_btn, unsafe_allow_html=True)
             with col_b2:
-                # Az Üzenet gomb vezérli a lenyíló panelt
                 msg_panel_key = f"show_msg_panel_{idx}"
                 if msg_panel_key not in st.session_state:
                     st.session_state[msg_panel_key] = False
                 
-                btn_color = "#7360F2" if not st.session_state[msg_panel_key] else "#5644C9"
+                # Kompakt üzenet nyitó gomb
                 if st.button("💬 Üzenet", key=f"toggle_msg_btn_{idx}", use_container_width=True):
                     st.session_state[msg_panel_key] = not st.session_state[msg_panel_key]
                     st.rerun()
             with col_b3:
-                st.markdown(nav_html, unsafe_allow_html=True)
+                st.markdown(nav_btn, unsafe_allow_html=True)
+
+            # Extra CSS, ami megakadályozza, hogy a Streamlit telefonon egymás alá tördelje ezt a 3 oszlopot
+            st.markdown(
+                """
+                <style>
+                div[data-testid="column"] {
+                    min-width: 0 !important;
+                    flex: 1 1 0px !important;
+                }
+                div[data-testid="stHorizontalBlock"] {
+                    display: flex !important;
+                    flex-direction: row !important;
+                    flex-wrap: nowrap !important;
+                    align-items: center !important;
+                    gap: 6px !important;
+                }
+                div[data-testid="column"] button {
+                    height: 40px !important;
+                    font-size: 13px !important;
+                    padding: 0 4px !important;
+                    font-weight: bold !important;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
 
             # =========================================================================
             # 💬 LENYÍLÓ ÜZENETKÜLDŐ PANEL (SMS / VIBER + SABLONOK + EGYEDI SZÖVEG)

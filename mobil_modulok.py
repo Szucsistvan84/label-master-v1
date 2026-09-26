@@ -1027,6 +1027,8 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     flex-wrap: nowrap !important;
                     align-items: center !important;
                     gap: 6px !important;
+                    margin-top: 6px !important;
+                    margin-bottom: 4px !important;
                 }
                 div[data-testid="column"] button {
                     height: 40px !important;

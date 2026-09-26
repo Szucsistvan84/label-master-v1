@@ -959,7 +959,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
             # 💡 FESZES KÁRTYA: Kisebb belső térközök, közvetlenül a térkép alá húzva!
             html_kartyadisz = (
-                f'<div style="{bg_style} border-radius: 10px; padding: 8px 12px; margin-top: 2px; margin-bottom: 2px;">'
+                f'<div style="{bg_style} border-radius: 10px; padding: 8px 12px; margin-top: 15px; margin-bottom: 2px;">'
                 f'{kiemelt_szoveg}'
                 f'{sorszam_felirat}'
                 f'<div style="font-size: 16.5px; font-weight: bold; color: #1E3A8A; margin-top: 1px;">👤 {vevo_neve}</div>'

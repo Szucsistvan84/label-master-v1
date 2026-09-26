@@ -732,7 +732,50 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 st.rerun()
             return
 
-        st.markdown("<style>header[data-testid='stHeader'] { display: none !important; } div[data-testid='stTabBar'] { display: none !important; }</style>", unsafe_allow_html=True)
+        # 📱 FEJLÉC, LAPSZÉLEK ÉS MOBIL TÉR KIKAPCSOLÁSA, SPLIT-SCREEN ELRENDEZÉS
+        st.markdown(
+            """
+            <style>
+            header[data-testid='stHeader'] { display: none !important; }
+            div[data-testid='stTabBar'] { display: none !important; }
+            .block-container {
+                padding-top: 0.2rem !important;
+                padding-bottom: 0.5rem !important;
+                padding-left: 0.5rem !important;
+                padding-right: 0.5rem !important;
+                max-width: 100% !important;
+            }
+            /* Fixált térkép konténer a képernyő tetején */
+            .fixed-map-container {
+                position: sticky;
+                top: 0;
+                z-index: 99;
+                background-color: white;
+                margin-left: -0.5rem;
+                margin-right: -0.5rem;
+                padding-bottom: 4px;
+                border-bottom: 1.5px solid #E2E8F0;
+            }
+            </style>
+            """, 
+            unsafe_allow_html=True
+        )
+
+        # 📊 SZOLID, ULTRA-KOMPAKT PROGRESS BAR A FEJLÉC LEGELSŐ PIXELÉBEN
+        hatralevo_db = max(0, osszes_bepakolt - kesz_cimek)
+        szazalek = int((kesz_cimek / osszes_bepakolt) * 100) if osszes_bepakolt > 0 else 0
+
+        st.markdown(f"""
+        <div style="margin-bottom: 4px; padding: 2px 2px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 800; color: #334155; margin-bottom: 3px;">
+                <span>🚚 Kézbesítve: <b style="color: #16A34A;">{kesz_cimek}</b> / {osszes_bepakolt} ({szazalek}%)</span>
+                <span>Hátralévő: <b style="color: #EA580C;">{hatralevo_db}</b></span>
+            </div>
+            <div style="width: 100%; background-color: #E2E8F0; height: 5px; border-radius: 4px; overflow: hidden;">
+                <div style="width: {szazalek}%; background: linear-gradient(90deg, #22C55E 0%, #16A34A 100%); height: 100%; border-radius: 4px; transition: width 0.3s ease;"></div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         active_map_points = []
         current_target_point = None
@@ -754,21 +797,22 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 active_map_points.append(pt)
                 if current_target_point is None: current_target_point = pt
 
+        # 🗺️ FIXÁLT, TELJES SZÉLESSÉGŰ LEAFLET TÉRKÉP (Margók nélkül, peremtől peremig)
         if active_map_points:
             points_json = json.dumps(active_map_points, ensure_ascii=False)
             c_lat = current_target_point['lat'] if current_target_point else 47.5316
             c_lon = current_target_point['lon'] if current_target_point else 21.6244
             
-            # --- 1. PONT FIX: TÉRKERET FINOMHANGOLÁS (NINCS MARGÓ, EMELT TÉRKÉP MAGASSÁG) ---
             html_map_code = """
             <!DOCTYPE html>
             <html>
             <head>
                 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
                 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-                <style>html, body, #map { height: 100%; width: 100%; margin: 0; } #map { height: 210px; }
-                .active-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 19px; font-size: 9.5px; }
-                .current-marker { background: #E1251B; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; }
+                <style>
+                    html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
+                    .active-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 19px; font-size: 9.5px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+                    .current-marker { background: #E1251B; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; box-shadow: 0 2px 6px rgba(225,37,27,0.5); }
                 </style>
             </head>
             <body>
@@ -800,8 +844,13 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             html_map_code = html_map_code.replace("__C_LAT__", str(c_lat))
             html_map_code = html_map_code.replace("__C_LON__", str(c_lon))
 
-            # Beágyazás nulla felesleges fehér térközzel
-            st.components.v1.html(f'<div style="width: 100%; height: 210px; overflow: hidden; border-radius: 12px; border: 1.5px solid #93C5FD; margin-top: -10px; margin-bottom: -10px;"><iframe width="100%" height="210px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="border: none;"></iframe></div>', height=212)
+            # Rögzített (sticky) térkép konténer peremtől peremig
+            st.markdown('<div class="fixed-map-container">', unsafe_allow_html=True)
+            st.components.v1.html(
+                f'<iframe width="100%" height="220px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="border: none; border-radius: 8px; width: 100%;"></iframe>', 
+                height=222
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
 
         # --- 📋 2. ALAP-LISTA ÖSSZEÁLLÍTÁS ---
         elokeszitett_sorok = []

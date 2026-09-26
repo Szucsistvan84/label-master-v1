@@ -905,8 +905,8 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             html_map_code = html_map_code.replace("__C_LON__", str(c_lon))
 
             st.components.v1.html(
-                f'<iframe width="100%" height="200px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="border: none; border-radius: 8px; width: 100%;"></iframe>', 
-                height=177
+                f'<iframe width="100%" height="250px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="border: none; border-radius: 8px; width: 100%;"></iframe>', 
+                height=250
             )
 
         # --- 📋 2. ALAP-LISTA ÖSSZEÁLLÍTÁS ---

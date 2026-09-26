@@ -754,29 +754,28 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 st.rerun()
             return
 
-        # 📱 FEJLÉC, LAPSZÉLEK ÉS MOBIL TÉR KIKAPCSOLÁSA, SPLIT-SCREEN ELRENDEZÉS
+        # 📱 VALÓDI MOBIL SPLIT-SCREEN: Fix térkép felül, gördülő alsó kártyapanel
         st.markdown(
             """
             <style>
             header[data-testid='stHeader'] { display: none !important; }
             div[data-testid='stTabBar'] { display: none !important; }
             .block-container {
-                padding-top: 0.2rem !important;
-                padding-bottom: 0.5rem !important;
-                padding-left: 0.5rem !important;
-                padding-right: 0.5rem !important;
+                padding-top: 0.1rem !important;
+                padding-bottom: 0.2rem !important;
+                padding-left: 0.4rem !important;
+                padding-right: 0.4rem !important;
                 max-width: 100% !important;
             }
-            /* Fixált térkép konténer a képernyő tetején */
-            .fixed-map-container {
-                position: sticky;
-                top: 0;
-                z-index: 99;
-                background-color: white;
-                margin-left: -0.5rem;
-                margin-right: -0.5rem;
-                padding-bottom: 4px;
-                border-bottom: 1.5px solid #E2E8F0;
+            /* A térkép kerete teljesen kifeszítve */
+            .fixed-top-zone {
+                width: 100%;
+                margin: 0;
+                padding: 0;
+            }
+            /* Az alsó munkaterület saját görgetősávval */
+            div[data-testid="stVerticalBlock"] > div.element-container:has(.scrollable-bottom-card) ~ div {
+                overflow-y: auto !important;
             }
             </style>
             """, 
@@ -892,6 +891,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 elokeszitett_sorok.insert(0, talalt_kiemelt)
 
         # --- 📋 4. KÁRTYÁK KIRAJZOLÁSA ---
+        st.markdown('<div class="scrollable-bottom-card"></div>', unsafe_allow_html=True)
         for futo_sorszam, (idx, row) in enumerate(elokeszitett_sorok, 1):
             # 📦 Ládaszám kiolvasása és formázása
             melyik_lada = st.session_state.get(f"lada_szam_tarolt_{idx}")

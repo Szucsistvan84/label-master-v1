@@ -666,9 +666,18 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             st.info("ℹ️ Válaszd ki a járatodat az 1. fülön!")
             return
 
-        df_adatok = st.session_state.get('mdf', pd.DataFrame())
-        if df_adatok is None or df_adatok.empty:
-            df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
+        # Mindig a legfrissebb felhős sorrendet kényszerítjük ki az Adatok fülből!
+        try:
+            sh_live = client.open_by_key(SHEET_ID_UGYFELKOR)
+            ws_live = sh_live.worksheet("Adatok")
+            vals_live = ws_live.get_all_values()
+            if vals_live and len(vals_live) > 1:
+                df_adatok = pd.DataFrame(vals_live[1:], columns=[c.strip() for c in vals_live[0]])
+                st.session_state.mdf = df_adatok
+            else:
+                df_adatok = st.session_state.get('mdf', pd.DataFrame())
+        except Exception:
+            df_adatok = st.session_state.get('mdf', pd.DataFrame())
         
         if df_adatok.empty: return
 
@@ -1101,21 +1110,73 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 else:
                     st.caption("⏳ Várakozás éles GPS jelre...")
 
-            # --- PÉNZÜGYI RÉSZ ÉS KÉZBESÍTÉS ---
+            # --- PÉNZÜGYI RÉSZ ÉS KÉZBESÍTÉS (GOLYÓÁLLÓ EGYENLEG-KEZELÉSSEL) ---
             elovart_osszeg = 0
             if penz_oszlop:
-                try: elovart_osszeg = int(float(str(row[penz_oszlop]).replace("Ft","").replace(" ","").strip()))
-                except: elovart_osszeg = 0
+                try: 
+                    # Negatív előjel megőrzése az elemzéshez
+                    tiszta_penz = str(row[penz_oszlop]).replace("Ft","").replace(" ","").replace("\xa0","").strip()
+                    elovart_osszeg = int(float(tiszta_penz))
+                except: 
+                    elovart_osszeg = 0
             
+            # 🛡️ Ha túlfizetése van (negatív egyenleg), ne omoljon össze a 0-s minimumon!
             if elovart_osszeg > 0:
                 st.write(f"💵 **Fizetendő KP:** {elovart_osszeg:,} Ft")
+                alapertelmezett_atvetel = elovart_osszeg
+            elif elovart_osszeg < 0:
+                st.markdown(f"<div style='color: #047857; background-color: #ECFDF5; padding: 6px 10px; border-radius: 6px; font-size: 13px; font-weight: bold; margin-bottom: 6px;'>💳 <b>Túlfizetés / Egyenleg:</b> {abs(elovart_osszeg):,} Ft (Nem kell pénzt kérni!)</div>", unsafe_allow_html=True)
+                alapertelmezett_atvetel = 0
+            else:
+                alapertelmezett_atvetel = 0
             
-            atvett_osszeg = st.number_input("Átvett összeg:", min_value=0, value=int(elovart_osszeg), step=50, key=f"atvett_input_{idx}")
+            atvett_osszeg = st.number_input(
+                "Átvett összeg:", 
+                min_value=0, 
+                value=int(alapertelmezett_atvetel), 
+                step=50, 
+                key=f"atvett_input_{idx}"
+            )
             
             if st.button("✅ Sikeres kézbesítés", key=f"siker_{idx}", use_container_width=True, type="primary"):
+                # 1. Lokális állapotok beállítása (mindkét kulcsot beállítjuk, hogy a Műszerfal is azonnal lássa!)
                 st.session_state[f"kiszallitva_{idx}"] = True
+                st.session_state[f"kiszallitott_statusz_{idx}"] = "Sikeres"
                 st.session_state.pop("kiemelt_ugyfel_id", None)
+                
+                # 2. Borravaló számítása
+                try:
+                    fizetendo_pozitiv = max(0, elovart_osszeg)
+                    if atvett_osszeg > fizetendo_pozitiv:
+                        st.session_state[f"borravalo_{idx}"] = atvett_osszeg - fizetendo_pozitiv
+                    else:
+                        st.session_state[f"borravalo_{idx}"] = 0
+                except:
+                    pass
+
+                # 3. ☁️ AZONNALI FELHŐS RÖGZÍTÉS (Google Sheets Adatok fül)
+                try:
+                    sh_sync = client.open_by_key(SHEET_ID_UGYFELKOR)
+                    ws_adatok_sync = sh_sync.worksheet("Adatok")
+                    
+                    # Cella sorszámának megkeresése ID alapján
+                    headers = ws_adatok_sync.row_values(1)
+                    if "Státusz" in headers and "ID" in headers:
+                        status_col_idx = headers.index("Státusz") + 1
+                        id_col_idx = headers.index("ID") + 1
+                        
+                        all_ids = ws_adatok_sync.col_values(id_col_idx)
+                        target_id_str = str(customer_id).strip()
+                        
+                        for r_idx, sheet_id_val in enumerate(all_ids[1:], start=2):
+                            if str(sheet_id_val).strip() == target_id_str:
+                                ws_adatok_sync.update_cell(r_idx, status_col_idx, "Kézbesítve")
+                                break
+                except Exception as e_sheet_sync:
+                    print(f"Hiba a háttérmentéskor: {e_sheet_sync}")
+
                 st.toast(f"🎉 {vevo_neve} teljesítve!")
+                time.sleep(0.3)
                 st.rerun()
             break
             

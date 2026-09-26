@@ -1198,22 +1198,25 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 except: 
                     elovart_osszeg = 0
             
-            # 🛡️ Ha túlfizetése van (negatív egyenleg), ne omoljon össze a 0-s minimumon!
+            # 🛡️ Ha van fizetendő, vagy túlfizetés/jóváírás van a vevőnek:
             if elovart_osszeg > 0:
                 st.write(f"💵 **Fizetendő KP:** {elovart_osszeg:,} Ft")
                 alapertelmezett_atvetel = elovart_osszeg
             elif elovart_osszeg < 0:
-                st.markdown(f"<div style='color: #047857; background-color: #ECFDF5; padding: 6px 10px; border-radius: 6px; font-size: 13px; font-weight: bold; margin-bottom: 6px;'>💳 <b>Túlfizetés / Egyenleg:</b> {abs(elovart_osszeg):,} Ft (Nem kell pénzt kérni!)</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='color: #047857; background-color: #ECFDF5; padding: 6px 10px; border-radius: 6px; font-size: 13px; font-weight: bold; margin-bottom: 6px;'>💳 <b>Túlfizetés / Egyenleg:</b> {abs(elovart_osszeg):,} Ft (Visszaadható KP vagy jóváírás)</div>", unsafe_allow_html=True)
                 alapertelmezett_atvetel = 0
             else:
                 alapertelmezett_atvetel = 0
             
+            # 🔄 Engedélyezzük a negatív összeget is (visszafizetéshez a vevőnek)
             atvett_osszeg = st.number_input(
-                "Átvett összeg:", 
-                min_value=0, 
+                "Átvett (+) / Visszaadott (-) összeg (Ft):", 
+                min_value=-50000, 
+                max_value=100000,
                 value=int(alapertelmezett_atvetel), 
                 step=50, 
-                key=f"atvett_input_{idx}"
+                key=f"atvett_input_{idx}",
+                help="Pozitív összeg: te veszel át pénzt. Negatív összeg: te fizetsz vissza a vevőnek a túlfizetéséből!"
             )
             
             if st.button("✅ Sikeres kézbesítés", key=f"siker_{idx}", use_container_width=True, type="primary"):

@@ -801,13 +801,18 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         active_map_points = []
         current_target_point = None
 
+        # 📍 TÉRKÉPI PONTOK CSOPORTOSÍTÁSA CÍM / KOORDINÁTA ALAPJÁN
+        grouped_points = {}
         for idx_m, row_m in bepakolt_sorok:
             if st.session_state.get(f"kiszallitva_{idx_m}", False): continue
             m_lat = str(row_m.get(lat_oszlop, "")).strip().replace(',', '.')
             m_lon = str(row_m.get(lon_oszlop, "")).strip().replace(',', '.')
             
             if m_lat and m_lon and m_lat != "nan" and m_lon != "nan":
-                pt = {
+                # Kerekítés 4 tizedesre a mikrométeres eltérések összevonásához (~10 méteren belül)
+                coord_key = f"{round(float(m_lat), 4)}_{round(float(m_lon), 4)}"
+                
+                pt_info = {
                     "id": str(row_m.get('ID', idx_m)),
                     "sorrend": int(row_m['Sorrend_num']),
                     "name": str(row_m[nev_oszlop]),
@@ -815,14 +820,45 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     "lat": float(m_lat),
                     "lon": float(m_lon)
                 }
-                active_map_points.append(pt)
-                if current_target_point is None: current_target_point = pt
+                
+                if coord_key not in grouped_points:
+                    grouped_points[coord_key] = []
+                grouped_points[coord_key].append(pt_info)
 
-        # 🗺️ FIXÁLT, TELJES SZÉLESSÉGŰ LEAFLET TÉRKÉP (Margók nélkül, peremtől peremig)
-        if active_map_points:
-            points_json = json.dumps(active_map_points, ensure_ascii=False)
-            c_lat = current_target_point['lat'] if current_target_point else 47.5316
-            c_lon = current_target_point['lon'] if current_target_point else 21.6244
+        active_map_clusters = []
+        current_target_point = None
+
+        for coord_key, clients in grouped_points.items():
+            first = clients[0]
+            # Sorszámok összefűzése: pl. "2" vagy ha több: "2-3"
+            all_stops = [c["sorrend"] for c in clients]
+            if len(all_stops) == 1:
+                label_text = str(all_stops[0])
+            else:
+                label_text = f"{min(all_stops)}-{max(all_stops)}"
+            
+            # Popup tartalom összeállítása
+            client_rows_html = "".join([f"<div style='margin-bottom:3px;'><b>#{c['sorrend']} - {c['name']}</b></div>" for c in clients])
+            popup_content = f"<div style='font-size:11px; font-family:sans-serif;'>{client_rows_html}<span style='color:#4B5563;'>🏠 {first['address']}</span></div>"
+
+            cluster_item = {
+                "lat": first["lat"],
+                "lon": first["lon"],
+                "label": label_text,
+                "count": len(clients),
+                "popup": popup_content,
+                "min_stop": min(all_stops)
+            }
+            active_map_clusters.append(cluster_item)
+
+        # Aktuális legelső célpont kiválasztása
+        if active_map_clusters:
+            active_map_clusters.sort(key=lambda x: x["min_stop"])
+            current_target_point = active_map_clusters[0]
+
+            clusters_json = json.dumps(active_map_clusters, ensure_ascii=False)
+            c_lat = current_target_point['lat']
+            c_lon = current_target_point['lon']
             
             html_map_code = """
             <!DOCTYPE html>
@@ -832,40 +868,45 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
                 <style>
                     html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
-                    .active-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 19px; font-size: 9.5px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
-                    .current-marker { background: #E1251B; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; box-shadow: 0 2px 6px rgba(225,37,27,0.5); }
+                    .single-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 22px; font-size: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+                    .multi-marker { background: #0284C7; border: 2px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 22px; font-size: 10px; padding: 0 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+                    .current-marker { background: #E1251B !important; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 25px; font-size: 11px; box-shadow: 0 2px 6px rgba(225,37,27,0.5); }
+                    .current-multi-marker { background: #E1251B !important; border: 2px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 24px; font-size: 11px; padding: 0 5px; box-shadow: 0 2px 6px rgba(225,37,27,0.5); }
                 </style>
             </head>
             <body>
                 <div id="map"></div>
                 <script>
-                    var points = __POINTS_JSON__;
+                    var clusters = __CLUSTERS_JSON__;
                     var map = L.map('map', {zoomControl: false}).setView([__C_LAT__, __C_LON__], 14);
                     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-                    points.forEach(function(p, index) {
-                        var isCurrent = (index === 0);
-                        var iconClass = isCurrent ? 'current-marker' : 'active-marker';
-                        var iconSize = isCurrent ? [26, 26] : [22, 22];
+                    clusters.forEach(function(c, index) {
+                        var isFirst = (index === 0);
+                        var isMulti = (c.count > 1);
+                        
+                        var iconClass = "";
+                        var iconSize = [];
+                        
+                        if (isFirst) {
+                            iconClass = isMulti ? 'current-multi-marker' : 'current-marker';
+                            iconSize = isMulti ? [38, 25] : [26, 26];
+                        } else {
+                            iconClass = isMulti ? 'multi-marker' : 'single-marker';
+                            iconSize = isMulti ? [34, 23] : [23, 23];
+                        }
 
-                        var icon = L.divIcon({ className: iconClass, html: p.sorrend, iconSize: iconSize });
-                        var popupHtml = `
-                            <div style="font-size:11px; font-family:sans-serif;">
-                                <b>#${p.sorrend} - ${p.name}</b><br>
-                                ${p.address}
-                            </div>
-                        `;
-                        L.marker([p.lat, p.lon], {icon: icon}).bindPopup(popupHtml).addTo(map);
+                        var icon = L.divIcon({ className: iconClass, html: c.label, iconSize: iconSize });
+                        L.marker([c.lat, c.lon], {icon: icon}).bindPopup(c.popup).addTo(map);
                     });
                 </script>
             </body>
             </html>
             """
-            html_map_code = html_map_code.replace("__POINTS_JSON__", points_json)
+            html_map_code = html_map_code.replace("__CLUSTERS_JSON__", clusters_json)
             html_map_code = html_map_code.replace("__C_LAT__", str(c_lat))
             html_map_code = html_map_code.replace("__C_LON__", str(c_lon))
 
-            # Rögzített (sticky) térkép konténer peremtől peremig
             st.markdown('<div class="fixed-map-container">', unsafe_allow_html=True)
             st.components.v1.html(
                 f'<iframe width="100%" height="220px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="border: none; border-radius: 8px; width: 100%;"></iframe>', 

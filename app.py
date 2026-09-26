@@ -509,13 +509,16 @@ def main():
         cls2 = "active" if current_state == "2. Címekre szedés 📥" else ("completed" if current_state == "3. Kiszállítás 🚚" else "")
         cls3 = "active" if current_state == "3. Kiszállítás 🚚" else ""
 
-        st.markdown(f"""
-            <div class="stepper-wrapper">
-                <div class="step-item {cls1}"><div class="step-counter">1</div><div class="step-name">Áruátvétel</div></div>
-                <div class="step-item {cls2}"><div class="step-counter">2</div><div class="step-name">Címekre szedés</div></div>
-                <div class="step-item {cls3}"><div class="step-counter">3</div><div class="step-name">Kiszállítás</div></div>
-            </div>
-        """, unsafe_allow_html=True)
+        # 📱 A felső 1-2-3 számlálót CSAK az Áruátvétel és Címekre szedés alatt mutatjuk.
+        # Kiszállításkor elrejtjük, hogy a fix térképnek jusson a teljes kijelzőméret!
+        if current_state != "3. Kiszállítás 🚚":
+            st.markdown(f"""
+                <div class="stepper-wrapper">
+                    <div class="step-item {cls1}"><div class="step-counter">1</div><div class="step-name">Áruátvétel</div></div>
+                    <div class="step-item {cls2}"><div class="step-counter">2</div><div class="step-name">Címekre szedés</div></div>
+                    <div class="step-item {cls3}"><div class="step-counter">3</div><div class="step-name">Kiszállítás</div></div>
+                </div>
+            """, unsafe_allow_html=True)
         
         st.markdown("<div style='margin-top: -5px; margin-bottom: 15px; border-top: 1px solid #E5E7EB;'></div>", unsafe_allow_html=True)
 

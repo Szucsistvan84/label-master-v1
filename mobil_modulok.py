@@ -754,7 +754,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 st.rerun()
             return
 
-        # 📱 1. MARGÓK NULLÁZÁSA (A térkép közvetlenül a kártyához tapad)
+        # 📱 1. ULTRA-KOMPAKT MOBIL NÉZET: Nulla felesleges margó, hogy minden kiférjen egy képernyőre!
         st.markdown(
             """
             <style>
@@ -762,28 +762,41 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             div[data-testid='stTabBar'] { display: none !important; }
             .block-container {
                 padding-top: 0.1rem !important;
-                padding-bottom: 0.5rem !important;
-                padding-left: 0.3rem !important;
-                padding-right: 0.3rem !important;
+                padding-bottom: 0.2rem !important;
+                padding-left: 0.35rem !important;
+                padding-right: 0.35rem !important;
                 max-width: 100% !important;
             }
-            iframe { margin-bottom: -15px !important; }
-            div[data-testid="stVerticalBlock"] > div:has(iframe) {
-                margin-bottom: -10px !important;
+            /* A Streamlit elemek közötti automatikus 16px rés agresszív csökkentése */
+            div[data-testid="stVerticalBlock"] {
+                gap: 0.25rem !important;
+            }
+            /* A beágyazott térkép alsó üres hézagának megszüntetése */
+            div[data-testid="stCustomComponentV1"] {
+                margin-bottom: -18px !important;
                 padding-bottom: 0px !important;
+            }
+            iframe {
+                display: block !important;
+                margin-bottom: -15px !important;
+            }
+            /* Beviteli mezők feszesítése */
+            div[data-testid="stNumberInput"] {
+                margin-top: -6px !important;
+                margin-bottom: -4px !important;
             }
             </style>
             """, 
             unsafe_allow_html=True
         )
 
-        # 📊 SZOLID MINI PROGRESS BAR
+        # 📊 SZOLID MINI PROGRESS BAR (Közvetlenül a felső élre húzva)
         hatralevo_db = max(0, osszes_bepakolt - kesz_cimek)
         szazalek = int((kesz_cimek / osszes_bepakolt) * 100) if osszes_bepakolt > 0 else 0
 
         st.markdown(f"""
-        <div style="margin-bottom: 2px; padding: 1px 2px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 800; color: #334155; margin-bottom: 2px;">
+        <div style="margin-top: -6px; margin-bottom: 2px; padding: 0 2px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 800; color: #334155; margin-bottom: 1px;">
                 <span>🚚 Kézbesítve: <b style="color: #16A34A;">{kesz_cimek}</b> / {osszes_bepakolt} ({szazalek}%)</span>
                 <span>Hátralévő: <b style="color: #EA580C;">{hatralevo_db}</b></span>
             </div>
@@ -793,7 +806,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         </div>
         """, unsafe_allow_html=True)
 
-        # 📍 2. PONTOS MENETTERVES ÖSSZEVONÁS (Csak a közvetlenül egymást követő azonos címek vonhatók össze!)
+        # 📍 2. PONTOS MENETTERVES ÖSSZEVONÁS (Csak közvetlen szomszédos azonos címek)
         cimek_sorban = []
         for idx_m, row_m in bepakolt_sorok:
             if st.session_state.get(f"kiszallitva_{idx_m}", False): continue
@@ -810,42 +823,30 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     "lon": float(m_lon)
                 })
 
-        # Sorrend szerinti láncolás
         active_map_clusters = []
         if cimek_sorban:
             cimek_sorban.sort(key=lambda x: x["sorrend"])
-            
             aktualis_klaszter = [cimek_sorban[0]]
             for c in cimek_sorban[1:]:
                 elozo = aktualis_klaszter[-1]
-                
-                # Normalizált cím-egyezés ellenőrzése
                 c1 = re.sub(r'[\s,\./]+', '', elozo["address"].lower())
                 c2 = re.sub(r'[\s,\./]+', '', c["address"].lower())
                 
-                # CSAK AKKOR VONJUK ÖSSZE, HA EGYMÁS UTÁNI SORSZÁMOK ÉS AZONOS A CÍM!
                 if c["sorrend"] == (elozo["sorrend"] + 1) and (c1 in c2 or c2 in c1):
                     aktualis_klaszter.append(c)
                 else:
-                    # Lezárjuk az előző csoportot
                     all_stops = [x["sorrend"] for x in aktualis_klaszter]
                     first = aktualis_klaszter[0]
                     lbl = str(all_stops[0]) if len(all_stops) == 1 else f"{all_stops[0]}-{all_stops[-1]}"
-                    
                     rows_h = "".join([f"<div style='margin-bottom:2px;'><b>#{x['sorrend']} - {x['name']}</b></div>" for x in aktualis_klaszter])
                     pop_h = f"<div style='font-size:11px; font-family:sans-serif;'>{rows_h}<span style='color:#4B5563;'>🏠 {first['address']}</span></div>"
                     
                     active_map_clusters.append({
-                        "lat": first["lat"],
-                        "lon": first["lon"],
-                        "label": lbl,
-                        "count": len(aktualis_klaszter),
-                        "popup": pop_h,
-                        "min_stop": min(all_stops)
+                        "lat": first["lat"], "lon": first["lon"], "label": lbl,
+                        "count": len(aktualis_klaszter), "popup": pop_h, "min_stop": min(all_stops)
                     })
                     aktualis_klaszter = [c]
             
-            # Utolsó megmaradt csoport felvétele
             if aktualis_klaszter:
                 all_stops = [x["sorrend"] for x in aktualis_klaszter]
                 first = aktualis_klaszter[0]
@@ -854,15 +855,11 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 pop_h = f"<div style='font-size:11px; font-family:sans-serif;'>{rows_h}<span style='color:#4B5563;'>🏠 {first['address']}</span></div>"
                 
                 active_map_clusters.append({
-                    "lat": first["lat"],
-                    "lon": first["lon"],
-                    "label": lbl,
-                    "count": len(aktualis_klaszter),
-                    "popup": pop_h,
-                    "min_stop": min(all_stops)
+                    "lat": first["lat"], "lon": first["lon"], "label": lbl,
+                    "count": len(aktualis_klaszter), "popup": pop_h, "min_stop": min(all_stops)
                 })
 
-        # 🗺️ 3. TÉRKÉP MEGJELENÍTÉSE MINIMÁLIS MARGÓVAL
+        # 🗺️ 3. KOMPAKT 175px-ES TÉRKÉP (Nulla alsó hézaggal)
         if active_map_clusters:
             current_target = active_map_clusters[0]
             clusters_json = json.dumps(active_map_clusters, ensure_ascii=False)
@@ -877,10 +874,10 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
                 <style>
                     html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
-                    .single-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 22px; font-size: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); }
-                    .multi-marker { background: #0284C7; border: 2px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 22px; font-size: 10px; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); white-space: nowrap; }
-                    .current-marker { background: #E1251B !important; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 25px; font-size: 11px; box-shadow: 0 2px 6px rgba(225,37,27,0.5); }
-                    .current-multi-marker { background: #E1251B !important; border: 2px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 24px; font-size: 11px; padding: 0 6px; box-shadow: 0 2px 6px rgba(225,37,27,0.5); white-space: nowrap; }
+                    .single-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 20px; font-size: 9.5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); }
+                    .multi-marker { background: #0284C7; border: 2px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 20px; font-size: 9.5px; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); white-space: nowrap; }
+                    .current-marker { background: #E1251B !important; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 10.5px; box-shadow: 0 2px 6px rgba(225,37,27,0.5); }
+                    .current-multi-marker { background: #E1251B !important; border: 2px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 22px; font-size: 10.5px; padding: 0 5px; box-shadow: 0 2px 6px rgba(225,37,27,0.5); white-space: nowrap; }
                 </style>
             </head>
             <body>
@@ -893,17 +890,8 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     clusters.forEach(function(c, index) {
                         var isFirst = (index === 0);
                         var isMulti = (c.count > 1);
-                        
-                        var iconClass = "";
-                        var iconSize = [];
-                        
-                        if (isFirst) {
-                            iconClass = isMulti ? 'current-multi-marker' : 'current-marker';
-                            iconSize = isMulti ? [44, 25] : [26, 26];
-                        } else {
-                            iconClass = isMulti ? 'multi-marker' : 'single-marker';
-                            iconSize = isMulti ? [38, 23] : [23, 23];
-                        }
+                        var iconClass = isFirst ? (isMulti ? 'current-multi-marker' : 'current-marker') : (isMulti ? 'multi-marker' : 'single-marker');
+                        var iconSize = isFirst ? (isMulti ? [42, 24] : [25, 25]) : (isMulti ? [36, 21] : [21, 21]);
 
                         var icon = L.divIcon({ className: iconClass, html: c.label, iconSize: iconSize });
                         L.marker([c.lat, c.lon], {icon: icon}).bindPopup(c.popup).addTo(map);
@@ -917,10 +905,9 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             html_map_code = html_map_code.replace("__C_LON__", str(c_lon))
 
             st.components.v1.html(
-                f'<iframe width="100%" height="225px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="border: none; border-radius: 8px; width: 100%;"></iframe>', 
-                height=227
+                f'<iframe width="100%" height="175px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="border: none; border-radius: 8px; width: 100%;"></iframe>', 
+                height=177
             )
-            st.markdown('</div>', unsafe_allow_html=True)
 
         # --- 📋 2. ALAP-LISTA ÖSSZEÁLLÍTÁS ---
         elokeszitett_sorok = []
@@ -928,7 +915,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             if st.session_state.get(f"kiszallitva_{idx_p}", False): continue
             elokeszitett_sorok.append((idx_p, row_p))
 
-        # --- 📋 3. HA VAN KIEMELT ÜGYFÉL, AZT ELŐRE RAKJUK A LISTÁBAN ---
         kiemelt_id = st.session_state.get("kiemelt_ugyfel_id", None)
         if kiemelt_id:
             talalt_kiemelt = None
@@ -939,15 +925,13 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             if talalt_kiemelt:
                 elokeszitett_sorok.insert(0, talalt_kiemelt)
 
-        # --- 📋 4. KÁRTYÁK KIRAJZOLÁSA ---
-        st.markdown('<div class="scrollable-bottom-card"></div>', unsafe_allow_html=True)
+        # --- 📋 4. KÁRTYÁK KIRAJZOLÁSA (ULTRA-KOMPAKT PADDING) ---
         for futo_sorszam, (idx, row) in enumerate(elokeszitett_sorok, 1):
-            # 📦 Ládaszám kiolvasása és formázása
             melyik_lada = st.session_state.get(f"lada_szam_tarolt_{idx}")
             if not melyik_lada: 
                 melyik_lada = str(row.get('Láda', '1'))
             melyik_lada_tiszta = str(melyik_lada).strip() if str(melyik_lada).strip() else "1"
-            lada_badge = f'<span style="background-color: #EEF2FF; color: #4338CA; font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 6px; border: 1px solid #C7D2FE; letter-spacing: 0.3px;">📦 {melyik_lada_tiszta}. láda</span>'
+            lada_badge = f'<span style="background-color: #EEF2FF; color: #4338CA; font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 5px; border: 1px solid #C7D2FE;">📦 {melyik_lada_tiszta}. láda</span>'
 
             aktualis_cim = str(row[cim_oszlop]).strip()
             vevo_neve = str(row[nev_oszlop]).strip()
@@ -955,13 +939,11 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             customer_id = str(row['ID']).strip()
             aktualis_rendeles = str(row[rendeles_oszlop]).strip() if rendeles_oszlop in row else "Nincs adat"
             
-            # 📍 Helyes megállósorszám meghatározása a fix sorrend alapján (NEM a hátralévő lista pozíciója!)
             try:
                 eredeti_sorszam = int(float(row.get("Sorrend_num", row.get("Sorrend", futo_sorszam))))
             except:
                 eredeti_sorszam = futo_sorszam
 
-            # 4. PONT FIX: MATEMATIKAI DARABSZÁM ÖSSZEGZÉS A REDUNDÁNS ADAT HELYETT
             osszes_db = 0
             try:
                 darabok = re.findall(r'(\d+)-', aktualis_rendeles)
@@ -969,23 +951,22 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             except:
                 osszes_db = 1
                 
-            # Fejléc sor összeállítása: bal oldalon a megálló, jobb oldalon a láda badge (egy sorban, szóközmentesen!)
-            sorszam_felirat = f'<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 4px;"><span style="font-size: 15px; font-weight: 800; color: #1E293B;">📍 #{eredeti_sorszam}. megálló</span>{lada_badge}</div>'
+            sorszam_felirat = f'<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 2px;"><span style="font-size: 14px; font-weight: 800; color: #1E293B;">📍 #{eredeti_sorszam}. megálló</span>{lada_badge}</div>'
 
             is_kiemelt = (customer_id == kiemelt_id)
-            bg_style = "background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2.5px solid #F59E0B;" if is_kiemelt else "background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD;"
-            kiemelt_szoveg = "<div style='color: #B45309; font-weight: 800; font-size: 12px; margin-bottom: 4px;'>⚠️ TÉRKÉPEN KIJELÖLT CÍM!</div>" if is_kiemelt else ""
+            bg_style = "background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2px solid #F59E0B;" if is_kiemelt else "background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD;"
+            kiemelt_szoveg = "<div style='color: #B45309; font-weight: 800; font-size: 11px; margin-bottom: 2px;'>⚠️ TÉRKÉPEN KIJELÖLT CÍM!</div>" if is_kiemelt else ""
 
-            # 💡 FIX: Egyetlen folytonos HTML blokk behúzások nélkül, hogy a Markdown ne higgye kódblokknak!
+            # 💡 FESZES KÁRTYA: Kisebb belső térközök, közvetlenül a térkép alá húzva!
             html_kartyadisz = (
-                f'<div style="{bg_style} border-radius: 12px; padding: 12px 14px; margin-top: 8px;">'
+                f'<div style="{bg_style} border-radius: 10px; padding: 8px 12px; margin-top: 2px; margin-bottom: 2px;">'
                 f'{kiemelt_szoveg}'
                 f'{sorszam_felirat}'
-                f'<div style="font-size: 18px; font-weight: bold; color: #1E3A8A; margin-top: 2px;">👤 {vevo_neve}</div>'
-                f'<div style="font-size: 13.5px; color: #4B5563; margin-top: 2px;">🏠 {aktualis_cim}</div>'
-                f'<hr style="margin: 8px 0; border: 0; border-top: 1px solid #BFDBFE;">'
-                f'<div style="font-size: 13px; font-weight: bold; color: #4B5563;">🛍️ Összes rendelési tétel: {osszes_db} db</div>'
-                f'<div style="font-size: 13.5px; font-weight: bold; color: #DC2626; margin-top: 2px;">📦 Rendelés: {aktualis_rendeles}</div>'
+                f'<div style="font-size: 16.5px; font-weight: bold; color: #1E3A8A; margin-top: 1px;">👤 {vevo_neve}</div>'
+                f'<div style="font-size: 12.5px; color: #4B5563; margin-top: 1px;">🏠 {aktualis_cim}</div>'
+                f'<hr style="margin: 5px 0; border: 0; border-top: 1px solid #BFDBFE;">'
+                f'<div style="font-size: 12px; font-weight: bold; color: #4B5563;">🛍️ Összes tétel: {osszes_db} db</div>'
+                f'<div style="font-size: 12.5px; font-weight: bold; color: #DC2626; margin-top: 1px;">📦 Rendelés: {aktualis_rendeles}</div>'
                 f'</div>'
             )
             st.markdown(html_kartyadisz, unsafe_allow_html=True)

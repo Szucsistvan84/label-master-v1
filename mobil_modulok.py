@@ -705,6 +705,13 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         for idx_b, row_b in df_kiszallitas.iterrows():
             lada_k = f"lada_szam_tarolt_{idx_b}"
             felhos_lada = str(row_b.get('Láda', ''))
+            felhos_statusz = str(row_b.get('Státusz', '')).strip().lower()
+
+            # ☁️ F5 VÉDELEM: Ha a felhőben már Kézbesítve van, a memóriában is azonnal bepipáljuk!
+            if felhos_statusz in ["kézbesítve", "kezbesitve", "teljesítve"]:
+                st.session_state[f"kiszallitva_{idx_b}"] = True
+                st.session_state[f"kiszallitott_statusz_{idx_b}"] = "Sikeres"
+
             if st.session_state.get(lada_k) is not None or "láda" in felhos_lada.lower():
                 if st.session_state.get(lada_k) is None:
                     st.session_state[lada_k] = felhos_lada

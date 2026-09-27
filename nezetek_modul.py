@@ -464,6 +464,27 @@ def render_mobil_sidebar_dashboard(client, SHEET_ID_UGYFELKOR):
     st.progress(haladas_szazalek)
     st.caption(f"Teljesítve: {live_kesz_cimek} / {osszes_cim} cím ({int(haladas_szazalek * 100)}%)")
 
+    # ☁️ ÉLŐ PERZISZTENCIA: Rakományérték és Jutalék lekérése a Mobil_Summary munkalapból
+    if forgalmi_ertek == 0 or jutalek == 0:
+        try:
+            df_summary = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Mobil_Summary")
+            if df_summary is not None and not df_summary.empty:
+                df_summary.columns = [c.strip() for c in df_summary.columns]
+                
+                # Futár szerinti szűrés
+                aktualis_futar = str(st.session_state.get('user_nev', 'Szűcs István')).strip().lower()
+                df_futar_sum = df_summary[df_summary['Futar'].astype(str).str.strip().str.lower() == aktualis_futar]
+                
+                # Ha van futár egyezés, a legutolsó sorát vesszük, egyébként a táblázat legutolsó sorát
+                sor_summary = df_futar_sum.iloc[-1] if not df_futar_sum.empty else df_summary.iloc[-1]
+                
+                if forgalmi_ertek == 0:
+                    forgalmi_ertek = int(float(sor_summary.get('Forgalom_Osszes', 0)))
+                if jutalek == 0:
+                    jutalek = int(float(sor_summary.get('Vart_Jutalek', 0)))
+        except Exception as e_sum:
+            print(f"Hiba a Mobil_Summary beolvasásakor: {e_sum}")
+
     st.markdown("<div style='margin: 14px 0 10px 0; border-top: 1.5px solid #E5E7EB;'></div>", unsafe_allow_html=True)
     st.subheader("💰 Pénzügy & Mennyiség")
     col_s1, col_s2 = st.columns(2)

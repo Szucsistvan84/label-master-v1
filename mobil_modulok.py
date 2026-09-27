@@ -286,6 +286,10 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
             rendezes_col = 'Sorszám' if 'Sorszám' in df_levalt.columns else 'Sorrend'
             df_levalt['Sorrend_num'] = pd.to_numeric(df_levalt[rendezes_col], errors='coerce').fillna(999).astype(int)
             
+            # 🛡️ GOLYÓÁLLÓ OSZLOPVÉDELEM: Ha az újratöltéskor nincs 'Láda' oszlop, pótoljuk!
+            if 'Láda' not in df_levalt.columns:
+                df_levalt['Láda'] = "1. láda"
+
             futar_neve_lower = str(st.session_state.get('user_nev', 'Szűcs István')).strip().lower()
             if 'Feldolgozó Futár' in df_levalt.columns:
                 df_levalt = df_levalt[df_levalt['Feldolgozó Futár'].astype(str).str.strip().str.lower() == futar_neve_lower]

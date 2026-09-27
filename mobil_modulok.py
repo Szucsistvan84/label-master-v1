@@ -69,36 +69,16 @@ def render_mobil_aruatvetel(client):
     if "idobelyeg_sor_index" not in st.session_state:
         st.session_state.idobelyeg_sor_index = None
 
-    # --- 🛠️ ADMIN & BEMUTATÓ GYORSÍTÓ PANEL ---
+    # --- 🛠️ BEMUTATÓ GYORSÍTÓ PANEL: 1. ÁRUÁTVÉTEL ÁTUGROTT TELJESÍTÉSE ---
     # 💡 TIPP: Élesítéskor a ["futar", "futár"] egyszerűen törlendő a listából!
     if st.session_state.get('user_szerep') in ["admin", "superadmin", "futar", "futár"]:
         with st.expander("🛠️ TESZTELŐ & BEMUTATÓ PANEL (Gyors Áruátvétel)", expanded=False):
-            if st.button("⚡ ÖSSZES ÉTEL ÁTVÉTELE ÉS INDULÁS A KISZÁLLÍTÁSRA", type="primary", use_container_width=True, key="admin_fast_aruatvetel_btn"):
-                with st.spinner("📦 Tételek automatikus ládázása (1. láda) és felhős szinkronizálás..."):
-                    try:
-                        sh_fast = client.open_by_key(SHEET_ID_UGYFELKOR)
-                        ws_fast = sh_fast.worksheet("Adatok")
-                        rows_fast = ws_fast.get_all_values()
-                        if rows_fast and len(rows_fast) > 1:
-                            hdr = rows_fast[0]
-                            df_f = pd.DataFrame(rows_fast[1:], columns=hdr)
-                            if 'Láda' in df_f.columns:
-                                df_f['Láda'] = df_f['Láda'].apply(lambda x: "1. láda" if not str(x).strip() or str(x).strip().lower() == "nan" else x)
-                            if 'Státusz' in df_f.columns:
-                                df_f['Státusz'] = df_f['Státusz'].apply(lambda x: "Folyamatban" if not str(x).strip() or str(x).strip().lower() in ["nan", ""] else x)
-                            ws_fast.clear()
-                            ws_fast.update('A1', [hdr] + df_f.values.tolist(), value_input_option='USER_ENTERED')
-                            st.session_state.mdf = df_f
-                    except Exception as e_fast:
-                        print(f"Hiba a gyorsládázásnál: {e_fast}")
-                
+            if st.button("⚡ ÖSSZES ÉTEL ÁTVÉTELE ÉS CÍMEKRE SZEDÉS INDÍTÁSA", type="primary", use_container_width=True, key="admin_fast_aruatvetel_btn"):
                 st.session_state.aruatvetel_folyamatban = True
-                st.session_state.kiszallitas_folyamatban = True
-                st.session_state.kiszallitas_aktiv_fullscreen = True
-                st.session_state.current_mobile_tab_state = "3. Kiszállítás 🚚"
-                st.query_params.update(view="mobile", active_tab="kiszallitas")
-                st.toast("🚀 Áruátvétel és Ládázás szimulálva!")
-                time.sleep(0.3)
+                st.session_state.current_mobile_tab_state = "2. Címekre szedés 📥"
+                st.query_params.update(view="mobile", active_tab="bepakolas")
+                st.toast("✅ Áruátvétel azonnal teljesítve! Tovább a címekre szedésre...")
+                time.sleep(0.4)
                 st.rerun()
 
     # =========================================================================

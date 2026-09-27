@@ -85,11 +85,44 @@ def main():
     url_teszt = st.query_params.get("test", "false") == "true"
     is_mobile_view = (view == "mobile")
 
-    # --- MOBIL FOLYAMAT JELZŐ ÁLLAPOT INICIALIZÁLÁSA ---
+    # --- MOBIL FOLYAMAT JELZŐ ÁLLAPOT INICIALIZÁLÁSA (INTELLIGENS VISSZALÉPTETŐVEL) ---
     if 'current_mobile_tab_state' not in st.session_state:
-        url_tab_param = st.query_params.get("active_tab", "aruatvetel")
+        url_tab_param = st.query_params.get("active_tab", "")
         tab_mapping_init = {"aruatvetel": "1. Áruátvétel 📦", "bepakolas": "2. Címekre szedés 📥", "kiszallitas": "3. Kiszállítás 🚚"}
-        st.session_state.current_mobile_tab_state = tab_mapping_init.get(url_tab_param, "1. Áruátvétel 📦")
+        
+        # 1. Ha az URL paraméterben konkrétan meg van adva a fül, azt tiszteletben tartjuk
+        if url_tab_param in tab_mapping_init:
+            st.session_state.current_mobile_tab_state = tab_mapping_init[url_tab_param]
+        else:
+            # 2. 🚀 Ha nincs az URL-ben adat (pl. WebAPK vagy háttérből visszanyitás), megnézzük a Google Sheets-t!
+            mar_kiszallitasban_van = False
+            try:
+                sh_check = client.open_by_key(SHEET_ID_UGYFELKOR)
+                ws_check = sh_check.worksheet("Adatok")
+                vals_check = ws_check.get_all_values()
+                if vals_check and len(vals_check) > 1:
+                    hdr = [c.strip() for c in vals_check[0]]
+                    df_chk = pd.DataFrame(vals_check[1:], columns=hdr)
+                    
+                    # Ha vannak már ládák beírva, vagy van már leadott tétel:
+                    lada_letezik = 'Láda' in df_chk.columns and (df_chk['Láda'].astype(str).str.contains("láda", case=False, na=False).any())
+                    kezbesites_letezik = False
+                    if 'Státusz' in df_chk.columns:
+                        kezbesites_letezik = df_chk['Státusz'].astype(str).str.lower().str.strip().isin(["kézbesítve", "kezbesitve", "teljesítve"]).any()
+                    
+                    if lada_letezik or kezbesites_letezik:
+                        mar_kiszallitasban_van = True
+            except Exception as e_chk:
+                print(f"Hiba a visszaléptetés ellenőrzésekor: {e_chk}")
+                mar_kiszallitasban_van = False
+
+            if mar_kiszallitasban_van:
+                st.session_state.current_mobile_tab_state = "3. Kiszállítás 🚚"
+                st.session_state.aruatvetel_folyamatban = True
+                st.session_state.kiszallitas_folyamatban = True
+                st.session_state.kiszallitas_aktiv_fullscreen = True
+            else:
+                st.session_state.current_mobile_tab_state = "1. Áruátvétel 📦"
 
     # ==============================================================================
     # 🛰️ AUTOMATIKUS VISSZALÉPTETŐ MOTOR BÖNGÉSZŐ FRISSÍTÉS (F5 / LEHÚZÁS) ESETÉN

@@ -617,7 +617,7 @@ def main():
                     st.rerun()
             else:
                 if st.button("🏁 Lezárás", type="primary", use_container_width=True, key="stepper_close_btn_action"):
-                    st.toast("🎉 Szép munka! Minden mai debreceni címet sikeresen teljesítettél!")
+                    st.toast("🎉 Szép munka! Minden mai címet sikeresen teljesítettél!")
         st.markdown('</div>', unsafe_allow_html=True)
 
     # =========================================================================

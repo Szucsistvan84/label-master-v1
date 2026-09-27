@@ -85,16 +85,22 @@ def main():
     url_teszt = st.query_params.get("test", "false") == "true"
     is_mobile_view = (view == "mobile")
 
-    # --- MOBIL FOLYAMAT JELZŐ ÁLLAPOT INICIALIZÁLÁSA (INTELLIGENS VISSZALÉPTETŐVEL) ---
+    # --- MOBIL FOLYAMAT JELZŐ ÁLLAPOT INICIALIZÁLÁSA (GOLYÓÁLLÓ VISSZALÉPTETŐVEL) ---
     if 'current_mobile_tab_state' not in st.session_state:
         url_tab_param = st.query_params.get("active_tab", "")
         tab_mapping_init = {"aruatvetel": "1. Áruátvétel 📦", "bepakolas": "2. Címekre szedés 📥", "kiszallitas": "3. Kiszállítás 🚚"}
         
-        # 1. Ha az URL paraméterben konkrétan meg van adva a fül, azt tiszteletben tartjuk
+        # 🛡️ 1. GONDOSKODUNK ARRÓL, HOGY A JÁRAT SOHA NE LEGYEN ÜRES INDULÁSKOR!
+        if "mob_jarat_select" not in st.session_state or not st.session_state.mob_jarat_select:
+            user_jaratok = [str(j).strip() for j in st.session_state.get("user_jarat_lista", []) if str(j).strip()]
+            if not user_jaratok:
+                user_jaratok = ["4002"]
+            st.session_state.mob_jarat_select = user_jaratok
+
         if url_tab_param in tab_mapping_init:
             st.session_state.current_mobile_tab_state = tab_mapping_init[url_tab_param]
         else:
-            # 2. 🚀 Ha nincs az URL-ben adat (pl. WebAPK vagy háttérből visszanyitás), megnézzük a Google Sheets-t!
+            # 🚀 2. Megvizsgáljuk, hogy volt-e már megkezdett kiszállítás
             mar_kiszallitasban_van = False
             try:
                 sh_check = client.open_by_key(SHEET_ID_UGYFELKOR)
@@ -104,7 +110,6 @@ def main():
                     hdr = [c.strip() for c in vals_check[0]]
                     df_chk = pd.DataFrame(vals_check[1:], columns=hdr)
                     
-                    # Ha vannak már ládák beírva, vagy van már leadott tétel:
                     lada_letezik = 'Láda' in df_chk.columns and (df_chk['Láda'].astype(str).str.contains("láda", case=False, na=False).any())
                     kezbesites_letezik = False
                     if 'Státusz' in df_chk.columns:
@@ -113,7 +118,6 @@ def main():
                     if lada_letezik or kezbesites_letezik:
                         mar_kiszallitasban_van = True
             except Exception as e_chk:
-                print(f"Hiba a visszaléptetés ellenőrzésekor: {e_chk}")
                 mar_kiszallitasban_van = False
 
             if mar_kiszallitasban_van:

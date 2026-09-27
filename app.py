@@ -85,22 +85,48 @@ def main():
     url_teszt = st.query_params.get("test", "false") == "true"
     is_mobile_view = (view == "mobile")
 
-    # --- MOBIL FOLYAMAT JELZŐ ÁLLAPOT INICIALIZÁLÁSA (GOLYÓÁLLÓ VISSZALÉPTETŐVEL) ---
+    # ==============================================================================
+    # 🛰️ 1. AUTOMATIKUS TOKEN-BELÉPTETÉS (F5 / PWA / URL paraméter esetén)
+    # ==============================================================================
+    if 'bejelentkezve' not in st.session_state: 
+        st.session_state.bejelentkezve = False
+    
+    if not st.session_state.bejelentkezve and "token_name" in st.query_params:
+        st.session_state.bejelentkezve = True
+        st.session_state.user_nev = str(st.query_params["token_name"])
+        st.session_state.user_szerep = str(st.query_params.get("token_role", "futar"))
+        raw_routes = str(st.query_params.get("token_routes", "")).strip()
+        st.session_state.user_jarat_lista = [r.strip() for r in raw_routes.split(",") if r.strip()]
+        st.session_state.user_tel = str(st.query_params.get("token_tel", ""))
+
+    # ==============================================================================
+    # 🎯 2. DINAMIKUS JÁRATFELISMERÉS ÉS INTELLIGENS VISSZALÉPTETŐ MOTOR
+    # ==============================================================================
+    # Dinamikusan összegyűjtjük a bejelentkezett felhasználó járatait (semmi sincs beégetve!)
+    aktiv_jaratok = []
+    if st.session_state.get('user_jarat_lista'):
+        aktiv_jaratok = [str(j).strip() for j in st.session_state.user_jarat_lista if str(j).strip()]
+    elif st.session_state.get('user_jarat'):
+        nyers_j = str(st.session_state.user_jarat).strip()
+        aktiv_jaratok = [j.strip() for j in nyers_j.split(",") if j.strip()]
+
+    # Automatikusan beállítjuk az aktív járatszűrőt a futár saját járataira
+    if aktiv_jaratok and ("mob_jarat_select" not in st.session_state or not st.session_state.mob_jarat_select):
+        st.session_state.mob_jarat_select = aktiv_jaratok
+
+    # Ha a fül állapota még nincs inicializálva, felmérjük a folyamat helyzetét
     if 'current_mobile_tab_state' not in st.session_state:
         url_tab_param = st.query_params.get("active_tab", "")
-        tab_mapping_init = {"aruatvetel": "1. Áruátvétel 📦", "bepakolas": "2. Címekre szedés 📥", "kiszallitas": "3. Kiszállítás 🚚"}
+        tab_mapping_init = {
+            "aruatvetel": "1. Áruátvétel 📦", 
+            "bepakolas": "2. Címekre szedés 📥", 
+            "kiszallitas": "3. Kiszállítás 🚚"
+        }
         
-        # 🛡️ 1. GONDOSKODUNK ARRÓL, HOGY A JÁRAT SOHA NE LEGYEN ÜRES INDULÁSKOR!
-        if "mob_jarat_select" not in st.session_state or not st.session_state.mob_jarat_select:
-            user_jaratok = [str(j).strip() for j in st.session_state.get("user_jarat_lista", []) if str(j).strip()]
-            if not user_jaratok:
-                user_jaratok = ["4002"]
-            st.session_state.mob_jarat_select = user_jaratok
-
         if url_tab_param in tab_mapping_init:
             st.session_state.current_mobile_tab_state = tab_mapping_init[url_tab_param]
         else:
-            # 🚀 2. Megvizsgáljuk, hogy volt-e már megkezdett kiszállítás
+            # Megvizsgáljuk a Google Sheets-ben, hogy a futár járatánál fut-e már kiszállítás
             mar_kiszallitasban_van = False
             try:
                 sh_check = client.open_by_key(SHEET_ID_UGYFELKOR)
@@ -110,14 +136,21 @@ def main():
                     hdr = [c.strip() for c in vals_check[0]]
                     df_chk = pd.DataFrame(vals_check[1:], columns=hdr)
                     
-                    lada_letezik = 'Láda' in df_chk.columns and (df_chk['Láda'].astype(str).str.contains("láda", case=False, na=False).any())
+                    # Szűrés a bejelentkezett futár dinamikus járataira (pl. 104, 4002, stb.)
+                    if 'Járat' in df_chk.columns and aktiv_jaratok:
+                        df_sajat_jarat = df_chk[df_chk['Járat'].astype(str).str.strip().isin(aktiv_jaratok)]
+                    else:
+                        df_sajat_jarat = df_chk
+                    
+                    lada_letezik = 'Láda' in df_sajat_jarat.columns and (df_sajat_jarat['Láda'].astype(str).str.contains("láda", case=False, na=False).any())
                     kezbesites_letezik = False
-                    if 'Státusz' in df_chk.columns:
-                        kezbesites_letezik = df_chk['Státusz'].astype(str).str.lower().str.strip().isin(["kézbesítve", "kezbesitve", "teljesítve"]).any()
+                    if 'Státusz' in df_sajat_jarat.columns:
+                        kezbesites_letezik = df_sajat_jarat['Státusz'].astype(str).str.lower().str.strip().isin(["kézbesítve", "kezbesitve", "teljesítve"]).any()
                     
                     if lada_letezik or kezbesites_letezik:
                         mar_kiszallitasban_van = True
             except Exception as e_chk:
+                print(f"Hiba a visszaléptetés ellenőrzésekor: {e_chk}")
                 mar_kiszallitasban_van = False
 
             if mar_kiszallitasban_van:
@@ -127,22 +160,6 @@ def main():
                 st.session_state.kiszallitas_aktiv_fullscreen = True
             else:
                 st.session_state.current_mobile_tab_state = "1. Áruátvétel 📦"
-
-    # ==============================================================================
-    # 🛰️ AUTOMATIKUS VISSZALÉPTETŐ MOTOR BÖNGÉSZŐ FRISSÍTÉS (F5 / LEHÚZÁS) ESETÉN
-    # ==============================================================================
-    if 'bejelentkezve' not in st.session_state: st.session_state.bejelentkezve = False
-    
-    if not st.session_state.bejelentkezve and "token_name" in st.query_params:
-        st.session_state.bejelentkezve = True
-        st.session_state.user_nev = str(st.query_params["token_name"])
-        st.session_state.user_szerep = str(st.query_params.get("token_role", "futar"))
-        st.session_state.user_jarat_lista = str(st.query_params.get("token_routes", "")).split(",")
-        st.session_state.user_tel = str(st.query_params.get("token_tel", ""))
-        if "active_tab" in st.query_params:
-            tab_param = st.query_params["active_tab"]
-            tab_mapping_rev = {"aruatvetel": "1. Áruátvétel 📦", "bepakolas": "2. Címekre szedés 📥", "kiszallitas": "3. Kiszállítás 🚚"}
-            st.session_state.current_mobile_tab_state = tab_mapping_rev.get(tab_param, "1. Áruátvétel 📦")
 
     # ==============================================================================
     # 🛰️ ÉLES ÚTVONAL-RENDEZŐ ENGINE HOOK

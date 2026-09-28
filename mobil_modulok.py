@@ -973,36 +973,32 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                         L.marker([c.lat, c.lon], markerOptions).bindPopup(c.popup).addTo(map);
                     });
 
-                    // 🛰️ ÉLŐ FUTÁR POZÍCIÓ (Kék pulzáló pont)
+                    // 🛰️ ÉLŐ FUTÁR POZÍCIÓ (Leaflet beépített GPS lokátor + pulzáló pont)
                     var userMarker = null;
-                    if ('geolocation' in navigator) {
-                        var gpsIcon = L.divIcon({
-                            className: 'user-gps-container',
-                            html: '<div class="user-gps-pulse"></div><div class="user-gps-dot"></div>',
-                            iconSize: [14, 14],
-                            iconAnchor: [7, 7]
-                        });
+                    var gpsIcon = L.divIcon({
+                        className: 'user-gps-container',
+                        html: '<div class="user-gps-pulse"></div><div class="user-gps-dot"></div>',
+                        iconSize: [14, 14],
+                        iconAnchor: [7, 7]
+                    });
 
-                        navigator.geolocation.watchPosition(function(pos) {
-                            var uLat = pos.coords.latitude;
-                            var uLon = pos.coords.longitude;
-                            
-                            if (!userMarker) {
-                                userMarker = L.marker([uLat, uLon], {
-                                    icon: gpsIcon, 
-                                    zIndexOffset: 12000 // Mindig a legfelső réteg
-                                }).addTo(map);
-                            } else {
-                                userMarker.setLatLng([uLat, uLon]);
-                            }
-                        }, function(err) {
-                            console.log("GPS pozíció nem elérhető:", err.message);
-                        }, {
-                            enableHighAccuracy: true,
-                            maximumAge: 10000,
-                            timeout: 5000
-                        });
-                    }
+                    // Folyamatos, nagy pontosságú GPS követés
+                    map.locate({watch: true, enableHighAccuracy: true, maximumAge: 5000});
+
+                    map.on('locationfound', function(e) {
+                        if (!userMarker) {
+                            userMarker = L.marker(e.latlng, {
+                                icon: gpsIcon,
+                                zIndexOffset: 15000 // Minden réteg felett legfelül
+                            }).addTo(map);
+                        } else {
+                            userMarker.setLatLng(e.latlng);
+                        }
+                    });
+
+                    map.on('locationerror', function(e) {
+                        console.log("GPS pozicionálási hiba:", e.message);
+                    });
                 </script>
             </body>
             </html>
@@ -1011,10 +1007,8 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             html_map_code = html_map_code.replace("__C_LAT__", str(c_lat))
             html_map_code = html_map_code.replace("__C_LON__", str(c_lon))
 
-            st.components.v1.html(
-                f'<iframe width="100%" height="220px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="border: none; border-radius: 8px; width: 100%;"></iframe>', 
-                height=222
-            )
+            # 🚀 KÖZVETLEN RENDERELÉS: Nincs beágyazott data:URI iframe, így elérhető a GPS API és 180px a magasság!
+            st.components.v1.html(html_map_code, height=185)
 
         # --- 📋 2. ALAP-LISTA ÖSSZEÁLLÍTÁS ---
         elokeszitett_sorok = []

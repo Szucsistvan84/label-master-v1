@@ -418,6 +418,34 @@ def main():
 
     # --- BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
+        # ⚡ 1. AUTOMATIKUS PWA / LOCALSTORAGE GYORS-VISSZALÉPTETŐ
+        if "token_name" not in st.query_params:
+            import streamlit.components.v1 as _components
+            _components.html("""
+                <script>
+                    try {
+                        const uNev = localStorage.getItem('if_futar_nev');
+                        if (uNev) {
+                            const uSzerep = localStorage.getItem('if_futar_szerep') || 'futar';
+                            const uRoutes = localStorage.getItem('if_futar_routes') || '';
+                            const uTel = localStorage.getItem('if_futar_tel') || '';
+                            const uView = localStorage.getItem('if_futar_view') || 'mobile';
+                            
+                            // Azonnal visszatöltjük a futárt az URL tokenekkel (kérdezés nélkül!)
+                            const targetUrl = window.parent.location.pathname + 
+                                '?view=' + encodeURIComponent(uView) +
+                                '&token_name=' + encodeURIComponent(uNev) + 
+                                '&token_role=' + encodeURIComponent(uSzerep) + 
+                                '&token_routes=' + encodeURIComponent(uRoutes) + 
+                                '&token_tel=' + encodeURIComponent(uTel);
+                            window.parent.location.replace(targetUrl);
+                        }
+                    } catch(e) {
+                        console.log('LocalStorage olvasási hiba:', e);
+                    }
+                </script>
+            """, height=0, width=0)
+
         if os.path.exists("interfood-logo.png"):
             try:
                 with open("interfood-logo.png", "rb") as img_f:
@@ -503,6 +531,22 @@ def main():
                         routes_str = str(st.session_state.login_jarat_field).strip()
                         st.session_state.user_jarat_lista = [routes_str]
                     
+                    # 💾 2. SIKERES BELÉPÉSKOR ADATOK MENTÉSE A TELEFON BÖNGÉSZŐJÉBE
+                    import streamlit.components.v1 as _components
+                    _components.html(f"""
+                        <script>
+                            try {{
+                                localStorage.setItem('if_futar_nev', '{st.session_state.user_nev}');
+                                localStorage.setItem('if_futar_szerep', '{st.session_state.user_szerep}');
+                                localStorage.setItem('if_futar_routes', '{routes_str}');
+                                localStorage.setItem('if_futar_tel', '{st.session_state.user_tel}');
+                                localStorage.setItem('if_futar_view', '{target_view_mode}');
+                            }} catch(e) {{
+                                console.log('LocalStorage mentési hiba:', e);
+                            }}
+                        </script>
+                    """, height=0, width=0)
+
                     st.query_params.update(
                         view=target_view_mode, 
                         token_name=st.session_state.user_nev, 

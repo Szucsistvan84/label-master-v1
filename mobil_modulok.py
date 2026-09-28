@@ -880,7 +880,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     "count": len(aktualis_klaszter), "popup": pop_h, "min_stop": min(all_stops)
                 })
 
-        # 🗺️ 3. KOMPAKT TÉRKÉP (Screen Wake Lock ébrentartóval kiegészítve)
+        # 🗺️ 3. KOMPAKT TÉRKÉP (GPS Élő Követéssel + Kiemelt Z-Index rétegrenddel)
         if active_map_clusters:
             current_target = active_map_clusters[0]
             clusters_json = json.dumps(active_map_clusters, ensure_ascii=False)
@@ -897,8 +897,36 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
                     .single-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 20px; font-size: 9.5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); }
                     .multi-marker { background: #0284C7; border: 2px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 20px; font-size: 9.5px; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); white-space: nowrap; }
-                    .current-marker { background: #E1251B !important; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 10.5px; box-shadow: 0 2px 6px rgba(225,37,27,0.5); }
-                    .current-multi-marker { background: #E1251B !important; border: 2px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 22px; font-size: 10.5px; padding: 0 5px; box-shadow: 0 2px 6px rgba(225,37,27,0.5); white-space: nowrap; }
+                    
+                    /* 🔥 Kiemelt piros célpont (erőteljesebb árnyékkal) */
+                    .current-marker { background: #E1251B !important; border: 2.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; box-shadow: 0 3px 8px rgba(225,37,27,0.7); }
+                    .current-multi-marker { background: #E1251B !important; border: 2.5px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 22px; font-size: 11px; padding: 0 5px; box-shadow: 0 3px 8px rgba(225,37,27,0.7); white-space: nowrap; }
+                    
+                    /* 📍 Futár saját élő GPS pozíciója (Google Maps stílusú kék pulzáló pont) */
+                    .user-gps-dot {
+                        width: 14px;
+                        height: 14px;
+                        background: #2563EB;
+                        border: 2.5px solid #FFFFFF;
+                        border-radius: 50%;
+                        box-shadow: 0 0 5px rgba(0,0,0,0.4);
+                        position: relative;
+                    }
+                    .user-gps-pulse {
+                        position: absolute;
+                        top: -8px;
+                        left: -8px;
+                        width: 30px;
+                        height: 30px;
+                        background: rgba(37, 99, 235, 0.35);
+                        border-radius: 50%;
+                        animation: pulse-ring 2s ease-out infinite;
+                    }
+                    @keyframes pulse-ring {
+                        0% { transform: scale(0.4); opacity: 1; }
+                        80% { transform: scale(1.6); opacity: 0; }
+                        100% { opacity: 0; }
+                    }
                 </style>
             </head>
             <body>
@@ -916,8 +944,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                         }
                     }
                     requestWakeLock();
-
-                    // Ha a futár visszatér az appba (pl. bejövő hívás után), újraaktiváljuk
                     document.addEventListener('visibilitychange', async () => {
                         if (wakeLock !== null && document.visibilityState === 'visible') {
                             await requestWakeLock();
@@ -929,15 +955,54 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     var map = L.map('map', {zoomControl: false}).setView([__C_LAT__, __C_LON__], 14);
                     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
+                    // Pontok felhelyezése a térképre
                     clusters.forEach(function(c, index) {
                         var isFirst = (index === 0);
                         var isMulti = (c.count > 1);
                         var iconClass = isFirst ? (isMulti ? 'current-multi-marker' : 'current-marker') : (isMulti ? 'multi-marker' : 'single-marker');
-                        var iconSize = isFirst ? (isMulti ? [42, 24] : [25, 25]) : (isMulti ? [36, 21] : [21, 21]);
+                        var iconSize = isFirst ? (isMulti ? [44, 25] : [27, 27]) : (isMulti ? [36, 21] : [21, 21]);
 
                         var icon = L.divIcon({ className: iconClass, html: c.label, iconSize: iconSize });
-                        L.marker([c.lat, c.lon], {icon: icon}).bindPopup(c.popup).addTo(map);
+                        
+                        // 🚀 KULCS: Ha ez a soron következő cím (isFirst), a rétegrend tetejére tesszük!
+                        var markerOptions = { icon: icon };
+                        if (isFirst) {
+                            markerOptions.zIndexOffset = 10000;
+                        }
+
+                        L.marker([c.lat, c.lon], markerOptions).bindPopup(c.popup).addTo(map);
                     });
+
+                    // 🛰️ ÉLŐ FUTÁR POZÍCIÓ (Kék pulzáló pont)
+                    var userMarker = null;
+                    if ('geolocation' in navigator) {
+                        var gpsIcon = L.divIcon({
+                            className: 'user-gps-container',
+                            html: '<div class="user-gps-pulse"></div><div class="user-gps-dot"></div>',
+                            iconSize: [14, 14],
+                            iconAnchor: [7, 7]
+                        });
+
+                        navigator.geolocation.watchPosition(function(pos) {
+                            var uLat = pos.coords.latitude;
+                            var uLon = pos.coords.longitude;
+                            
+                            if (!userMarker) {
+                                userMarker = L.marker([uLat, uLon], {
+                                    icon: gpsIcon, 
+                                    zIndexOffset: 12000 // Mindig a legfelső réteg
+                                }).addTo(map);
+                            } else {
+                                userMarker.setLatLng([uLat, uLon]);
+                            }
+                        }, function(err) {
+                            console.log("GPS pozíció nem elérhető:", err.message);
+                        }, {
+                            enableHighAccuracy: true,
+                            maximumAge: 10000,
+                            timeout: 5000
+                        });
+                    }
                 </script>
             </body>
             </html>

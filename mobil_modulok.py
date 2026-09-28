@@ -926,8 +926,8 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             html_map_code = html_map_code.replace("__C_LON__", str(c_lon))
 
             st.components.v1.html(
-                f'<iframe width="100%" height="250px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="border: none; border-radius: 8px; width: 100%;"></iframe>', 
-                height=250
+                f'<iframe width="100%" height="220px" src="data:text/html;charset=utf-8,{urllib.parse.quote(html_map_code)}" frameborder="0" scrolling="no" style="border: none; border-radius: 8px; width: 100%;"></iframe>', 
+                height=222
             )
 
         # --- 📋 2. ALAP-LISTA ÖSSZEÁLLÍTÁS ---
@@ -946,20 +946,34 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             if talalt_kiemelt:
                 elokeszitett_sorok.insert(0, talalt_kiemelt)
 
-        # --- 📋 4. KÁRTYÁK KIRAJZOLÁSA (ULTRA-KOMPAKT PADDING) ---
+        # --- 📋 4. KÁRTYÁK KIRAJZOLÁSA (ID + MEGJEGYZÉS BEÉPÍTVE, LÁDA DUPLIKÁCIÓ JAVÍTVA) ---
         for futo_sorszam, (idx, row) in enumerate(elokeszitett_sorok, 1):
+            # 1. Láda felirat duplikáció-mentesen:
             melyik_lada = st.session_state.get(f"lada_szam_tarolt_{idx}")
             if not melyik_lada: 
                 melyik_lada = str(row.get('Láda', '1'))
             melyik_lada_tiszta = str(melyik_lada).strip() if str(melyik_lada).strip() else "1"
-            lada_badge = f'<span style="background-color: #EEF2FF; color: #4338CA; font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 5px; border: 1px solid #C7D2FE;">📦 {melyik_lada_tiszta}. láda</span>'
+            lada_felirat = melyik_lada_tiszta if "láda" in melyik_lada_tiszta.lower() else f"{melyik_lada_tiszta}. láda"
+            lada_badge = f'<span style="background-color: #EEF2FF; color: #4338CA; font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 5px; border: 1px solid #C7D2FE;">📦 {lada_felirat}</span>'
 
+            # 2. Vevő és cím adatok:
             aktualis_cim = str(row[cim_oszlop]).strip()
             vevo_neve = str(row[nev_oszlop]).strip()
             vevo_tel = str(row.get(tel_oszlop, '')).strip()
-            customer_id = str(row['ID']).strip()
+            customer_id = str(row.get('ID', '')).strip()
             aktualis_rendeles = str(row[rendeles_oszlop]).strip() if rendeles_oszlop in row else "Nincs adat"
             
+            # 3. Megjegyzés kiolvasása (Kapukód, porta, instrukció):
+            megjegyzes_nyers = str(row.get('Megjegyzés', row.get('Megjegyzes', ''))).strip()
+            megjegyzes_html = ""
+            if megjegyzes_nyers and megjegyzes_nyers.lower() not in ["nan", "none", ""]:
+                megjegyzes_html = (
+                    f'<div style="background-color: #FEF3C7; border: 1px dashed #D97706; color: #92400E; '
+                    f'font-size: 12px; font-weight: bold; padding: 3px 8px; border-radius: 6px; margin-top: 4px; display: flex; align-items: center; gap: 4px;">'
+                    f'🔔 <span>{megjegyzes_nyers}</span>'
+                    f'</div>'
+                )
+
             try:
                 eredeti_sorszam = int(float(row.get("Sorrend_num", row.get("Sorrend", futo_sorszam))))
             except:
@@ -972,22 +986,32 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             except:
                 osszes_db = 1
                 
-            sorszam_felirat = f'<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 2px;"><span style="font-size: 14px; font-weight: 800; color: #1E293B;">📍 #{eredeti_sorszam}. megálló</span>{lada_badge}</div>'
+            # 4. Fejléc: Bal oldalon megálló + szürke Ügyfélkód (ID), jobb oldalon láda badge
+            id_badge = f'<span style="background-color: #F1F5F9; color: #64748B; font-size: 10.5px; font-weight: 700; padding: 1px 5px; border-radius: 4px; margin-left: 6px; border: 1px solid #CBD5E1;">ID: {customer_id}</span>' if customer_id else ""
+            sorszam_felirat = (
+                f'<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 2px;">'
+                f'<div><span style="font-size: 14px; font-weight: 800; color: #1E293B;">📍 #{eredeti_sorszam}. megálló</span>{id_badge}</div>'
+                f'{lada_badge}'
+                f'</div>'
+            )
 
             is_kiemelt = (customer_id == kiemelt_id)
             bg_style = "background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2px solid #F59E0B;" if is_kiemelt else "background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD;"
             kiemelt_szoveg = "<div style='color: #B45309; font-weight: 800; font-size: 11px; margin-bottom: 2px;'>⚠️ TÉRKÉPEN KIJELÖLT CÍM!</div>" if is_kiemelt else ""
 
-            # 💡 FESZES KÁRTYA: Kisebb belső térközök, közvetlenül a térkép alá húzva!
+            # 5. Kártya HTML összerakása (kompakt elrendezés)
             html_kartyadisz = (
-                f'<div style="{bg_style} border-radius: 10px; padding: 8px 12px; margin-top: 15px; margin-bottom: 2px;">'
+                f'<div style="{bg_style} border-radius: 10px; padding: 8px 12px; margin-top: 6px; margin-bottom: 2px;">'
                 f'{kiemelt_szoveg}'
                 f'{sorszam_felirat}'
-                f'<div style="font-size: 16.5px; font-weight: bold; color: #1E3A8A; margin-top: 1px;">👤 {vevo_neve}</div>'
-                f'<div style="font-size: 12.5px; color: #4B5563; margin-top: 1px;">🏠 {aktualis_cim}</div>'
-                f'<hr style="margin: 5px 0; border: 0; border-top: 1px solid #BFDBFE;">'
-                f'<div style="font-size: 12px; font-weight: bold; color: #4B5563;">🛍️ Összes tétel: {osszes_db} db</div>'
-                f'<div style="font-size: 12.5px; font-weight: bold; color: #DC2626; margin-top: 1px;">📦 Rendelés: {aktualis_rendeles}</div>'
+                f'<div style="font-size: 16px; font-weight: bold; color: #1E3A8A; margin-top: 1px;">👤 {vevo_neve}</div>'
+                f'<div style="font-size: 12px; color: #4B5563; margin-top: 1px;">🏠 {aktualis_cim}</div>'
+                f'{megjegyzes_html}'
+                f'<hr style="margin: 4px 0; border: 0; border-top: 1px solid #BFDBFE;">'
+                f'<div style="display: flex; justify-content: space-between; align-items: center;">'
+                f'<span style="font-size: 11.5px; font-weight: bold; color: #4B5563;">🛍️ Tételek: {osszes_db} db</span>'
+                f'<span style="font-size: 12px; font-weight: bold; color: #DC2626;">📦 {aktualis_rendeles}</span>'
+                f'</div>'
                 f'</div>'
             )
             st.markdown(html_kartyadisz, unsafe_allow_html=True)

@@ -880,7 +880,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     "count": len(aktualis_klaszter), "popup": pop_h, "min_stop": min(all_stops)
                 })
 
-        # 🗺️ 3. KOMPAKT 175px-ES TÉRKÉP (Nulla alsó hézaggal)
+        # 🗺️ 3. KOMPAKT TÉRKÉP (Screen Wake Lock ébrentartóval kiegészítve)
         if active_map_clusters:
             current_target = active_map_clusters[0]
             clusters_json = json.dumps(active_map_clusters, ensure_ascii=False)
@@ -904,6 +904,27 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             <body>
                 <div id="map"></div>
                 <script>
+                    // 💡 SCREEN WAKE LOCK: Képernyő ébrentartása kiszállítás közben
+                    let wakeLock = null;
+                    async function requestWakeLock() {
+                        try {
+                            if ('wakeLock' in navigator) {
+                                wakeLock = await navigator.wakeLock.request('screen');
+                            }
+                        } catch (err) {
+                            console.log("WakeLock nem sikerült:", err);
+                        }
+                    }
+                    requestWakeLock();
+
+                    // Ha a futár visszatér az appba (pl. bejövő hívás után), újraaktiváljuk
+                    document.addEventListener('visibilitychange', async () => {
+                        if (wakeLock !== null && document.visibilityState === 'visible') {
+                            await requestWakeLock();
+                        }
+                    });
+
+                    // Térkép inicializálása
                     var clusters = __CLUSTERS_JSON__;
                     var map = L.map('map', {zoomControl: false}).setView([__C_LAT__, __C_LON__], 14);
                     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);

@@ -5,16 +5,16 @@ import streamlit as st
 st.set_page_config(page_title="Interfood Label Master", layout="wide")
 
 # --- KÉNYSZERÍTETT MODUL HOT-RELOAD (GARANTÁLT FRISSÍTÉS) ---
-import sys
-import importlib
-import base64
-if "nezetek_modul" in sys.modules:
-    importlib.reload(sys.modules["nezetek_modul"])
+#import sys
+#import importlib
+#import base64
+#if "nezetek_modul" in sys.modules:
+#    importlib.reload(sys.modules["nezetek_modul"])
 
-modules_to_reload = ["parser_modul", "mobil_modulok", "nezetek_modul", "adatbazis_modul", "geokodolo_modul", "vizualizacio"]
-for mod_name in modules_to_reload:
-    if mod_name in sys.modules:
-        importlib.reload(sys.modules[mod_name])
+#modules_to_reload = ["parser_modul", "mobil_modulok", "nezetek_modul", "adatbazis_modul", "geokodolo_modul", "vizualizacio"]
+#for mod_name in modules_to_reload:
+#    if mod_name in sys.modules:
+#        importlib.reload(sys.modules[mod_name])
 # -----------------------------------------------------------------------------------
 
 # --- Standard Python modulok importálása ---

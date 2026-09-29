@@ -423,23 +423,25 @@ def main():
                 <script>
                     try {
                         const uNev = localStorage.getItem('if_futar_nev');
-                        if (uNev) {
+                        if (uNev && uNev.trim() !== '') {
                             const uSzerep = localStorage.getItem('if_futar_szerep') || 'futar';
                             const uRoutes = localStorage.getItem('if_futar_routes') || '';
                             const uTel = localStorage.getItem('if_futar_tel') || '';
                             const uView = localStorage.getItem('if_futar_view') || 'mobile';
                             
-                            // Azonnal visszatöltjük a futárt az URL tokenekkel (kérdezés nélkül!)
-                            const targetUrl = window.parent.location.pathname + 
-                                '?view=' + encodeURIComponent(uView) +
-                                '&token_name=' + encodeURIComponent(uNev) + 
-                                '&token_role=' + encodeURIComponent(uSzerep) + 
-                                '&token_routes=' + encodeURIComponent(uRoutes) + 
-                                '&token_tel=' + encodeURIComponent(uTel);
-                            window.parent.location.replace(targetUrl);
+                            const searchParams = new URLSearchParams();
+                            searchParams.set('view', uView);
+                            searchParams.set('active_tab', 'kiszallitas');
+                            searchParams.set('token_name', uNev);
+                            searchParams.set('token_role', uSzerep);
+                            searchParams.set('token_routes', uRoutes);
+                            searchParams.set('token_tel', uTel);
+                            
+                            // Közvetlen ablak-átirányítás, ami felülírja a szülő URL-t
+                            window.top.location.search = searchParams.toString();
                         }
                     } catch(e) {
-                        console.log('LocalStorage olvasási hiba:', e);
+                        console.error('LocalStorage visszaállítás sikertelen:', e);
                     }
                 </script>
             """, height=0, width=0)

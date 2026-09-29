@@ -82,18 +82,20 @@ def main():
     is_mobile_view = (view == "mobile")
 
     # ==============================================================================
-    # 🛰️ 1. AUTOMATIKUS TOKEN-BELÉPTETÉS (F5 / PWA / URL paraméter esetén)
+    # 🛰️ 1. AUTOMATIKUS TOKEN-BELÉPTETÉS (F5 / PWA / Háttérbe kerülés esetén)
     # ==============================================================================
     if 'bejelentkezve' not in st.session_state: 
         st.session_state.bejelentkezve = False
     
-    if not st.session_state.bejelentkezve and "token_name" in st.query_params:
+    # Ha az URL-ben megvannak a tokenek, azonnal és feltétel nélkül visszaállítjuk a munkamenetet!
+    if "token_name" in st.query_params and not st.session_state.bejelentkezve:
         st.session_state.bejelentkezve = True
-        st.session_state.user_nev = str(st.query_params["token_name"])
+        st.session_state.user_nev = str(st.query_params.get("token_name", "Futár"))
         st.session_state.user_szerep = str(st.query_params.get("token_role", "futar"))
         raw_routes = str(st.query_params.get("token_routes", "")).strip()
         st.session_state.user_jarat_lista = [r.strip() for r in raw_routes.split(",") if r.strip()]
         st.session_state.user_tel = str(st.query_params.get("token_tel", ""))
+        st.session_state.view_mode = str(st.query_params.get("view", "mobile"))
 
     # ==============================================================================
     # 🎯 2. DINAMIKUS JÁRATFELISMERÉS ÉS INTELLIGENS VISSZALÉPTETŐ MOTOR

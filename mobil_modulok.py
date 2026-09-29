@@ -1008,7 +1008,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             html_map_code = html_map_code.replace("__C_LON__", str(c_lon))
 
             # 🚀 KÖZVETLEN RENDERELÉS: Nincs beágyazott data:URI iframe, így elérhető a GPS API és 180px a magasság!
-            st.components.v1.html(html_map_code, height=185)
+            st.components.v1.html(html_map_code, height=225)
 
         # --- 📋 2. ALAP-LISTA ÖSSZEÁLLÍTÁS ---
         elokeszitett_sorok = []

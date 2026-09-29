@@ -1104,6 +1104,31 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             )
             st.markdown(html_kartyadisz, unsafe_allow_html=True)
             
+            # --- ⏭️ KÖVETKEZŐ CÍM ELŐNÉZET (PREVIEW SÁV) ---
+            if len(elokeszitett_sorok) > 1:
+                kov_idx, kov_row = elokeszitett_sorok[1]
+                try:
+                    kov_sorszam = int(float(kov_row.get("Sorrend_num", kov_row.get("Sorrend", futo_sorszam + 1))))
+                except:
+                    kov_sorszam = futo_sorszam + 1
+                kov_nev = str(kov_row[nev_oszlop]).strip()
+                kov_cim = str(kov_row[cim_oszlop]).strip()
+                kov_rendeles = str(kov_row[rendeles_oszlop]).strip() if rendeles_oszlop in kov_row else ""
+                
+                kovetkezo_preview_html = (
+                    f'<div style="background-color: #F8FAFC; border-left: 3.5px solid #0284C7; border: 1px solid #E2E8F0; '
+                    f'border-left-width: 3.5px; border-left-color: #0284C7; padding: 4px 8px; border-radius: 6px; '
+                    f'margin: 4px 0 6px 0; font-size: 11.5px; color: #334155; display: flex; align-items: center; '
+                    f'justify-content: space-between; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">'
+                    f'<div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">'
+                    f'<b>⏭️ KÖVETKEZŐ:</b> <span style="font-weight: 700; color: #0284C7;">#{kov_sorszam}. Cím</span> — '
+                    f'<b>{kov_nev}</b> <span style="color: #64748B;">({kov_cim})</span>'
+                    f'</div>'
+                    f'<span style="font-weight: 700; color: #DC2626; margin-left: 6px; flex-shrink: 0;">📦 {kov_rendeles}</span>'
+                    f'</div>'
+                )
+                st.markdown(kovetkezo_preview_html, unsafe_allow_html=True)
+
             # Gombok egy sorban
             maps_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(aktualis_cim)}"
             

@@ -241,12 +241,8 @@ def main():
             top: 10px !important;
             left: 10px !important;
             z-index: 9999 !important;
-            pointer-events: none !important; /* Nem blokkol semmilyen kattintást a környezetében */
+            pointer-events: none !important;
         }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
 
         [data-testid="stSidebarCollapsedControl"] button {
             background-color: #139D43 !important;
@@ -259,7 +255,7 @@ def main():
             justify-content: center !important;
             box-shadow: 0 4px 12px rgba(19, 157, 67, 0.45) !important;
             cursor: pointer !important;
-            pointer-events: auto !important; /* Csak a zöld gomb fogad kattintást */
+            pointer-events: auto !important;
             transition: transform 0.15s ease, background-color 0.2s ease !important;
         }
 

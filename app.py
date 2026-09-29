@@ -212,9 +212,11 @@ def main():
         except Exception as e:
             st.error(f"Hiba az átsorrendezés során: {e}")
 
-    # CSS stílusok
+    # CSS stílusok és mobil státuszsáv beállítása
     st.markdown(
         """
+        <meta name="theme-color" content="#FFFFFF">
+        <meta name="apple-mobile-web-app-status-bar-style" content="default">
         <style>
         footer {visibility: hidden !important; display: none !important;}
         [data-testid="stFooter"] {visibility: hidden !important; display: none !important;}

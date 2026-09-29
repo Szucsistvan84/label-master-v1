@@ -1090,7 +1090,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
             # 6. Kártya HTML összerakása dedikált rendelés sorral
             html_kartyadisz = (
-                f'<div style="{bg_style} border-radius: 10px; padding: 8px 12px; margin-top: 4px; margin-bottom: 2px;">'
+                f'<div style="{bg_style} border-radius: 10px; padding: 8px 12px; margin-top: 15px; margin-bottom: 2px;">'
                 f'{kiemelt_szoveg}'
                 f'{fejlec_sor}'
                 f'{ugyfel_sor}'

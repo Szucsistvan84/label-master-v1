@@ -781,8 +781,10 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             <style>
             header[data-testid='stHeader'] { display: none !important; }
             div[data-testid='stTabBar'] { display: none !important; }
+            
+            /* 📱 Rendszer állapotsor (óra, akku) kímélő biztonsági zóna */
             .block-container {
-                padding-top: 0.1rem !important;
+                padding-top: max(1.6rem, env(safe-area-inset-top)) !important;
                 padding-bottom: 0.2rem !important;
                 padding-left: 0.35rem !important;
                 padding-right: 0.35rem !important;

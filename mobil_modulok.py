@@ -1121,7 +1121,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     f'margin: 4px 0 6px 0; font-size: 11.5px; color: #334155; display: flex; align-items: center; '
                     f'justify-content: space-between; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">'
                     f'<div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">'
-                    f'<b>⏭️ KÖVETKEZŐ:</b> <span style="font-weight: 700; color: #0284C7;">#{kov_sorszam}. Cím</span> — '
+                    f'<b>⏭️ Köv. cím:</b> <span style="font-weight: 700; color: #0284C7;">#{kov_sorszam}.</span> — '
                     f'<b>{kov_nev}</b> <span style="color: #64748B;">({kov_cim})</span>'
                     f'</div>'
                     f'<span style="font-weight: 700; color: #DC2626; margin-left: 6px; flex-shrink: 0;">📦 {kov_rendeles}</span>'

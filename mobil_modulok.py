@@ -1410,10 +1410,17 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             )
             
             if st.button("✅ Sikeres kézbesítés", key=f"siker_{idx}", use_container_width=True, type="primary"):
-                # 1. Lokális állapotok beállítása (mindkét kulcsot beállítjuk, hogy a Műszerfal is azonnal lássa!)
+                # 1. ⚡ AZONNALI LOKÁLIS ÁLLAPOTOK (Memóriában azonnal lezárjuk a címet)
                 st.session_state[f"kiszallitva_{idx}"] = True
                 st.session_state[f"kiszallitott_statusz_{idx}"] = "Sikeres"
                 st.session_state.pop("kiemelt_ugyfel_id", None)
+                
+                # Ha van mdf adatkeret a memóriában, ott is azonnal átírjuk Kézbesítve állapotra
+                if 'mdf' in st.session_state and st.session_state.mdf is not None:
+                    try:
+                        st.session_state.mdf.loc[st.session_state.mdf['ID'].astype(str).str.strip() == str(customer_id).strip(), 'Státusz'] = "Kézbesítve"
+                    except Exception:
+                        pass
                 
                 # 2. Borravaló számítása
                 try:
@@ -1425,29 +1432,36 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 except:
                     pass
 
-                # 3. ☁️ AZONNALI FELHŐS RÖGZÍTÉS (Google Sheets Adatok fül)
-                try:
-                    sh_sync = client.open_by_key(SHEET_ID_UGYFELKOR)
-                    ws_adatok_sync = sh_sync.worksheet("Adatok")
-                    
-                    # Cella sorszámának megkeresése ID alapján
-                    headers = ws_adatok_sync.row_values(1)
-                    if "Státusz" in headers and "ID" in headers:
-                        status_col_idx = headers.index("Státusz") + 1
-                        id_col_idx = headers.index("ID") + 1
-                        
-                        all_ids = ws_adatok_sync.col_values(id_col_idx)
-                        target_id_str = str(customer_id).strip()
-                        
-                        for r_idx, sheet_id_val in enumerate(all_ids[1:], start=2):
-                            if str(sheet_id_val).strip() == target_id_str:
-                                ws_adatok_sync.update_cell(r_idx, status_col_idx, "Kézbesítve")
-                                break
-                except Exception as e_sheet_sync:
-                    print(f"Hiba a háttérmentéskor: {e_sheet_sync}")
+                # 3. 🚀 ASZINKRON HÁTTÉRMENTÉS (A Google Sheets mentést háttérszál végzi)
+                import threading
+
+                def _mentes_hatterben_async(client_ref, sheet_id_ref, cust_id_ref):
+                    try:
+                        sh_sync = client_ref.open_by_key(sheet_id_ref)
+                        ws_adatok_sync = sh_sync.worksheet("Adatok")
+                        headers = ws_adatok_sync.row_values(1)
+                        if "Státusz" in headers and "ID" in headers:
+                            status_col_idx = headers.index("Státusz") + 1
+                            id_col_idx = headers.index("ID") + 1
+                            all_ids = ws_adatok_sync.col_values(id_col_idx)
+                            target_id_str = str(cust_id_ref).strip()
+                            for r_idx, sheet_id_val in enumerate(all_ids[1:], start=2):
+                                if str(sheet_id_val).strip() == target_id_str:
+                                    ws_adatok_sync.update_cell(r_idx, status_col_idx, "Kézbesítve")
+                                    break
+                    except Exception as e_async:
+                        print(f"Hiba az aszinkron háttérmentés során: {e_async}")
+
+                # Önálló háttérszál indítása
+                t_sync = threading.Thread(
+                    target=_mentes_hatterben_async, 
+                    args=(client, SHEET_ID_UGYFELKOR, customer_id)
+                )
+                t_sync.daemon = True
+                t_sync.start()
 
                 st.toast(f"🎉 {vevo_neve} teljesítve!")
-                time.sleep(0.3)
+                # 🎯 AZONNALI KÉPERNYŐVÁLTÁS: Nincs várakozás, tizedmásodperc alatt ugrik a következő kártyára!
                 st.rerun()
             break
             

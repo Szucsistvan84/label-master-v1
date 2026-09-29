@@ -243,6 +243,10 @@ def main():
             z-index: 9999 !important;
             pointer-events: none !important; /* Nem blokkol semmilyen kattintást a környezetében */
         }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
         [data-testid="stSidebarCollapsedControl"] button {
             background-color: #139D43 !important;

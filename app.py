@@ -1,8 +1,17 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 
-# --- 1. STREAMLIT ALAPBEÁLLÍTÁS - Kötelezően mindenen kívül, a legelső sorban! ---
+# --- 1. STREAMLIT ALAPBEÁLLÍTÁS ---
 st.set_page_config(page_title="Interfood Label Master", layout="wide")
+
+# --- Standard Python modulok importálása ---
+import sys
+import os
+import time
+import datetime
+import base64
+import logging
+import pandas as pd
 
 # --- KÉNYSZERÍTETT MODUL HOT-RELOAD (GARANTÁLT FRISSÍTÉS) ---
 #import sys

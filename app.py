@@ -2,7 +2,11 @@
 import streamlit as st
 
 # --- 1. STREAMLIT ALAPBEÁLLÍTÁS ---
-st.set_page_config(page_title="Interfood Label Master", layout="wide")
+st.set_page_config(
+    page_title="Interfood Mobil Terminál", 
+    page_icon="interfood-logo.png",
+    layout="wide"
+)
 
 # --- Standard Python modulok importálása ---
 import sys
@@ -12,26 +16,14 @@ import datetime
 import base64
 import logging
 import pandas as pd
+import streamlit.components.v1 as components
 
-# --- KÉNYSZERÍTETT MODUL HOT-RELOAD (GARANTÁLT FRISSÍTÉS) ---
-#import sys
-#import importlib
-#import base64
-#if "nezetek_modul" in sys.modules:
-#    importlib.reload(sys.modules["nezetek_modul"])
+# --- 🛡️ PERZISZTENS FUTÁR MUNKAMENET TÁR (Nem vész el háttérbe kerüléskor vagy liftben sem!) ---
+@st.cache_resource
+def get_global_session_store():
+    return {}
 
-#modules_to_reload = ["parser_modul", "mobil_modulok", "nezetek_modul", "adatbazis_modul", "geokodolo_modul", "vizualizacio"]
-#for mod_name in modules_to_reload:
-#    if mod_name in sys.modules:
-#        importlib.reload(sys.modules[mod_name])
-# -----------------------------------------------------------------------------------
-
-# --- Standard Python modulok importálása ---
-import pandas as pd
-import logging
-import os
-import time
-import datetime
+global_sessions = get_global_session_store()
 
 # --- Globális konstansok ---
 LOG_FILE = "app.log"
@@ -65,12 +57,11 @@ if 'client' not in st.session_state:
     st.session_state['client'] = client
 
 def main():
-    global client  
+    global client, global_sessions
     if 'client' not in st.session_state or st.session_state['client'] is None:
         st.session_state['client'] = client
 
     # 🛡️ ÁRVA PARAMÉTEREK KEZELÉSE:
-    # Csak akkor nyúlunk hozzá, ha a felhasználó kifejezetten kijelentkezett
     if st.session_state.get('manual_logout', False):
         st.query_params.clear()
         st.session_state.manual_logout = False
@@ -79,7 +70,6 @@ def main():
     if 'view_mode' not in st.session_state:
         st.session_state.view_mode = st.query_params.get("view", "desktop")
 
-    # Ha a böngésző címsorában kifejezetten szerepel a view paraméter, az az irányadó
     if "view" in st.query_params:
         view = st.query_params.get("view")
         st.session_state.view_mode = view
@@ -91,13 +81,28 @@ def main():
     is_mobile_view = (view == "mobile")
 
     # ==============================================================================
-    # 🛰️ 1. AUTOMATIKUS TOKEN-BELÉPTETÉS (F5 / PWA / Háttérbe kerülés esetén)
+    # 🛰️ 1. AUTOMATIKUS TOKEN- ÉS SZERVER-BELÉPTETŐ MOTOR (Háttér / Képernyőzár / Lift)
     # ==============================================================================
     if 'bejelentkezve' not in st.session_state: 
         st.session_state.bejelentkezve = False
-    
-    # Ha az URL-ben megvannak a tokenek, azonnal és feltétel nélkül visszaállítjuk a munkamenetet!
-    if "token_name" in st.query_params and not st.session_state.bejelentkezve:
+
+    url_token_jarat = str(st.query_params.get("token_routes", st.query_params.get("jarat", ""))).strip()
+
+    # A) Visszatöltés a szerveroldali memóriatár alapján (Ha háttérbe került az app):
+    if not st.session_state.bejelentkezve and url_token_jarat and url_token_jarat in global_sessions:
+        saved_user = global_sessions[url_token_jarat]
+        st.session_state.bejelentkezve = True
+        st.session_state.user_nev = saved_user['nev']
+        st.session_state.user_szerep = saved_user['szerep']
+        st.session_state.user_jarat_lista = saved_user['jaratok']
+        st.session_state.user_tel = saved_user['tel']
+        st.session_state.view_mode = "mobile"
+        st.session_state.current_mobile_tab_state = "3. Kiszállítás 🚚"
+        st.session_state.kiszallitas_folyamatban = True
+        st.session_state.kiszallitas_aktiv_fullscreen = True
+
+    # B) Visszatöltés az URL tokenjeiből:
+    elif not st.session_state.bejelentkezve and "token_name" in st.query_params:
         st.session_state.bejelentkezve = True
         st.session_state.user_nev = str(st.query_params.get("token_name", "Futár"))
         st.session_state.user_szerep = str(st.query_params.get("token_role", "futar"))
@@ -107,9 +112,8 @@ def main():
         st.session_state.view_mode = str(st.query_params.get("view", "mobile"))
 
     # ==============================================================================
-    # 🎯 2. DINAMIKUS JÁRATFELISMERÉS ÉS INTELLIGENS VISSZALÉPTETŐ MOTOR
+    # 🎯 2. DINAMIKUS JÁRATFELISMERÉS
     # ==============================================================================
-    # Dinamikusan összegyűjtjük a bejelentkezett felhasználó járatait (semmi sincs beégetve!)
     aktiv_jaratok = []
     if st.session_state.get('user_jarat_lista'):
         aktiv_jaratok = [str(j).strip() for j in st.session_state.user_jarat_lista if str(j).strip()]
@@ -117,11 +121,9 @@ def main():
         nyers_j = str(st.session_state.user_jarat).strip()
         aktiv_jaratok = [j.strip() for j in nyers_j.split(",") if j.strip()]
 
-    # Automatikusan beállítjuk az aktív járatszűrőt a futár saját járataira
     if aktiv_jaratok and ("mob_jarat_select" not in st.session_state or not st.session_state.mob_jarat_select):
         st.session_state.mob_jarat_select = aktiv_jaratok
 
-    # Ha a fül állapota még nincs inicializálva, felmérjük a folyamat helyzetét
     if 'current_mobile_tab_state' not in st.session_state:
         url_tab_param = st.query_params.get("active_tab", "")
         tab_mapping_init = {
@@ -133,7 +135,6 @@ def main():
         if url_tab_param in tab_mapping_init:
             st.session_state.current_mobile_tab_state = tab_mapping_init[url_tab_param]
         else:
-            # Megvizsgáljuk a Google Sheets-ben, hogy a futár járatánál fut-e már kiszállítás
             mar_kiszallitasban_van = False
             try:
                 sh_check = client.open_by_key(SHEET_ID_UGYFELKOR)
@@ -143,7 +144,6 @@ def main():
                     hdr = [c.strip() for c in vals_check[0]]
                     df_chk = pd.DataFrame(vals_check[1:], columns=hdr)
                     
-                    # Szűrés a bejelentkezett futár dinamikus járataira (pl. 104, 4002, stb.)
                     if 'Járat' in df_chk.columns and aktiv_jaratok:
                         df_sajat_jarat = df_chk[df_chk['Járat'].astype(str).str.strip().isin(aktiv_jaratok)]
                     else:
@@ -221,186 +221,233 @@ def main():
         except Exception as e:
             st.error(f"Hiba az átsorrendezés során: {e}")
 
-# CSS stílusok és gombok pozicionálása
-    st.markdown("""<style>
-footer {visibility: hidden !important; display: none !important;}
-[data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
-[data-testid="stDecoration"] {display: none !important;}
-.stDeployButton {display: none !important;}
-#MainMenu {visibility: hidden !important; display: none !important;}
-[data-testid="stAppDeployButton"] {display: none !important;}
-[data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
+    # ==============================================================================
+    # 📱 3. VILÁGOS SÁV ÉS RENDSZERSTÍLUSOK (Hajnali sötét maszkolás ellen)
+    # ==============================================================================
+    st.markdown("""
+        <meta name="color-scheme" content="light only">
+        <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+        <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: dark)">
+        <meta name="apple-mobile-web-app-status-bar-style" content="default">
+        <style>
+        footer {visibility: hidden !important; display: none !important;}
+        [data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
+        [data-testid="stDecoration"] {display: none !important;}
+        .stDeployButton {display: none !important;}
+        #MainMenu {visibility: hidden !important; display: none !important;}
+        [data-testid="stAppDeployButton"] {display: none !important;}
+        [data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
 
-header, [data-testid="stHeader"] { 
-    background-color: transparent !important; 
-    z-index: 99999 !important; 
-    display: block !important;
-    height: 40px !important;
-}
+        header, [data-testid="stHeader"] { 
+            background-color: transparent !important; 
+            z-index: 99999 !important; 
+            display: block !important;
+            height: 40px !important;
+        }
 
-/* 2.1 NYITÓ GOMB */
-[data-testid="stSidebarCollapsedControl"] {
-    display: block !important;
-    visibility: visible !important;
-    position: fixed !important;
-    top: 10px !important;
-    left: 10px !important;
-    z-index: 9999 !important;
-    pointer-events: none !important;
-}
+        /* 2.1 NYITÓ GOMB */
+        [data-testid="stSidebarCollapsedControl"] {
+            display: block !important;
+            visibility: visible !important;
+            position: fixed !important;
+            top: 10px !important;
+            left: 10px !important;
+            z-index: 9999 !important;
+            pointer-events: none !important;
+        }
 
-[data-testid="stSidebarCollapsedControl"] button {
-    background-color: #139D43 !important;
-    border: 2px solid #ffffff !important;
-    border-radius: 10px !important;
-    width: 44px !important;
-    height: 44px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    box-shadow: 0 4px 12px rgba(19, 157, 67, 0.45) !important;
-    cursor: pointer !important;
-    pointer-events: auto !important;
-    transition: transform 0.15s ease, background-color 0.2s ease !important;
-}
+        [data-testid="stSidebarCollapsedControl"] button {
+            background-color: #139D43 !important;
+            border: 2px solid #ffffff !important;
+            border-radius: 10px !important;
+            width: 44px !important;
+            height: 44px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            box-shadow: 0 4px 12px rgba(19, 157, 67, 0.45) !important;
+            cursor: pointer !important;
+            pointer-events: auto !important;
+            transition: transform 0.15s ease, background-color 0.2s ease !important;
+        }
 
-[data-testid="stSidebarCollapsedControl"] button:hover {
-    transform: scale(1.08) !important;
-    background-color: #0E7F35 !important;
-}
+        [data-testid="stSidebarCollapsedControl"] button:hover {
+            transform: scale(1.08) !important;
+            background-color: #0E7F35 !important;
+        }
 
-[data-testid="stSidebarCollapsedControl"] svg {
-    fill: #ffffff !important;
-    stroke: #ffffff !important;
-    color: #ffffff !important;
-    width: 26px !important;
-    height: 26px !important;
-}
+        [data-testid="stSidebarCollapsedControl"] svg {
+            fill: #ffffff !important;
+            stroke: #ffffff !important;
+            color: #ffffff !important;
+            width: 26px !important;
+            height: 26px !important;
+        }
 
-/* 2.2 BECSUKÓ GOMB (A NYITOTT OLDALSÁVBAN) */
-section[data-testid="stSidebar"] {
-    z-index: 1000000 !important;
-}
+        /* 2.2 BECSUKÓ GOMB (A NYITOTT OLDALSÁVBAN) */
+        section[data-testid="stSidebar"] {
+            z-index: 1000000 !important;
+        }
 
-section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"],
-section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
-section[data-testid="stSidebar"] button[kind="header"] {
-    position: relative !important;
-    z-index: 1000005 !important;
-    pointer-events: auto !important;
-    cursor: pointer !important;
-}
+        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"],
+        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
+        section[data-testid="stSidebar"] button[kind="header"] {
+            position: relative !important;
+            z-index: 1000005 !important;
+            pointer-events: auto !important;
+            cursor: pointer !important;
+        }
 
-section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
-section[data-testid="stSidebar"] button[kind="header"] {
-    background-color: #E5E7EB !important;
-    border: 2px solid #139D43 !important;
-    border-radius: 8px !important;
-    width: 38px !important;
-    height: 38px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.15) !important;
-}
+        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
+        section[data-testid="stSidebar"] button[kind="header"] {
+            background-color: #E5E7EB !important;
+            border: 2px solid #139D43 !important;
+            border-radius: 8px !important;
+            width: 38px !important;
+            height: 38px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15) !important;
+        }
 
-section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button:hover,
-section[data-testid="stSidebar"] button[kind="header"]:hover {
-    background-color: #D1D5DB !important;
-    border-color: #0E7F35 !important;
-}
+        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button:hover,
+        section[data-testid="stSidebar"] button[kind="header"]:hover {
+            background-color: #D1D5DB !important;
+            border-color: #0E7F35 !important;
+        }
 
-section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg,
-section[data-testid="stSidebar"] button[kind="header"] svg {
-    fill: #139D43 !important;
-    stroke: #139D43 !important;
-    color: #139D43 !important;
-    width: 22px !important;
-    height: 22px !important;
-}
+        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg,
+        section[data-testid="stSidebar"] button[kind="header"] svg {
+            fill: #139D43 !important;
+            stroke: #139D43 !important;
+            color: #139D43 !important;
+            width: 22px !important;
+            height: 22px !important;
+        }
 
-[data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
+        [data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
 
-.block-container { 
-    padding-top: 0.2rem !important; 
-    padding-bottom: 7rem !important; 
-    padding-left: 0.7rem !important;
-    padding-right: 0.7rem !important;
-}
-h1 { font-size: 1.5rem !important; font-weight: 700 !important; margin-bottom: 0.4rem !important; }
-h2 { font-size: 1.25rem !important; margin-bottom: 0.4rem !important; }
-h3 { font-size: 1.05rem !important; }
+        .block-container { 
+            padding-top: max(1.6rem, env(safe-area-inset-top)) !important; 
+            padding-bottom: 7rem !important; 
+            padding-left: 0.7rem !important;
+            padding-right: 0.7rem !important;
+        }
+        h1 { font-size: 1.5rem !important; font-weight: 700 !important; margin-bottom: 0.4rem !important; }
+        h2 { font-size: 1.25rem !important; margin-bottom: 0.4rem !important; }
+        h3 { font-size: 1.05rem !important; }
 
-.fixed-nav-bar {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    background-color: #FFFFFF;
-    padding: 10px 15px;
-    box-shadow: 0px -4px 12px rgba(0,0,0,0.08);
-    z-index: 99999;
-    border-top: 1.5px solid #E5E7EB;
-}
+        .fixed-nav-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: #FFFFFF;
+            padding: 10px 15px;
+            box-shadow: 0px -4px 12px rgba(0,0,0,0.08);
+            z-index: 99999;
+            border-top: 1.5px solid #E5E7EB;
+        }
 
-.stepper-wrapper {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 15px;
-    margin-top: 5px;
-    padding: 0 5px;
-}
-.step-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    flex: 1;
-    position: relative;
-}
-.step-item::after {
-    content: "";
-    position: absolute;
-    background: #E5E7EB;
-    height: 3px;
-    width: 100%;
-    top: 14px;
-    left: 50%;
-    z-index: 1;
-}
-.step-item:last-child::after { content: none; }
-.step-counter {
-    position: relative;
-    z-index: 5;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: #E5E7EB;
-    color: #4B5563;
-    font-weight: bold;
-    font-size: 12px;
-}
-.step-name {
-    font-size: 10px;
-    margin-top: 5px;
-    color: #6B7280;
-    font-weight: 600;
-    white-space: nowrap;
-}
-.step-item.active .step-counter {
-    background: #139D43; 
-    color: white;
-    box-shadow: 0 0 8px rgba(19, 157, 67, 0.4);
-}
-.step-item.active .step-name { color: #139D43; font-weight: bold; }
-.step-item.completed .step-counter {
-    background: #1F2937; 
-    color: white;
-}
-.step-item.completed .step-name { color: #1F2937; }
-</style>""", unsafe_allow_html=True)
+        .stepper-wrapper {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            margin-top: 5px;
+            padding: 0 5px;
+        }
+        .step-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+            position: relative;
+        }
+        .step-item::after {
+            content: "";
+            position: absolute;
+            background: #E5E7EB;
+            height: 3px;
+            width: 100%;
+            top: 14px;
+            left: 50%;
+            z-index: 1;
+        }
+        .step-item:last-child::after { content: none; }
+        .step-counter {
+            position: relative;
+            z-index: 5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: #E5E7EB;
+            color: #4B5563;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .step-name {
+            font-size: 10px;
+            margin-top: 5px;
+            color: #6B7280;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .step-item.active .step-counter {
+            background: #139D43; 
+            color: white;
+            box-shadow: 0 0 8px rgba(19, 157, 67, 0.4);
+        }
+        .step-item.active .step-name { color: #139D43; font-weight: bold; }
+        .step-item.completed .step-counter {
+            background: #1F2937; 
+            color: white;
+        }
+        .step-item.completed .step-name { color: #1F2937; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # 📡 4. KLIENSOLDALI ÉLETJEL- ÉS HÁLÓZATFIGYELŐ (Képernyőfeloldáskor és lift után azonnal újraéleszt)
+    components.html("""
+    <script>
+        function checkAndRestoreSession() {
+            try {
+                const uNev = localStorage.getItem('if_futar_nev');
+                const uRoutes = localStorage.getItem('if_futar_routes');
+                const uRole = localStorage.getItem('if_futar_szerep') || 'futar';
+                const uTel = localStorage.getItem('if_futar_tel') || '';
+                
+                if (uNev && (!window.top.location.search.includes('token_name'))) {
+                    const sp = new URLSearchParams();
+                    sp.set('view', 'mobile');
+                    sp.set('active_tab', 'kiszallitas');
+                    sp.set('token_name', uNev);
+                    sp.set('token_routes', uRoutes);
+                    sp.set('token_role', uRole);
+                    sp.set('token_tel', uTel);
+                    window.top.location.search = sp.toString();
+                }
+            } catch(e) {
+                console.log("Session restore hiba:", e);
+            }
+        }
+
+        // Képernyőfeloldás vagy böngészőlap előtérbe hozása
+        document.addEventListener("visibilitychange", function() {
+            if (document.visibilityState === "visible") {
+                checkAndRestoreSession();
+            }
+        });
+
+        // Internetkapcsolat visszatérése lift/mélygarázs után
+        window.addEventListener("online", function() {
+            checkAndRestoreSession();
+        });
+    </script>
+    """, height=0, width=0)
 
     # Fontok regisztrálása
     from nyomtatas_modulok import register_fonts
@@ -420,36 +467,6 @@ h3 { font-size: 1.05rem !important; }
 
     # --- BELÉPTETŐ RENDSZER ---
     if not st.session_state.bejelentkezve:
-        # ⚡ 1. AUTOMATIKUS PWA / LOCALSTORAGE GYORS-VISSZALÉPTETŐ
-        if "token_name" not in st.query_params:
-            import streamlit.components.v1 as _components
-            _components.html("""
-                <script>
-                    try {
-                        const uNev = localStorage.getItem('if_futar_nev');
-                        if (uNev && uNev.trim() !== '') {
-                            const uSzerep = localStorage.getItem('if_futar_szerep') || 'futar';
-                            const uRoutes = localStorage.getItem('if_futar_routes') || '';
-                            const uTel = localStorage.getItem('if_futar_tel') || '';
-                            const uView = localStorage.getItem('if_futar_view') || 'mobile';
-                            
-                            const searchParams = new URLSearchParams();
-                            searchParams.set('view', uView);
-                            searchParams.set('active_tab', 'kiszallitas');
-                            searchParams.set('token_name', uNev);
-                            searchParams.set('token_role', uSzerep);
-                            searchParams.set('token_routes', uRoutes);
-                            searchParams.set('token_tel', uTel);
-                            
-                            // Közvetlen ablak-átirányítás, ami felülírja a szülő URL-t
-                            window.top.location.search = searchParams.toString();
-                        }
-                    } catch(e) {
-                        console.error('LocalStorage visszaállítás sikertelen:', e);
-                    }
-                </script>
-            """, height=0, width=0)
-
         if os.path.exists("interfood-logo.png"):
             try:
                 with open("interfood-logo.png", "rb") as img_f:
@@ -508,6 +525,12 @@ h3 { font-size: 1.05rem !important; }
                     st.session_state.user_nev = "Rendszergazda"
                     st.session_state.user_jarat_lista = ["4002"]
                     st.session_state.user_szerep = "superadmin"
+                    global_sessions["4002"] = {
+                        'nev': "Rendszergazda",
+                        'szerep': "superadmin",
+                        'jaratok': ["4002"],
+                        'tel': ""
+                    }
                     st.query_params.update(view=target_view_mode, token_name="Rendszergazda", token_role="superadmin", token_routes="4002")
                     st.rerun()
                 
@@ -534,10 +557,20 @@ h3 { font-size: 1.05rem !important; }
                     if not routes_str and 'login_jarat_field' in st.session_state:
                         routes_str = str(st.session_state.login_jarat_field).strip()
                         st.session_state.user_jarat_lista = [routes_str]
+
+                    # 💾 RÖGZÍTÉS A SZERVER MEMÓRIÁJÁBAN (A háttérbe helyezés és kapcsolatvesztés ellen)
+                    session_payload = {
+                        'nev': st.session_state.user_nev,
+                        'szerep': st.session_state.user_szerep,
+                        'jaratok': st.session_state.user_jarat_lista,
+                        'tel': st.session_state.user_tel
+                    }
+                    global_sessions[routes_str] = session_payload
+                    if tisztitott_input_jarat:
+                        global_sessions[tisztitott_input_jarat] = session_payload
                     
-                    # 💾 2. SIKERES BELÉPÉSKOR ADATOK MENTÉSE A TELEFON BÖNGÉSZŐJÉBE
-                    import streamlit.components.v1 as _components
-                    _components.html(f"""
+                    # 💾 RÖGZÍTÉS A TELEFON BÖNGÉSZŐJÉBEN
+                    components.html(f"""
                         <script>
                             try {{
                                 localStorage.setItem('if_futar_nev', '{st.session_state.user_nev}');
@@ -553,6 +586,7 @@ h3 { font-size: 1.05rem !important; }
 
                     st.query_params.update(
                         view=target_view_mode, 
+                        active_tab="kiszallitas",
                         token_name=st.session_state.user_nev, 
                         token_role=st.session_state.user_szerep, 
                         token_routes=routes_str,
@@ -591,7 +625,7 @@ h3 { font-size: 1.05rem !important; }
 
             if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
                 st.write("---")
-                st.markdown("### 🛠️ Rendszergazda Eszközök")
+                st.markdown("### 🛠️️ Rendszergazda Eszközök")
                 if st.button("🧹 RENDSZER CACHE TELJES TÖRLÉSE", type="primary", use_container_width=True, key="admin_global_cache_clear_btn"):
                     st.cache_data.clear()
                     st.cache_resource.clear()
@@ -611,8 +645,6 @@ h3 { font-size: 1.05rem !important; }
         cls2 = "active" if current_state == "2. Címekre szedés 📥" else ("completed" if current_state == "3. Kiszállítás 🚚" else "")
         cls3 = "active" if current_state == "3. Kiszállítás 🚚" else ""
 
-        # 📱 A felső 1-2-3 számlálót CSAK az Áruátvétel és Címekre szedés alatt mutatjuk.
-        # Kiszállításkor elrejtjük, hogy a fix térképnek jusson a teljes kijelzőméret!
         if current_state != "3. Kiszállítás 🚚":
             st.markdown(f"""
                 <div class="stepper-wrapper">
@@ -658,18 +690,13 @@ h3 { font-size: 1.05rem !important; }
                 if st.button("Következő ➡️", type="primary", use_container_width=True, key="stepper_next_btn_action"):
                     new_state = state_order[curr_idx + 1]
                     
-                    # 🚀 AUTOMATIKUS BEMUTATÓ GYORSÍTÓ (SZIMULÁCIÓS MOTOR):
-                    # Ha a 'Címekre szedésről' lépünk át a 'Kiszállításra', és még nincsenek ládák kiosztva,
-                    # akkor az összes címet virtuálisan berakjuk az 1-es ládába!
                     if new_state == "3. Kiszállítás 🚚":
-                        # Címek számának megállapítása (mdf-ből vagy adatokból)
                         total_items = 150
                         if 'mdf' in st.session_state and st.session_state.mdf is not None and not st.session_state.mdf.empty:
                             total_items = len(st.session_state.mdf)
                         elif 'meta_data' in st.session_state and st.session_state.meta_data.get('osszes_cim'):
                             total_items = int(st.session_state.meta_data['osszes_cim'])
                         
-                        # Minden cím állapotát bepakoltra és 1-es ládára állítjuk
                         for idx in range(total_items + 1):
                             if f"lada_szam_tarolt_{idx}" not in st.session_state or not st.session_state.get(f"lada_szam_tarolt_{idx}"):
                                 st.session_state[f"lada_szam_tarolt_{idx}"] = "1"

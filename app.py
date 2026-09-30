@@ -222,193 +222,195 @@ def main():
             st.error(f"Hiba az átsorrendezés során: {e}")
 
     # ==============================================================================
-    # 📱 3. VILÁGOS SÁV ÉS RENDSZERSTÍLUSOK (Hajnali sötét maszkolás ellen)
+    # 📱 3. VILÁGOS SÁV ÉS RENDSZERSTÍLUSOK
     # ==============================================================================
-    st.markdown("""
+    # 1. A böngésző és Android fejléc direktívái külön komponensként:
+    components.html("""
         <meta name="color-scheme" content="light only">
-        <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
-        <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: dark)">
+        <meta name="theme-color" content="#FFFFFF">
         <meta name="apple-mobile-web-app-status-bar-style" content="default">
-        <style>
-        footer {visibility: hidden !important; display: none !important;}
-        [data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
-        [data-testid="stDecoration"] {display: none !important;}
-        .stDeployButton {display: none !important;}
-        #MainMenu {visibility: hidden !important; display: none !important;}
-        [data-testid="stAppDeployButton"] {display: none !important;}
-        [data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
+    """, height=0, width=0)
 
-        header, [data-testid="stHeader"] { 
-            background-color: transparent !important; 
-            z-index: 99999 !important; 
-            display: block !important;
-            height: 40px !important;
-        }
+    # 2. A stíluslap kizárólag <style> tagek között, közvetlenül a st.markdown-ban:
+    st.markdown("""<style>
+footer {visibility: hidden !important; display: none !important;}
+[data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
+[data-testid="stDecoration"] {display: none !important;}
+.stDeployButton {display: none !important;}
+#MainMenu {visibility: hidden !important; display: none !important;}
+[data-testid="stAppDeployButton"] {display: none !important;}
+[data-testid="stHeaderActionElements"] {visibility: hidden !important; display: none !important;}
 
-        /* 2.1 NYITÓ GOMB */
-        [data-testid="stSidebarCollapsedControl"] {
-            display: block !important;
-            visibility: visible !important;
-            position: fixed !important;
-            top: 10px !important;
-            left: 10px !important;
-            z-index: 9999 !important;
-            pointer-events: none !important;
-        }
+header, [data-testid="stHeader"] { 
+    background-color: transparent !important; 
+    z-index: 99999 !important; 
+    display: block !important;
+    height: 40px !important;
+}
 
-        [data-testid="stSidebarCollapsedControl"] button {
-            background-color: #139D43 !important;
-            border: 2px solid #ffffff !important;
-            border-radius: 10px !important;
-            width: 44px !important;
-            height: 44px !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            box-shadow: 0 4px 12px rgba(19, 157, 67, 0.45) !important;
-            cursor: pointer !important;
-            pointer-events: auto !important;
-            transition: transform 0.15s ease, background-color 0.2s ease !important;
-        }
+/* 2.1 NYITÓ GOMB */
+[data-testid="stSidebarCollapsedControl"] {
+    display: block !important;
+    visibility: visible !important;
+    position: fixed !important;
+    top: 10px !important;
+    left: 10px !important;
+    z-index: 9999 !important;
+    pointer-events: none !important;
+}
 
-        [data-testid="stSidebarCollapsedControl"] button:hover {
-            transform: scale(1.08) !important;
-            background-color: #0E7F35 !important;
-        }
+[data-testid="stSidebarCollapsedControl"] button {
+    background-color: #139D43 !important;
+    border: 2px solid #ffffff !important;
+    border-radius: 10px !important;
+    width: 44px !important;
+    height: 44px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: 0 4px 12px rgba(19, 157, 67, 0.45) !important;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+    transition: transform 0.15s ease, background-color 0.2s ease !important;
+}
 
-        [data-testid="stSidebarCollapsedControl"] svg {
-            fill: #ffffff !important;
-            stroke: #ffffff !important;
-            color: #ffffff !important;
-            width: 26px !important;
-            height: 26px !important;
-        }
+[data-testid="stSidebarCollapsedControl"] button:hover {
+    transform: scale(1.08) !important;
+    background-color: #0E7F35 !important;
+}
 
-        /* 2.2 BECSUKÓ GOMB (A NYITOTT OLDALSÁVBAN) */
-        section[data-testid="stSidebar"] {
-            z-index: 1000000 !important;
-        }
+[data-testid="stSidebarCollapsedControl"] svg {
+    fill: #ffffff !important;
+    stroke: #ffffff !important;
+    color: #ffffff !important;
+    width: 26px !important;
+    height: 26px !important;
+}
 
-        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"],
-        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
-        section[data-testid="stSidebar"] button[kind="header"] {
-            position: relative !important;
-            z-index: 1000005 !important;
-            pointer-events: auto !important;
-            cursor: pointer !important;
-        }
+/* 2.2 BECSUKÓ GOMB (A NYITOTT OLDALSÁVBAN) */
+section[data-testid="stSidebar"] {
+    z-index: 1000000 !important;
+}
 
-        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
-        section[data-testid="stSidebar"] button[kind="header"] {
-            background-color: #E5E7EB !important;
-            border: 2px solid #139D43 !important;
-            border-radius: 8px !important;
-            width: 38px !important;
-            height: 38px !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.15) !important;
-        }
+section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"],
+section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
+section[data-testid="stSidebar"] button[kind="header"] {
+    position: relative !important;
+    z-index: 1000005 !important;
+    pointer-events: auto !important;
+    cursor: pointer !important;
+}
 
-        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button:hover,
-        section[data-testid="stSidebar"] button[kind="header"]:hover {
-            background-color: #D1D5DB !important;
-            border-color: #0E7F35 !important;
-        }
+section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
+section[data-testid="stSidebar"] button[kind="header"] {
+    background-color: #E5E7EB !important;
+    border: 2px solid #139D43 !important;
+    border-radius: 8px !important;
+    width: 38px !important;
+    height: 38px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15) !important;
+}
 
-        section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg,
-        section[data-testid="stSidebar"] button[kind="header"] svg {
-            fill: #139D43 !important;
-            stroke: #139D43 !important;
-            color: #139D43 !important;
-            width: 22px !important;
-            height: 22px !important;
-        }
+section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button:hover,
+section[data-testid="stSidebar"] button[kind="header"]:hover {
+    background-color: #D1D5DB !important;
+    border-color: #0E7F35 !important;
+}
 
-        [data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
+section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg,
+section[data-testid="stSidebar"] button[kind="header"] svg {
+    fill: #139D43 !important;
+    stroke: #139D43 !important;
+    color: #139D43 !important;
+    width: 22px !important;
+    height: 22px !important;
+}
 
-        .block-container { 
-            padding-top: max(1.6rem, env(safe-area-inset-top)) !important; 
-            padding-bottom: 7rem !important; 
-            padding-left: 0.7rem !important;
-            padding-right: 0.7rem !important;
-        }
-        h1 { font-size: 1.5rem !important; font-weight: 700 !important; margin-bottom: 0.4rem !important; }
-        h2 { font-size: 1.25rem !important; margin-bottom: 0.4rem !important; }
-        h3 { font-size: 1.05rem !important; }
+[data-testid="manage-app-button"], [data-testid="viewerBadge"], .viewerBadge, #ConnectionStatus { display: none !important; visibility: hidden !important; }
 
-        .fixed-nav-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            background-color: #FFFFFF;
-            padding: 10px 15px;
-            box-shadow: 0px -4px 12px rgba(0,0,0,0.08);
-            z-index: 99999;
-            border-top: 1.5px solid #E5E7EB;
-        }
+.block-container { 
+    padding-top: max(1.6rem, env(safe-area-inset-top)) !important; 
+    padding-bottom: 7rem !important; 
+    padding-left: 0.7rem !important;
+    padding-right: 0.7rem !important;
+}
+h1 { font-size: 1.5rem !important; font-weight: 700 !important; margin-bottom: 0.4rem !important; }
+h2 { font-size: 1.25rem !important; margin-bottom: 0.4rem !important; }
+h3 { font-size: 1.05rem !important; }
 
-        .stepper-wrapper {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 15px;
-            margin-top: 5px;
-            padding: 0 5px;
-        }
-        .step-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            flex: 1;
-            position: relative;
-        }
-        .step-item::after {
-            content: "";
-            position: absolute;
-            background: #E5E7EB;
-            height: 3px;
-            width: 100%;
-            top: 14px;
-            left: 50%;
-            z-index: 1;
-        }
-        .step-item:last-child::after { content: none; }
-        .step-counter {
-            position: relative;
-            z-index: 5;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 28px;
-            height: 28px;
-            border-radius: 50%;
-            background: #E5E7EB;
-            color: #4B5563;
-            font-weight: bold;
-            font-size: 12px;
-        }
-        .step-name {
-            font-size: 10px;
-            margin-top: 5px;
-            color: #6B7280;
-            font-weight: 600;
-            white-space: nowrap;
-        }
-        .step-item.active .step-counter {
-            background: #139D43; 
-            color: white;
-            box-shadow: 0 0 8px rgba(19, 157, 67, 0.4);
-        }
-        .step-item.active .step-name { color: #139D43; font-weight: bold; }
-        .step-item.completed .step-counter {
-            background: #1F2937; 
-            color: white;
-        }
-        .step-item.completed .step-name { color: #1F2937; }
-        </style>
-    """, unsafe_allow_html=True)
+.fixed-nav-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background-color: #FFFFFF;
+    padding: 10px 15px;
+    box-shadow: 0px -4px 12px rgba(0,0,0,0.08);
+    z-index: 99999;
+    border-top: 1.5px solid #E5E7EB;
+}
+
+.stepper-wrapper {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 15px;
+    margin-top: 5px;
+    padding: 0 5px;
+}
+.step-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    position: relative;
+}
+.step-item::after {
+    content: "";
+    position: absolute;
+    background: #E5E7EB;
+    height: 3px;
+    width: 100%;
+    top: 14px;
+    left: 50%;
+    z-index: 1;
+}
+.step-item:last-child::after { content: none; }
+.step-counter {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #E5E7EB;
+    color: #4B5563;
+    font-weight: bold;
+    font-size: 12px;
+}
+.step-name {
+    font-size: 10px;
+    margin-top: 5px;
+    color: #6B7280;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.step-item.active .step-counter {
+    background: #139D43; 
+    color: white;
+    box-shadow: 0 0 8px rgba(19, 157, 67, 0.4);
+}
+.step-item.active .step-name { color: #139D43; font-weight: bold; }
+.step-item.completed .step-counter {
+    background: #1F2937; 
+    color: white;
+}
+.step-item.completed .step-name { color: #1F2937; }
+</style>""", unsafe_allow_html=True)
 
     # 📡 4. KLIENSOLDALI ÉLETJEL- ÉS HÁLÓZATFIGYELŐ (Képernyőfeloldáskor és lift után azonnal újraéleszt)
     components.html("""

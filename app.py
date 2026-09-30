@@ -4,7 +4,7 @@ import streamlit as st
 # --- 1. STREAMLIT ALAPBEÁLLÍTÁS ---
 st.set_page_config(
     page_title="Interfood Mobil Terminál", 
-    page_icon="interfood-logo.png",
+    page_icon="app-icon.png",
     layout="wide"
 )
 

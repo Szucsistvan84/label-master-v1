@@ -177,12 +177,12 @@ def main():
                     
                     st.query_params.update(
                         view="mobile", 
-                        active_tab="kiszallitas",
+                        active_tab="aruatvetel",
                         token_name=st.session_state.get('user_nev', ''),
                         token_role=st.session_state.get('user_szerep', 'futar'),
                         token_routes=",".join(st.session_state.get('user_jarat_lista', []))
                     )
-                    st.session_state.current_mobile_tab_state = "3. Kiszállítás 🚚"
+                    st.session_state.current_mobile_tab_state = "1. Áruátvétel 📦"
                     st.rerun()
         except Exception as e:
             st.error(f"Hiba az átsorrendezés során: {e}")

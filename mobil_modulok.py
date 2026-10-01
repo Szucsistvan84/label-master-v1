@@ -683,7 +683,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         szazalek = int((kesz_cimek / osszes_bepakolt) * 100) if osszes_bepakolt > 0 else 0
 
         st.markdown(f"""
-        <div style="margin-top: -6px; margin-bottom: 2px; padding: 0 2px;">
+        <div style="margin-top: -6px; margin-bottom: 10px; padding: 0 2px;">
             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 800; color: #334155;">
                 <span>🚚 Kézbesítve: <b style="color: #16A34A;">{kesz_cimek}</b> / {osszes_bepakolt} ({szazalek}%)</span>
                 <span>Hátralévő: <b style="color: #EA580C;">{hatralevo_db}</b></span>
@@ -773,7 +773,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
                 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
                 <style>
-                    html, body, #map {{ height: 100%; width: 100%; margin: 3px 0px 0xp 0px; padding: 0; }}
+                    html, body, #map {{ height: 100%; width: 100%; margin: 0; padding: 0; }}
                     .single-marker {{ background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 20px; font-size: 9.5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); }}
                     .multi-marker {{ background: #0284C7; border: 2px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 20px; font-size: 9.5px; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); white-space: nowrap; }}
                     .current-marker {{ background: #E1251B !important; border: 2.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; box-shadow: 0 3px 8px rgba(225,37,27,0.7); }}

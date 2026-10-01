@@ -773,7 +773,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
                 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
                 <style>
-                    html, body, #map {{ height: 100%; width: 100%; margin: 0; padding: 0; }}
+                    html, body, #map {{ height: 100%; width: 100%; margin: 3px 0px 0xp 0px; padding: 0; }}
                     .single-marker {{ background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 20px; font-size: 9.5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); }}
                     .multi-marker {{ background: #0284C7; border: 2px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 20px; font-size: 9.5px; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); white-space: nowrap; }}
                     .current-marker {{ background: #E1251B !important; border: 2.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; box-shadow: 0 3px 8px rgba(225,37,27,0.7); }}
@@ -818,7 +818,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             </body>
             </html>
             """
-            components.html(html_map, height=165)
+            components.html(html_map, height=168)
 
         # =========================================================================
         # 🏢 CSOPORTOS LEADÁS (PAPÍR SZERINTI CSOPORT + AZONOS CÍM ALAPJÁN)

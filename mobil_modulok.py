@@ -974,7 +974,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
         st.markdown(
             f"""
-            <div style="display:flex; flex-direction:row; gap:6px; width:100%; margin-top:6px; margin-bottom:4px;">
+            <div style="display:flex; flex-direction:row; gap:6px; width:100%; margin-top:14px; margin-bottom:15px;">
                 {hivas_html}
                 {uzenet_html}
                 {nav_html}

@@ -612,88 +612,37 @@ h3 { font-size: 1.05rem !important; }
         state_order = ["1. Áruátvétel 📦", "2. Címekre szedés 📥", "3. Kiszállítás 🚚"]
         curr_idx = state_order.index(current_state)
         
-        # 📱 ALSÓ LÉPTETŐ GOMBOK KÉNYSZERÍTÉSE EGYETLEN SORBA (MOBIL TÖMÖRÍTÉS)
+# 📱 ALSÓ NAVIGÁCIÓS GOMBOK GARANTÁLTAN EGY SORBAN (HTML FLEXBOX)
+        # Kattintás-figyelő visszalépéshez
+        if st.query_params.get("nav_action") == "prev":
+            if st.session_state.current_mobile_tab_state == "3. Kiszállítás 🚚":
+                st.session_state.current_mobile_tab_state = "2. Címekre szedés 📥"
+                st.query_params.clear()
+                st.query_params.update(view="mobile", active_tab="bepakolas")
+            elif st.session_state.current_mobile_tab_state == "2. Címekre szedés 📥":
+                st.session_state.current_mobile_tab_state = "1. Áruátvétel 📦"
+                st.query_params.clear()
+                st.query_params.update(view="mobile", active_tab="aruatvetel")
+            st.rerun()
+
+        # Kattintás-figyelő lezáráshoz
+        if st.query_params.get("nav_action") == "finish":
+            st.query_params.clear()
+            st.query_params.update(view="mobile", active_tab="kiszallitas")
+            st.toast("🎉 Szép munka! Minden mai címet sikeresen teljesítettél!")
+
+        btn_prev_html = '<a href="?view=mobile&nav_action=prev" target="_top" style="flex:1; text-decoration:none;"><button type="button" style="width:100%; height:38px; background:#F8FAFC; color:#334155; border:1px solid #CBD5E1; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;">⬅️ Előző</button></a>'
+        btn_next_html = '<a href="?view=mobile&nav_action=finish" target="_top" style="flex:1; text-decoration:none;"><button type="button" style="width:100%; height:38px; background:#16A34A; color:white; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;">🏁 Lezárás</button></a>'
+
         st.markdown(
-            """
-            <style>
-            @media (max-width: 768px) {
-                /* Letiltja a Streamlit mobil oszloptördelését erre a blokkra */
-                div[data-testid="stHorizontalBlock"]:has(.st-key-stepper_prev_btn_action),
-                div[data-testid="stHorizontalBlock"]:has(.st-key-stepper_close_btn_action),
-                div[data-testid="stHorizontalBlock"]:has(.st-key-stepper_next_btn_action) {
-                    display: flex !important;
-                    flex-direction: row !important;
-                    flex-wrap: nowrap !important;
-                    gap: 8px !important;
-                    width: 100% !important;
-                }
-                div[data-testid="stHorizontalBlock"]:has(.st-key-stepper_prev_btn_action) > div[data-testid="column"],
-                div[data-testid="stHorizontalBlock"]:has(.st-key-stepper_close_btn_action) > div[data-testid="column"],
-                div[data-testid="stHorizontalBlock"]:has(.st-key-stepper_next_btn_action) > div[data-testid="column"] {
-                    flex: 1 1 50% !important;
-                    max-width: 50% !important;
-                    min-width: 0 !important;
-                    width: 50% !important;
-                }
-            }
-            .st-key-stepper_prev_btn_action button,
-            .st-key-stepper_close_btn_action button,
-            .st-key-stepper_next_btn_action button {
-                height: 38px !important;
-                font-size: 13px !important;
-                white-space: nowrap !important;
-                overflow: hidden !important;
-                text-overflow: ellipsis !important;
-            }
-            </style>
+            f"""
+            <div style="display:flex; flex-direction:row; gap:8px; width:100%; margin-top:8px; margin-bottom:6px;">
+                {btn_prev_html}
+                {btn_next_html}
+            </div>
             """,
             unsafe_allow_html=True
         )
-
-        col_prev, col_next = st.columns(2)
-        with col_prev:
-            if curr_idx > 0:
-                if st.button("⬅️ Előző", use_container_width=True, key="stepper_prev_btn_action"):
-                    new_state = state_order[curr_idx - 1]
-                    st.session_state.current_mobile_tab_state = new_state
-                    st.query_params.update(
-                        active_tab=tab_mapping_inv[new_state],
-                        token_name=st.session_state.get('user_nev', ''),
-                        token_role=st.session_state.get('user_szerep', 'futar'),
-                        token_routes=",".join(st.session_state.get('user_jarat_lista', []))
-                    )
-                    st.rerun()
-                    
-        with col_next:
-            if curr_idx < 2:
-                if st.button("Következő ➡️", type="primary", use_container_width=True, key="stepper_next_btn_action"):
-                    new_state = state_order[curr_idx + 1]
-                    
-                    if new_state == "3. Kiszállítás 🚚":
-                        total_items = 150
-                        if 'mdf' in st.session_state and st.session_state.mdf is not None and not st.session_state.mdf.empty:
-                            total_items = len(st.session_state.mdf)
-                        elif 'meta_data' in st.session_state and st.session_state.meta_data.get('osszes_cim'):
-                            total_items = int(st.session_state.meta_data['osszes_cim'])
-                        
-                        for idx in range(total_items + 1):
-                            if f"lada_szam_tarolt_{idx}" not in st.session_state or not st.session_state.get(f"lada_szam_tarolt_{idx}"):
-                                st.session_state[f"lada_szam_tarolt_{idx}"] = "1"
-                                st.session_state[f"lada_szam_{idx}"] = "1"
-                                st.session_state[f"bepak_allapot_{idx}"] = True
-
-                    st.session_state.current_mobile_tab_state = new_state
-                    st.query_params.update(
-                        active_tab=tab_mapping_inv[new_state],
-                        token_name=st.session_state.get('user_nev', ''),
-                        token_role=st.session_state.get('user_szerep', 'futar'),
-                        token_routes=",".join(st.session_state.get('user_jarat_lista', []))
-                    )
-                    st.rerun()
-            else:
-                if st.button("🏁 Lezárás", type="primary", use_container_width=True, key="stepper_close_btn_action"):
-                    st.toast("🎉 Szép munka! Minden mai címet sikeresen teljesítettél!")
-        st.markdown('</div>', unsafe_allow_html=True)[cite: 3]
 
     # =========================================================================
     # 🖥️ ASZTALI ÁG

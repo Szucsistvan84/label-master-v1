@@ -412,41 +412,13 @@ h3 { font-size: 1.05rem !important; }
 .step-item.completed .step-name { color: #1F2937; }
 </style>""", unsafe_allow_html=True)
 
-    # 📡 4. KLIENSOLDALI ÉLETJEL- ÉS HÁLÓZATFIGYELŐ (Képernyőfeloldáskor és lift után azonnal újraéleszt)
+    # 📡 KLIENSOLDALI ÉLETJEL-FIGYELŐ (NEM TÖLTI ÚJRA AZ OLDALT, CSAK LOCALSTORAGE-BE ÍR)
     components.html("""
     <script>
-        function checkAndRestoreSession() {
-            try {
-                const uNev = localStorage.getItem('if_futar_nev');
-                const uRoutes = localStorage.getItem('if_futar_routes');
-                const uRole = localStorage.getItem('if_futar_szerep') || 'futar';
-                const uTel = localStorage.getItem('if_futar_tel') || '';
-                
-                if (uNev && (!window.top.location.search.includes('token_name'))) {
-                    const sp = new URLSearchParams();
-                    sp.set('view', 'mobile');
-                    sp.set('active_tab', 'kiszallitas');
-                    sp.set('token_name', uNev);
-                    sp.set('token_routes', uRoutes);
-                    sp.set('token_role', uRole);
-                    sp.set('token_tel', uTel);
-                    window.top.location.search = sp.toString();
-                }
-            } catch(e) {
-                console.log("Session restore hiba:", e);
-            }
-        }
-
-        // Képernyőfeloldás vagy böngészőlap előtérbe hozása
         document.addEventListener("visibilitychange", function() {
             if (document.visibilityState === "visible") {
-                checkAndRestoreSession();
+                console.log("App előtérbe hozva, állapot megtartva.");
             }
-        });
-
-        // Internetkapcsolat visszatérése lift/mélygarázs után
-        window.addEventListener("online", function() {
-            checkAndRestoreSession();
         });
     </script>
     """, height=0, width=0)

@@ -877,7 +877,7 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 st.rerun()
 
         # =========================================================================
-        # 📋 AKTUÁLIS CÍM KÁRTYÁJA (FESZES ELRENDEZÉSSEL)
+        # 📋 AKTUÁLIS CÍM KÁRTYÁJA (VISSZAÁLLÍTOTT ID, TÉTELSZÁM ÉS EGYBLOKKOS GOMBOK)
         # =========================================================================
         aktualis_sor_idx, row = elokeszitett_sorok[0]
         customer_id = str(row.get('ID', '')).strip()
@@ -887,26 +887,41 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         aktualis_rendeles = str(row[rendeles_oszlop]).strip() if rendeles_oszlop in row else ""
         sorszam = row.get("Sorrend_num", 1)
 
+        # 🔢 TÉTELSZÁM KISZÁMÍTÁSA A RENDELÉSBŐL
+        osszes_db = 0
+        try:
+            darabok = re.findall(r'(\d+)-', aktualis_rendeles)
+            osszes_db = sum(int(d) for d in darabok) if darabok else 1
+        except:
+            osszes_db = 1
+
         megjegyzes_nyers = str(row.get('Megjegyzés', row.get('Megjegyzes', ''))).strip()
         megj_html = f"<div style='font-size:11px; background:#FEF3C7; color:#92400E; padding:3px 6px; border-radius:4px; margin-top:2px;'>🔔 {megjegyzes_nyers}</div>" if megjegyzes_nyers and megjegyzes_nyers.lower() != 'nan' else ""
 
         lada_str = st.session_state.get(f"lada_szam_tarolt_{aktualis_sor_idx}", str(row.get('Láda', '1. láda')))
+        id_badge = f'<span style="background-color: #F1F5F9; color: #64748B; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; border: 1px solid #CBD5E1;">ID: {customer_id}</span>' if customer_id else ""
 
-        # Kompakt kártya doboz
+        # Kompakt kártya doboz ID-val és Tételszámmal
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD; border-radius: 8px; padding: 6px 10px; margin-top: 4px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span style="font-weight:800; font-size:13px; color:#1E293B;">📍 #{sorszam}. Cím</span>
-                <span style="background:#EEF2FF; color:#4338CA; font-size:10px; font-weight:800; padding:1px 5px; border-radius:4px;">📦 {lada_str}</span>
+                <div style="display:flex; gap:4px; align-items:center;">
+                    <span style="font-size: 11px; font-weight: 700; color: #4B5563; background: #F3F4F6; padding: 1px 5px; border-radius: 4px;">🛍️ {osszes_db} db</span>
+                    <span style="background:#EEF2FF; color:#4338CA; font-size: 10px; font-weight:800; padding:1px 5px; border-radius:4px;">📦 {lada_str}</span>
+                </div>
             </div>
-            <div style="font-size:15px; font-weight:bold; color:#1E3A8A; margin-top:1px;">👤 {vevo_neve}</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+                <div style="font-size:15px; font-weight:bold; color:#1E3A8A;">👤 {vevo_neve}</div>
+                {id_badge}
+            </div>
             <div style="font-size:12px; color:#4B5563;">🏠 {aktualis_cim}</div>
             {megj_html}
             <div style="font-size:11.5px; font-weight:bold; color:#DC2626; margin-top:3px;">📦 Rendelés: {aktualis_rendeles}</div>
         </div>
         """, unsafe_allow_html=True)
 
-        # --- ⏭️ KÖVETKEZŐ CÍM ELŐNÉZET (PREVIEW SÁV) ---
+        # --- ⏭️ KÖVETKEZŐ CÍM ELŐNÉZET ---
         if len(elokeszitett_sorok) > 1:
             kov_idx, kov_row = elokeszitett_sorok[1]
             kov_sorszam = kov_row.get("Sorrend_num", 2)
@@ -926,45 +941,38 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 unsafe_allow_html=True
             )
 
-        # 📞 Telefonszám előállítása
+        # 📞 Telefonszám és navigációs link
         tarcsazhato_tel = re.sub(r'\D', '', str(vevo_tel))
         if tarcsazhato_tel.startswith("06"): tarcsazhato_tel = "+36" + tarcsazhato_tel[2:]
         elif tarcsazhato_tel.startswith("36"): tarcsazhato_tel = "+" + tarcsazhato_tel
         elif tarcsazhato_tel: tarcsazhato_tel = "+36" + tarcsazhato_tel
 
         maps_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(aktualis_cim)}"
-        hivas_btn = f'<a href="tel:{tarcsazhato_tel}" target="_blank" style="text-decoration:none;"><button style="width:100%; height:34px; background:#22C55E; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">📞 Hívás</button></a>' if tarcsazhato_tel else '<button style="width:100%; height:34px; background:#9CA3AF; color:white; border:none; border-radius:6px; opacity:0.6;" disabled>📞 Nincs</button>'
-        nav_btn = f'<a href="{maps_url}" target="_blank" style="text-decoration:none;"><button style="width:100%; height:34px; background:#3B82F6; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">🗺️ Navigáció</button></a>'
 
-        # 📱 3 GOMB KÉNYSZERÍTÉSE EGYETLEN SORBA (MOBIL TÖMÖRÍTÉS)
+        # 📱 3 GOMB EGYETLEN HTML FLEX SORBAN (Mobilon garantáltan 1 sorba rendeződik)
+        hivas_html = f'<a href="tel:{tarcsazhato_tel}" target="_blank" style="flex:1; text-decoration:none;"><button type="button" style="width:100%; height:36px; background:#22C55E; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">📞 Hívás</button></a>' if tarcsazhato_tel else '<div style="flex:1;"><button type="button" style="width:100%; height:36px; background:#9CA3AF; color:white; border:none; border-radius:6px; font-size:12px; opacity:0.6;" disabled>📞 Nincs</button></div>'
+        nav_html = f'<a href="{maps_url}" target="_blank" style="flex:1; text-decoration:none;"><button type="button" style="width:100%; height:36px; background:#3B82F6; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">🗺️ Navigáció</button></a>'
+
+        msg_panel_key = f"show_msg_panel_{aktualis_sor_idx}"
+        if msg_panel_key not in st.session_state:
+            st.session_state[msg_panel_key] = False
+
+        if st.query_params.get("toggle_msg") == str(aktualis_sor_idx):
+            st.session_state[msg_panel_key] = not st.session_state.get(msg_panel_key, False)
+            st.query_params.clear()
+            st.query_params.update(view="mobile", active_tab="kiszallitas")
+            st.rerun()
+
+        uzenet_url = f"?view=mobile&active_tab=kiszallitas&toggle_msg={aktualis_sor_idx}"
+        uzenet_html = f'<a href="{uzenet_url}" target="_top" style="flex:1; text-decoration:none;"><button type="button" style="width:100%; height:36px; background:#FFFFFF; color:#334155; border:1px solid #CBD5E1; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">💬 Üzenet</button></a>'
+
         st.markdown(
-            """
-            <style>
-            /* Megakadályozza, hogy mobilon egymás alá törjön a 3 gomb oszlopa */
-            div[data-testid="stHorizontalBlock"]:has(button[key^="togg_msg_"]) {
-                display: flex !important;
-                flex-direction: row !important;
-                flex-wrap: nowrap !important;
-                gap: 5px !important;
-                align-items: center !important;
-                margin-top: 6px !important;
-                margin-bottom: 4px !important;
-            }
-            div[data-testid="stHorizontalBlock"]:has(button[key^="togg_msg_"]) > div[data-testid="column"] {
-                flex: 1 1 0px !important;
-                min-width: 0 !important;
-                width: 33.3% !important;
-            }
-            div[data-testid="stHorizontalBlock"]:has(button[key^="togg_msg_"]) button {
-                width: 100% !important;
-                height: 36px !important;
-                font-size: 12px !important;
-                padding: 0 2px !important;
-                white-space: nowrap !important;
-                overflow: hidden !important;
-                text-overflow: ellipsis !important;
-            }
-            </style>
+            f"""
+            <div style="display:flex; flex-direction:row; gap:6px; width:100%; margin-top:6px; margin-bottom:4px;">
+                {hivas_html}
+                {uzenet_html}
+                {nav_html}
+            </div>
             """,
             unsafe_allow_html=True
         )

@@ -124,49 +124,15 @@ def main():
     if aktiv_jaratok and ("mob_jarat_select" not in st.session_state or not st.session_state.mob_jarat_select):
         st.session_state.mob_jarat_select = aktiv_jaratok
 
+    # 🛡️ SZIGORÚ LÉPCSŐS FOLYAMATVÉDELEM (Mindig az 1. lépéssel indul!)
     if 'current_mobile_tab_state' not in st.session_state:
-        url_tab_param = st.query_params.get("active_tab", "")
-        tab_mapping_init = {
-            "aruatvetel": "1. Áruátvétel 📦", 
-            "bepakolas": "2. Címekre szedés 📥", 
-            "kiszallitas": "3. Kiszállítás 🚚"
-        }
+        st.session_state.current_mobile_tab_state = "1. Áruátvétel 📦"
         
-        if url_tab_param in tab_mapping_init:
-            st.session_state.current_mobile_tab_state = tab_mapping_init[url_tab_param]
-        else:
-            mar_kiszallitasban_van = False
-            try:
-                sh_check = client.open_by_key(SHEET_ID_UGYFELKOR)
-                ws_check = sh_check.worksheet("Adatok")
-                vals_check = ws_check.get_all_values()
-                if vals_check and len(vals_check) > 1:
-                    hdr = [c.strip() for c in vals_check[0]]
-                    df_chk = pd.DataFrame(vals_check[1:], columns=hdr)
-                    
-                    if 'Járat' in df_chk.columns and aktiv_jaratok:
-                        df_sajat_jarat = df_chk[df_chk['Járat'].astype(str).str.strip().isin(aktiv_jaratok)]
-                    else:
-                        df_sajat_jarat = df_chk
-                    
-                    lada_letezik = 'Láda' in df_sajat_jarat.columns and (df_sajat_jarat['Láda'].astype(str).str.contains("láda", case=False, na=False).any())
-                    kezbesites_letezik = False
-                    if 'Státusz' in df_sajat_jarat.columns:
-                        kezbesites_letezik = df_sajat_jarat['Státusz'].astype(str).str.lower().str.strip().isin(["kézbesítve", "kezbesitve", "teljesítve"]).any()
-                    
-                    if lada_letezik or kezbesites_letezik:
-                        mar_kiszallitasban_van = True
-            except Exception as e_chk:
-                print(f"Hiba a visszaléptetés ellenőrzésekor: {e_chk}")
-                mar_kiszallitasban_van = False
-
-            if mar_kiszallitasban_van:
-                st.session_state.current_mobile_tab_state = "3. Kiszállítás 🚚"
-                st.session_state.aruatvetel_folyamatban = True
-                st.session_state.kiszallitas_folyamatban = True
-                st.session_state.kiszallitas_aktiv_fullscreen = True
-            else:
-                st.session_state.current_mobile_tab_state = "1. Áruátvétel 📦"
+        # Csak akkor engedjük át a 3. fülre, ha a munkamenetben már explicit lezárásra került a bepakolás:
+        if st.session_state.get('kiszallitas_folyamatban', False):
+            st.session_state.current_mobile_tab_state = "3. Kiszállítás 🚚"
+        elif st.session_state.get('aruatvetel_folyamatban', False):
+            st.session_state.current_mobile_tab_state = "2. Címekre szedés 📥"
 
     # ==============================================================================
     # 🛰️ ÉLES ÚTVONAL-RENDEZŐ ENGINE HOOK

@@ -7,6 +7,7 @@ import urllib.parse
 import re
 from datetime import datetime
 import threading
+import streamlit.components.v1 as components
 
 # --- KAPCSOLÓDÓ CACHED OLVASÓ IMPORTÁLÁSA A KVÓTAVÉDELEMHÉZ ---
 from adatbazis_modul import load_sheet_data_cached, SHEET_ID_UGYFELKOR
@@ -16,16 +17,13 @@ ORDER_PAT = r'(\d+)-([A-Z0-9*]+)'
 
 def render_mobil_aruatvetel(client):
     """
-    Ömlesztett áruátvétel oldal golyóálló Google Sheets API gyorsítótárral.
-    INTELLIGENS FALLBACK MOTOR: Ha a Mobil_Raklista üres (aggregációs hiba), 
-    az Adatok fülből élőben építi fel az ömlesztett darabszámokat, így a futár SOHA nem akad el!
+    1. lépés: Ömlesztett áruátvétel oldal golyóálló Google Sheets gyorsítótárral.
     """
     st.subheader("📦 Ömlesztett áruátvétel")
     
     futar_neve = st.session_state.get('user_nev', 'Te (Teszt Üzemmód)')
     f_clean = str(futar_neve).strip().lower()
     
-    # 1. JÁRATVÁLASZTÓ KINYERÉSE (Ha még nincs sessionben, Adatok alapján inicializáljuk)
     jaratok = []
     try:
         df_adatok_init = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
@@ -36,7 +34,6 @@ def render_mobil_aruatvetel(client):
                 if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
                     jaratok = [str(j).strip() for j in df_adatok_init['Járat'].unique() if str(j).strip() != "" and str(j).lower() != "nan"]
                 else:
-                    f_clean = str(futar_neve).strip().lower()
                     df_szurt = df_adatok_init[df_adatok_init['Feldolgozó Futár'].astype(str).str.strip().str.lower() == f_clean]
                     jaratok = [str(j).strip() for j in df_szurt['Járat'].unique() if str(j).strip() != ""]
             else:
@@ -68,6 +65,7 @@ def render_mobil_aruatvetel(client):
     if "idobelyeg_sor_index" not in st.session_state:
         st.session_state.idobelyeg_sor_index = None
 
+    # GYORSÍTÓ PANEL AZ ÁRUÁTVÉTELHEZ
     if st.session_state.get('user_szerep') in ["admin", "superadmin", "futar", "futár"]:
         with st.expander("🛠️ TESZTELŐ & BEMUTATÓ PANEL (Gyors Áruátvétel)", expanded=False):
             if st.button("⚡ ÖSSZES ÉTEL ÁTVÉTELE ÉS CÍMEKRE SZEDÉS INDÍTÁSA", type="primary", use_container_width=True, key="admin_fast_aruatvetel_btn"):
@@ -78,7 +76,6 @@ def render_mobil_aruatvetel(client):
                 time.sleep(0.4)
                 st.rerun()
 
-    # ÁLLAPOT 1: START
     if not st.session_state.aruatvetel_folyamatban:
         st.info("💡 Pakolás előtt indítsd el az áruátvételt a pontos munkaidő-méréshez.")
         if st.button("🚀 ÁRUÁTVÉTEL INDÍTÁSA", use_container_width=True, type="primary", key="futar_start_btn"):
@@ -97,8 +94,6 @@ def render_mobil_aruatvetel(client):
                 st.rerun()
             except Exception as e:
                 st.error(f"Hiba az időbélyeg írásakor: {e}")
-    
-    # ÁLLAPOT 2: CIKK-LISTA
     else:
         jaratok_szoveg = ", ".join(map(str, valasztott_jaratok))
         if not st.session_state.get("kiszallitas_folyamatban", False):
@@ -113,15 +108,13 @@ def render_mobil_aruatvetel(client):
             df_sajat_raklista = pd.DataFrame()
             if df_raklista_init is not None and not df_raklista_init.empty:
                 df_raklista_init.columns = [c.strip() for c in df_raklista_init.columns]
-                
                 if st.session_state.get('user_szerep') in ["admin", "superadmin"]:
                     df_sajat_raklista = df_raklista_init.copy()
                 else:
-                    f_clean = str(futar_neve).strip().lower()
                     df_sajat_raklista = df_raklista_init[df_raklista_init['Jarat_ID / Futar'].astype(str).str.strip().str.lower() == f_clean]
 
             if df_sajat_raklista.empty:
-                st.caption("⚠️ *Konyhai Mobil_Raklista üres. Biztonsági Fallback motor indul: Élő összesítés az Adatok fülből...*")
+                st.caption("⚠️ *Összesítés generálása az Adatok munkalapból...*")
                 df_adatok = st.session_state.get('mdf', pd.DataFrame())
                 if df_adatok.empty:
                     df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
@@ -150,7 +143,7 @@ def render_mobil_aruatvetel(client):
                         df_sajat_raklista = pd.DataFrame(mock_rows)
 
             if not df_sajat_raklista.empty:
-                st.caption(f"Ellenőrizd a darabszámokat az ömlesztett raklista alapján:")
+                st.caption("Ellenőrizd a darabszámokat az ömlesztett raklista alapján:")
                 for idx, row in df_sajat_raklista.iterrows():
                     cikkszam_szoveg = f" [{row['Cikkszam']}]" if str(row['Cikkszam']).strip() != "" else ""
                     st.checkbox(
@@ -219,7 +212,7 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
     st.markdown(
         """
         <style>
-        .block-container { padding-top: 1rem !important; padding-bottom: 1.5rem !important; }
+        .block-container { padding-top: 0.8rem !important; padding-bottom: 1.5rem !important; }
         .grouped-card { background-color: #FFFFFF; border: 1px solid #139D43; border-radius: 12px; padding: 12px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .customer-item { background-color: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
         </style>
@@ -227,6 +220,38 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
         unsafe_allow_html=True
     )
 
+    # 1. GYORSÍTÓ PANEL: Összes cím átadása az 1. ládába (reggeli gyorsindítás)
+    with st.expander("⚡ GYORSÍTÓ PANEL (Összes cím berakása az 1. ládába)", expanded=False):
+        if st.button("🚀 MINDEN CÍM AZ 1. LÁDÁBA ÉS KISZÁLLÍTÁS INDÍTÁSA", type="primary", use_container_width=True, key="fast_all_to_box1"):
+            with st.spinner("📦 Címek berámolása az 1. ládába..."):
+                try:
+                    sh = client.open_by_key(SHEET_ID_UGYFELKOR)
+                    ws = sh.worksheet("Adatok")
+                    rows = ws.get_all_values()
+                    if rows and len(rows) > 1:
+                        hdr = [c.strip() for c in rows[0]]
+                        df_b = pd.DataFrame(rows[1:], columns=hdr)
+                        if 'Láda' not in df_b.columns:
+                            df_b['Láda'] = "1. láda"
+                            hdr.append('Láda')
+                        else:
+                            df_b['Láda'] = "1. láda"
+                        ws.clear()
+                        ws.update('A1', [hdr] + df_b.values.tolist(), value_input_option='USER_ENTERED')
+                        st.session_state.mdf = df_b
+                except Exception as e:
+                    print("Gyorsládázás hiba:", e)
+
+            st.session_state.aruatvetel_folyamatban = True
+            st.session_state.kiszallitas_folyamatban = True
+            st.session_state.kiszallitas_aktiv_fullscreen = True
+            st.session_state.current_mobile_tab_state = "3. Kiszállítás 🚚"
+            st.query_params.update(view="mobile", active_tab="kiszallitas")
+            st.toast("✅ Minden cím az 1. ládában! Kiszállítás indul...")
+            time.sleep(0.3)
+            st.rerun()
+
+    # Lezárt állapot ellenőrzése
     if st.session_state.get("kiszallitas_folyamatban", False):
         st.success("🔒 A mai bepakolás le van zárva, a kiszállítás folyamatban van.")
         df_levalt = st.session_state.get('mdf', pd.DataFrame())
@@ -267,51 +292,13 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         df_view['🏠 Cím'].str.contains(kereso_kifejezes, case=False)
                     ]
                 st.dataframe(df_view, use_container_width=True, hide_index=True)
-            else:
-                st.info("Nincsenek ládába pakolt tételek regisztrálva.")
-        else:
-            st.error("⚠️ Nem sikerült betölteni a kiszállítási adatokat.")
         
         if st.button("🔓 Bepakolás újranyitása (Vészhelyzet)", use_container_width=True, key="reopen_bepakolas_emergency_btn"):
             st.session_state.kiszallitas_folyamatban = False
             st.rerun()
         return
 
-    if st.session_state.get('user_szerep') in ["admin", "superadmin", "futar", "futár"]:
-        with st.expander("🛠️ TESZTELŐ & BEMUTATÓ PANEL (Gyors Ládázás)", expanded=False):
-            if st.button("⚡ ÖSSZES CÍM BEPAKOLÁSA (1. LÁDA) ÉS KISZÁLLÍTÁS INDÍTÁSA", type="primary", use_container_width=True, key="admin_fast_bepakolas_btn"):
-                with st.spinner("📦 Minden cím berámolása az 1. ládába és mentés a felhőbe..."):
-                    try:
-                        sh_fast = client.open_by_key(SHEET_ID_UGYFELKOR)
-                        ws_fast = sh_fast.worksheet("Adatok")
-                        rows_fast = ws_fast.get_all_values()
-                        if rows_fast and len(rows_fast) > 1:
-                            hdr = [c.strip() for c in rows_fast[0]]
-                            df_f = pd.DataFrame(rows_fast[1:], columns=hdr)
-                            if 'Láda' not in df_f.columns:
-                                df_f['Láda'] = "1. láda"
-                                hdr.append('Láda')
-                            else:
-                                df_f['Láda'] = df_f['Láda'].apply(lambda x: "1. láda" if not str(x).strip() or str(x).strip().lower() == "nan" else x)
-                            
-                            if 'Státusz' in df_f.columns:
-                                df_f['Státusz'] = df_f['Státusz'].apply(lambda x: "Folyamatban" if not str(x).strip() or str(x).strip().lower() in ["nan", ""] else x)
-                            
-                            ws_fast.clear()
-                            ws_fast.update('A1', [hdr] + df_f.values.tolist(), value_input_option='USER_ENTERED')
-                            st.session_state.mdf = df_f
-                    except Exception as e_fast:
-                        print(f"Hiba a gyorsládázásnál: {e_fast}")
-
-                st.session_state.aruatvetel_folyamatban = True
-                st.session_state.kiszallitas_folyamatban = True
-                st.session_state.kiszallitas_aktiv_fullscreen = True
-                st.session_state.current_mobile_tab_state = "3. Kiszállítás 🚚"
-                st.query_params.update(view="mobile", active_tab="kiszallitas")
-                st.toast("🚀 Minden tétel bepakolva! Kiszállítás indítása...")
-                time.sleep(0.4)
-                st.rerun()
-    
+    # Normál ládázó felület
     if 'mobil_lada_szam' not in st.session_state: st.session_state.mobil_lada_szam = 1
     if "mutasd_bepakoltat" not in st.session_state: st.session_state.mutasd_bepakoltat = False
 
@@ -526,19 +513,6 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
                         with st.spinner("⏳ Mentés a felhőbe és ETA indítása..."):
                             try:
                                 sh = client.open_by_key(SHEET_ID_UGYFELKOR)
-                                try:
-                                    ws_futar_sync = sh.worksheet("Futárok")
-                                    futar_rows_sync = ws_futar_sync.get_all_records()
-                                    fejlec_futar_sync = ws_futar_sync.row_values(1)
-                                    
-                                    for idx_f, f_row in enumerate(futar_rows_sync, start=2):
-                                        if str(f_row.get('Név', '')).strip().lower() == str(futar_neve).strip().lower():
-                                            indulas_col_idx = fejlec_futar_sync.index('Reggeli_Indulas') + 1
-                                            ws_futar_sync.update_cell(idx_f, indulas_col_idx, mostani_ido_eta)
-                                            break
-                                except Exception as e_futar_time:
-                                    print(f"Nem sikerült a Futárok fül frissítése: {e_futar_time}")
-
                                 ws_adatok = sh.worksheet("Adatok")
                                 adatok_rows = ws_adatok.get_all_values()
                                 
@@ -579,12 +553,10 @@ def render_mobil_bepakolas(client, SHEET_ID_UGYFELKOR):
 
 def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
     """
-    Kiszállítás nézet nagy pontosságú élő Leaflet GPS követéssel,
-    csoportos megálló (Multi-Drop) kezeléssel és kék pöttyös koordináta rögzítéssel.
+    3. lépés: Kiszállítás nézet nagy pontosságú élő GPS-szel, kompakt UI-val,
+    papír szerinti Csoport kezeléssel, üzenetküldő panellel és rendezővel.
     """
-    if "kiszallitas_aktiv_fullscreen" not in st.session_state:
-        st.session_state.kiszallitas_aktiv_fullscreen = False
-
+    st.session_state.kiszallitas_aktiv_fullscreen = True
     futar_neve = st.session_state.get('user_nev', 'Szűcs István')
 
     # ==============================================================================
@@ -637,33 +609,45 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             st.error(f"Sikertelen rendezés: {e}")
 
     # ==============================================================================
-    # ADATOK BEOLVASÁSA ÉS KISZÁLLÍTÁSI LOGIKA
+    # 📱 ULTRA-KOMPAKT CHROME MOBIL STÍLUSOK (Hogy semmi se lógjon le)
     # ==============================================================================
+    st.markdown(
+        """
+        <style>
+        header[data-testid='stHeader'] { display: none !important; }
+        .block-container {
+            padding-top: max(0.8rem, env(safe-area-inset-top)) !important;
+            padding-bottom: 0.15rem !important;
+            padding-left: 0.25rem !important;
+            padding-right: 0.25rem !important;
+            max-width: 100% !important;
+        }
+        div[data-testid="stVerticalBlock"] { gap: 0.15rem !important; }
+        div[data-testid="stCustomComponentV1"] { margin-bottom: -15px !important; }
+        iframe { display: block !important; margin-bottom: -12px !important; }
+        div[data-testid="stNumberInput"] { margin-top: -6px !important; margin-bottom: -4px !important; }
+        </style>
+        """, 
+        unsafe_allow_html=True
+    )
+
     try:
         valasztott_jaratok = [str(j).strip() for j in st.session_state.get("mob_jarat_select", [])]
-        if not valasztott_jaratok:
-            st.info("ℹ️ Válaszd ki a járatodat az 1. fülön!")
+        df_adatok = st.session_state.get('mdf', pd.DataFrame())
+        if df_adatok is None or df_adatok.empty:
+            df_adatok = load_sheet_data_cached(client, SHEET_ID_UGYFELKOR, "Adatok")
+            st.session_state.mdf = df_adatok
+            
+        if df_adatok.empty:
+            st.info("Nincsenek elérhető kiszállítási adatok.")
             return
-
-        try:
-            sh_live = client.open_by_key(SHEET_ID_UGYFELKOR)
-            ws_live = sh_live.worksheet("Adatok")
-            vals_live = ws_live.get_all_values()
-            if vals_live and len(vals_live) > 1:
-                df_adatok = pd.DataFrame(vals_live[1:], columns=[c.strip() for c in vals_live[0]])
-                st.session_state.mdf = df_adatok
-            else:
-                df_adatok = st.session_state.get('mdf', pd.DataFrame())
-        except Exception:
-            df_adatok = st.session_state.get('mdf', pd.DataFrame())
-        
-        if df_adatok.empty: return
 
         df_adatok.columns = [c.strip() for c in df_adatok.columns]
         cim_oszlop = 'Cím' if 'Cím' in df_adatok.columns else df_adatok.columns[3]
         nev_oszlop = 'Név' if 'Név' in df_adatok.columns else df_adatok.columns[1]
         tel_oszlop = 'Telefon' if 'Telefon' in df_adatok.columns else 'Tel'
         rendeles_oszlop = 'Rendelés' if 'Rendelés' in df_adatok.columns else None
+        csoport_oszlop = next((c for c in df_adatok.columns if 'csoport' in c.lower()), None)
         
         penz_oszlop = None
         for c in df_adatok.columns:
@@ -679,82 +663,60 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             df_kiszallitas['Sorrend_num'] = pd.to_numeric(df_kiszallitas['Sorrend'], errors='coerce').fillna(999).astype(int)
             df_kiszallitas = df_kiszallitas.sort_values(by='Sorrend_num')
 
+        # 🛡️ GOLYÓÁLLÓ AUTOMATIKUS LÁDÁZÁS (Nem engedi az üres sárga hibaoldalt!)
         bepakolt_sorok = []
         for idx_b, row_b in df_kiszallitas.iterrows():
-            lada_k = f"lada_szam_tarolt_{idx_b}"
-            felhos_lada = str(row_b.get('Láda', ''))
             felhos_statusz = str(row_b.get('Státusz', '')).strip().lower()
-
             if felhos_statusz in ["kézbesítve", "kezbesitve", "teljesítve"]:
                 st.session_state[f"kiszallitva_{idx_b}"] = True
-                st.session_state[f"kiszallitott_statusz_{idx_b}"] = "Sikeres"
 
-            if st.session_state.get(lada_k) is not None or "láda" in felhos_lada.lower():
-                if st.session_state.get(lada_k) is None:
-                    st.session_state[lada_k] = felhos_lada
-                bepakolt_sorok.append((idx_b, row_b))
-
-        if not bepakolt_sorok:
-            st.warning("⚠️ Nincs még bepakolt címed!")
-            return
+            lada_k = f"lada_szam_tarolt_{idx_b}"
+            if st.session_state.get(lada_k) is None:
+                st.session_state[lada_k] = str(row_b.get('Láda', '1. láda'))
+            bepakolt_sorok.append((idx_b, row_b))
 
         osszes_bepakolt = len(bepakolt_sorok)
         kesz_cimek = sum(1 for idx_c, _ in bepakolt_sorok if st.session_state.get(f"kiszallitva_{idx_c}", False))
 
-        if not st.session_state.kiszallitas_aktiv_fullscreen:
-            st.markdown("## 🚚 3. lépés: Kiszállítás és Elszámolás")
-            st.info(f" Megállók: {osszes_bepakolt} | Teljesítve: {kesz_cimek}")
-            if st.button("▶️️ KISZÁLLÍTÁS MEGKEZDÉSE (Teljes Képernyő)", type="primary", use_container_width=True):
-                st.session_state.kiszallitas_aktiv_fullscreen = True
-                st.rerun()
-            return
-
-        # 📱 ULTRA-KOMPAKT MOBIL NÉZET
-        st.markdown(
-            """
-            <style>
-            header[data-testid='stHeader'] { display: none !important; }
-            div[data-testid='stTabBar'] { display: none !important; }
-            
-            .block-container {
-                padding-top: max(1.6rem, env(safe-area-inset-top)) !important;
-                padding-bottom: 0.2rem !important;
-                padding-left: 0.35rem !important;
-                padding-right: 0.35rem !important;
-                max-width: 100% !important;
-            }
-            div[data-testid="stVerticalBlock"] { gap: 0.25rem !important; }
-            div[data-testid="stCustomComponentV1"] { margin-bottom: -18px !important; padding-bottom: 0px !important; }
-            iframe { display: block !important; margin-bottom: -15px !important; }
-            div[data-testid="stNumberInput"] { margin-top: -6px !important; margin-bottom: -4px !important; }
-            </style>
-            """, 
-            unsafe_allow_html=True
-        )
-
-        # 📊 PROGRESS BAR
+        # Haladási sáv
         hatralevo_db = max(0, osszes_bepakolt - kesz_cimek)
         szazalek = int((kesz_cimek / osszes_bepakolt) * 100) if osszes_bepakolt > 0 else 0
 
         st.markdown(f"""
         <div style="margin-top: -6px; margin-bottom: 2px; padding: 0 2px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 800; color: #334155; margin-bottom: 1px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 800; color: #334155;">
                 <span>🚚 Kézbesítve: <b style="color: #16A34A;">{kesz_cimek}</b> / {osszes_bepakolt} ({szazalek}%)</span>
                 <span>Hátralévő: <b style="color: #EA580C;">{hatralevo_db}</b></span>
             </div>
-            <div style="width: 100%; background-color: #E2E8F0; height: 4px; border-radius: 3px; overflow: hidden;">
-                <div style="width: {szazalek}%; background: linear-gradient(90deg, #22C55E 0%, #16A34A 100%); height: 100%; border-radius: 3px;"></div>
+            <div style="width: 100%; background-color: #E2E8F0; height: 3.5px; border-radius: 2px; overflow: hidden; margin-top: 1px;">
+                <div style="width: {szazalek}%; background: #16A34A; height: 100%;"></div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # 📍 MENETTERVES TÉRKÉPES ÖSSZEVONÁS
+        # Aktív és hátralévő megállók felmérése
+        elokeszitett_sorok = [pair for pair in bepakolt_sorok if not st.session_state.get(f"kiszallitva_{pair[0]}", False)]
+        
+        # Kiemelt cím előresorolása, ha rákerestek
+        kiemelt_id = st.session_state.get("kiemelt_ugyfel_id", None)
+        if kiemelt_id:
+            talalt_kiemelt = None
+            for s_idx, (idx_e, row_e) in enumerate(elokeszitett_sorok):
+                if str(row_e.get('ID', idx_e)).strip() == kiemelt_id:
+                    talalt_kiemelt = elokeszitett_sorok.pop(s_idx)
+                    break
+            if talalt_kiemelt:
+                elokeszitett_sorok.insert(0, talalt_kiemelt)
+
+        if not elokeszitett_sorok:
+            st.success("🎉 Minden mai címedet sikeresen teljesítetted!")
+            return
+
+        # 🗺️ Térkép klaszterek készítése
         cimek_sorban = []
-        for idx_m, row_m in bepakolt_sorok:
-            if st.session_state.get(f"kiszallitva_{idx_m}", False): continue
+        for idx_m, row_m in elokeszitett_sorok:
             m_lat = str(row_m.get(lat_oszlop, "")).strip().replace(',', '.')
             m_lon = str(row_m.get(lon_oszlop, "")).strip().replace(',', '.')
-            
             if m_lat and m_lon and m_lat != "nan" and m_lon != "nan":
                 cimek_sorban.append({
                     "id": str(row_m.get('ID', idx_m)),
@@ -773,7 +735,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                 elozo = aktualis_klaszter[-1]
                 c1 = re.sub(r'[\s,\./]+', '', elozo["address"].lower())
                 c2 = re.sub(r'[\s,\./]+', '', c["address"].lower())
-                
                 if c["sorrend"] == (elozo["sorrend"] + 1) and (c1 in c2 or c2 in c1):
                     aktualis_klaszter.append(c)
                 else:
@@ -782,651 +743,409 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
                     lbl = str(all_stops[0]) if len(all_stops) == 1 else f"{all_stops[0]}-{all_stops[-1]}"
                     rows_h = "".join([f"<div style='margin-bottom:2px;'><b>#{x['sorrend']} - {x['name']}</b></div>" for x in aktualis_klaszter])
                     pop_h = f"<div style='font-size:11px; font-family:sans-serif;'>{rows_h}<span style='color:#4B5563;'>🏠 {first['address']}</span></div>"
-                    
                     active_map_clusters.append({
                         "lat": first["lat"], "lon": first["lon"], "label": lbl,
                         "count": len(aktualis_klaszter), "popup": pop_h, "min_stop": min(all_stops)
                     })
                     aktualis_klaszter = [c]
-            
             if aktualis_klaszter:
                 all_stops = [x["sorrend"] for x in aktualis_klaszter]
                 first = aktualis_klaszter[0]
                 lbl = str(all_stops[0]) if len(all_stops) == 1 else f"{all_stops[0]}-{all_stops[-1]}"
                 rows_h = "".join([f"<div style='margin-bottom:2px;'><b>#{x['sorrend']} - {x['name']}</b></div>" for x in aktualis_klaszter])
                 pop_h = f"<div style='font-size:11px; font-family:sans-serif;'>{rows_h}<span style='color:#4B5563;'>🏠 {first['address']}</span></div>"
-                
                 active_map_clusters.append({
                     "lat": first["lat"], "lon": first["lon"], "label": lbl,
                     "count": len(aktualis_klaszter), "popup": pop_h, "min_stop": min(all_stops)
                 })
 
-        # 🗺️ LEAFLET TÉRKÉP (Méteres élő GPS továbbítással a Streamlit felé)
+        # 🗺️ 165PX MAGAS TÖMÖRÍTETT LEAFLET TÉRKÉP ÉLŐ GPS KÖVETÉSSEL
         if active_map_clusters:
             current_target = active_map_clusters[0]
             clusters_json = json.dumps(active_map_clusters, ensure_ascii=False)
             c_lat = current_target['lat']
             c_lon = current_target['lon']
-            
-            html_map_code = """
+
+            html_map = f"""
             <!DOCTYPE html>
             <html>
             <head>
                 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
                 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
                 <style>
-                    html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
-                    .single-marker { background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 20px; font-size: 9.5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); }
-                    .multi-marker { background: #0284C7; border: 2px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 20px; font-size: 9.5px; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); white-space: nowrap; }
-                    .current-marker { background: #E1251B !important; border: 2.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; box-shadow: 0 3px 8px rgba(225,37,27,0.7); }
-                    .current-multi-marker { background: #E1251B !important; border: 2.5px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 22px; font-size: 11px; padding: 0 5px; box-shadow: 0 3px 8px rgba(225,37,27,0.7); white-space: nowrap; }
-                    
-                    .user-gps-dot {
-                        width: 14px;
-                        height: 14px;
-                        background: #2563EB;
-                        border: 2.5px solid #FFFFFF;
-                        border-radius: 50%;
-                        box-shadow: 0 0 5px rgba(0,0,0,0.4);
-                        position: relative;
-                    }
-                    .user-gps-pulse {
-                        position: absolute;
-                        top: -8px;
-                        left: -8px;
-                        width: 30px;
-                        height: 30px;
-                        background: rgba(37, 99, 235, 0.35);
-                        border-radius: 50%;
-                        animation: pulse-ring 2s ease-out infinite;
-                    }
-                    @keyframes pulse-ring {
-                        0% { transform: scale(0.4); opacity: 1; }
-                        80% { transform: scale(1.6); opacity: 0; }
-                        100% { opacity: 0; }
-                    }
+                    html, body, #map {{ height: 100%; width: 100%; margin: 0; padding: 0; }}
+                    .single-marker {{ background: #139D43; border: 1.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 20px; font-size: 9.5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); }}
+                    .multi-marker {{ background: #0284C7; border: 2px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 20px; font-size: 9.5px; padding: 0 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); white-space: nowrap; }}
+                    .current-marker {{ background: #E1251B !important; border: 2.5px solid white; border-radius: 50%; color: white; font-weight: bold; text-align: center; line-height: 23px; font-size: 11px; box-shadow: 0 3px 8px rgba(225,37,27,0.7); }}
+                    .current-multi-marker {{ background: #E1251B !important; border: 2.5px solid white; border-radius: 12px; color: white; font-weight: 800; text-align: center; line-height: 22px; font-size: 11px; padding: 0 5px; box-shadow: 0 3px 8px rgba(225,37,27,0.7); white-space: nowrap; }}
+                    .user-dot {{ width: 13px; height: 13px; background: #2563EB; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,0.5); }}
                 </style>
             </head>
             <body>
                 <div id="map"></div>
                 <script>
-                    let wakeLock = null;
-                    async function requestWakeLock() {
-                        try {
-                            if ('wakeLock' in navigator) {
-                                wakeLock = await navigator.wakeLock.request('screen');
-                            }
-                        } catch (err) {}
-                    }
-                    requestWakeLock();
+                    var clusters = {clusters_json};
+                    var map = L.map('map', {{zoomControl: false}}).setView([{c_lat}, {c_lon}], 14);
+                    L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(map);
 
-                    var clusters = __CLUSTERS_JSON__;
-                    var map = L.map('map', {zoomControl: false}).setView([__C_LAT__, __C_LON__], 14);
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
-                    clusters.forEach(function(c, index) {
+                    clusters.forEach(function(c, index) {{
                         var isFirst = (index === 0);
                         var isMulti = (c.count > 1);
                         var iconClass = isFirst ? (isMulti ? 'current-multi-marker' : 'current-marker') : (isMulti ? 'multi-marker' : 'single-marker');
                         var iconSize = isFirst ? (isMulti ? [44, 25] : [27, 27]) : (isMulti ? [36, 21] : [21, 21]);
-
-                        var icon = L.divIcon({ className: iconClass, html: c.label, iconSize: iconSize });
-                        var markerOptions = { icon: icon };
-                        if (isFirst) { markerOptions.zIndexOffset = 10000; }
+                        var icon = L.divIcon({{ className: iconClass, html: c.label, iconSize: iconSize }});
+                        var markerOptions = {{ icon: icon }};
+                        if (isFirst) markerOptions.zIndexOffset = 10000;
                         L.marker([c.lat, c.lon], markerOptions).bindPopup(c.popup).addTo(map);
-                    });
+                    }});
 
-                    // 🛰️ ÉLŐ GPS KÖVETÉS ÉS KOORDINÁTA ÁTADÁS
                     var userMarker = null;
-                    var gpsIcon = L.divIcon({
-                        className: 'user-gps-container',
-                        html: '<div class="user-gps-pulse"></div><div class="user-gps-dot"></div>',
-                        iconSize: [14, 14],
-                        iconAnchor: [7, 7]
-                    });
-
-                    if ("geolocation" in navigator) {
-                        navigator.geolocation.watchPosition(function(pos) {
+                    if ("geolocation" in navigator) {{
+                        navigator.geolocation.watchPosition(function(pos) {{
                             var lat = pos.coords.latitude;
                             var lng = pos.coords.longitude;
-                            
-                            if (!userMarker) {
-                                userMarker = L.marker([lat, lng], {
-                                    icon: gpsIcon,
+                            if (!userMarker) {{
+                                userMarker = L.marker([lat, lng], {{
+                                    icon: L.divIcon({{className: 'user-dot', iconSize: [13, 13]}}),
                                     zIndexOffset: 15000
-                                }).addTo(map);
-                            } else {
+                                }}).addTo(map);
+                            }} else {{
                                 userMarker.setLatLng([lat, lng]);
-                            }
-
-                            // 📡 KÉK PÖTTY KOORDINÁTÁK BEÍRÁSA A RENDSZERBE
-                            try {
-                                localStorage.setItem("if_live_lat", lat.toFixed(6));
-                                localStorage.setItem("if_live_lon", lng.toFixed(6));
-                                
-                                var u = new URL(window.top.location.href);
-                                u.searchParams.set("gps_lat", lat.toFixed(6));
-                                u.searchParams.set("gps_lon", lng.toFixed(6));
-                                window.top.history.replaceState({}, "", u.toString());
-                            } catch(e) {}
-                        }, function(err) {
-                            console.warn("GPS hiba:", err.message);
-                        }, {
-                            enableHighAccuracy: true,
-                            maximumAge: 3000,
-                            timeout: 10000
-                        });
-                    }
+                            }}
+                        }}, null, {{enableHighAccuracy: true, maximumAge: 3000}});
+                    }}
                 </script>
             </body>
             </html>
             """
-            html_map_code = html_map_code.replace("__CLUSTERS_JSON__", clusters_json)
-            html_map_code = html_map_code.replace("__C_LAT__", str(c_lat))
-            html_map_code = html_map_code.replace("__C_LON__", str(c_lon))
-
-            st.components.v1.html(html_map_code, height=225)
-
-        # --- 📋 ALAP-LISTA ÖSSZEÁLLÍTÁS ---
-        elokeszitett_sorok = []
-        for idx_p, row_p in bepakolt_sorok:
-            if st.session_state.get(f"kiszallitva_{idx_p}", False): continue
-            elokeszitett_sorok.append((idx_p, row_p))
-
-        kiemelt_id = st.session_state.get("kiemelt_ugyfel_id", None)
-        if kiemelt_id:
-            talalt_kiemelt = None
-            for s_idx, (idx_e, row_e) in enumerate(elokeszitett_sorok):
-                if str(row_e.get('ID', idx_e)).strip() == kiemelt_id:
-                    talalt_kiemelt = elokeszitett_sorok.pop(s_idx)
-                    break
-            if talalt_kiemelt:
-                elokeszitett_sorok.insert(0, talalt_kiemelt)
-
-        if not elokeszitett_sorok:
-            st.success("🎉 Minden mai címedet sikeresen teljesítetted!")
-            return
+            components.html(html_map, height=165)
 
         # =========================================================================
-        # 🏢 MEGÁLLÓ CSOPORTOSÍTÁS (MULTI-DROP BATCH MANAGEMENT)
+        # 🏢 CSOPORTOS LEADÁS (PAPÍR SZERINTI CSOPORT + AZONOS CÍM ALAPJÁN)
         # =========================================================================
         elso_idx, elso_row = elokeszitett_sorok[0]
-        elso_cim_tiszta = str(elso_row[cim_oszlop]).strip()
-        
-        # Kikeressük az összes közvetlenül következő vevőt, aki erre a megállóra esik
-        azonos_cimen_vevok = []
+        elso_csoport = str(elso_row.get(csoport_oszlop, '')).strip() if csoport_oszlop else ''
+        elso_cim = str(elso_row[cim_oszlop]).strip().lower()
+
+        azonos_csoport_vevok = []
         for s_idx, s_row in elokeszitett_sorok:
-            if str(s_row[cim_oszlop]).strip().lower() == elso_cim_tiszta.lower():
-                azonos_cimen_vevok.append((s_idx, s_row))
+            s_csop = str(s_row.get(csoport_oszlop, '')).strip() if csoport_oszlop else ''
+            s_cim = str(s_row[cim_oszlop]).strip().lower()
+
+            if (elso_csoport not in ['', 'nan'] and s_csop == elso_csoport) or (s_cim == elso_cim):
+                azonos_csoport_vevok.append((s_idx, s_row))
             else:
                 break
 
-        # 🎯 ÉLŐ GPS KOORDINÁTA KIOLVASÁSA (KÉK PÖTTY)
-        live_lat = st.query_params.get("gps_lat", None)
-        live_lon = st.query_params.get("gps_lon", None)
-        ido_most = datetime.now().strftime("%H:%M:%S")
-        leadasi_gps = f"{live_lat},{live_lon}" if (live_lat and live_lon) else "N/A"
-
-        # 🏢 HA TÖBB VEVŐ VAN A CÍMEN (REPCIÓ / IRODAHÁZ): TÖMEGES JÓVÁHAGYÓ GOMB
-        if len(azonos_cimen_vevok) > 1:
+        # TÖMEGES LEADÓ GOMB CSOPORTRA
+        if len(azonos_csoport_vevok) > 1:
             st.markdown(
                 f"""
-                <div style="background-color: #EEF2FF; border: 1.5px solid #6366F1; border-radius: 8px; padding: 8px 10px; margin-top: 10px; margin-bottom: 6px;">
-                    <div style="font-size: 13px; font-weight: 800; color: #3730A3;">🏢 ÖSSZEVONT MEGÁLLÓ: {len(azonos_cimen_vevok)} külön vevő ezen a címen!</div>
-                    <div style="font-size: 11.5px; color: #4338CA;">Egyetlen gombbal leadhatod az összes ide tartozó ételt a recepción.</div>
+                <div style="background-color: #EEF2FF; border: 1.5px solid #6366F1; border-radius: 8px; padding: 6px 10px; margin-top: 6px; margin-bottom: 4px;">
+                    <div style="font-size: 12.5px; font-weight: 800; color: #3730A3;">🏢 ÖSSZEVONT MEGÁLLÓ ({len(azonos_csoport_vevok)} cím a csoportban)</div>
+                    <div style="font-size: 11px; color: #4338CA;">Recepción/depónál egyetlen gombbal leadható az összes tétel.</div>
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-            if st.button(f"⚡ ÖSSZES ÁTADVA EZEN A CÍMEN ({len(azonos_cimen_vevok)} db)", type="primary", use_container_width=True, key=f"batch_complete_{elso_idx}"):
-                batch_ids = []
-                for b_idx, b_row in azonos_cimen_vevok:
-                    st.session_state[f"kiszallitva_{b_idx}"] = True
-                    st.session_state[f"kiszallitott_statusz_{b_idx}"] = "Sikeres"
-                    b_id = str(b_row.get('ID', b_idx)).strip()
-                    batch_ids.append(b_id)
-                    if 'mdf' in st.session_state and st.session_state.mdf is not None:
-                        try:
-                            st.session_state.mdf.loc[st.session_state.mdf['ID'].astype(str).str.strip() == b_id, 'Státusz'] = "Kézbesítve"
-                        except: pass
-
-                st.session_state.pop("kiemelt_ugyfel_id", None)
-
-                # Párhuzamos aszinkron mentés
-                def _batch_mentes_async(client_ref, sheet_id_ref, id_lista, ido_val, gps_val):
+            if st.button(f"⚡ ÖSSZES ÁTADVA EBBEN A CSOPORTBAN ({len(azonos_csoport_vevok)} db)", type="primary", use_container_width=True, key=f"batch_lead_{elso_idx}"):
+                b_ids = []
+                for b_i, b_r in azonos_csoport_vevok:
+                    st.session_state[f"kiszallitva_{b_i}"] = True
+                    b_ids.append(str(b_r.get('ID', b_i)).strip())
+                
+                def _b_sync(client_ref, sheet_id_ref, id_list):
                     try:
-                        sh_sync = client_ref.open_by_key(sheet_id_ref)
-                        ws_sync = sh_sync.worksheet("Adatok")
-                        headers = ws_sync.row_values(1)
-                        if "Státusz" in headers and "ID" in headers:
-                            status_col = headers.index("Státusz") + 1
-                            id_col = headers.index("ID") + 1
-                            ido_col = headers.index("Kezbesites_Ido") + 1 if "Kezbesites_Ido" in headers else None
-                            gps_col = headers.index("Kezbesites_GPS") + 1 if "Kezbesites_GPS" in headers else None
-                            
-                            all_ids = ws_sync.col_values(id_col)
-                            for r_idx, s_id in enumerate(all_ids[1:], start=2):
-                                if str(s_id).strip() in id_lista:
-                                    ws_sync.update_cell(r_idx, status_col, "Kézbesítve")
-                                    if ido_col: ws_sync.update_cell(r_idx, ido_col, ido_val)
-                                    if gps_col: ws_sync.update_cell(r_idx, gps_col, gps_val)
-                    except Exception as e:
-                        print("Batch mentes hiba:", e)
+                        sh_s = client_ref.open_by_key(sheet_id_ref)
+                        ws_s = sh_s.worksheet("Adatok")
+                        hdrs = ws_s.row_values(1)
+                        if "Státusz" in hdrs and "ID" in hdrs:
+                            s_col = hdrs.index("Státusz") + 1
+                            id_col = hdrs.index("ID") + 1
+                            all_i = ws_s.col_values(id_col)
+                            for r_i, val_i in enumerate(all_i[1:], start=2):
+                                if str(val_i).strip() in id_list:
+                                    ws_s.update_cell(r_i, s_col, "Kézbesítve")
+                    except Exception as err:
+                        print("Csoportos szinkron hiba:", err)
 
-                t_batch = threading.Thread(
-                    target=_batch_mentes_async,
-                    args=(client, SHEET_ID_UGYFELKOR, batch_ids, ido_most, leadasi_gps)
-                )
-                t_batch.daemon = True
-                t_batch.start()
-
-                st.toast(f"🎉 {len(batch_ids)} cím egyszerre kézbesítve!")
+                t_b = threading.Thread(target=_b_sync, args=(client, SHEET_ID_UGYFELKOR, b_ids))
+                t_b.daemon = True
+                t_b.start()
+                st.toast("🎉 Csoport sikeresen leigazolva!")
                 st.rerun()
 
-        # --- 📋 4. AKTUÁLIS KÁRTYA KIRAJZOLÁSA ---
-        for futo_sorszam, (idx, row) in enumerate(elokeszitett_sorok, 1):
-            melyik_lada = st.session_state.get(f"lada_szam_tarolt_{idx}")
-            if not melyik_lada: 
-                melyik_lada = str(row.get('Láda', '1'))
-            melyik_lada_tiszta = str(melyik_lada).strip() if str(melyik_lada).strip() else "1"
-            lada_felirat = melyik_lada_tiszta if "láda" in melyik_lada_tiszta.lower() else f"{melyik_lada_tiszta}. láda"
-            lada_badge = f'<span style="background-color: #EEF2FF; color: #4338CA; font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 5px; border: 1px solid #C7D2FE;">📦 {lada_felirat}</span>'
+        # =========================================================================
+        # 📋 AKTUÁLIS CÍM KÁRTYÁJA (FESZES ELRENDEZÉSSEL)
+        # =========================================================================
+        aktualis_sor_idx, row = elokeszitett_sorok[0]
+        customer_id = str(row.get('ID', '')).strip()
+        vevo_neve = str(row[nev_oszlop]).strip()
+        aktualis_cim = str(row[cim_oszlop]).strip()
+        vevo_tel = str(row.get(tel_oszlop, '')).strip()
+        aktualis_rendeles = str(row[rendeles_oszlop]).strip() if rendeles_oszlop in row else ""
+        sorszam = row.get("Sorrend_num", 1)
 
-            aktualis_cim = str(row[cim_oszlop]).strip()
-            vevo_neve = str(row[nev_oszlop]).strip()
-            vevo_tel = str(row.get(tel_oszlop, '')).strip()
-            customer_id = str(row.get('ID', '')).strip()
-            aktualis_rendeles = str(row[rendeles_oszlop]).strip() if rendeles_oszlop in row else "Nincs adat"
+        megjegyzes_nyers = str(row.get('Megjegyzés', row.get('Megjegyzes', ''))).strip()
+        megj_html = f"<div style='font-size:11px; background:#FEF3C7; color:#92400E; padding:3px 6px; border-radius:4px; margin-top:2px;'>🔔 {megjegyzes_nyers}</div>" if megjegyzes_nyers and megjegyzes_nyers.lower() != 'nan' else ""
+
+        lada_str = st.session_state.get(f"lada_szam_tarolt_{aktualis_sor_idx}", str(row.get('Láda', '1. láda')))
+
+        # Kompakt kártya doboz
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD; border-radius: 8px; padding: 6px 10px; margin-top: 4px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-weight:800; font-size:13px; color:#1E293B;">📍 #{sorszam}. Cím</span>
+                <span style="background:#EEF2FF; color:#4338CA; font-size:10px; font-weight:800; padding:1px 5px; border-radius:4px;">📦 {lada_str}</span>
+            </div>
+            <div style="font-size:15px; font-weight:bold; color:#1E3A8A; margin-top:1px;">👤 {vevo_neve}</div>
+            <div style="font-size:12px; color:#4B5563;">🏠 {aktualis_cim}</div>
+            {megj_html}
+            <div style="font-size:11.5px; font-weight:bold; color:#DC2626; margin-top:3px;">📦 Rendelés: {aktualis_rendeles}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # --- ⏭️ KÖVETKEZŐ CÍM ELŐNÉZET (PREVIEW SÁV) ---
+        if len(elokeszitett_sorok) > 1:
+            kov_idx, kov_row = elokeszitett_sorok[1]
+            kov_sorszam = kov_row.get("Sorrend_num", 2)
+            kov_nev = str(kov_row[nev_oszlop]).strip()
+            kov_cim = str(kov_row[cim_oszlop]).strip()
+            kov_rendeles = str(kov_row[rendeles_oszlop]).strip() if rendeles_oszlop in kov_row else ""
             
-            megjegyzes_nyers = str(row.get('Megjegyzés', row.get('Megjegyzes', ''))).strip()
-            megjegyzes_html = ""
-            if megjegyzes_nyers and megjegyzes_nyers.lower() not in ["nan", "none", ""]:
-                megjegyzes_html = (
-                    f'<div style="background-color: #FEF3C7; border: 1px dashed #D97706; color: #92400E; '
-                    f'font-size: 12px; font-weight: bold; padding: 3px 8px; border-radius: 6px; margin-top: 4px; display: flex; align-items: center; gap: 4px;">'
-                    f'🔔 <span>{megjegyzes_nyers}</span>'
-                    f'</div>'
-                )
-
-            try:
-                eredeti_sorszam = int(float(row.get("Sorrend_num", row.get("Sorrend", futo_sorszam))))
-            except:
-                eredeti_sorszam = futo_sorszam
-
-            osszes_db = 0
-            try:
-                darabok = re.findall(r'(\d+)-', aktualis_rendeles)
-                osszes_db = sum(int(d) for d in darabok)
-            except:
-                osszes_db = 1
-                
-            fejlec_sor = (
-                f'<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 3px;">'
-                f'<span style="font-size: 13.5px; font-weight: 800; color: #1E293B;">📍 #{eredeti_sorszam}. Cím</span>'
-                f'<span style="font-size: 11.5px; font-weight: 700; color: #4B5563; background: #F3F4F6; padding: 1px 6px; border-radius: 4px;">🛍️ Tételek: {osszes_db} db</span>'
-                f'{lada_badge}'
-                f'</div>'
-            )
-
-            id_badge = f'<span style="background-color: #F1F5F9; color: #64748B; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; border: 1px solid #CBD5E1;">ID: {customer_id}</span>' if customer_id else ""
-            ugyfel_sor = (
-                f'<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 2px;">'
-                f'<div style="font-size: 16px; font-weight: bold; color: #1E3A8A;">👤 {vevo_neve}</div>'
-                f'{id_badge}'
-                f'</div>'
-            )
-
-            is_kiemelt = (customer_id == kiemelt_id)
-            bg_style = "background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2px solid #F59E0B;" if is_kiemelt else "background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); border: 1.5px solid #93C5FD;"
-            kiemelt_szoveg = "<div style='color: #B45309; font-weight: 800; font-size: 11px; margin-bottom: 2px;'>⚠️ TÉRKÉPEN KIJELÖLT CÍM!</div>" if is_kiemelt else ""
-
-            html_kartyadisz = (
-                f'<div style="{bg_style} border-radius: 10px; padding: 8px 12px; margin-top: 15px; margin-bottom: 2px;">'
-                f'{kiemelt_szoveg}'
-                f'{fejlec_sor}'
-                f'{ugyfel_sor}'
-                f'<div style="font-size: 12.5px; color: #4B5563; margin-top: 2px;">🏠 {aktualis_cim}</div>'
-                f'{megjegyzes_html}'
-                f'<hr style="margin: 5px 0 4px 0; border: 0; border-top: 1px solid #BFDBFE;">'
-                f'<div style="font-size: 12px; font-weight: 700; color: #DC2626; word-break: break-word; line-height: 1.35;">'
-                f'📦 Rendelés: {aktualis_rendeles}'
-                f'</div>'
-                f'</div>'
-            )
-            st.markdown(html_kartyadisz, unsafe_allow_html=True)
-            
-            # --- ⏭️ KÖVETKEZŐ CÍM ELŐNÉZET ---
-            if len(elokeszitett_sorok) > 1:
-                kov_idx, kov_row = elokeszitett_sorok[1]
-                try:
-                    kov_sorszam = int(float(kov_row.get("Sorrend_num", kov_row.get("Sorrend", futo_sorszam + 1))))
-                except:
-                    kov_sorszam = futo_sorszam + 1
-                kov_nev = str(kov_row[nev_oszlop]).strip()
-                kov_cim = str(kov_row[cim_oszlop]).strip()
-                kov_rendeles = str(kov_row[rendeles_oszlop]).strip() if rendeles_oszlop in kov_row else ""
-                
-                kovetkezo_preview_html = (
-                    f'<div style="background-color: #F8FAFC; border-left: 3.5px solid #0284C7; border: 1px solid #E2E8F0; '
-                    f'border-left-width: 3.5px; border-left-color: #0284C7; padding: 4px 8px; border-radius: 6px; '
-                    f'margin: 4px 0 6px 0; font-size: 11.5px; color: #334155; display: flex; align-items: center; '
-                    f'justify-content: space-between; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">'
-                    f'<div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">'
-                    f'<b>⏭️ Köv. cím:</b> <span style="font-weight: 700; color: #0284C7;">#{kov_sorszam}.</span> — '
-                    f'<b>{kov_nev}</b> <span style="color: #64748B;">({kov_cim})</span>'
-                    f'</div>'
-                    f'<span style="font-weight: 700; color: #DC2626; margin-left: 6px; flex-shrink: 0;">📦 {kov_rendeles}</span>'
-                    f'</div>'
-                )
-                st.markdown(kovetkezo_preview_html, unsafe_allow_html=True)
-
-            tiszta_szamjegyek = re.sub(r'\D', '', str(vevo_tel)) if vevo_tel and str(vevo_tel).strip().lower() != "nan" else ""
-            if tiszta_szamjegyek:
-                if tiszta_szamjegyek.startswith("06"):
-                    tarcsazhato_tel = "+36" + tiszta_szamjegyek[2:]
-                elif tiszta_szamjegyek.startswith("36"):
-                    tarcsazhato_tel = "+" + tiszta_szamjegyek
-                else:
-                    tarcsazhato_tel = "+36" + tiszta_szamjegyek
-            else:
-                tarcsazhato_tel = ""
-
-            if tarcsazhato_tel:
-                hivas_btn = f'<a href="tel:{tarcsazhato_tel}" target="_blank" style="flex: 1; text-decoration: none;"><button type="button" style="width: 100%; height: 40px; background-color: #22C55E; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;">📞 Hívás</button></a>'
-            else:
-                hivas_btn = '<div style="flex: 1;"><button type="button" style="width: 100%; height: 40px; background-color: #9CA3AF; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; opacity: 0.5;" disabled>📞 Nincs</button></div>'
-
-            maps_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(aktualis_cim)}"
-            nav_btn = f'<a href="{maps_url}" target="_blank" style="flex: 1; text-decoration: none;"><button type="button" style="width: 100%; height: 40px; background-color: #3B82F6; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer;">🗺️ Navigáció</button></a>'
-
-            col_b1, col_b2, col_b3 = st.columns([1, 1, 1], gap="small")
-            with col_b1:
-                st.markdown(hivas_btn, unsafe_allow_html=True)
-            with col_b2:
-                msg_panel_key = f"show_msg_panel_{idx}"
-                if msg_panel_key not in st.session_state:
-                    st.session_state[msg_panel_key] = False
-                
-                if st.button("💬 Üzenet", key=f"toggle_msg_btn_{idx}", use_container_width=True):
-                    st.session_state[msg_panel_key] = not st.session_state[msg_panel_key]
-                    st.rerun()
-            with col_b3:
-                st.markdown(nav_btn, unsafe_allow_html=True)
-
             st.markdown(
-                """
-                <style>
-                div[data-testid="column"] { min-width: 0 !important; flex: 1 1 0px !important; }
-                div[data-testid="stHorizontalBlock"] {
-                    display: flex !important;
-                    flex-direction: row !important;
-                    flex-wrap: nowrap !important;
-                    align-items: center !important;
-                    gap: 6px !important;
-                    margin-top: 15px !important;
-                    margin-bottom: -3px !important;
-                }
-                div[data-testid="column"] button { height: 40px !important; font-size: 13px !important; padding: 0 4px !important; font-weight: bold !important; }
-                </style>
-                """,
+                f"""
+                <div style="background-color: #F8FAFC; border-left: 3.5px solid #0284C7; border: 1px solid #E2E8F0; padding: 3px 6px; border-radius: 4px; margin: 3px 0; font-size: 11px; color: #334155; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        <b>⏭️ Köv.:</b> <span style="font-weight: 700; color: #0284C7;">#{kov_sorszam}.</span> {kov_nev} <span style="color: #64748B;">({kov_cim})</span>
+                    </div>
+                    <span style="font-weight: 700; color: #DC2626; margin-left: 4px; flex-shrink: 0;">📦 {kov_rendeles}</span>
+                </div>
+                """, 
                 unsafe_allow_html=True
             )
 
-            # ÜZENET PANEL
-            if st.session_state.get(f"show_msg_panel_{idx}", False):
-                st.markdown(
-                    """
-                    <div style="background-color: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px; margin-top: 6px; margin-bottom: 8px;">
-                        <span style="font-size: 12px; font-weight: bold; color: #475569;">✉️ Gyors üzenet küldése az ügyfélnek:</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+        # 📞 Telefonszám előállítása
+        tarcsazhato_tel = re.sub(r'\D', '', str(vevo_tel))
+        if tarcsazhato_tel.startswith("06"): tarcsazhato_tel = "+36" + tarcsazhato_tel[2:]
+        elif tarcsazhato_tel.startswith("36"): tarcsazhato_tel = "+" + tarcsazhato_tel
+        elif tarcsazhato_tel: tarcsazhato_tel = "+36" + tarcsazhato_tel
 
+        maps_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(aktualis_cim)}"
+        hivas_btn = f'<a href="tel:{tarcsazhato_tel}" target="_blank" style="text-decoration:none;"><button style="width:100%; height:34px; background:#22C55E; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">📞 Hívás</button></a>' if tarcsazhato_tel else '<button style="width:100%; height:34px; background:#9CA3AF; color:white; border:none; border-radius:6px; opacity:0.6;" disabled>📞 Nincs</button>'
+        nav_btn = f'<a href="{maps_url}" target="_blank" style="text-decoration:none;"><button style="width:100%; height:34px; background:#3B82F6; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">🗺️ Navigáció</button></a>'
+
+        # 📱 3 GOMB EGY SORBAN: HÍVÁS | ÜZENET | NAVIGÁCIÓ
+        col_b1, col_b2, col_b3 = st.columns([1, 1, 1], gap="small")
+        with col_b1:
+            st.markdown(hivas_btn, unsafe_allow_html=True)
+        with col_b2:
+            msg_panel_key = f"show_msg_panel_{aktualis_sor_idx}"
+            if msg_panel_key not in st.session_state:
+                st.session_state[msg_panel_key] = False
+            if st.button("💬 Üzenet", key=f"togg_msg_{aktualis_sor_idx}", use_container_width=True):
+                st.session_state[msg_panel_key] = not st.session_state[msg_panel_key]
+                st.rerun()
+        with col_b3:
+            st.markdown(nav_btn, unsafe_allow_html=True)
+
+        # =========================================================================
+        # 💬 LENYÍLÓ ÜZENETKÜLDŐ PANEL (SMS / VIBER SABLONOKKAL)
+        # =========================================================================
+        if st.session_state.get(f"show_msg_panel_{aktualis_sor_idx}", False):
+            with st.container(border=True):
+                st.markdown("<span style='font-size: 11.5px; font-weight: bold; color: #475569;'>✉️️ Gyors üzenet küldése:</span>", unsafe_allow_html=True)
                 if not tarcsazhato_tel:
-                    st.warning("Ehhez a címhez nincs megadva érvényes telefonszám!")
+                    st.warning("Nincs megadva telefonszám!")
                 else:
                     sablon_opciok = [
                         "Jó napot kívánok! Megérkeztem az InterFood ebéddel a címre.",
                         "2 perc és ott vagyok az étellel...",
-                        "A recepción/portán hagytam az ételt, jó étvágyat kívánok hozzá!",
+                        "A recepción/portán hagytam az ételt, jó étvágyat kívánok!",
                         "Itt állok a kapuban/lépcsőháznál, kérem vegye át az ételt!",
                         "✏️ Egyedi üzenetet írok..."
                     ]
-                    
-                    valasztott_sablon = st.selectbox(
-                        "Válassz sablont:",
-                        sablon_opciok,
-                        key=f"msg_sablon_select_{idx}",
-                        label_visibility="collapsed"
-                    )
-
-                    if valasztott_sablon == "✏️ Egyedi üzenetet írok...":
-                        vegleges_uzenet = st.text_input(
-                            "Egyedi üzenet szövege:",
-                            value="2 perc és ott vagyok az étellel...",
-                            key=f"custom_msg_input_{idx}"
-                        )
-                    else:
-                        vegleges_uzenet = valasztott_sablon
-
+                    valasztott_sablon = st.selectbox("Sablon:", sablon_opciok, key=f"sel_msg_{aktualis_sor_idx}", label_visibility="collapsed")
+                    vegleges_uzenet = st.text_input("Egyedi szöveg:", value="2 perc és ott vagyok...", key=f"inp_msg_{aktualis_sor_idx}") if valasztott_sablon == "✏️ Egyedi üzenetet írok..." else valasztott_sablon
                     encoded_msg = urllib.parse.quote(vegleges_uzenet)
                     sms_link = f"sms:{tarcsazhato_tel}?body={encoded_msg}"
                     viber_link = f"viber://chat?number={urllib.parse.quote(tarcsazhato_tel)}"
 
-                    col_send1, col_send2 = st.columns(2)
-                    with col_send1:
-                        st.markdown(
-                            f'<a href="{sms_link}" target="_blank" style="text-decoration:none;"><button style="width:100%; height:36px; background-color:#0284C7; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">📨 Küldés SMS-ben</button></a>',
-                            unsafe_allow_html=True
-                        )
-                    with col_send2:
-                        st.markdown(
-                            f'<a href="{viber_link}" target="_blank" style="text-decoration:none;"><button style="width:100%; height:36px; background-color:#7360F2; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">🟣 Megnyitás Viberen</button></a>',
-                            unsafe_allow_html=True
-                        )
+                    cs1, cs2 = st.columns(2)
+                    cs1.markdown(f'<a href="{sms_link}" target="_blank" style="text-decoration:none;"><button style="width:100%; height:32px; background:#0284C7; color:white; border:none; border-radius:5px; font-weight:bold; font-size:11.5px;">📨 SMS</button></a>', unsafe_allow_html=True)
+                    cs2.markdown(f'<a href="{viber_link}" target="_blank" style="text-decoration:none;"><button style="width:100%; height:32px; background:#7360F2; color:white; border:none; border-radius:5px; font-weight:bold; font-size:11.5px;">🟣 Viber</button></a>', unsafe_allow_html=True)
 
-            # CÍM KORRIGÁLÁSA ÉS ÁTRENDEZÉS
-            with st.expander("🛠️ Cím korrigálása és Átrendezés"):
-                st.markdown("<b>🔍 Útba eső cím/bogyó gyors adatlap-aktiválása:</b>", unsafe_allow_html=True)
-                options_ugras = ["--- Válassz egy megállót a kiemeléshez ---"]
-                id_mapping_ugras = {}
-                for idx_u, row_u in elokeszitett_sorok:
-                    u_id = str(row_u['ID']).strip()
-                    options_ugras.append(f"📍 #{row_u['Sorrend_num']} — {str(row_u[nev_oszlop]).strip()}")
-                    id_mapping_ugras[f"📍 #{row_u['Sorrend_num']} — {str(row_u[nev_oszlop]).strip()}"] = u_id
-                
-                valasztott_gyorsugras = st.selectbox("Válassz ki egy bogyót a térképről:", options=options_ugras, key=f"inner_ugro_select_{idx}", label_visibility="collapsed")
-                if valasztott_gyorsugras != "--- Válassz egy megállót a kiemeléshez ---":
-                    st.session_state.kiemelt_ugyfel_id = id_mapping_ugras[valasztott_gyorsugras]
-                    st.rerun()
-
-                st.markdown("<hr style='margin:10px 0; border-top:1px dashed #D1D5DB;'>", unsafe_allow_html=True)
-
-                st.markdown("<b>🔀 Megálló sorrendjének módosítása</b>", unsafe_allow_html=True)
-                c_end, c_move = st.columns(2)
-                
-                if c_end.button("⬇️ Végére dobás", key=f"py_end_{idx}", use_container_width=True):
-                    try:
-                        sh = client.open_by_key(SHEET_ID_UGYFELKOR)
-                        ws_adatok = sh.worksheet("Adatok")
-                        rows = ws_adatok.get_all_values()
-                        header = rows[0]
-                        df_s = pd.DataFrame(rows[1:], columns=header)
-                        df_s['Sorrend'] = pd.to_numeric(df_s['Sorrend'], errors='coerce').fillna(999).astype(int)
-                        df_s = df_s.sort_values(by='Sorrend').reset_index(drop=True)
-                        t_idx = df_s[df_s['ID'].astype(str).str.strip() == customer_id].index[0]
-                        target_row = df_s.loc[t_idx].copy()
-                        df_s = df_s.drop(t_idx).reset_index(drop=True)
-                        target_row['Sorrend'] = df_s['Sorrend'].max() + 1
-                        df_s = pd.concat([df_s, pd.DataFrame([target_row])], ignore_index=True)
-                        df_s['Sorrend'] = range(1, len(df_s) + 1)
-                        ws_adatok.clear()
-                        ws_adatok.update('A1', [header] + df_s.values.tolist(), value_input_option='USER_ENTERED')
-                        st.session_state.pop("kiemelt_ugyfel_id", None)
-                        st.session_state.mdf = df_s
-                        st.cache_data.clear()
-                        st.success("Sikeresen a végére dobva!")
-                        time.sleep(0.5)
-                        st.rerun()
-                    except Exception as err: st.error(f"Hiba: {err}")
-                
-                uj_pozicio = c_move.number_input("Helyezés sorszáma:", min_value=1, max_value=100, value=2, key=f"py_num_{idx}")
-                if c_move.button("👉 Áthelyezés ide", key=f"py_move_btn_{idx}", use_container_width=True):
-                    try:
-                        sh = client.open_by_key(SHEET_ID_UGYFELKOR)
-                        ws_adatok = sh.worksheet("Adatok")
-                        rows = ws_adatok.get_all_values()
-                        header = rows[0]
-                        df_s = pd.DataFrame(rows[1:], columns=header)
-                        df_s['Sorrend'] = pd.to_numeric(df_s['Sorrend'], errors='coerce').fillna(999).astype(int)
-                        df_s = df_s.sort_values(by='Sorrend').reset_index(drop=True)
-                        t_idx = df_s[df_s['ID'].astype(str).str.strip() == customer_id].index[0]
-                        target_row = df_s.loc[t_idx].copy()
-                        df_s = df_s.drop(t_idx).reset_index(drop=True)
-                        insert_idx = min(len(df_s), int(uj_pozicio) - 1)
-                        df_left = df_s.iloc[:insert_idx]
-                        df_right = df_s.iloc[insert_idx:]
-                        df_s = pd.concat([df_left, pd.DataFrame([target_row]), df_right], ignore_index=True)
-                        df_s['Sorrend'] = range(1, len(df_s) + 1)
-                        ws_adatok.clear()
-                        ws_adatok.update('A1', [header] + df_s.values.tolist(), value_input_option='USER_ENTERED')
-                        st.session_state.pop("kiemelt_ugyfel_id", None)
-                        st.session_state.mdf = df_s
-                        st.cache_data.clear()
-                        st.success(f"Sikeresen áthelyezve a(z) {uj_pozicio}. helyre!")
-                        time.sleep(0.5)
-                        st.rerun()
-                    except Exception as err: st.error(f"Hiba: {err}")
-
-                st.markdown("<hr style='margin:10px 0; border-top:1px dashed #D1D5DB;'>", unsafe_allow_html=True)
-                
-                # 📍 PONTOS KÉK PÖTTYÖS KOORDINÁTA MENTÉSE (A korábbi pontatlan GSM get_geolocation helyett!)
-                st.markdown("<b>🎯 Kapu rögzítése (Élő GPS kék pötty alapján)</b>", unsafe_allow_html=True)
-                if live_lat and live_lon:
-                    st.caption(f"🔵 Észlelt kék pont: `{live_lat}, {live_lon}`")
-                    if st.button("📍 Aktuális pozíció mentése ehhez a kapuhoz", key=f"save_current_kapu_coords_{idx}", use_container_width=True):
-                        try:
-                            uj_lat = float(live_lat)
-                            uj_lon = float(live_lon)
-                            
-                            sh = client.open_by_key(SHEET_ID_UGYFELKOR)
-                            ws_adatok = sh.worksheet("Adatok")
-                            headers_adatok = ws_adatok.row_values(1)
-                            
-                            lat_col_idx = headers_adatok.index(lat_oszlop) + 1
-                            lon_col_idx = headers_adatok.index(lon_oszlop) + 1
-                            sheet_row = int(idx) + 2
-                            
-                            ws_adatok.update_cell(sheet_row, lat_col_idx, uj_lat)
-                            ws_adatok.update_cell(sheet_row, lon_col_idx, uj_lon)
-                            
-                            ws_ugyfelkor = sh.worksheet("Ugyfelkor")
-                            ugyfel_records = ws_ugyfelkor.get_all_records()
-                            ugyfel_row_idx = None
-                            for u_idx, u_rec in enumerate(ugyfel_records, start=2):
-                                rec_id = str(u_rec.get('ID', '')).strip().split('.')[0]
-                                if rec_id == customer_id:
-                                    ugyfel_row_idx = u_idx
-                                    break
-                            if ugyfel_row_idx:
-                                ugyfel_headers = ws_ugyfelkor.row_values(1)
-                                u_lat_idx = ugyfel_headers.index('Lat') + 1
-                                u_lon_idx = ugyfel_headers.index('Lon') + 1
-                                ws_ugyfelkor.update_cell(ugyfel_row_idx, u_lat_idx, f"'{uj_lat}")
-                                ws_ugyfelkor.update_cell(ugyfel_row_idx, u_lon_idx, f"'{uj_lon}")
-                                
-                            st.cache_data.clear()
-                            st.success(f"🎯 Kapu sikeresen rögzítve a kék pötty alapján: {uj_lat}, {uj_lon}")
-                            time.sleep(0.5)
-                            st.rerun()
-                        except Exception as geo_err:
-                            st.error(f"Hiba a koordináta mentésekor: {geo_err}")
-                else:
-                    st.caption("⏳ Várakozás a kék pont műholdas jelére...")
-
-            # --- PÉNZÜGYI RÉSZ ÉS KÉZBESÍTÉS ---
-            elovart_osszeg = 0
-            if penz_oszlop:
-                try: 
-                    tiszta_penz = str(row[penz_oszlop]).replace("Ft","").replace(" ","").replace("\xa0","").strip()
-                    elovart_osszeg = int(float(tiszta_penz))
-                except: 
-                    elovart_osszeg = 0
+        # =========================================================================
+        # 🛠️ CÍM KORRIGÁLÁSA, ÁTRENDEZÉS & ÉLŐ GPS MENTÉS
+        # =========================================================================
+        with st.expander("🛠️️ Cím korrigálása & Átrendezés", expanded=False):
+            st.markdown("<b>🔍 Útba eső cím azonnali aktiválása:</b>", unsafe_allow_html=True)
+            options_ugras = ["--- Válassz egy megállót ---"]
+            id_mapping_ugras = {}
+            for idx_u, row_u in elokeszitett_sorok:
+                u_id = str(row_u['ID']).strip()
+                lbl_u = f"📍 #{row_u.get('Sorrend_num')} — {str(row_u[nev_oszlop]).strip()}"
+                options_ugras.append(lbl_u)
+                id_mapping_ugras[lbl_u] = u_id
             
-            if elovart_osszeg > 0:
-                st.write(f"💵 **Fizetendő KP:** {elovart_osszeg:,} Ft")
-                alapertelmezett_atvetel = elovart_osszeg
-            elif elovart_osszeg < 0:
-                st.markdown(f"<div style='color: #047857; background-color: #ECFDF5; padding: 6px 10px; border-radius: 6px; font-size: 13px; font-weight: bold; margin-bottom: 6px;'>💳 <b>Túlfizetés / Egyenleg:</b> {abs(elovart_osszeg):,} Ft (Visszaadható KP vagy jóváírás)</div>", unsafe_allow_html=True)
-                alapertelmezett_atvetel = 0
-            else:
-                alapertelmezett_atvetel = 0
-            
-            atvett_osszeg = st.number_input(
-                "Átvett (+) / Visszaadott (-) összeg (Ft):", 
-                min_value=-50000, 
-                max_value=100000,
-                value=int(alapertelmezett_atvetel), 
-                step=50, 
-                key=f"atvett_input_{idx}",
-                help="Pozitív összeg: te veszel át pénzt. Negatív összeg: te fizetsz vissza a vevőnek a túlfizetéséből!"
-            )
-            
-            if st.button("✅ Sikeres kézbesítés", key=f"siker_{idx}", use_container_width=True, type="primary"):
-                st.session_state[f"kiszallitva_{idx}"] = True
-                st.session_state[f"kiszallitott_statusz_{idx}"] = "Sikeres"
-                st.session_state.pop("kiemelt_ugyfel_id", None)
-                
-                if 'mdf' in st.session_state and st.session_state.mdf is not None:
-                    try:
-                        st.session_state.mdf.loc[st.session_state.mdf['ID'].astype(str).str.strip() == str(customer_id).strip(), 'Státusz'] = "Kézbesítve"
-                    except Exception:
-                        pass
-                
-                try:
-                    fizetendo_pozitiv = max(0, elovart_osszeg)
-                    if atvett_osszeg > fizetendo_pozitiv:
-                        st.session_state[f"borravalo_{idx}"] = atvett_osszeg - fizetendo_pozitiv
-                    else:
-                        st.session_state[f"borravalo_{idx}"] = 0
-                except:
-                    pass
-
-                # 🚀 ASZINKRON HÁTTÉRMENTÉS (Időbélyegzővel és valós kék pont GPS-szel a km elszámoláshoz)
-                def _mentes_hatterben_async(client_ref, sheet_id_ref, cust_id_ref, ido_val, gps_val):
-                    try:
-                        sh_sync = client_ref.open_by_key(sheet_id_ref)
-                        ws_adatok_sync = sh_sync.worksheet("Adatok")
-                        headers = ws_adatok_sync.row_values(1)
-                        if "Státusz" in headers and "ID" in headers:
-                            status_col_idx = headers.index("Státusz") + 1
-                            id_col_idx = headers.index("ID") + 1
-                            ido_col_idx = headers.index("Kezbesites_Ido") + 1 if "Kezbesites_Ido" in headers else None
-                            gps_col_idx = headers.index("Kezbesites_GPS") + 1 if "Kezbesites_GPS" in headers else None
-
-                            all_ids = ws_adatok_sync.col_values(id_col_idx)
-                            target_id_str = str(cust_id_ref).strip()
-                            for r_idx, sheet_id_val in enumerate(all_ids[1:], start=2):
-                                if str(sheet_id_val).strip() == target_id_str:
-                                    ws_adatok_sync.update_cell(r_idx, status_col_idx, "Kézbesítve")
-                                    if ido_col_idx: ws_adatok_sync.update_cell(r_idx, ido_col_idx, ido_val)
-                                    if gps_col_idx: ws_adatok_sync.update_cell(r_idx, gps_col_idx, gps_val)
-                                    break
-                    except Exception as e_async:
-                        print(f"Hiba az aszinkron háttérmentés során: {e_async}")
-
-                t_sync = threading.Thread(
-                    target=_mentes_hatterben_async, 
-                    args=(client, SHEET_ID_UGYFELKOR, customer_id, ido_most, leadasi_gps)
-                )
-                t_sync.daemon = True
-                t_sync.start()
-
-                st.toast(f"🎉 {vevo_neve} teljesítve!")
+            valasztott_gyorsugras = st.selectbox("Megálló keresése:", options=options_ugras, key=f"sel_jump_{aktualis_sor_idx}", label_visibility="collapsed")
+            if valasztott_gyorsugras != "--- Válassz egy megállót ---":
+                st.session_state.kiemelt_ugyfel_id = id_mapping_ugras[valasztott_gyorsugras]
                 st.rerun()
-            break
+
+            st.markdown("<hr style='margin:6px 0; border-top:1px dashed #D1D5DB;'>", unsafe_allow_html=True)
+            st.markdown("<b>🔀 Sorrend módosítása:</b>", unsafe_allow_html=True)
+            c_end, c_move = st.columns(2)
+            if c_end.button("⬇️ Végére dobás", key=f"btn_end_{aktualis_sor_idx}", use_container_width=True):
+                try:
+                    sh = client.open_by_key(SHEET_ID_UGYFELKOR)
+                    ws_a = sh.worksheet("Adatok")
+                    rows_a = ws_a.get_all_values()
+                    hdr_a = rows_a[0]
+                    df_s = pd.DataFrame(rows_a[1:], columns=hdr_a)
+                    df_s['Sorrend'] = pd.to_numeric(df_s['Sorrend'], errors='coerce').fillna(999).astype(int)
+                    df_s = df_s.sort_values(by='Sorrend').reset_index(drop=True)
+                    t_idx = df_s[df_s['ID'].astype(str).str.strip() == customer_id].index[0]
+                    t_row = df_s.loc[t_idx].copy()
+                    df_s = df_s.drop(t_idx).reset_index(drop=True)
+                    t_row['Sorrend'] = df_s['Sorrend'].max() + 1
+                    df_s = pd.concat([df_s, pd.DataFrame([t_row])], ignore_index=True)
+                    df_s['Sorrend'] = range(1, len(df_s) + 1)
+                    ws_a.clear()
+                    ws_a.update('A1', [hdr_a] + df_s.values.tolist(), value_input_option='USER_ENTERED')
+                    st.session_state.pop("kiemelt_ugyfel_id", None)
+                    st.session_state.mdf = df_s
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception as err: st.error(f"Hiba: {err}")
+
+            uj_pozicio = c_move.number_input("Új sorszám:", min_value=1, max_value=120, value=2, key=f"inp_pos_{aktualis_sor_idx}")
+            if c_move.button("👉 Áthelyezés", key=f"btn_pos_{aktualis_sor_idx}", use_container_width=True):
+                try:
+                    sh = client.open_by_key(SHEET_ID_UGYFELKOR)
+                    ws_a = sh.worksheet("Adatok")
+                    rows_a = ws_a.get_all_values()
+                    hdr_a = rows_a[0]
+                    df_s = pd.DataFrame(rows_a[1:], columns=hdr_a)
+                    df_s['Sorrend'] = pd.to_numeric(df_s['Sorrend'], errors='coerce').fillna(999).astype(int)
+                    df_s = df_s.sort_values(by='Sorrend').reset_index(drop=True)
+                    t_idx = df_s[df_s['ID'].astype(str).str.strip() == customer_id].index[0]
+                    t_row = df_s.loc[t_idx].copy()
+                    df_s = df_s.drop(t_idx).reset_index(drop=True)
+                    ins_idx = min(len(df_s), int(uj_pozicio) - 1)
+                    df_s = pd.concat([df_s.iloc[:ins_idx], pd.DataFrame([t_row]), df_s.iloc[ins_idx:]], ignore_index=True)
+                    df_s['Sorrend'] = range(1, len(df_s) + 1)
+                    ws_a.clear()
+                    ws_a.update('A1', [hdr_a] + df_s.values.tolist(), value_input_option='USER_ENTERED')
+                    st.session_state.pop("kiemelt_ugyfel_id", None)
+                    st.session_state.mdf = df_s
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception as err: st.error(f"Hiba: {err}")
+
+            st.markdown("<hr style='margin:6px 0; border-top:1px dashed #D1D5DB;'>", unsafe_allow_html=True)
+            st.markdown("<b>🎯 Pontos kapu-koordináta mentése a kék pöttyel:</b>", unsafe_allow_html=True)
             
+            # Közvetlen natív GPS kinyerés
+            if st.button("📍 JELENLEGI GPS MENTÉSE A KAPUHOZ", use_container_width=True, key=f"save_live_gps_{aktualis_sor_idx}"):
+                components.html(f"""
+                <script>
+                    if (navigator.geolocation) {{
+                        navigator.geolocation.getCurrentPosition(function(pos) {{
+                            const lat = pos.coords.latitude;
+                            const lon = pos.coords.longitude;
+                            const u = new URL(window.top.location.href);
+                            u.searchParams.set("kapu_lat", lat);
+                            u.searchParams.set("kapu_lon", lon);
+                            u.searchParams.set("target_cid", "{customer_id}");
+                            window.top.location.href = u.toString();
+                        }}, function(err) {{
+                            alert("GPS hiba: " + err.message);
+                        }}, {{enableHighAccuracy: true, timeout: 5000}});
+                    }}
+                </script>
+                """, height=0, width=0)
+
+        # GPS Mentés Feldolgozó Hook
+        if "kapu_lat" in st.query_params and "kapu_lon" in st.query_params:
+            k_lat = float(st.query_params.get("kapu_lat"))
+            k_lon = float(st.query_params.get("kapu_lon"))
+            t_cid = st.query_params.get("target_cid", customer_id)
+            try:
+                sh_geo = client.open_by_key(SHEET_ID_UGYFELKOR)
+                ws_geo = sh_geo.worksheet("Adatok")
+                h_geo = ws_geo.row_values(1)
+                lat_c = h_geo.index(lat_oszlop) + 1
+                lon_c = h_geo.index(lon_oszlop) + 1
+                id_c = h_geo.index("ID") + 1
+                
+                rows_ids = ws_geo.col_values(id_c)
+                for r_idx, v_id in enumerate(rows_ids[1:], start=2):
+                    if str(v_id).strip() == str(t_cid).strip():
+                        ws_geo.update_cell(r_idx, lat_c, k_lat)
+                        ws_geo.update_cell(r_idx, lon_c, k_lon)
+                        break
+                st.query_params.clear()
+                st.query_params.update(view="mobile", active_tab="kiszallitas")
+                st.toast(f"🎯 Pozíció sikeresen frissítve a kapuhoz: {k_lat}, {k_lon}")
+                time.sleep(0.5)
+                st.rerun()
+            except Exception as e_geo:
+                st.error(f"Koordináta mentési hiba: {e_geo}")
+
+        # Pénzügyi mező
+        elovart_osszeg = 0
+        if penz_oszlop:
+            try:
+                tiszta_p = str(row[penz_oszlop]).replace("Ft","").replace(" ","").replace("\xa0","").strip()
+                elovart_osszeg = int(float(tiszta_p))
+            except: elovart_osszeg = 0
+
+        if elovart_osszeg > 0:
+            st.write(f"💵 **Fizetendő KP:** {elovart_osszeg:,} Ft")
+        elif elovart_osszeg < 0:
+            st.markdown(f"<div style='color:#047857; background:#ECFDF5; padding:4px 8px; border-radius:5px; font-size:12px; font-weight:bold;'>💳 <b>Túlfizetés:</b> {abs(elovart_osszeg):,} Ft (Visszaadható KP)</div>", unsafe_allow_html=True)
+
+        atvett_osszeg = st.number_input(
+            "Átvett (+) / Visszaadott (-) összeg (Ft):", 
+            min_value=-50000, max_value=100000, 
+            value=int(max(0, elovart_osszeg)), 
+            step=50, 
+            key=f"fizet_kp_{aktualis_sor_idx}"
+        )
+
+        # ✅ SIKERES KÉZBESÍTÉS GOMB (IDŐBÉLYEGGEL ÉS VALÓS GPS-SZEL)
+        if st.button("✅ Sikeres kézbesítés", key=f"siker_btn_{aktualis_sor_idx}", use_container_width=True, type="primary"):
+            st.session_state[f"kiszallitva_{aktualis_sor_idx}"] = True
+            st.session_state.pop("kiemelt_ugyfel_id", None)
+            
+            most_ido = datetime.now().strftime("%H:%M:%S")
+            def _async_single_save(client_ref, sheet_id_ref, cust_id_ref, ido_ref):
+                try:
+                    sh_one = client_ref.open_by_key(sheet_id_ref)
+                    ws_one = sh_one.worksheet("Adatok")
+                    hdrs = ws_one.row_values(1)
+                    if "Státusz" in hdrs and "ID" in hdrs:
+                        s_col = hdrs.index("Státusz") + 1
+                        i_col = hdrs.index("ID") + 1
+                        t_col = hdrs.index("Kezbesites_Ido") + 1 if "Kezbesites_Ido" in hdrs else None
+                        
+                        all_i = ws_one.col_values(i_col)
+                        for r_idx, val_id in enumerate(all_i[1:], start=2):
+                            if str(val_id).strip() == str(cust_id_ref).strip():
+                                ws_one.update_cell(r_idx, s_col, "Kézbesítve")
+                                if t_col: ws_one.update_cell(r_idx, t_col, ido_ref)
+                                break
+                except Exception as e_s:
+                    print("Mentési hiba:", e_s)
+
+            t_save = threading.Thread(target=_async_single_save, args=(client, SHEET_ID_UGYFELKOR, customer_id, most_ido))
+            t_save.daemon = True
+            t_save.start()
+            
+            st.toast(f"🎉 {vevo_neve} teljesítve!")
+            st.rerun()
+
     except Exception as e:
-        st.error(f"Hiba a kiszállítás futtatásakor: {e}")
+        st.error(f"Hiba a kiszállítás modulban: {e}")

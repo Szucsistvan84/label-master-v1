@@ -612,29 +612,38 @@ h3 { font-size: 1.05rem !important; }
         state_order = ["1. Áruátvétel 📦", "2. Címekre szedés 📥", "3. Kiszállítás 🚚"]
         curr_idx = state_order.index(current_state)
         
-        # 📱 ALSÓ LÉPTETŐ GOMBOK KÉNYSZERÍTÉSE EGYETLEN SORBA
+        # 📱 ALSÓ LÉPTETŐ GOMBOK KÉNYSZERÍTÉSE EGYETLEN SORBA (MOBIL TÖMÖRÍTÉS)
         st.markdown(
             """
             <style>
-            div[data-testid="stHorizontalBlock"]:has(button[key^="stepper_"]) {
-                display: flex !important;
-                flex-direction: row !important;
-                flex-wrap: nowrap !important;
-                gap: 8px !important;
-                align-items: center !important;
-                margin-top: 6px !important;
-                margin-bottom: 2px !important;
+            @media (max-width: 768px) {
+                /* Letiltja a Streamlit mobil oszloptördelését erre a blokkra */
+                div[data-testid="stHorizontalBlock"]:has(.st-key-stepper_prev_btn_action),
+                div[data-testid="stHorizontalBlock"]:has(.st-key-stepper_close_btn_action),
+                div[data-testid="stHorizontalBlock"]:has(.st-key-stepper_next_btn_action) {
+                    display: flex !important;
+                    flex-direction: row !important;
+                    flex-wrap: nowrap !important;
+                    gap: 8px !important;
+                    width: 100% !important;
+                }
+                div[data-testid="stHorizontalBlock"]:has(.st-key-stepper_prev_btn_action) > div[data-testid="column"],
+                div[data-testid="stHorizontalBlock"]:has(.st-key-stepper_close_btn_action) > div[data-testid="column"],
+                div[data-testid="stHorizontalBlock"]:has(.st-key-stepper_next_btn_action) > div[data-testid="column"] {
+                    flex: 1 1 50% !important;
+                    max-width: 50% !important;
+                    min-width: 0 !important;
+                    width: 50% !important;
+                }
             }
-            div[data-testid="stHorizontalBlock"]:has(button[key^="stepper_"]) > div[data-testid="column"] {
-                flex: 1 1 0px !important;
-                min-width: 0 !important;
-                width: 50% !important;
-            }
-            div[data-testid="stHorizontalBlock"]:has(button[key^="stepper_"]) button {
+            .st-key-stepper_prev_btn_action button,
+            .st-key-stepper_close_btn_action button,
+            .st-key-stepper_next_btn_action button {
                 height: 38px !important;
                 font-size: 13px !important;
-                padding: 0 4px !important;
                 white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
             }
             </style>
             """,
@@ -684,7 +693,7 @@ h3 { font-size: 1.05rem !important; }
             else:
                 if st.button("🏁 Lezárás", type="primary", use_container_width=True, key="stepper_close_btn_action"):
                     st.toast("🎉 Szép munka! Minden mai címet sikeresen teljesítettél!")
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)[cite: 3]
 
     # =========================================================================
     # 🖥️ ASZTALI ÁG

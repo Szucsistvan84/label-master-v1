@@ -936,8 +936,40 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         hivas_btn = f'<a href="tel:{tarcsazhato_tel}" target="_blank" style="text-decoration:none;"><button style="width:100%; height:34px; background:#22C55E; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">📞 Hívás</button></a>' if tarcsazhato_tel else '<button style="width:100%; height:34px; background:#9CA3AF; color:white; border:none; border-radius:6px; opacity:0.6;" disabled>📞 Nincs</button>'
         nav_btn = f'<a href="{maps_url}" target="_blank" style="text-decoration:none;"><button style="width:100%; height:34px; background:#3B82F6; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">🗺️ Navigáció</button></a>'
 
-        # 📱 3 GOMB EGY SORBAN: HÍVÁS | ÜZENET | NAVIGÁCIÓ
-        col_b1, col_b2, col_b3 = st.columns([1, 1, 1], gap="small")
+        # 📱 3 GOMB KÉNYSZERÍTÉSE EGYETLEN SORBA (MOBIL TÖMÖRÍTÉS)
+        st.markdown(
+            """
+            <style>
+            /* Megakadályozza, hogy mobilon egymás alá törjön a 3 gomb oszlopa */
+            div[data-testid="stHorizontalBlock"]:has(button[key^="togg_msg_"]) {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                gap: 5px !important;
+                align-items: center !important;
+                margin-top: 6px !important;
+                margin-bottom: 4px !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(button[key^="togg_msg_"]) > div[data-testid="column"] {
+                flex: 1 1 0px !important;
+                min-width: 0 !important;
+                width: 33.3% !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(button[key^="togg_msg_"]) button {
+                width: 100% !important;
+                height: 36px !important;
+                font-size: 12px !important;
+                padding: 0 2px !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+        col_b1, col_b2, col_b3 = st.columns([1, 1, 1])
         with col_b1:
             st.markdown(hivas_btn, unsafe_allow_html=True)
         with col_b2:

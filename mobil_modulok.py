@@ -949,9 +949,15 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
 
         maps_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(aktualis_cim)}"
 
-        # 📱 3 GOMB EGYETLEN HTML FLEX SORBAN (Mobilon garantáltan 1 sorba rendeződik)
-        hivas_html = f'<a href="tel:{tarcsazhato_tel}" target="_blank" style="flex:1; text-decoration:none;"><button type="button" style="width:100%; height:36px; background:#22C55E; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">📞 Hívás</button></a>' if tarcsazhato_tel else '<div style="flex:1;"><button type="button" style="width:100%; height:36px; background:#9CA3AF; color:white; border:none; border-radius:6px; font-size:12px; opacity:0.6;" disabled>📞 Nincs</button></div>'
+        # 📱 3 GOMB EGYETLEN HTML FLEX SORBAN (Mindkét változónév definiálva)
+        if tarcsazhato_tel:
+            hivas_html = f'<a href="tel:{tarcsazhato_tel}" target="_blank" style="flex:1; text-decoration:none;"><button type="button" style="width:100%; height:36px; background:#22C55E; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">📞 Hívás</button></a>'
+        else:
+            hivas_html = '<div style="flex:1;"><button type="button" style="width:100%; height:36px; background:#9CA3AF; color:white; border:none; border-radius:6px; font-size:12px; opacity:0.6;" disabled>📞 Nincs</button></div>'
+        hivas_btn = hivas_html
+
         nav_html = f'<a href="{maps_url}" target="_blank" style="flex:1; text-decoration:none;"><button type="button" style="width:100%; height:36px; background:#3B82F6; color:white; border:none; border-radius:6px; font-weight:bold; font-size:12px; cursor:pointer;">🗺️ Navigáció</button></a>'
+        nav_btn = nav_html
 
         msg_panel_key = f"show_msg_panel_{aktualis_sor_idx}"
         if msg_panel_key not in st.session_state:

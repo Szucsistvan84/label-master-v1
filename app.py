@@ -612,6 +612,36 @@ h3 { font-size: 1.05rem !important; }
         state_order = ["1. Áruátvétel 📦", "2. Címekre szedés 📥", "3. Kiszállítás 🚚"]
         curr_idx = state_order.index(current_state)
         
+        # 📱 ALSÓ LÉPTETŐ GOMBOK KÉNYSZERÍTÉSE EGYETLEN SORBA
+        st.markdown(
+            """
+            <style>
+            div[data-testid="stHorizontalBlock"]:has(button[key^="stepper_"]) {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                gap: 8px !important;
+                align-items: center !important;
+                margin-top: 6px !important;
+                margin-bottom: 2px !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(button[key^="stepper_"]) > div[data-testid="column"] {
+                flex: 1 1 0px !important;
+                min-width: 0 !important;
+                width: 50% !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(button[key^="stepper_"]) button {
+                height: 38px !important;
+                font-size: 13px !important;
+                padding: 0 4px !important;
+                white-space: nowrap !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+        col_prev, col_next = st.columns(2)
         with col_prev:
             if curr_idx > 0:
                 if st.button("⬅️ Előző", use_container_width=True, key="stepper_prev_btn_action"):

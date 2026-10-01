@@ -983,19 +983,6 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
             unsafe_allow_html=True
         )
 
-        col_b1, col_b2, col_b3 = st.columns([1, 1, 1])
-        with col_b1:
-            st.markdown(hivas_btn, unsafe_allow_html=True)
-        with col_b2:
-            msg_panel_key = f"show_msg_panel_{aktualis_sor_idx}"
-            if msg_panel_key not in st.session_state:
-                st.session_state[msg_panel_key] = False
-            if st.button("💬 Üzenet", key=f"togg_msg_{aktualis_sor_idx}", use_container_width=True):
-                st.session_state[msg_panel_key] = not st.session_state[msg_panel_key]
-                st.rerun()
-        with col_b3:
-            st.markdown(nav_btn, unsafe_allow_html=True)
-
         # =========================================================================
         # 💬 LENYÍLÓ ÜZENETKÜLDŐ PANEL (SMS / VIBER SABLONOKKAL)
         # =========================================================================

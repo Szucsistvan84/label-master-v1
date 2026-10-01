@@ -616,16 +616,16 @@ def render_mobil_kiszallitas(client, SHEET_ID_UGYFELKOR):
         <style>
         header[data-testid='stHeader'] { display: none !important; }
         .block-container {
-            padding-top: max(0.8rem, env(safe-area-inset-top)) !important;
-            padding-bottom: 0.15rem !important;
-            padding-left: 0.25rem !important;
-            padding-right: 0.25rem !important;
+            padding-top: max(1.6rem, env(safe-area-inset-top)) !important;
+            padding-bottom: 0.2rem !important;
+            padding-left: 0.35rem !important;
+            padding-right: 0.35rem !important;
             max-width: 100% !important;
         }
-        div[data-testid="stVerticalBlock"] { gap: 0.15rem !important; }
-        div[data-testid="stCustomComponentV1"] { margin-bottom: -15px !important; }
-        iframe { display: block !important; margin-bottom: -12px !important; }
-        div[data-testid="stNumberInput"] { margin-top: -6px !important; margin-bottom: -4px !important; }
+        div[data-testid="stVerticalBlock"] { gap: 0.2rem !important; }
+        div[data-testid="stCustomComponentV1"] { margin-bottom: 2px !important; }
+        iframe { display: block !important; margin-bottom: 0px !important; }
+        div[data-testid="stNumberInput"] { margin-top: -4px !important; margin-bottom: -2px !important; }
         </style>
         """, 
         unsafe_allow_html=True
